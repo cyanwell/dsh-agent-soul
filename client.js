@@ -160,7 +160,24 @@ window.__ModuleLoader__.load({
       ["dsh-agent-compaction", "压缩器 · 门牌", "给兜底压缩装上可回溯的指针"],
       ["dsh-agent-pruner", "裁剪器 · 门牌", "把官方那句死 marker 换成带 seq 的"],
       ["dsh-agent-memory", "热记忆 · 推送层", "把活时钟与定长自我层推进每一步"],
-      ["dsh-agent-echo", "哨兵 · 体检台", "（在做）把记忆中枢的状态摆出来"],
+      ["dsh-agent-echo", "哨兵 · 体检台", "把记忆中枢的状态摆出来，并说清它测不到什么"],
+      ["dsh-agent-huanqi", "换气 · 思考预算", "检测推理循环并打断，带一本额度账"],
+      ["dsh-agent-huanqi-panel", "换气的面板", "在设置页里调换气参数（字节级改 YAML，不动注释）"],
+      ["dsh-agent-clock", "侧边栏时钟", "把同一个时钟摆到界面上（memory 摆在提示里）"],
+      ["dsh-agent-mnemon-probe", "热记忆探针", "每轮报磁盘状态：条数 / 字节 / 预算占比"],
+      ["dsh-agent-riji", "日记", "读一手 markdown，目录 + 原文。「读物」的代表"],
+      ["dsh-agent-model-statusbar", "本地模型状态栏", "本地模型服务的状态与空闲静息"],
+      ["dsh-agent-mobile-adapt", "手机端适配", "竖屏上收成手机形态，只加一层样式覆盖"],
+      ["dsh-agent-splash", "启动画面", "换启动动画与淡入淡出（播放器，不带素材）"],
+      ["dsh-agent-yantai", "工作台", "一屏摊开：水位 / 未结的活 / 最近的账本 / 几扇门"],
+    ];
+
+    /* ★ 另一类：不是 DSH 插件，是独立命令行工具。
+       前面那十三个是「挂在 DSH 上的」，这些是「在命令行里跑的」——
+       装法、目录结构都不同，所以单列。 */
+    const TOOLS = [
+      ["tools/ledger", "账本 + 权限闸门", "只追加的记录文件。★ 没有它，记忆只是一堆散落文件"],
+      ["tools/gateway", "门 + 索引", "一扇门搜全库，只回指针 + 逐字片段（★ 在建）"],
     ];
 
     /* ★ 非自研的那一半 —— 一份完整的记忆系统不可能全靠自己写。
@@ -360,6 +377,24 @@ window.__ModuleLoader__.load({
           })
         ),
         react.createElement(
+          "ul",
+          { className: "as-list as-organs" },
+          TOOLS.map(function (o) {
+            return react.createElement(
+              "li",
+              { key: o[0] },
+              react.createElement("span", { className: "as-file" }, o[0]),
+              react.createElement(
+                "span",
+                null,
+                react.createElement("b", null, o[1]),
+                " —— ",
+                o[2]
+              )
+            );
+          })
+        ),
+        react.createElement(
           "p",
           { className: "as-sub as-organs-link" },
           "全部在 ",
@@ -375,7 +410,7 @@ window.__ModuleLoader__.load({
         react.createElement(
           "p",
           { className: "as-sub" },
-          "★ 上面那四个只是我们自己写的那一半。",
+          "★ 上面那些是我们自己写的那一半。",
           react.createElement("b", null, "一份完整的记忆系统不可能全靠自己写"),
           " —— 下面这些是外面已经有的："
         ),
@@ -414,7 +449,54 @@ window.__ModuleLoader__.load({
           "★ 它们只对上了上面那张表里的",
           react.createElement("b", null, "一部分"),
           "角色。剩下的（检索门、分层冷记忆、账本…）我们没有现成的实现 —— ",
-          "那两个位置留给你自己挑，或者自己写。"
+          "★ 还有一些位置我们确实没有实现（分层冷记忆的整理、语义层的清理）—— 那些留给你自己挑。"
+        ),
+
+        /* ★ 两个档位：最小可用 / 完整一套（爀曦 2026-10-17 要求「说清最小可用装哪几个」）*/
+        h("两个档位：先装哪几个", "h5"),
+        react.createElement(
+          "p",
+          { className: "as-sub" },
+          "★ 十三个全装不是入门姿势，是终点姿势。",
+          react.createElement("b", null, "先装三个，把闭环跑起来"),
+          "，再按需要加。"
+        ),
+        react.createElement(
+          "ul",
+          { className: "as-list" },
+          react.createElement("li", null,
+            react.createElement("b", null, "最小可用（三个）"),
+            " —— ",
+            react.createElement("code", null, "ledger"),
+            " + ",
+            react.createElement("code", null, "compaction"),
+            " + ",
+            react.createElement("code", null, "memory"),
+            "。★ 验：写一条记录、压一次上下文、下一步能看到时钟。这三个跑通，你就有记忆了。"
+          ),
+          react.createElement("li", null,
+            react.createElement("b", null, "第二步（再加三个）"),
+            " —— ",
+            react.createElement("code", null, "echo"),
+            "（体检）、",
+            react.createElement("code", null, "gateway"),
+            "（找得到）、",
+            react.createElement("code", null, "huanqi"),
+            "（别想死循环）。★ 到这儿是「能用」和「好用」的分界。"
+          ),
+          react.createElement("li", null,
+            react.createElement("b", null, "其余的是界面层与专项"),
+            " —— clock / yantai / splash / mobile-adapt / model-statusbar / riji / mnemon-probe / huanqi-panel。",
+            "★ 它们让你【看得见】前面那六个在干什么，但一个都不装，架构照样成立。"
+          )
+        ),
+        react.createElement(
+          "p",
+          { className: "as-tip" },
+          "★ 判据：",
+          react.createElement("b", null, "能不能不装？"),
+          " —— 缺了它，核心闭环还成立吗？成立的就是「增强」，不成立的才是「必需」。",
+          "上面「最小可用」那三个是唯一三个【缺了就断】的。"
         ),
 
         /* ── 五、档案层与宪章（结构指导，不是内容）──────── */
