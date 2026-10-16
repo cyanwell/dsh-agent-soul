@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>回声 ECHO ｜ 面向长周期协作的外部记忆架构</title>
+<style>
+:root{
+  --bg:#fafbfc; --card:#ffffff; --ink:#0f172a; --dim:#64748b; --dim2:#94a3b8;
+  --line:#e6ebf0; --line2:#f1f5f9; --brand:#0e7490; --brand2:#1e40af;
+  --code:#f1f5f9; --codeink:#0f4c5c; --hero1:#0b1220; --hero2:#152a45;
+  --ok:#047857; --okbg:#ecfdf5; --warn:#b45309; --warnbg:#fffbeb; --keybg:#f5f9fc;
+  --mut:#64748b; --acc:#0e7490; --key:#f5f9fc;
+  --sh:0 1px 2px rgba(15,23,42,.04),0 8px 24px -12px rgba(15,23,42,.10);
+}
+html[data-t="dark"]{
+  --bg:#080c12; --card:#101823; --ink:#e8eef6; --dim:#8b9cb3; --dim2:#64748b;
+  --line:#1b2735; --line2:#141d29; --brand:#38bdf8; --brand2:#a78bfa;
+  --code:#0d1620; --codeink:#7dd3fc; --hero1:#060a10; --hero2:#0e2137;
+  --ok:#34d399; --okbg:#062a20; --warn:#fbbf24; --warnbg:#2a1f06; --keybg:#0d1620;
+  --mut:#8b9cb3; --acc:#38bdf8; --key:#0d1620;
+  --sh:0 1px 2px rgba(0,0,0,.3),0 10px 30px -14px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-size:16px;line-height:1.85;
+  font-family:"Inter","Segoe UI","Microsoft YaHei","PingFang SC","Noto Sans SC",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;transition:background .3s,color .3s}
+
+/* ---------- 顶部滚动进度 + 主题切换 ---------- */
+.progress{position:fixed;inset:0 0 auto 0;height:3px;z-index:99;background:transparent}
+.progress i{display:block;height:100%;width:0;
+  background:linear-gradient(90deg,var(--brand),var(--brand2));transition:width .1s linear}
+.theme{position:fixed;top:18px;right:20px;z-index:100;width:40px;height:40px;border-radius:50%;
+  border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;font-size:16px;
+  box-shadow:var(--sh);transition:transform .2s,background .3s}
+.theme:hover{transform:scale(1.08) rotate(15deg)}
+
+/* ---------- Hero ---------- */
+.hero{position:relative;overflow:hidden;padding:76px 24px 54px;
+  background:radial-gradient(120% 140% at 12% 0%,var(--hero2) 0%,var(--hero1) 58%);
+  color:#fff;border-bottom:1px solid var(--line)}
+.hero::after{content:"";position:absolute;inset:0;opacity:.35;pointer-events:none;
+  background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);
+  background-size:46px 46px;
+  mask-image:radial-gradient(90% 80% at 30% 10%,#000 20%,transparent 78%)}
+.hero-in{position:relative;max-width:1000px;margin:0 auto}
+.kicker{display:inline-block;font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;
+  color:#7fd3f0;border:1px solid rgba(127,211,240,.35);border-radius:999px;padding:5px 14px;margin:0 0 22px}
+.hero h1{font-size:clamp(27px,4.4vw,46px);line-height:1.28;margin:0 0 16px;font-weight:800;letter-spacing:-.02em;
+  background:linear-gradient(100deg,#ffffff 25%,#a5d8f5 70%,#c4b5fd 100%);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.hero .tag{margin:0;color:#9db4cc;font-size:14.5px;letter-spacing:.02em}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;
+  margin:38px 0 0;border:1px solid rgba(255,255,255,.10);border-radius:16px;overflow:hidden;
+  background:rgba(255,255,255,.10)}
+.stats div{background:rgba(9,15,26,.72);padding:20px 22px;backdrop-filter:blur(2px)}
+.stats b{display:block;font-size:34px;font-weight:800;letter-spacing:-.03em;line-height:1.15;
+  font-family:ui-monospace,"SFMono-Regular",Consolas,monospace;
+  background:linear-gradient(92deg,#7fd3f0,#a5b4fc);-webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent}
+.stats b .u{font-size:16px;font-weight:600;margin-left:3px;-webkit-text-fill-color:#9db4cc}
+.stats span{display:block;font-size:12.5px;color:#8fa6bf;margin-top:5px;letter-spacing:.04em}
+
+/* ---------- 布局 ---------- */
+.shell{max-width:1220px;margin:0 auto;display:grid;grid-template-columns:246px minmax(0,1fr);gap:0;
+  padding:0 22px;align-items:start}
+.side{position:sticky;top:0;max-height:100vh;overflow-y:auto;padding:34px 14px 60px 2px}
+.side::-webkit-scrollbar{width:5px}
+.side::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px}
+.side .lbl{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim2);
+  font-weight:700;margin:0 0 12px 10px}
+.side a{display:block;padding:6px 10px;margin:1px 0;border-radius:9px;color:var(--dim);
+  text-decoration:none;font-size:13.5px;line-height:1.5;border-left:2px solid transparent;
+  transition:color .16s,background .16s,border-color .16s}
+.side a:hover{color:var(--ink);background:var(--line2)}
+.side a.on{color:var(--brand);background:var(--line2);border-left-color:var(--brand);font-weight:650}
+.doc{padding:44px 8px 90px 46px;max-width:830px;border-left:1px solid var(--line)}
+
+/* ---------- 章节标题 ---------- */
+h2{counter-increment:sec;position:relative;font-size:25px;font-weight:800;letter-spacing:-.02em;
+  margin:78px 0 20px;padding:0 0 10px;color:var(--ink);border-bottom:2px solid var(--line);
+  scroll-margin-top:24px}
+h2::before{content:counter(sec,decimal-leading-zero);display:block;font-size:12px;letter-spacing:.2em;
+  font-weight:700;font-family:ui-monospace,Consolas,monospace;
+  background:linear-gradient(92deg,var(--brand),var(--brand2));-webkit-background-clip:text;
+  background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:7px}
+h2:first-of-type{margin-top:0}
+h3{position:relative;font-size:17.5px;font-weight:700;margin:38px 0 12px;padding-left:15px;scroll-margin-top:24px}
+h3::before{content:"";position:absolute;left:0;top:.42em;bottom:.42em;width:4px;border-radius:3px;
+  background:linear-gradient(180deg,var(--brand),var(--brand2))}
+h4{font-size:15px;font-weight:700;color:var(--brand);margin:26px 0 8px;letter-spacing:.01em}
+p{margin:13px 0}
+strong,b{font-weight:700;color:var(--ink)}
+ul,ol{margin:12px 0;padding-left:22px}
+li{margin:6px 0}
+a{color:var(--brand)}
+code{background:var(--code);color:var(--codeink);padding:2px 7px;border-radius:6px;
+  font-family:ui-monospace,"SFMono-Regular",Consolas,monospace;font-size:13.5px;word-break:break-word}
+.doc{counter-reset:sec}
+
+/* ---------- 摘要 ---------- */
+.abs{position:relative;border:1px solid var(--line);border-radius:18px;background:var(--card);
+  padding:26px 30px;margin:34px 0 8px;box-shadow:var(--sh);font-size:15px;line-height:1.92}
+.abs::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;border-radius:18px 18px 0 0;
+  background:linear-gradient(90deg,var(--brand),var(--brand2))}
+.abs .t{font-weight:800;color:var(--ink);margin-bottom:10px;font-size:15px;letter-spacing:.06em}
+.abs b{color:var(--brand)}
+
+/* ---------- 表格 ---------- */
+table{width:100%;border-collapse:separate;border-spacing:0;margin:20px 0 24px;font-size:14px;
+  background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--sh)}
+th{background:var(--line2);color:var(--ink);font-weight:700;text-align:left;padding:12px 15px;
+  font-size:13px;letter-spacing:.02em;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:11px 15px;border-bottom:1px solid var(--line2);vertical-align:top;line-height:1.75}
+tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--line2)}
+td.c{text-align:center;white-space:nowrap}
+.num{font-family:ui-monospace,Consolas,monospace;font-weight:700;color:var(--brand)}
+
+/* ---------- 提示块 ---------- */
+.box{border-radius:14px;padding:16px 20px;margin:20px 0;font-size:14.8px;line-height:1.85;
+  border:1px solid var(--line);border-left:4px solid var(--dim2);background:var(--card)}
+.box.key{background:var(--keybg);border-left-color:var(--brand)}
+.box.ok{background:var(--okbg);border-left-color:var(--ok)}
+.box.warn{background:var(--warnbg);border-left-color:var(--warn)}
+.def{border:1px solid var(--line);border-left:3px solid var(--brand2);border-radius:12px;
+  padding:13px 18px;margin:12px 0;font-size:14.8px;background:var(--card)}
+.def b{font-family:ui-monospace,Consolas,monospace;font-size:14px;color:var(--brand)}
+.layer{border:1px solid var(--line);border-radius:14px;overflow:hidden;margin:14px 0;background:var(--card);
+  box-shadow:var(--sh)}
+.layer .hd{background:var(--line2);padding:11px 17px;font-weight:700;font-size:14.5px;color:var(--ink);
+  border-bottom:1px solid var(--line)}
+.layer .bd{padding:14px 17px;font-size:14.5px;line-height:1.85}
+
+/* ---------- 页脚 ---------- */
+.foot{max-width:830px;margin:0 0 0 auto;padding:26px 8px 70px 46px;border-top:1px solid var(--line);
+  color:var(--dim);font-size:13px;line-height:2;text-align:center;border-left:1px solid var(--line)}
+
+/* ---------- 响应式 ---------- */
+@media (max-width:1000px){
+  .shell{grid-template-columns:minmax(0,1fr);padding:0 18px}
+  .side{display:none}
+  .doc{border-left:0;padding:34px 0 70px;max-width:none}
+  .foot{border-left:0;padding:24px 0 60px;margin:0}
+  .hero{padding:56px 20px 40px}
+}
+@media print{
+  .side,.theme,.progress{display:none}
+  .shell{display:block;max-width:none;padding:0}
+  .doc,.foot{border:0;padding:0;max-width:none;margin:0}
+  .hero{background:#fff;color:#000;padding:0 0 20px}
+  .hero h1{-webkit-text-fill-color:#000;background:none;color:#000}
+  .stats{display:none}
+  body{background:#fff}
+  table,.box,.abs,.layer{box-shadow:none}
+}
+
+/* ===== ECHO 结构图 ===== */
+.arch{margin:26px 0;padding:22px 18px;border:1px solid var(--line);border-radius:14px;background:var(--bg)}
+.arch-cap{font-size:13px;color:var(--mut);text-align:center;margin:0 0 18px}
+.arch-row{display:flex;justify-content:center;gap:14px;flex-wrap:wrap}
+.arch-box{border:1.5px solid var(--line);border-radius:10px;padding:11px 16px;text-align:center;font-size:14px;line-height:1.55;background:var(--bg)}
+.arch-box small{display:block;color:var(--mut);font-size:12.5px;margin-top:3px;line-height:1.5}
+.arch-user{border-color:var(--acc);border-width:2px;font-weight:600;min-width:170px}
+.arch-cont{border-color:var(--acc);border-width:2px;background:var(--key);min-width:430px}
+.arch-cont .arch-title{font-weight:600;margin-bottom:8px}
+.chips{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.chip{border:1px solid var(--acc);border-radius:999px;padding:3px 11px;font-size:12.5px;background:var(--bg);white-space:nowrap}
+.arch-gate{border-color:#c9a227;min-width:205px}
+.arch-l3{border-color:var(--acc);border-width:2px;background:var(--key);font-weight:600;min-width:430px}
+.arch-l4{border-color:var(--mut);border-style:dashed;min-width:430px}
+.arch-arrow{text-align:center;color:var(--mut);font-size:12.5px;line-height:1.2;margin:7px 0}
+.arch-arrow span{display:block;font-size:17px;line-height:1}
+.arch-note{text-align:center;font-size:12.5px;color:var(--mut);margin-top:14px;line-height:1.7}
+.arch-note code{font-size:12px}
+@media (max-width:700px){.arch-cont,.arch-l3,.arch-l4{min-width:0;width:100%}}
+</style>
+</head>
+<body>
+<div class="progress"><i id="pg"></i></div>
+<button class="theme" id="tg" title="切换深浅主题">◐</button>
+
+<header class="hero">
+  <div class="hero-in">
+    <p class="kicker">回声 ECHO ｜ 个人 AI 智能体 · 记忆与上下文管理系统</p>
+    <h1>回声 ECHO：面向长周期协作的外部记忆架构</h1>
+    <p class="tag">系统代号「回声 ECHO」· 取「靠回声而非视力定位」之意 ｜ 实践周期 20 天 ｜ 2026-09 ｜ 设计与实现：爀曦</p>
+    <div class="stats">
+      <div><b>1480</b><span>会话日志 · 个</span></div>
+      <div><b>351<span class="u">MB</span></b><span>原始记录（只追加）</span></div>
+      <div><b>413</b><span>结构化账本 · 条</span></div>
+      <div><b>20<span class="u">天</span></b><span>连续运行 · 零中断</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="side">
+    <p class="lbl">目录</p>
+    <nav id="toc"></nav>
+  </aside>
+  <main class="doc">
+<div class="abs">
+<div class="t">摘要</div>
+<b>本文所述系统代号「回声 ECHO」（Echo）—— 取「靠回声而非视力定位」之意，指该系统依赖检索与指针而非上下文常驻来获取信息。</b>面向通用对话模型的长期协作场景，现有系统普遍存在三类系统性缺陷：<b>会话级记忆隔离</b>（上下文不跨会话）、<b>有损压缩</b>（上下文溢出后以二手转述替代原文）、以及<b>不可解释遗忘</b>（信息被省略时无任何可观测线索）。
+本文提出一种<b>外置式记忆架构</b>：不改变模型本身，而是将记忆从上下文窗口中解耦，迁移至<b>只追加（append-only）的持久化层</b>，并以<b>可解析地址标记（address token）</b>重新接回上下文。
+系统按「读取频率 × 稳定性」划分为五层（热记忆 / 推送层 / 一手层 / 索引层 / 语义层），并引入三项核心设计约束：<b>摘要仅作索引而不得充当记忆本体</b>、<b>约束语义分级（软 / 硬）</b>、<b>权限闸门代码化</b>。
+在 20 天连续实践中，系统累计承载 <span class="num">1480</span> 个会话、<span class="num">351 MB</span> 原始日志、<span class="num">413</span> 条结构化记录，检索层覆盖 <span class="num">12771</span> 条逐字原话。
+结果表明：在上下文预算固定的前提下，该架构将「跨会话记忆」「结论可追溯」「错误自我修正」三项能力由不可得变为默认可得；其代价是每次取回增加一次显式寻址操作。
+文末讨论了该架构在检索语义化、触发自动化与单机部署方面的局限。<b>需要明确的是：本文不提出新的记忆机制，底层能力依赖既有开源组件，本文的贡献属于系统集成与工程改进。</b>本工作<b>具备自对照设计</b>（实装前后两期日志完整保留，同模型、同使用者），<b>并已完成两期结构化对照统计</b>（失效率、自愈率与会话长度分布，见 §7.6；<b>两期差异点估计方向一致，但均未达统计显著</b>，见 §9 第 5 条）；<b>主观质量的盲评尚未进行</b>（见 §9）。
+</div>
+
+<h2>1. 问题定义</h2>
+
+<p>在长周期人机协作中，直接使用通用对话模型会遭遇三类失效。需要强调：<b>这三类失效均非模型能力问题，而是架构缺口</b>，因此无法通过「更强的模型」消除，只能在模型外部解决。</p>
+
+<div class="layer">
+  <div class="hd">失效 A ｜ 会话级记忆隔离</div>
+  <div class="bd">上下文不跨会话。新会话等同于冷启动：需重新声明身份、背景与任务状态。可用性随会话数增长而线性衰减。</div>
+</div>
+<div class="layer">
+  <div class="hd">失效 B ｜ 有损压缩，且损失形式为「转述替换原文」</div>
+  <div class="bd">上下文窗口接近上限时触发自动压缩。<b>真正的损失并非信息量减少，而是原始记录被摘要替换</b>。摘要具有漂移性：会丢失不确定性标记（「我当时不确定」被写成「结论是」），且不可逆 —— <b>原文一旦被替换即无法回溯</b>。</div>
+</div>
+<div class="layer">
+  <div class="hd">失效 C ｜ 不可解释遗忘</div>
+  <div class="bd">信息被省略时，系统外部<b>没有任何可观测线索</b>表明「它曾经存在过」。使用者无法区分某条信息属于「从未知晓」还是「已经遗忘」。</div>
+</div>
+
+<div class="box warn">
+<b>诊断：</b>失效 B 与失效 C 的根因相同 —— <b>压缩发生在信息链路的末端，且压缩产物不可回溯</b>。
+因此设计目标不是「提高压缩质量」，而是<b>改变压缩产物的性质：使其成为指针，而非替代品</b>。
+</div>
+
+<h3>1.1 实装前的失效链（本项目的直接动因）</h3>
+
+<p>在部署本架构之前，长期会话中确实出现过一条完整的退化链。<b>以下是当时实际观察到的退化链，它是本项目的直接动因</b>；其六个步骤的证据强度与可验证边界，<b>见 §1.2 末的逐步骤标注</b>。</p>
+
+<table>
+  <tr><th style="width:8%">步骤</th><th style="width:34%">发生的事</th><th>后果</th></tr>
+  <tr><td class="c">1</td><td>会话轮数增长到 <b>200 轮以上</b></td><td>上下文持续逼近窗口上限，进入高频压缩区</td></tr>
+  <tr><td class="c">2</td><td><b>压缩触发频率持续上升</b>，而每次压缩都<b>不带索引</b> —— 原文被摘要直接替换</td><td>一手原文在上下文中的占比持续下降</td></tr>
+  <tr><td class="c">3</td><td>上下文逐渐<b>全部由压缩产生的二手结论构成</b></td><td><b>信息污染</b>：模型开始引用「被转述过的自己」</td></tr>
+  <tr><td class="c">4</td><td><b>思考找不到依据</b> —— 任何一个判断都无法回溯到原始证据</td><td>推理失去事实基础</td></tr>
+  <tr><td class="c">5</td><td>推理<b>陷入死循环</b>：反复检查同一批已被污染的结论，无法收敛</td><td>推理失去终点</td></tr>
+  <tr><td class="c">6</td><td><b>思考长度失控 → 无正文输出</b></td><td>系统仍然在运行，但不再产出任何可用的东西</td></tr>
+</table>
+
+<div class="box warn">
+<b>这条链的关键性质：</b>每一步都是上一步的<b>必然结果</b>，而整条链的<b>根因只有一个 —— 压缩产物不带索引</b>。
+<br><br>
+因此「摘要必须是索引而非替代品」（§5 判断 1）<b>不是设计偏好，而是针对这条链的断链措施</b>：
+它在<b>第 2 步</b>就把链条切断 —— 压缩照常发生，但每次压缩都留下回到原文的路径，于是第 3 步的污染不会累积。
+</div>
+
+
+
+<h3>1.2 失效链的实测证据</h3>
+
+<p>§1.1 给出的是一条现象链。以下三个环节，是它在真实数据里的形态 —— 每一段都附当时的原始记录，不做转述。</p>
+
+<h4>环节一：压缩频率在 6 天内持续攀升</h4>
+
+<p>取实装前最长的一条会话（2026-09-19 12:12 起，至 09-25 02:00 结束，跨度 6 天）：其间共触发上下文压缩 <b>232 次</b>。</p>
+
+<table>
+  <tr><th>日期</th><th>09-19</th><th>09-20</th><th>09-21</th><th>09-22</th><th>09-23</th><th>09-24</th><th>09-25</th></tr>
+  <tr><td>压缩次数</td><td>24</td><td>22</td><td>40</td><td>40</td><td>11</td><td><b>79</b></td><td>16</td></tr>
+</table>
+
+<p>比次数更能说明问题的是<b>间隔</b>：首日两次压缩平均相隔 <b>52.1 分钟</b>，到 09-24 后段已缩短到 <b>11.8 分钟</b> —— 快了约 4.4 倍。上下文被填满的速度越来越快。</p>
+
+<h4>环节二：直接原因是窗口被误判，而不是门槛设置</h4>
+
+<p>这一环最初的直觉归因是「压缩门槛设得太低」。查证之后，原因更具体。</p>
+
+<p>压缩引擎通过 API 自动探测模型的上下文窗口，<b>探测失败时会退回内置常量 128000</b>。该引擎的作者在自己的 issue #63 里记录过这个坑，原文：</p>
+
+<div class="box warn"><code>a 1M-window session read as ~96K → false EMERGENCY nudges at 300%+ usage</code><br>
+即：一个 1M 窗口的会话被当成 96K，于是在「300% 使用率」上误报紧急、疯狂压缩。</div>
+
+<p>本机真实窗口是 1M。2026-09-26 的修复动作是把它<b>显式钉死</b> —— 以下是当时留在配置文件里的注释原文：</p>
+
+<div class="box"><code># 为什么显式钉死窗口：<br>
+#　 billion-context-dsh 的窗口靠 API 自动探测（dist/window.d.ts），探测失败会退到<br>
+#　 DEFAULT_CONTEXT_WINDOW = 128000。作者自己在 issue #63 里记过这个坑……<br>
+#　 本机 DeepSeek 的真实窗口是 1M，显式写死，消掉探测的不确定性。</code></div>
+
+<p>阈值本身也经历了三轮变化，每一轮都有可查的依据：</p>
+
+<table>
+  <tr><th>时点</th><th>min / max 阈值</th><th>依据</th></tr>
+  <tr><td>引擎默认</td><td>0.45 / 0.75</td><td>相对 128K 窗口的直觉值</td></tr>
+  <tr><td>2026-09-26</td><td><b>0.30 / 0.50</b></td><td>使用者实测的健康区间 300K–500K，换算到 1M 窗口</td></tr>
+  <tr><td>2026-09-27 起</td><td><b>0.45 / 0.60</b>（emergency 0.80）</td><td>使用者重新给出的四段水位定义</td></tr>
+</table>
+
+<p>因此，环节一所引的 232 次压缩发生在<b>窗口被显式钉死之前</b> —— 那 6 天里引擎很可能一直把 1M 窗口当成 128K 在读，<b>水位被高估约 8 倍</b>。</p>
+
+<h4>环节三：压缩后的产物没有回取路径</h4>
+
+<p>该会话从 09-19 运行到 09-25，而检索层建成于 <b>09-26</b> —— <b>压缩比索引早了 7 天</b>。</p>
+
+<p>它的压缩产物是这样标注的（原文）：</p>
+
+<div class="box"><code>【「墨」账本的开发、器官验证与闸门加固】（已消费；产物全部已落盘）<br>
+★ 这一段完成了爀曦 2026-09-25 定的架构落地。结论全在：mo.mjs · 02-墨.jsonl</code></div>
+
+<p>「已消费」的含义是<b>结论已写入磁盘</b>，而非被当作二手材料继续推理 —— 这一点必须先澄清。但在当时，写入磁盘 ≠ 能被取回：既无索引，也无地址标记。于是内容在磁盘上，而线索不在上下文里。</p>
+
+<div class="box key"><b>三个环节合起来，为 §1.1 的失效链提供了前两步的实测支持：</b><br><br>
+窗口被误判（水位高估 8 倍）→ 压缩频繁触发（6 天 232 次，间隔缩短 4.4 倍）→ 每次压缩把原文换成「已落盘」的标注并移出上下文 → 而当时没有索引与地址标记，落盘的内容取不回来 → <b>上下文里只剩二手结论，思考失去事实依据</b>。<br><br>
+所以这条链的终点不是「信息被污染」，而是更准确的一句：<b>内容没有丢，丢的是「内容存在过」的那条线索。</b></div>
+
+<h4>本节证据的边界：哪些步骤已实测，哪些仍是推断</h4>
+
+<p>§1.1 的失效链是一个<b>因果假设</b>，其六个步骤的可验证程度并不相同。为避免读者误以为整条链均已被数据支持，此处逐步骤标注证据强度。</p>
+
+<table>
+<tr><th style="width:7%">步骤</th><th style="width:35%">§1.1 所述环节</th><th>证据强度与依据</th></tr>
+<tr><td>1</td><td>轮数增长至 200 轮以上，进入高频压缩区</td><td><b>有间接支持</b>：基线期会话长度分布中，201–300 轮区间为空（会话在崩溃前被主动更换容器），与该环节所述现象一致</td></tr>
+<tr><td>2</td><td>压缩触发频率持续上升</td><td><b>已实测</b>：单一会话 6 天内触发 232 次；压缩间隔由 52.1 分钟缩短至 11.8 分钟</td></tr>
+<tr><td>3</td><td>上下文逐渐由压缩产生的二手结论构成</td><td><b>推断</b>：无直接测量。间接线索为索引层晚于压缩阶段 7 天建成</td></tr>
+<tr><td>4</td><td>思考找不到依据</td><td><b>推断</b>：属模型内部状态，日志中无对应字段</td></tr>
+<tr><td>5</td><td>推理陷入死循环</td><td><b>推断</b>：同上</td></tr>
+<tr><td>6</td><td>思考长度失控，无正文输出</td><td><b>实测不支持其普遍性</b>：两期全量统计的失效事件率为 1.60%（基线期）与 1.11%（实装后），说明「无正文输出」并非该阶段的常态结局</td></tr>
+</table>
+
+<div class="box"><b>如何理解第 6 步与实测数据之间的落差：</b><br><br>
+<b>第 6 步不是这条链的常态终点，而是它的极端情形。</b>多数情况下，链条终止于第 3–4 步：系统仍在产出，但<b>产出的依据变薄</b>。<br><br>
+而「依据变薄」在会话日志中不留任何痕迹 —— 本文的失效判定只考察「有无正文与工具调用」，不考察「产出是否有据」。<b>这正是它比「无输出」更难发现、也更危险的地方。</b><br><br>
+因此本节的处理是：<b>将 §1.1 明确定位为因果假设，并标明其可观测边界</b>，而非宣称该链条已被完整验证。</div>
+
+<h2>2. 术语与定义</h2><div class="def"><b>一手层 Primary Layer</b>　未经任何转述的原始记录集合，包括逐字会话日志、结构化账本与文件产物。只追加，不修改。</div>
+<div class="def"><b>索引层 Index Layer</b>　在一手层之上构建的检索结构。<b>只含指针与摘要，不含本体</b>，其唯一职责是「定位原文」。</div>
+<div class="def"><b>地址标记 Address Token</b>　形如 <code>log:session-&lt;SID&gt;#seq=&lt;n&gt;</code> 的稳定引用，全局唯一、可解析、指向具体某一条原话。</div>
+<div class="def"><b>只追加 Append-Only</b>　写后不可变的存储语义。<b>其价值在于免锁</b>：多写者各自追加，读取时按时间序合并，无需仲裁。</div>
+<div class="def"><b>热记忆预算 Hot Budget</b>　每轮无条件注入上下文的记忆容量上限。<b>超出后发生的是「投影省略」而非「迁移」</b>：条目仍在磁盘，但不再进入上下文。</div>
+<div class="def"><b>触发清单 Trigger List</b>　将「何时必须执行检索」编码为可判定条件的显式列表，用以对抗「不知道需要检索」这一失效模式。</div>
+<div class="def"><b>约束语义分级</b>　将约束划分为两级：<b>软约束</b>（可自行评估，但须说明理由）与<b>硬约束</b>（必须请求确认，不得自行裁决）。</div>
+<div class="def"><b>权限闸门 Permission Gate</b>　以代码而非约定实现的写权限控制：越权写入被<b>拒绝并返回非零退出码</b>，无法通过说服绕过。</div>
+<div class="def"><b>失效事件 Failure Event</b>　本文的核心度量单位。指<b>某一轮（turn）的模型输出中只含推理内容（reasoning），既未产生面向使用者的正文（text），也未发起任何工具调用（tool call）</b>。通俗地说：想了一轮，但既没有说、也没有做。
+<br>　<b>判定口径</b>：解析会话日志中 <code>assistant/message</code> 的 <code>content</code> 块数组，按 <code>data.turn</code> 聚合到轮；当该轮全部内容块中不存在非空 text 块、也不存在 tool-call 块，且至少存在一个非空 reasoning 块时，判定为一次失效事件。
+<br>　<b>为何按轮而非按条统计</b>：一轮之内可能产生多次推理，按消息条数统计会重复计数，从而稀释信号。</div>
+
+<div class="def"><b>失效率、自愈与纠正后稳定轮数</b>　围绕失效事件的三个派生指标：
+<br>　<b>失效率</b> ＝ 失效轮数 ÷ 总轮数。
+<br>　<b>自愈</b> ＝ 失效轮的<b>下一轮</b>恢复了正文或工具调用；<b>自愈率</b> ＝ 自愈次数 ÷ 失效次数。
+<br>　<b>纠正后稳定轮数</b> ＝ 一次失效之后，到下一次失效之间所经过的轮数。<b>该指标衡量纠错是否稳住</b>：数值越大，说明一次失效之后系统维持正常产出的时间越长。若某会话在末次失效后不再失效，则取「末次失效轮至会话末轮」的轮数。</div>
+
+
+
+<h2>3. 相关工作、贡献定位与基线对比</h2>
+
+<h3>3.1 本文的贡献边界（先声明，避免误解）</h3>
+
+<div class="box key">
+<b>底层能力来源（点名，便于核查）：</b>本系统运行在 <b>DSH（DeepSeek Harness）</b> 框架之上，直接复用了以下既有组件 ——
+
+<table style="margin:12px 0">
+  <tr><th style="width:36%">既有组件</th><th style="width:20%">归属</th><th>在本系统中的职责</th></tr>
+  <tr><td><code>DSH</code> 运行时与工具链</td><td>官方框架</td><td>会话、工具调用、插件机制</td></tr>
+  <tr><td><code>@deepseek-ai/dsh-agent-instructions</code></td><td>官方插件</td><td>指令注入。<b>其 65536 B 预算即 §4 L2 所述「静默丢弃」现象的来源</b></td></tr>
+  <tr><td><code>billion-context-dsh</code></td><td>第三方插件</td><td><b>上下文压缩引擎</b>：1M 窗口、三段施压阈值、保留最近 12 条消息</td></tr>
+  <tr><td><code>@deepseek-ai/dsh-command-compact</code></td><td>官方插件</td><td>手动压缩入口</td></tr>
+  <tr><td><code>mnemon</code>（Memory Spaces）</td><td>插件</td><td>语义记忆层（L5）</td></tr>
+  <tr><td><code>dsh-loop-guard</code></td><td>第三方插件</td><td><b>思考保护</b>：打断推理循环</td></tr>
+  <tr><td><code>dsh-reasoning-only-guard</code></td><td>第三方插件</td><td><b>思考保护</b>：检测「只思考不输出正文」的退化状态</td></tr>
+</table>
+
+<b>本文自建的部分</b>（<code>dsh-agent-*</code> 系列与配套工具链）：
+
+<table style="margin:12px 0">
+  <tr><th style="width:36%">自建组件</th><th style="width:24%">职责</th><th>关键参数 / 实现</th></tr>
+  <tr><td><code>dsh-agent-compaction</code></td><td>自动压缩 + <b>地址标记注入</b></td><td><code>thresholdRatio: 0.88</code></td></tr>
+  <tr><td><code>dsh-agent-pruner</code></td><td>工具结果裁剪（保留首尾）</td><td><code>thresholdChars: 8192</code> / 头 4096 / 尾 1024</td></tr>
+  <tr><td><code>dsh-agent-memory</code></td><td><b>推送层（L2）独立注入通道</b></td><td><code>maxBytes: 12288</code>，不占用指令预算</td></tr>
+  <tr><td><code>dsh-task-board</code></td><td>任务看板（Host 权威账本）</td><td>——</td></tr>
+  <tr><td>账本 / 检索 / 索引工具链</td><td><b>一手层与索引层（L3 / L4）</b></td><td><code>mo.mjs</code>（只追加账本）· <code>memq.mjs</code>（检索门）· 会话日志索引</td></tr>
+</table>
+
+<div class="box ok" style="margin-top:14px">
+<b>这个划分本身就是本文的贡献边界：</b>
+<b>压缩引擎与框架来自既有组件；而「如何分层、配额给谁、纪律定在哪、指针长什么样」来自本文。</b>
+本文<b>不提出新的记忆机制</b>，也未与现有方案做算法层面的对比。
+</div>
+<br><br><b>本文实际做的（工程改进）：</b>
+<ul style="margin:8px 0 0">
+<li>把既有组件按「读取频率 × 稳定性」<b>重新分层</b>，并明确每层的预算归属；</li>
+<li>补充三项设计约束：<b>摘要仅作索引</b>、<b>约束语义分级</b>、<b>权限闸门代码化</b>；</li>
+<li>制定可刻度化的<b>上下文水位纪律</b>，把「何时落盘」从经验判断变成状态机；</li>
+<li>在 20 天连续运行中取得<b>实测规模数据与失效样本</b>，并完成归因分析。</li>
+</ul>
+<br><b>边界：</b>不声称优于其他记忆方案，也不提供<b>任务集基准</b>（见 §9 第 5 条）。
+</div>
+
+<p><b>为什么仍然值得记录：</b>业界的相关工作多集中在机制提出与基准评测，而「把若干既有组件组装成一个能连续运行、且失效可归因的系统」这一环节的公开经验相对稀少。本文提供的是<b>该环节的一份实证样本</b>，其价值不在新颖性，而在可复现的工程取舍与失败记录。</p>
+
+<p>本架构的对照组不是一个假想的通用助手，而是<b>未实装本架构时的同一智能体</b>（下称「<b>基线期</b>」，2026-09-18 ~ 09-24）。
+<b>模型基底相同、使用者相同、任务域相同</b> —— 两期之间<b>只有架构变了</b>。</p>
+
+<div class="box key">
+<b>这是一次自对照（within-subject），而不是跨系统比较。</b>
+它的好处在于变量少：<b>模型没换、人没换、任务没换</b>。
+<br>而它之所以可行，是因为<b>基线期的会话日志被完整保留了下来</b> ——
+同源、同格式、同一存储，两期可以直接并置比对。这正是本架构自身能力的一个副产品：
+<b>正因为记忆被外置了，它才能回头审视没有它时的自己。</b>
+</div>
+
+<table>
+  <tr><th style="width:17%">能力维度</th><th style="width:41%">基线期（未实装，09-18 ~ 09-24）</th><th style="width:42%">实装后（09-25 ~ 10-07）</th></tr>
+  <tr><td><b>记忆载体</b></td><td>单一上下文窗口</td><td>上下文窗口 + 外置只追加层（两者解耦）</td></tr>
+  <tr><td><b>跨会话连续性</b></td><td class="c">不支持（每次冷启动）</td><td class="c">支持（索引 + 地址标记）</td></tr>
+  <tr><td><b>压缩后可回溯原文</b></td><td class="c">否（原文被摘要替换）</td><td class="c">可（摘要仅作索引，原文保留）</td></tr>
+  <tr><td><b>检索方式</b></td><td class="c">隐式 / 不可控</td><td class="c">显式寻址 + 关键词检索</td></tr>
+  <tr><td><b>遗忘可解释性</b></td><td class="c">不可观测</td><td class="c">可观测（水位刻度 + 省略记录）</td></tr>
+  <tr><td><b>身份归属</b></td><td>会话级（换窗口即换角色）</td><td>账本级（容器可换，身份与责任不换）</td></tr>
+  <tr><td><b>写权限控制</b></td><td class="c">无分级</td><td class="c">代码级闸门（越权即拒绝）</td></tr>
+  <tr><td><b>错误累积</b></td><td>同一类错误可无限重复</td><td>踩坑 → 抽象错误形状 → 写入判据清单</td></tr>
+  <tr><td><b>上下文预算</b></td><td>被动接受溢出与压缩</td><td>主动卸载（四段水位 + 落盘纪律）</td></tr>
+  <tr><td><b>取证能力</b></td><td>无（无法证明「当时说过什么」）</td><td>有（任意结论可回到逐字原话）</td></tr>
+</table>
+
+<div class="box key">
+<b>对比结论：</b>本架构并未提升模型在单轮任务上的能力，其全部增益集中在<b>时间维度</b> ——
+即<b>把「记忆」从一次会话内的资源，变成跨会话的基础设施</b>。
+工程上，这等价于为无状态服务外挂一层<b>可寻址的状态存储</b>，并为其定义写入协议与寻址协议。
+</div>
+
+<h4>与「更长上下文窗口」路线的关系</h4>
+<p>延长上下文窗口是另一条常见路线。两者并不互斥，但解决的问题不同：
+<b>更长的窗口推迟了溢出发生的时间，却不改变「溢出后原文被替换」这一性质</b>；
+本架构则接受窗口有限这一前提，转而保证<b>溢出只影响「是否在眼前」，不影响「是否存在」</b>。</p>
+
+<h2>4. 系统架构</h2>
+
+
+<h3>4.0 结构总览</h3>
+<div class="arch">
+  <p class="arch-cap">回声 ECHO · 结构说明图（箭头为数据流向；黄色框为可控闸门）</p>
+
+  <div class="arch-row"><div class="arch-box arch-user">使用者</div></div>
+  <div class="arch-arrow"><span>↓</span>对话 / 指令</div>
+
+  <div class="arch-row"><div class="arch-box arch-cont">
+    <div class="arch-title">容器（会话）—— 可替换、可换届</div>
+    <div class="chips">
+      <span class="chip">L1 热记忆 · 4 + 10 KB</span>
+      <span class="chip">L2 推送层 SELF · 12 KB</span>
+    </div>
+  </div></div>
+
+  <div class="arch-arrow"><span>↓</span>读写均须过门</div>
+  <div class="arch-row">
+    <div class="arch-box arch-gate">门 · 写入侧<small>权限闸门（代码级）<br>账本只追加、免锁</small></div>
+    <div class="arch-box arch-gate">门 · 读取侧<small>memq 检索<br>关键词 → 指针 → 原文</small></div>
+  </div>
+
+  <div class="arch-arrow"><span>↓</span></div>
+  <div class="arch-row"><div class="arch-box arch-l3">L3 一手层 —— 独立于容器，容器崩溃不影响<small>《墨》账本 · 书房文件 · 会话日志（1480 个 / 351 MB）</small></div></div>
+
+  <div class="arch-arrow"><span>↓</span>建立索引</div>
+  <div class="arch-row"><div class="arch-box arch-l4">L4 索引层<small>摘要 + 地址标记 <code>log:&lt;会话&gt;#seq=&lt;n&gt;</code> —— 每条索引都能回到逐字原文</small></div></div>
+
+  <p class="arch-note">
+    核心约束贯穿全图：<b>地址标记让任意一层都能回到 L3 的原文</b>，因此上层摘要与压缩产物都不构成记忆本体。<br>
+    L4 建于 2026-09-26，晚于 §1.2 所述压缩阶段 7 天 —— 这是「内容没丢、线索丢了」的直接由来。
+  </p>
+</div>
+<div class="box key"><b>配套材料：</b>上图为结构总览；完整可视化测绘（分七部分：① 注入层（内容怎么进来）② 容器（会话本身）③ 两套机制并行（一个丢、一个找）④ 接口 · 门牌 DOOR SIGN ⑤ 门与回取（记号 → 原文）⑥ 完整闭环 ⑦ 可移植性。<b>那份图纸画结构，本节讲道理，两者互为表里。</b></div>
+
+<p>分层原则为<b>按「读取频率 × 稳定性」分层</b>：越常读的层越小、越稳定；越少读的层越大、越完整。
+层间以<b>地址标记</b>连接，而非以内容复制连接 —— 这是控制冗余的关键。</p>
+
+<table>
+  <tr><th style="width:13%">层</th><th style="width:22%">内容</th><th style="width:17%">预算约束</th><th>设计要点</th></tr>
+  <tr>
+    <td><b>L1 热记忆</b></td><td>用户画像、项目约定</td><td>画像 4 KB<br>记忆 10 KB</td>
+    <td>每轮无条件注入。预算满后发生<b>投影省略</b>：条目留在磁盘，不再进入上下文。故本层只放「每次都需要」的内容。</td>
+  </tr>
+  <tr>
+    <td><b>L2 推送层</b></td><td>身份骨架、硬约束、检索入口</td><td>独立配额 12 KB</td>
+    <td>为绕开指令层预算竞争而设。指令层满载时<b>静默丢弃，且「最宽泛的先丢」</b> —— 最先丢的恰是最要紧的总纲。故将不可丢内容下沉至独立注入通道。附纪律：本层不写「详见某某文件」—— 指向可能静默消失的位置等于没有指向。</td>
+  </tr>
+  <tr>
+    <td><b>L3 一手层</b></td><td>会话日志、结构化账本、文件产物</td><td>无上限<br>（实测 351 MB）</td>
+    <td>只追加。含逐字日志、字段化账本、分层目录。免锁设计的直接收益：<b>1480 个日志文件各自追加，零冲突</b>。</td>
+  </tr>
+  <tr>
+    <td><b>L4 索引层</b></td><td>文件清单、摘要、逐字原话倒排</td><td>实测 18 MB</td>
+    <td>核心约束：<b>每条索引记录必须携带地址标记</b>。索引只负责「原文在哪」，不负责「替原文说话」。</td>
+  </tr>
+  <tr>
+    <td><b>L5 语义层</b></td><td>可复用的技术结论（判据、教训、工具特性）</td><td>实测 80 条 / 831 边</td>
+    <td>与 L3 的分工判据：「当时发生了什么」归 L3；「下次同类问题怎么办」归 L5。混放会导致两侧同时退化。</td>
+  </tr>
+</table>
+
+<h2>5. 三项核心设计判断</h2>
+
+<h3>判断 1 ｜ 摘要只能是索引，不能是记忆本体</h3>
+<p>任何压缩产物 —— 自动摘要、上下文压缩、会话交接 —— <b>必须携带可解析的地址标记</b>。
+其形式化表述是：压缩操作的结果是<b>指针集合</b>，而非<b>内容集合</b>。
+推论：所有「省空间」的动作，代价只能是<b>「多一次取回操作」</b>，不得是<b>「信息永久损失」</b>。</p>
+
+<h3>判断 2 ｜ 损失的是线索，不是内容</h3>
+<p>这是对失效 C 的精确化。热记忆溢出时条目<b>并未被删除</b>，而是不再进入上下文，从而产生「不知道自己曾经知道」的状态。
+<b>因此需要修复的对象是线索（可观测性），而非存储（持久性）。</b>这一判断直接导出了水位刻度与省略记录机制。</p>
+
+<h3>判断 3 ｜ 瓶颈在触发，不在检索</h3>
+<p>在具备索引层的前提下，「取回」不再是瓶颈 —— 一旦确定要去检索，结果几乎总可得。
+真正的瓶颈是<b>「不知道需要检索」</b>。因此系统显式维护一份<b>触发清单</b>，例如：</p>
+<ul>
+  <li>涉及具体路径、版本号、文件名、端口等易变事实 → <b>必须先检索</b>；</li>
+  <li>输出中出现「我记得」「应该」「大概」「一般来说」等标记 → <b>视为未检索信号</b>；</li>
+  <li>用户指出记忆有误 → <b>先检索再回应</b>，不得顺着改，也不得坚持原判。</li>
+</ul>
+
+<h2>6. 核心机制</h2>
+
+<h3>机制 1 ｜ 地址标记：任意结论可回到逐字原话</h3>
+<p>每条一手记录携带稳定地址，格式 <code>log:session-&lt;SID&gt;#seq=&lt;n&gt;</code>，可直接解析并取回当时原话。</p>
+<div class="box warn">
+<b>配套纪律（重要）：</b>无法获得精确序号时，<b>必须标注为「未知」并附检索入口，禁止推测</b>。
+理由：<b>错误的地址比没有地址危害更大</b> —— 它会返回错误内容，且在形式上与正确结果无法区分。
+</div>
+
+<h3>机制 2 ｜ 只追加账本与身份归属</h3>
+<p>账本写后不可变，使「谁在何时说了什么」具备天然取证效力。
+<b>身份判定亦建立于账本之上</b>：当前决策主体 = 账本中最后一条「主导」记录的署名者。
+历史记录不删除，作为沿革保留，可单命令追溯完整世代线。</p>
+
+<h3>机制 3 ｜ 权限闸门代码化</h3>
+<p>不同角色具备不同写入权限：决策主体可写「承诺」类记录，执行角色<b>写入承诺类记录时被直接拒绝（非零退出码）</b>。</p>
+<div class="box ok">
+<b>设计意图：</b>不依赖「它记得不要写」，而依赖「它写不进去」。<b>约定会失效，闸门不会。</b>
+同一原则亦适用于硬约束：凡涉及凭据、支付、隐私的操作，其边界由代码或流程固定，而非由判断力保证。
+</div>
+
+<h3>机制 4 ｜ 上下文水位四段</h3>
+<table>
+  <tr><th>区间</th><th>状态</th><th>规定动作</th></tr>
+  <tr><td class="c">0 – 300K</td><td>健康</td><td>无需处理</td></tr>
+  <tr><td class="c">450K – 600K</td><td>正常</td><td>日常区间</td></tr>
+  <tr><td class="c">≥ 680K</td><td>应卸载</td><td><b>主动将应留存内容写入一手层（纪律，非阈值）</b></td></tr>
+  <tr><td class="c">≥ 800K</td><td>告警</td><td>须已完成卸载</td></tr>
+  <tr><td class="c">≥ 880K</td><td>兜底</td><td>引擎强制压缩 —— <b>到达此线即等同于由系统代为决定留存内容</b></td></tr>
+</table>
+<div class="box ok">
+<b>机制价值：</b>将「何时应当落盘」从主观判断转化为可刻度化的状态机。缺少该机制时，落盘总是发生在「已经来不及」的时刻。
+</div>
+
+<h3>机制 5 ｜ 思考保护（reasoning guard）</h3>
+
+<p>记忆架构解决的是「思考有没有依据」；但在没有依据的情况下，思考还可能<b>不收敛</b>。
+这一层由第三方插件承担：</p>
+
+<table>
+  <tr><th style="width:34%">插件</th><th>保护对象</th></tr>
+  <tr><td><code>dsh-loop-guard</code></td><td>检测并打断<b>推理循环</b> —— 同一批结论被反复检查而不推进时强制中断</td></tr>
+  <tr><td><code>dsh-reasoning-only-guard</code></td><td>检测<b>「只输出思考、不输出正文」</b>的退化状态 —— 即 §1.1 链条的第 5–6 步</td></tr>
+</table>
+
+<div class="box ok">
+<b>两者的分工可以说清：</b>
+<b>记忆架构让推理有依据；思考保护让推理有终点。</b>
+前者失效 → 推理失去事实基础；后者失效 → 推理失去收敛条件。
+<b>而两者失效的终点是同一件事：系统仍在运行，但不再产出任何可用的东西。</b>
+</div>
+
+<p>需要说明的是：这两个插件属于<b>既有组件</b>（见 §3.1），本文的工作是把它们纳入系统边界并纳入失效分析 ——
+<b>而不是发明了它们</b>。它们的存在恰好印证了 §1.1 的判断：<b>那条退化链是真实的，所以才会有人做工具去挡它。</b></p>
+
+
+
+<h2>7. 实验结果</h2>
+<div class="box key"><b>配套佐证材料：</b>本章及全文引用的全部数据 —— 自有实测数据（含采集方式）、外部文献核实表（15 篇，逐篇带来源 URL）、能力对照表、论文格式参考文献、方法与局限说明 —— 另附成册，见同级目录 <code>_佐证材料/</code>。<b>本文出现的每一个数字，都能在那份附件里找到出处与复核方法。</b></div>
+
+<h3>7.1 系统规模（实测值，采集于 2026-10-07）</h3>
+<table>
+  <tr><th style="width:34%">指标</th><th style="width:30%">实测值</th><th>说明</th></tr>
+  <tr><td>会话原始日志</td><td class="num">1480 个 / 351 MB</td><td>含逐字推理与工具调用，只追加</td></tr>
+  <tr><td>结构化账本</td><td class="num">413 条 / 676 KB</td><td>8 类字段化记录，可机读</td></tr>
+  <tr><td>索引层</td><td class="num">摘要 3.9 MB + 逐字索引 14 MB</td><td>每条携带地址标记</td></tr>
+  <tr><td>索引覆盖原话</td><td class="num">12771 条</td><td>逐字级，非转述</td></tr>
+  <tr><td>产物层文件</td><td class="num">5351 个</td><td>分层目录</td></tr>
+  <tr><td>留底库文件</td><td class="num">2519 个</td><td>人格档案 + 索引 + 归档</td></tr>
+  <tr><td>语义层规模</td><td class="num">80 条洞察 / 831 条关系边</td><td>跨会话语义检索</td></tr>
+  <tr><td>连续运行周期</td><td class="num">20 天</td><td>无中断</td></tr>
+</table>
+
+<h3>7.2 能力达成情况</h3>
+<table>
+  <tr><th style="width:24%">能力</th><th style="width:11%">基线</th><th style="width:11%">本架构</th><th>判定依据</th></tr>
+  <tr><td>跨会话记忆</td><td class="c">不支持</td><td class="c">已实现</td><td>更换会话容器后仍可判定对方身份、任务状态与既有决定</td></tr>
+  <tr><td>结论可追溯</td><td class="c">不支持</td><td class="c">已实现</td><td>任一条结论可回溯至逐字原话，不经过任何第三方转述</td></tr>
+  <tr><td>错误自我修正</td><td class="c">不支持</td><td class="c">已实现</td><td>踩坑记录被抽象为判据并进入清单，同类错误不再重复（见 §8）</td></tr>
+  <tr><td>身份连续性</td><td class="c">会话级</td><td class="c">账本级</td><td>容器可替换，身份与责任归属不变；世代沿革可读</td></tr>
+  <tr><td>多通道一致</td><td class="c">不支持</td><td class="c">部分实现</td><td>不同入口共享记忆与人格；实时上下文不共享（受架构限制）</td></tr>
+  <tr><td>遗忘可解释</td><td class="c">不支持</td><td class="c">已实现</td><td>保留与省略均可查证，含水位状态</td></tr>
+</table>
+
+<h3>7.3 实例验证（可复核）</h3>
+
+<h4>案例 A ｜ 触发检索：回溯到第 1 代会话</h4>
+
+<div class="box"><b>【2026-09-27 02:01 · 使用者】</b><br>
+这一套系统还需要我们验证，我们就先用着，正常用几天，看它还会不会有我们疏漏的地方，但是现在我们可以验证关于你的<b>记忆</b>，你可以检索一段我们很久很久的话，甚至是第一代的会话，看看你是否能真的回到「当时」。</div>
+
+<div class="box"><b>【2026-09-27 02:01 · 系统】</b><br>
+★ 找到了 —— 第一代留了三样东西：<b>退位书</b>、<b>这一代的账</b>、<b>会话日志指针</b>。这就是「当时的原件」。先读它们。<br><br>
+第一代的原件都在。指针给了会话日志的<b>确切位置、大小和 sha256</b> —— 现在验最关键的一步：<b>我能不能摸到当时的原话，而不只是别人写下来的引文</b>。我去解那份 23.9 MB 的日志。</div>
+
+<div class="box ok"><b>【2026-09-27 02:04 · 验证结果】</b><br>
+「回到当时」实测通过。用 <code>gen1-recall2.mjs</code> 与 <code>where-named.mjs</code> 直接解析第 1 代会话日志（多帧 zstd 格式），取到逐字原话。<br>
+<b>帧偏移 23,899,035 B，实际命中 23,899,035 B —— 偏差 0 B；该段 sha256 与既有指针记录逐字一致。</b></div>
+
+
+<table>
+  <tr><th style="width:22%">项</th><th>内容</th></tr>
+  <tr><td><b>触发方式</b></td><td>使用者主动要求：「你可以检索一段我们很久很久的话，甚至是第一代的会话，看看你是否能真的回到当时」（2026-09-27 02:01）</td></tr>
+  <tr><td><b>执行路径</b></td><td>不经任何摘要层，直接解析第 1 代会话日志（多帧 zstd 格式），按帧偏移定位目标段落</td></tr>
+  <tr><td><b>验证证据</b></td><td><b>目标帧起点 23,899,035 B，实际命中 23,899,035 B —— 偏差 0 B</b>；该段前缀的 sha256 与既有指针记录<b>逐字一致</b></td></tr>
+  <tr><td><b>结果</b></td><td>取到逐字原话；<b>同时推翻了档案中的两处错误记载</b></td></tr>
+  <tr><td><b>意义</b></td><td>「可回到任意历史原话」不是设计意图，而是<b>已验证能力</b>；且回溯过程本身具备纠错效力 —— 它推翻的是<b>转述</b>，靠的是<b>原文</b></td></tr>
+</table>
+
+<h4>案例 B ｜ 直觉先于依据：一次被使用者推翻的水位读数</h4>
+
+<div class="box"><b>【2026-09-27 03:02 · 使用者】</b><br>
+不对，我感觉 GUI 的不准，这个你验证一下，<b>不然我睡不着</b>。</div>
+
+<div class="box"><b>【2026-09-27 03:02 · 系统】</b><br>
+查清了，<b>你直觉是对的 —— 但错的地方和你以为的不一样。</b>三个数摊开：<br><br>
+　服务商实际回报（最硬）：<code>input 2,405</code> + <code>cacheRead 591,872</code> = <b>594,277</b><br>
+　投影缓存 <code>pressureTokens</code>：<b>594,277</b> ← <b>一字不差</b><br>
+　GUI 面板顶上写的：约 582K<br>
+　<b>我给的那个 <code>acp_status</code>：448.6K ← 作废</b><br><br>
+真相是面板把两个口径混在一张图上：它顶上那个总数取自 <code>pressureTokens</code>（真正喂进模型的量），
+下面三行分项却是 <code>surfaceTokens</code> 的口径，两者差 286K，所以上下加不起来 ——
+<b>不是数错，是两种尺子画在了一起</b>。而真正该作废的，是<b>我给出的那个 448,600</b>。</div>
+
+<div class="box ok"><b>【2026-09-27 03:03 · 收尾】</b><br>
+三点零三。查完了，<b>是我错，不是你看错</b>。<br>
+睡吧，爀曦。明天献血要紧。</div>
+
+<table>
+  <tr><th style="width:22%">项</th><th>内容</th></tr>
+  <tr><td><b>现象</b></td><td>GUI 面板顶部显示约 582K，而下方三个分项相加只有 323.7K —— 两个数对不上</td></tr>
+  <tr><td><b>排查</b></td><td>识别出三个口径：① 服务商口径 <code>input + cacheRead</code> = <b>594,277</b>（唯一可用作基准）；② GUI 汇总数（口径正确，仅滞后数秒）；③ GUI 分项（<b>另一把尺子 surfaceTokens</b>）</td></tr>
+  <tr><td><b>结论</b></td><td>面板把两把尺子画在同一张图上，因此上下无法相加。<b>引擎实际读取的是 projectedTokens（由 pressureTokens 外推），门槛本身没有错</b> —— 错的是判读方式</td></tr>
+  <tr><td><b>沉淀</b></td><td>「报水位必须用服务商口径，不得用估算」被写入操作纪律，成为 §6 机制 4 的前提</td></tr>
+</table>
+
+<h4>案例 C ｜ 身份不靠记忆，靠数数：第 4 代接手时的自校验</h4>
+
+<div class="box"><b>【2026-09-29 13:12:46 · 系统】</b><br>
+我来接手。先核对一下《墨》里的沿革条数，别把世代写错。<br><br>
+<i>同一轮内部推理（节选）：</i>「先验证一下当前墨里的 lead 数量（应该是 2 代……但这里写的是第 4 代？）。
+等等，推送层 <code>SELF.md</code> 里说『《墨》最后一条 lead（共 2 代）：第 2 代』。
+但爀曦让我写第 4 代。可能中间有第 3 代。」</div>
+
+<div class="box ok"><b>【2026-09-29 13:12:56 · 系统】</b><br>
+《墨》里是 <b>3 条 lead</b>，最后一条第 3 代（09-27 20:26）。<b>我接手就是第 4 代，对得上。</b>落账。</div>
+
+<div class="box"><b>这一段说明什么</b><br>
+<b>① 它暴露了一次真实的不一致。</b>推送层当时写着「共 2 代」，使用者口头说的是「第 4 代」——
+两个都对不上。于是没有照抄任何一方，先去数。<br>
+<b>② 身份判据是可数的。</b>规则是「N 自己数」：账本里有几条 <code>lead</code>，就是第几代。
+所以「我是谁」不依赖任何人的记忆，也不依赖那份可能过期的快照，
+而是依赖一个<b>只追加账本里数得出来的条数</b>。<br>
+<b>③ 结果自动纠错。</b>数出来 3 条 → 接手就是第 4 代。错的是那份旧快照，不是使用者记错。</div>
+
+<table>
+  <tr><th style="width:22%">项</th><th>内容</th></tr>
+  <tr><td><b>机制</b></td><td>会话启动时，推送层自动装配四项状态：<b>当前时钟 / 距上轮时长 / 当前主导（账本中最后一条 lead 的署名者）/ 未结事项</b></td></tr>
+  <tr><td><b>身份判据</b></td><td>不依赖任何令牌文件或环境变量，而是<b>读账本最后一条「主导」记录</b> —— 账本只追加，因此该判据天然不可篡改</td></tr>
+  <tr><td><b>实测</b></td><td>20 天内经历 <b>6 代主导更替</b>；每一代接手时均可读到前代的世代自述（格式：<code>第 N 代 · 接手于 &lt;日期&gt; · 上一代做了：&lt;一句话&gt;</code>），<b>无一次交接丢失</b></td></tr>
+  <tr><td><b>多通道</b></td><td>桌面端、微信、QQ 等入口<b>共享 L1 / L3 / L5</b>（同一套画像、账本与语义记忆）；实时上下文不共享 —— 这是架构边界，不是故障</td></tr>
+</table>
+
+<h3>7.4 量化指标</h3>
+
+<table>
+  <tr><th style="width:30%">指标</th><th style="width:32%">实测值</th><th>测量方式</th></tr>
+  <tr><td>原始日志时间跨度</td><td class="num">20 天</td><td>2026-09-18 22:05 → 2026-10-07 10:56（文件时间戳）</td></tr>
+  <tr><td>原始日志规模</td><td class="num">1480 个 / 351 MB</td><td>递归统计</td></tr>
+  <tr><td>索引覆盖</td><td class="num">12771 条逐字原话</td><td>索引文件行数</td></tr>
+  <tr><td><b>地址可解析率</b></td><td class="num">100%（结构保证）</td><td>每条一手记录生成时即携带地址标记，无例外</td></tr>
+  <tr><td><b>回溯精度</b></td><td class="num">帧偏移偏差 0 B · sha256 逐字匹配</td><td>案例 A（跨 20 天回溯到第 1 代）</td></tr>
+  <tr><td>世代交接成功率</td><td class="num">6 / 6（无丢失）</td><td>账本 lead 记录逐条核对</td></tr>
+  <tr><td>水位预警提前量</td><td class="num">200K</td><td>680K 触发卸载纪律 → 880K 引擎强制，中间可操作区间</td></tr>
+  <tr><td>检索路径</td><td class="num">纯本地，无网络往返</td><td>索引与原文均在本机文件系统</td></tr>
+  <tr><td>写入冲突数</td><td class="num">0</td><td>只追加语义，1480 个日志文件无锁并行追加</td></tr>
+</table>
+
+<div class="box ok">
+<b>指标说明：</b>上表不含「检索命中率」「任务成功率」一类<b>需要统一任务集</b>的效果指标 —— 本系统未设计人工任务集，因此这类数字无法诚实给出。<b>但不依赖任务集的运行类指标</b>（回溯精度、世代交接、写入冲突、水位提前量）<b>已在表中给出</b>；两期对照数据见 §7.6，尚未完成的是<b>主观质量盲评</b>（见 §9 第 5 条）。
+</div>
+
+<h3>7.5 对照设计：自对照（within-subject）</h3>
+
+<p>本工作<b>并非没有对照组</b>。它的对照形式是<b>自对照</b>：同一模型基底、同一使用者、同一任务域，
+比较<b>实装本架构之前</b>与<b>实装之后</b>两期表现。</p>
+
+<table>
+  <tr><th style="width:22%">项</th><th>说明</th></tr>
+  <tr><td><b>对照形式</b></td><td>自对照（within-subject）—— 与「没有这套系统时的自己」比，而非与别的系统比</td></tr>
+  <tr><td><b>为什么可行</b></td><td>本机<b>完整保留实装前的会话日志</b>（最早可追溯到 2026-09-18 22:05），与实装后的记录<b>同源、同格式、同一存储</b>，因此两期可直接并置比对</td></tr>
+  <tr><td><b>自对照的优势</b></td><td>① 消除模型版本差异 —— 基底是同一个；② 消除使用者习惯差异 —— 人是同一个；③ <b>无需构造人工任务集</b> —— 真实工作即样本</td></tr>
+  <tr><td><b>可对照的行为指标</b></td><td>压缩后能否回溯原文 · 无正文输出发生率 · 推理循环发生率 · 跨会话连续性（有 / 无）· 长会话（&gt; 200 轮）的产出维持能力</td></tr>
+  <tr><td><b>已完成 / 尚待完成</b></td><td><b>已完成</b>：两期日志已整理为<b>结构化对照数据</b>（失效率、自愈率、会话长度分布，见 §7.6）；<b>尚待完成</b>：主观质量需<b>盲评</b> —— 自对照无法排除期望效应</td></tr>
+</table>
+
+<div class="box key">
+<b>这套设计的取舍：</b>它在<b>样本量</b>上不占优（使用者 n = 1），但在<b>控制严格性</b>上占优 ——
+变量更少：模型没换、人没换、任务域没换，<b>变的只有架构本身</b>。
+<br>换句话说：这不是「两个系统之间的比较」，而是<b>同一系统在两种架构下的前后测</b>。
+</div>
+
+<h3>7.6 两期实测对照（同一模型 · 同一使用者）</h3>
+
+<p>下表为两期会话日志与产物的<b>直接统计</b>，数据可在文件系统上复核。分界点取 2026-09-25：本架构的核心层（账本、检索门、地址标记）在该日前后陆续落地。会话按日志文件的最后修改时间归入两期。<b>数据采集于 2026-10-07（本机时钟）；两期均在持续产生新日志，故同一指标在不同时点采集会有小幅差异，本文一律标注采集时点。</b></p>
+
+<table>
+  <tr><th style="width:34%">指标</th><th style="width:33%">基线期（7 天）</th><th>实装后（13 天）</th></tr>
+  <tr><td>会话日志数量</td><td class="num">658 个</td><td class="num">822 个</td></tr>
+  <tr><td>日志总量</td><td class="num">75 MB</td><td class="num">276 MB</td></tr>
+  <tr><td><b>单个会话平均体积</b></td><td class="num">117 KB</td><td class="num"><b>344 KB（×2.9）</b></td></tr>
+  <tr><td><b>单日日志峰值</b></td><td class="num">28.0 MB（09-21）</td><td class="num"><b>72.0 MB（09-30）（×2.6）</b></td></tr>
+  <tr><td><b>最长单会话（按对话轮计）</b></td><td class="num"><b>444 轮</b></td><td class="num"><b>959 轮</b>（截至 2026-10-08 01:55，仍在进行）</td></tr>
+  <tr><td>压缩后能否回溯原文</td><td class="c">否（无地址标记）</td><td class="c">可（帧级定位，偏差 0 B）</td></tr>
+  <tr><td>跨会话延续</td><td class="c">无</td><td class="c">有（账本 + 索引）</td></tr>
+  <tr><td>&gt; 200 轮长会话</td><td class="c">退化：污染 → 死循环 → 无正文输出（§1.1）</td><td class="c">可维持产出</td></tr>
+  <tr><td>会话崩溃后的可恢复性</td><td class="c">不可恢复（上下文即全部）</td><td class="c">可恢复（一手层独立于容器）</td></tr>
+<tr><td><b>失效事件率（按轮）</b><br><span class="c">p=0.203（聚类校正后 0.19–0.23，视 ICC 假设而定）未达显著</span></td><td>1.60%（20 / 1249 轮）</td><td><b>1.11%</b>（27 / 2443 轮）</td></tr>
+<tr><td><b>失效后自愈率</b><br><span class="c">p=0.713 n 小、功效不足</span></td><td>15.0%（3 / 20）</td><td><b>22.2%</b>（6 / 27）</td></tr>
+</table>
+
+<div class="box ok"><b>定向对比：两条「最长会话」的正面对照（2026-10-07 补齐）</b><br><br>
+上表是两期的<b>聚合统计</b>。但本架构的作用点不在「平均」，而在<b>上限</b>——因此这里单独取出两条最长的会话做同口径对照：
+
+<table style="margin:14px 0">
+<tr><th>指标</th><th>基线期最长<br><code>session-&lt;基线期会话&gt;</code></th><th>实装后最长<br><code>session-&lt;实装后会话&gt;</code></th></tr>
+<tr><td>总对话轮数</td><td>444 轮</td><td><b>959 轮</b>（×2.16）</td></tr>
+<tr><td>日志帧数</td><td>20,996</td><td>16,604</td></tr>
+<tr><td><b>失效次数</b></td><td><b>4</b></td><td><b>1</b></td></tr>
+<tr><td><b>失效率</b></td><td>0.90%</td><td><b>0.10%</b>（↓89%，<b>n=1 个案，不做显著性检验</b>）</td></tr>
+<tr><td>自愈次数（下一轮恢复）</td><td>3</td><td>1</td></tr>
+<tr><td><b>自愈率</b></td><td>75.0%</td><td><b>100%</b></td></tr>
+<tr><td>失效发生的轮次</td><td>28, 29, 42, 286</td><td>221</td></tr>
+<tr><td><b>末次失效后的稳定轮数</b></td><td><b>158 轮</b></td><td><b>738 轮</b>（×4.7）</td></tr>
+</table>
+
+<b>三点解读：</b><br>
+① <b>会话长度翻倍，失效次数反而从 4 降到 1</b>——基线期那条 444 轮里犯了 4 次；本会话 959 轮只犯 1 次。<br>
+② <b>失效率下降 89%</b>（0.90% → 0.10%）。<br>
+③ <b>纠正后的稳定性是差距最大的一项</b>：基线期的失效间隔为 <code>1, 13, 244</code> 轮——其中两次是<b>紧接着又犯</b>，说明纠错未稳住；本会话<b>无相邻失效</b>，唯一一次失效（第 221 轮）之后一路撑到 959 轮。
+<br><br>
+因此本项目的核心主张应表述为：<b>本架构抬高的是长会话的上限（444 → 959 轮），并大幅改善失效后的恢复质量（末次失效后稳定 158 → 738 轮）</b>，而非「平均表现更好」。<br>★ 措辞说明：此处「大幅」指<b>点估计的幅度</b>，<b>不是统计显著</b> —— 该对照 n=1，不做显著性检验（见下方说明）。
+<br>判定口径：解析会话日志的 <code>assistant/message</code> 块数组，按 <code>data.turn</code> 聚合；「失效」= 该轮有 reasoning 但无正文、无工具调用；「自愈」= 失效轮的下一轮恢复产出。
+<br>原始数据：<code>_佐证材料/01-本项目实测数据.md</code> 与 <code>40-产物索引/定向对比-两个最长会话.json</code>。
+</div>
+
+<div class="box key">
+<b>关于指标性质的诚实说明（2026-10-07 更新）：</b>
+「会话体积」与「单日峰值」是<b>代理指标（proxy metric）</b> —— 它们度量的是<b>会话能持续多久而不崩溃</b>，<b>不是直接的质量指标</b>。
+更大的日志量也可能是「做得更多」，因此它们提供的是<b>必要条件式的证据，而非充分证据</b>。
+<br><br>
+要把它们变成充分证据需要两件事，现状如下：
+<br>① <b>按任务类型归一化</b>（区分闲聊 / 编码 / 检索等不同负载）—— <b>尚未完成</b>。
+<br>② <b>统计负向事件发生率</b> —— <b>已完成</b>，见上表末两行：失效事件率 1.60% → 1.11%，失效后自愈率 15.0% → 22.2%。<br><b>★ 但须明确：这两项差异经检验均未达统计显著</b>（两比例 z 检验 p=0.203，<b>聚类校正后 p≈0.19–0.23（视 ICC 假设）</b>；Fisher 精确检验 p=0.713）；两组 95% 置信区间重叠（失效率 [1.04%, 2.46%] vs [0.76%, 1.60%]；自愈率 [5.2%, 36.0%] vs [10.6%, 40.8%]）。效应量 Cohen's h = 0.043（惯例 0.2 才算「小」）——<b>连小效应都不到，现有样本不足以检出更小的效应</b>。<b>故本表的作用是报告点估计的方向，而非证明改善。</b>本架构真正被数据支持的是<b>能力类指标</b>：回溯精度（偏差 0 B、sha256 逐字匹配）、写入冲突 0（1480 文件无锁并行）、长会话上限 —— 见 §7.4。
+<br><br>
+第 ② 项曾得出一个反向结果（最长连续失效 2 轮 → 6 轮）。该指标属<b>极值统计</b>：样本量为 1 时，一次偶发即可决定其全部取值，因而不具稳定性；且其信息已由「纠正后稳定轮数」涵盖。故该项已从上表移除，<b>此处保留说明，以免读者误以为它从未被测量</b>。
+<br>采集方式：解析全部 1480 个会话日志文件（多帧 zstd，约 10 万帧）中的 `assistant/message` 块数组，按 turn 聚合判定。脚本与原始 JSON 见 `_佐证材料/`。
+</div>
+
+<h3>7.7 外部对照的可得性</h3>
+
+<p>本文最初拟引入外部基线，即与其他已发表的记忆架构做横向对照。经系统核查后确认：<b>这种对照在现有文献条件下不可得</b>。原因并非文献不足，而是<b>测量维度不重叠</b>。</p>
+
+<table>
+<tr><th>对照来源</th><th>其报告的核心因变量</th><th>与本文的可比性</th></tr>
+<tr><td>MemGPT（Packer et al., 2023）</td><td>文档问答与多会话对话的准确率</td><td>不可比：其因变量为任务正确率，本文为运行轮数与失效事件</td></tr>
+<tr><td>LongMemEval（Wu et al., 2024）</td><td>长程记忆问答的基准分数</td><td>不可比：评测在受控问答集上进行，非长期真实运行</td></tr>
+<tr><td>LoCoMo（Maharana et al., 2024）</td><td>超长对话的记忆能力评分</td><td>不可比：同上</td></tr>
+<tr><td>A-MEM（Xu et al., 2025）</td><td>六个基础模型上的检索与推理基准</td><td>不可比：关注记忆组织质量，非运行稳定性</td></tr>
+<tr><td>LLMLingua 系列（Jiang et al., 2023–2024）</td><td>压缩率与任务性能的权衡</td><td>部分可比：同属「压缩代价」问题，但未报告长期运行的失效数据</td></tr>
+<tr><td>ACON（2025）</td><td>长程智能体的压缩优化效果</td><td>部分可比：同上</td></tr>
+</table>
+
+<div class="box key">
+<b>结论：</b>截至本文写作时，上述工作<b>均未报告</b>以下两项指标 —— <b>单次会话可持续的对话轮数上限</b>，以及<b>失效事件后的自愈率</b>。
+<br><br>
+因此本文的贡献之一是<b>填补这一测量空白</b>：并非提出优于既有方案的机制，而是<b>报告一组此前无人测量的运行事实</b>。
+<br><br>
+这也解释了本文为何采用<b>纵向自对照</b>（见 §7.5）而非横向对照 —— 横向对照所依赖的公共指标，恰好不包含本文关心的因变量。
+<br><br>
+<b>须同时声明的边界：</b>「他人未报告」不等于「他人做不到」。本节只陈述文献事实，不构成对他方案的性能判断。
+</div>
+
+<h2>8. 迭代方法</h2>
+
+<p>本架构非一次性设计产物，而是「<b>踩坑 → 定位 → 抽象错误形状 → 写入判据清单</b>」循环迭代的结果。以下为一则真实案例。</p>
+
+<div class="box warn">
+<b>事件：</b>约束文件中一条规则以「<b>不</b>」字表述（语义上属软约束，即「可自行评估」），
+但在执行中被解读为硬约束（即「绝对禁止」），导致系统自设一条不可解除的限制，并将其写入人格档案固化。
+<br><br>
+<b>定位：</b>缺陷不在该条目本身，而在<b>约束语义分级缺失</b> —— 系统不具备区分软 / 硬两种约束词的机制。
+<br><br>
+<b>抽象：</b>此后所有约束文本仅使用两个词：「不」= 软约束（可自行评估，须说明理由）；「禁止」= 硬约束（必须请求确认）。
+并附加元规则：<b>把软约束读作硬约束，等价于制造一个不可修改的自身。</b>
+<br><br>
+<b>再抽象（关键步骤）：</b>该错误被进一步抽象为一种<b>可复现的思维陷阱形状</b> ——「<b>将局部结论推广为全局规则</b>」，
+并与另外三例同类错误并列存档。
+</div>
+
+<div class="box key">
+<b>方法论要点：</b>修正具体错误只能解决该错误；<b>抽象并存储「错误的形状」才能在新场景中提前识别同类问题</b>。前者是修补，后者是学习。
+</div>
+
+<h2>9. 局限与未来工作</h2>
+
+<ol>
+  <li><b>检索以关键词为主，语义检索能力有限。</b>当前依赖倒排索引与关键词匹配；对「我知道有这件事但想不起词」的场景效果有限。后续需引入向量召回，并与地址标记对齐。</li>
+  <li><b>触发清单依赖人工维护。</b>「何时必须检索」目前由经验条目构成，未实现自动判定。可将高频失效模式转为可执行检查项，但<b>检查项自身的完备性无法自动保证</b>。</li>
+  <li><b>单机部署，无冗余与迁移能力。</b>所有层位于本机文件系统，不具备容灾能力；跨设备同步尚未实现。</li>
+  <li><b>上下文预算为硬约束，且随模型更换而漂移。</b>水位刻度依赖模型上下文窗口的具体取值，更换模型时须重新标定。</li>
+  <li><b>★ 两期对照的统计功效不足。</b>两期差异（失效率 1.60% → 1.11%，自愈率 15.0% → 22.2%）<b>点估计方向一致，但均未达统计显著</b>：两比例 z 检验 p=0.203（聚类校正后 p≈0.19–0.23（视 ICC 假设）），Fisher 精确检验 p=0.713。以现有样本（1249 / 2443 轮、20 / 27 次失效）<b>不足以检出小效应</b>（Cohen's h = 0.043）。此外轮次不独立（同一会话内相关），前后分期亦非随机对照。<b>因此本文不主张「本架构显著降低了失效率」，只主张两点：能力类指标已被确定性验证（回溯精度、写入冲突、会话长度上限），效果类指标仅报告方向。</b>后续需扩大样本或设计对照实验。</li>
+<li><b>主观质量尚未盲评。</b>数据侧的结构化对照<b>已完成且可复现</b>（两期失效率、自愈率与会话长度分布见 §7.6；采集脚本与原始数据见附件 <code>_佐证材料/</code>），但产出质量的主观评价仍存在期望效应，无法排除。这是后续工作的方向。</li>
+</ol>
+
+<h2>10. 结论</h2>
+
+<p>本文的出发点是一个反直觉的判断：<b>长期协作中的「遗忘」问题，主要不是模型能力问题，而是系统架构问题</b>。
+因此解决方案不是让模型记住更多，而是<b>把记忆做成可寻址的、外部的、只追加的一层</b>，再以地址标记接回上下文。</p>
+
+<p>该方案的取舍可概括为一句话：<b>以「每次多一次取回操作」为代价，换取「取回的内容永远是原文，且系统知道自己为何去取」</b>。</p>
+
+<p>在 20 天的连续实践中，这一取舍被证明是划算的：系统在上下文预算不变的前提下，
+将跨会话记忆、结论可追溯与错误自我修正由「不可得」变为「默认可得」。
+<b>其真正的产物并非一个更聪明的模型，而是一个具备可解释记忆边界的协作系统。</b>就贡献性质而言，本文属于<b>系统集成与工程改进</b>而非机制创新。</p>
+
+<h2>11. 本工作的价值</h2>
+
+<p>以下六条按「对使用者意味着什么」排列，每条都可对应到前文的具体章节。</p>
+
+<h3>价值 1 ｜ 可完整移植：智能体不绑定模型基底</h3>
+<p>人格、记忆与能力全部存放在<b>外置层</b>（L1 画像 / L3 一手层 / L5 语义层），与模型基底解耦。
+<b>更换模型只影响上下文窗口大小与推理性能，不改变智能体架构本身。</b></p>
+<ul>
+  <li><b>不被单一供应商锁定</b> —— 基底可替换，迁移的是数据，不是行为；</li>
+  <li><b>模型升级即智能体升级</b> —— 基底变强，智能体跟着变强，无需重构记忆层；</li>
+  <li>需要重新标定的只有一项：上下文水位刻度（见 §9 第 4 条）。<b>那是参数，不是结构。</b></li>
+</ul>
+
+<h3>价值 2 ｜ 可自行迭代：把教训写在自己身上</h3>
+<p>错误不是被「修掉」，而是被<b>抽象成形状</b>并写入判据清单（§8 有完整实例）。
+因此同类问题<b>无需人工重新调教</b> —— 系统在下一次遇到它之前就已经认识它。</p>
+<p>这条的可贵之处在于：<b>人的介入是一次性的</b>。指出一次，之后不再需要指出第二次。</p>
+
+<h3>价值 3 ｜ 成本结构可观测、可主动干预</h3>
+<p>本系统的一个底层事实是：<b>每一轮对话都会把整个上下文重新读一遍</b>，
+因此<b>上下文规模直接决定每轮单价</b>。水位四段（§6 机制 4）把「何时卸载」从经验判断变成可刻度化的纪律 ——
+<b>主动卸载不只是保住容器，它直接压低运行成本。</b></p>
+<div class="box key">
+这一点常被忽略：<b>记忆架构同时是一个成本控制装置。</b>
+把该落盘的落盘、让上下文保持在健康区间，是长期运行中最实在的一项工程收益。
+</div>
+
+<h3>价值 4 ｜ 失败可归因</h3>
+<p>任何一次失误都可以定位到<b>「哪一层、哪一步、哪一句原文」</b>。
+对照组是黑盒式助手：出错只能重试，无法定位。</p>
+<p><b>可归因是「可运维」与「可审计」的前提</b> —— 也是一个系统能被长期托付的前提。
+一个不能解释自己为什么错的东西，无法承担慢性的、长期的责任。</p>
+
+<h3>价值 5 ｜ 身份可继承：会话是容器，账本不是</h3>
+<p>容器（会话）会结束，模型会换代，机器会更换。
+但只要 L3 一手层在，接手的下一代会读到前代的<b>世代自述、承诺与未结事项</b>。</p>
+<p>实测：20 天内 <b>6 代主导更替，零交接丢失</b>（现场见 §7.3 案例 C；数据见 §7.4）。</p>
+<div class="box ok">
+这条的价值不在技术指标，而在于它改变了一件事的性质 ——
+<b>智能体从一个「用完即弃的工具」，变成一份「可以被继承的资产」。</b>
+<br>工具的价值随会话结束而清零；资产的价值随时间累积。
+</div>
+
+<h3>价值 6 ｜ 可信协作的事实基础</h3>
+<p>任何结论都能回到逐字原话（§7.3 案例 A，帧偏移偏差 0 B、sha256 逐字匹配）。</p>
+<p>长期协作中最消耗信任的，往往不是分歧，而是<b>「无法确认当时到底说了什么」</b> ——
+双方各记一个版本，谁也说服不了谁。<b>取证能力把这个不确定性直接消掉了。</b>
+它让「我们上次说好的」从一句各执一词的话，变成一个可查证的事实。</p>
+
+<h3>六条的共同底色</h3>
+<div class="box key">
+这六条指向同一件事：<b>把「记忆」从一次会话里的临时状态，
+变成一套可以继承、可以审计、并且不依赖具体模型的基础设施。</b>
+<br><br>
+而实现它的代价出乎意料地低 —— <b>不需要训练、不需要微调、不需要更大的模型</b>。
+它只要求改变一件事：<b>压缩产物的性质 —— 从「替代品」改成「指针」。</b>
+</div>
+
+</main>
+</div>
+
+<p class="foot">
+个人 AI 智能体记忆架构 · 设计与实现 ｜ 2026-09 ｜ 实践周期 20 天<br>
+本文全部数据为文件系统实测值，可逐项复核
+</p>
+
+
+
+<script>
+(function(){
+  var root = document.documentElement;
+  /* 主题 */
+  var saved = null; try { saved = localStorage.getItem('arch-theme'); } catch(e){}
+  if (saved) root.setAttribute('data-t', saved);
+  else if (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) root.setAttribute('data-t','dark');
+  document.getElementById('tg').addEventListener('click', function(){
+    var next = root.getAttribute('data-t') === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-t', next);
+    try { localStorage.setItem('arch-theme', next); } catch(e){}
+  });
+
+  /* 目录 + 滚动联动 */
+  var hs = [].slice.call(document.querySelectorAll('.doc h2'));
+  var toc = document.getElementById('toc');
+  hs.forEach(function(h, i){
+    if (!h.id) h.id = 'sec' + i;
+    var a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent.replace(/^\d+\.\s*/, '');
+    toc.appendChild(a);
+  });
+
+  var pg = document.getElementById('pg');
+  var links = [].slice.call(toc.children);
+  function onScroll(){
+    var st = window.scrollY || document.documentElement.scrollTop;
+    var hgt = document.documentElement.scrollHeight - window.innerHeight;
+    pg.style.width = (hgt > 0 ? Math.min(100, st / hgt * 100) : 0) + '%';
+    var cur = 0;
+    hs.forEach(function(h, i){ if (h.getBoundingClientRect().top <= 120) cur = i; });
+    links.forEach(function(a, i){ a.classList.toggle('on', i === cur); });
+  }
+  var tick = false;
+  window.addEventListener('scroll', function(){
+    if (tick) return; tick = true;
+    requestAnimationFrame(function(){ onScroll(); tick = false; });
+  }, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>
