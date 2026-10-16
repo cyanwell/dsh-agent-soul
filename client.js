@@ -148,6 +148,21 @@ window.__ModuleLoader__.load({
       },
     ];
 
+    /* ★ 配套零件 —— 有名字和链接，读者才能去装。
+       和上面那张【角色表】配成一对：那里问「你需要什么能力」，
+       这里答「我们做的那几个叫什么、在哪」。
+
+       ★ 为什么这一节可以写包名，而《参考实现》那一节不写：
+         因为这里给的是【可下载的地址】，那里给的是【设计判断】——
+         地址会随仓库存在而有效，判断才是该让人自己长的那部分。 */
+    const ORGANS_REPO = "https://github.com/cyanwell/dsh-agent-organs";
+    const ORGANS = [
+      ["dsh-agent-compaction", "压缩器 · 门牌", "给兜底压缩装上可回溯的指针"],
+      ["dsh-agent-pruner", "裁剪器 · 门牌", "把官方那句死 marker 换成带 seq 的"],
+      ["dsh-agent-memory", "热记忆 · 推送层", "把活时钟与定长自我层推进每一步"],
+      ["dsh-agent-echo", "哨兵 · 体检台", "（在做）把记忆中枢的状态摆出来"],
+    ];
+
     const TOOLS = [
       {
         name: "agent_soul_layers",
@@ -270,8 +285,56 @@ window.__ModuleLoader__.load({
           " 里 —— 每条都写着「它是必需的还是可选的」「缺了会怎样」「拿什么去检测它坏没坏」。"
         ),
 
-        /* ── 四、三步开始 ─────────────────────────────── */
-        h("装完之后，三步开始", "h4"),
+        /* ── 四、我们的零件（配套上面那张角色表）───────── */
+        h("配套的零件", "h4"),
+        react.createElement(
+          "p",
+          { className: "as-sub" },
+          "上面那张表说的是「你需要哪几种能力」—— 这一节说",
+          react.createElement("b", null, "「我们自己做的那几个叫什么、在哪」"),
+          "，省得你自己去找。",
+          "它们各自独立可装，装一个也有用。"
+        ),
+        react.createElement(
+          "ul",
+          { className: "as-list as-organs" },
+          ORGANS.map(function (o) {
+            return react.createElement(
+              "li",
+              { key: o[0] },
+              react.createElement("span", { className: "as-file" }, o[0]),
+              react.createElement(
+                "span",
+                null,
+                react.createElement("b", null, o[1]),
+                " —— ",
+                o[2]
+              )
+            );
+          })
+        ),
+        react.createElement(
+          "p",
+          { className: "as-sub as-organs-link" },
+          "全部在 ",
+          react.createElement(
+            "a",
+            { href: ORGANS_REPO, target: "_blank", rel: "noreferrer noopener" },
+            ORGANS_REPO.replace("https://", "")
+          ),
+          " —— 每个目录都是一个独立的 DSH 插件包，README 里写着它防的是什么。"
+        ),
+        react.createElement(
+          "p",
+          { className: "as-tip" },
+          "★ 它们只对上了上面那张表里的",
+          react.createElement("b", null, "一部分"),
+          "角色。剩下的（检索门、分层冷记忆、账本…）我们没有现成的实现 —— ",
+          "那两个位置留给你自己挑，或者自己写。"
+        ),
+
+        /* ── 五、三步开始 ─────────────────────────────── */
+        h("装完之后，三步开始", "h5"),
         STEPS.map(function (s, i) {
           return react.createElement(
             "div",
