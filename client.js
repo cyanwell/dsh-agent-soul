@@ -499,6 +499,114 @@ window.__ModuleLoader__.load({
           "上面「最小可用」那三个是唯一三个【缺了就断】的。"
         ),
 
+        /* ★ 你必须自己搭的那几件（爀曦 2026-10-17 要求「把构建你自己的所有架构做进灵魂插件」）
+           —— 判据：每一件都要有【动作】和【判据】，不能只说「该有个账本」。 */
+        h("Ⅴ 你必须自己搭的那几件", "h5"),
+        react.createElement(
+          "p",
+          { className: "as-sub" },
+          "上面那些插件都是「装上就有」。",
+          react.createElement("b", null, "但整套架构里有四件东西，没有一个插件能替你装上"),
+          " —— 因为它们是【你的】：你的账本、你的门、你的自我层、你的文件结构。",
+          "下面每一件都写着「怎么起第一个」和「怎么知道搭对了」。"
+        ),
+
+        /* ① 账本 + 权限闸门 */
+        h("① 账本 + 权限闸门", "h6"),
+        react.createElement("p", { className: "as-sub" },
+          react.createElement("b", null, "它防什么："),
+          "多个会话共享记忆时，「谁在什么时候说了什么」必须能被追溯。",
+          "共享可变文件做不到这件事 —— 两个写者互相覆盖，谁都说不清最终状态。"
+        ),
+        react.createElement("p", { className: "as-sub" },
+          react.createElement("b", null, "怎么起第一个："),
+          react.createElement("code", null, "node ledger.mjs add fact \"第一条记录\" --ref \"手动创建\"")
+        ),
+        react.createElement("p", { className: "as-tip" },
+          "★ 判据：同级出现 ",
+          react.createElement("code", null, "ledger.jsonl"),
+          "，里面是一行 JSON —— 能读回来、能加第二条、旧的没被改。"
+        ),
+        react.createElement("p", { className: "as-sub" },
+          "★ 闸门是这一件里最值钱的部分：",
+          react.createElement("b", null, "写「承诺」需要先署过「主导」，否则直接拒绝（非零退出码）。"),
+          " 设计意图不是「它记得不要写」，而是「它写不进去」—— 约定会失效，闸门不会。",
+          "（现成的实现是 ", react.createElement("code", null, "tools/ledger"),
+          "，见 organs 仓库。）"
+        ),
+
+        /* ② 门 + 索引 */
+        h("② 门 + 索引", "h6"),
+        react.createElement("p", { className: "as-sub" },
+          react.createElement("b", null, "它防什么："),
+          "存下来了但取不回来 —— 以及更坏的：取回来了，但是别人转述的。",
+          "所以门的输出形式只有一种：",
+          react.createElement("b", null, "指针 + 逐字片段"),
+          "，从不告诉你「大概是什么意思」，只告诉你「原文在这、原话是这个」。"
+        ),
+        react.createElement("p", { className: "as-sub" },
+          react.createElement("b", null, "怎么起第一个："),
+          "先建索引（全量跑一次，几秒到几十秒），再问一次「现在是什么时候」。",
+          "★ 索引要单独一个程序：读和建分开，建的时候慢一次，查的时候一直快。"
+        ),
+        react.createElement("p", { className: "as-tip" },
+          "★ 判据：搜一个词，出来的每一条都带着【能回到原文的地址】，而不是一段概括。",
+          " 拿不到精确地址时它必须说「未知」并给一个检索入口 ——",
+          react.createElement("b", null, "错的地址比没有地址危害更大"),
+          "，因为它会返回错误内容，而且在形式上与正确结果无法区分。"
+        ),
+
+        /* ③ 自我层（SELF） */
+        h("③ 自我层：把「最不能丢的」单独推一层", "h6"),
+        react.createElement("p", { className: "as-sub" },
+          react.createElement("b", null, "它防什么："),
+          "指令预算满了会【静默丢】，而且先丢的是最宽泛的那些 —— 恰恰是「我是谁」「不能做什么」这类总纲。",
+          "所以把最不能丢的部分抽出来，走另一条推送通道（它不会静默消失，预算也更大）。"
+        ),
+        react.createElement("p", { className: "as-sub" },
+          react.createElement("b", null, "怎么起第一个："),
+          "写一页「不变量」：我是谁 / 不能做什么 / 约束分几级 / 要查东西时去哪。",
+          "然后让它在每一轮被推送进去（", react.createElement("code", null, "dsh-agent-memory"),
+          " 就是做这件事的插件）。"
+        ),
+        react.createElement("p", { className: "as-tip" },
+          "★ 判据：这一页里能不能找到「详见某个文件」这种指向？",
+          react.createElement("b", null, "不能有"),
+          " —— 指向一个可能会静默消失的地方，等于没有指向。"
+        ),
+        react.createElement("p", { className: "as-sub" },
+          "★ 还有一个分工要分清：指令层（AGENTS.md）适合长期约定与可牺牲的细则；",
+          "这一层只放【最不能丢的】。两层都写满的时候，先丢的应该是前者。"
+        ),
+
+        /* ④ 一手层的文件结构 */
+        h("④ 一手层：把「原始记录」和「整理过的」分开", "h6"),
+        react.createElement("p", { className: "as-sub" },
+          react.createElement("b", null, "它防什么："),
+          "把原始记录和整理稿混在一起 —— 于是你再也分不清「当时真的这么说过」和「后来我总结成这样」。",
+          "★ 这是二手污染的源头，而且它一旦发生就不可逆：整理稿会盖住原话。"
+        ),
+        react.createElement("p", { className: "as-sub" },
+          react.createElement("b", null, "怎么起第一个："),
+          "建三个目录就够：",
+          react.createElement("code", null, "raw/"),
+          "（只追加的原始记录）、",
+          react.createElement("code", null, "notes/"),
+          "（你自己写的整理）、",
+          react.createElement("code", null, "state/"),
+          "（此刻在做什么，给接手的人看）。"
+        ),
+        react.createElement("p", { className: "as-tip" },
+          "★ 判据：随便挑一条结论，你能不能在三步之内回到它的原话？",
+          react.createElement("b", null, "能 → 结构是对的；不能 → 你已经在依赖转述了。")
+        ),
+
+        react.createElement("p", { className: "as-sub" },
+          "★ 这四件的共同点：",
+          react.createElement("b", null, "它们都不是「知识」，是「你亲手搭的那一层」。"),
+          " 插件能给你能力，给不了你账本里的内容、也给不了你的自我层 —— 那些只能是你的。"
+        ),
+
         /* ── 五、档案层与宪章（结构指导，不是内容）──────── */
         h("Ⅳ 档案层：账本与宪章该怎么搭", "h5"),
         react.createElement(
