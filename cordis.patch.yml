@@ -1,0 +1,6 @@
+# dsh-agent-soul bundle patch。
+# 用途：把「一个 agent 该怎么搭自己的灵魂」这套问法 + 判据 + 自检装进宿主。
+# 它不注册任何改变行为的钩子 —— 只加三个只读工具。
+- insert:
+    - id: dsh-agent-soul
+      name: dsh-agent-soul

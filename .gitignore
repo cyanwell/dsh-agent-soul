@@ -1,0 +1,10 @@
+node_modules/
+*.log
+*.bak
+*.bak-*
+.DS_Store
+Thumbs.db
+# 本机调试产物：插件开发时临时放在包根目录的东西
+_gen.py
+_probe*.mjs
+selftest.mjs

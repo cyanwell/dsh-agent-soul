@@ -1,0 +1,29 @@
+{
+  "name": "dsh-agent-soul",
+  "version": "0.1.0",
+  "description": "A portable architecture for an agent's own soul: five layers, four criteria, a manifest, a self-check, and a reference implementation. It ships questions, not answers.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "agent",
+    "memory",
+    "context",
+    "architecture"
+  ]
+}
