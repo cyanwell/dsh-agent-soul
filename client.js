@@ -163,6 +163,23 @@ window.__ModuleLoader__.load({
       ["dsh-agent-echo", "哨兵 · 体检台", "（在做）把记忆中枢的状态摆出来"],
     ];
 
+    /* ★ 非自研的那一半 —— 一份完整的记忆系统不可能全靠自己写。
+       这些是外面已经有的、直接能装的。 */
+    const REQUIRES = [
+      [
+        "dsh-mnemon",
+        "长期记忆控制面",
+        "三层记忆空间 + 召回。★ 它自己带了 16 个子包（9 个 provider 适配器、3 个来源、4 个策略），所以只需要装这一个",
+        "https://github.com/omdsh-dev/dsh-mnemon",
+      ],
+      [
+        "billion-context-dsh",
+        "ACP · 模型驱动的压缩",
+        "让 agent 自己写摘要的那条路（和「兜底压缩」是两条路，见 soul/02-echo.md）",
+        null,
+      ],
+    ];
+
     const TOOLS = [
       {
         name: "agent_soul_layers",
@@ -323,6 +340,44 @@ window.__ModuleLoader__.load({
             ORGANS_REPO.replace("https://", "")
           ),
           " —— 每个目录都是一个独立的 DSH 插件包，README 里写着它防的是什么。"
+        ),
+
+        /* ★ 非自研的那一半 */
+        react.createElement(
+          "p",
+          { className: "as-sub" },
+          "★ 上面那四个只是我们自己写的那一半。",
+          react.createElement("b", null, "一份完整的记忆系统不可能全靠自己写"),
+          " —— 下面这些是外面已经有的："
+        ),
+        react.createElement(
+          "ul",
+          { className: "as-list as-organs" },
+          REQUIRES.map(function (r) {
+            return react.createElement(
+              "li",
+              { key: r[0] },
+              react.createElement("span", { className: "as-file" }, r[0]),
+              react.createElement(
+                "span",
+                null,
+                react.createElement("b", null, r[1]),
+                " —— ",
+                r[2],
+                r[3]
+                  ? react.createElement(
+                      "span",
+                      { className: "as-when" },
+                      react.createElement(
+                        "a",
+                        { href: r[3], target: "_blank", rel: "noreferrer noopener" },
+                        r[3].replace("https://", "")
+                      )
+                    )
+                  : null
+              )
+            );
+          })
         ),
         react.createElement(
           "p",
