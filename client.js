@@ -175,7 +175,7 @@ window.__ModuleLoader__.load({
     /* ★ 另一类：不是 DSH 插件，是独立命令行工具。
        前面那十三个是「挂在 DSH 上的」，这些是「在命令行里跑的」——
        装法、目录结构都不同，所以单列。 */
-    const TOOLS = [
+    const PARTS_CLI = [
       ["tools/ledger", "账本 + 权限闸门", "只追加的记录文件。★ 没有它，记忆只是一堆散落文件"],
       ["tools/gateway", "门 + 索引", "一扇门搜全库，只回指针 + 逐字片段（★ 在建）"],
     ];
@@ -379,7 +379,7 @@ window.__ModuleLoader__.load({
         react.createElement(
           "ul",
           { className: "as-list as-organs" },
-          TOOLS.map(function (o) {
+          PARTS_CLI.map(function (o) {
             return react.createElement(
               "li",
               { key: o[0] },
