@@ -203,7 +203,10 @@ node tools/verify-live.mjs --profile <profile 目录>
 
 # ② 运行时：现在管压缩的是谁
 dsh plugin --profile <profile> add "file:<仓库>/tools/soul-probe"
-# 重启后看 D:/AI/dsh-slots/logs/probe-compaction.log
+# 重启后看探针日志。默认在系统临时目录：
+#   <tmp>/dsh-soul-probe-compaction.log
+# 想指定路径就设 SOUL_PROBE_LOG=<你的路径> 再重启。
+# ★ 探针写不进去会在 stderr 说一次 —— 那不代表压缩没接管，别读反了。
 # ctor 是 YanqingCompaction = 接管成功；BasicCompactionEngine = 没接管
 ```
 
@@ -244,7 +247,7 @@ node tools/verify-live.mjs --profile <你的 profile 目录>
 **③ 探针那一行**
 
 ```bash
-cat <探针日志目录>/probe-compaction.log | tail -2
+cat "${SOUL_PROBE_LOG:-<tmp>/dsh-soul-probe-compaction.log}" | tail -2
 ```
 
 `ctor` 是整条 ECHO 里最硬的一条证据：**现在管压缩的是谁**。

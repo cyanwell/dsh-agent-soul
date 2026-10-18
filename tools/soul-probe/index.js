@@ -9,14 +9,32 @@
 //   两者都不像 / ctx 读不到 → 说明服务在另一个 realm 里（isolate），探针看不见
 
 import { appendFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-const OUT = 'D:/AI/dsh-slots/logs/probe-compaction.log'
+// ★ 别写死本机路径。原先这里是 `D:/AI/dsh-slots/logs/probe-compaction.log`，两个问题：
+//   ① 换一台机器，那个目录不存在 → 写入失败 → 被下面的 catch 吞掉 →
+//      于是「探针没写」和「压缩没被接管」在现象上**分不开**，读的人会得出相反结论。
+//   ② 就算那台机器碰巧有同名目录，也是在往别人的目录里写。
+//   现在：优先 `SOUL_PROBE_LOG`，否则落到系统临时目录（一定可写）。
+const OUT = process.env.SOUL_PROBE_LOG || join(tmpdir(), 'dsh-soul-probe-compaction.log')
+
+let warned = false
 
 function log(tag, obj) {
   try {
     appendFileSync(OUT, new Date().toISOString() + ' [' + tag + '] ' + JSON.stringify(obj) + '\n', 'utf8')
-  } catch {
-    // 探针自己不许把宿主搞挂
+  } catch (e) {
+    // ★ 探针自己不许把宿主搞挂 —— 但也**不许一声不吭**。
+    //   只说一次（避免每帧刷屏），并且把「写不进去」这件事本身说清楚：
+    //   它是「探针坏了」，不是「压缩没接管」。
+    if (!warned) {
+      warned = true
+      try {
+        console.error(`[soul-probe] 探针写不进 ${OUT}：${e && e.message ? e.message : e}\n` +
+          `  → 这是探针写不了日志，**不代表压缩没被接管**。设 SOUL_PROBE_LOG 换个可写路径。`)
+      } catch { /* 连 stderr 都没有就算了 */ }
+    }
   }
 }
 

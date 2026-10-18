@@ -12,6 +12,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { registerInstallTool } from './install.js'
+import { runKit, envFromArgs, tryJson } from './kit-bridge.mjs'
 
 export const name = 'dsh-agent-soul'
 
@@ -162,6 +163,7 @@ export function apply(ctx) {
         '07-bundle.json',
         '08-踩坑实录.md',
         '09-dev-workflow.md',
+        '10-echo-anatomy.md',
       ]
       const checks = []
       for (const f of files) {
@@ -190,4 +192,198 @@ export function apply(ctx) {
   // ★ 它只给命令，不执行安装。理由写在 install.js 顶上三条。
   //   和前面三个工具的分工：那三个回答「该有什么」，这一个回答「还缺什么、下一步跑什么」。
   registerInstallTool(ctx)
+
+  // ══════════════════════════════════════════════════════════════════
+  //  ★ 下面三个是「驱动器」——它们**动手**，不只回答问题。
+  //    前面四个工具说「该有什么」，这三个说「下一步做这一件」，并且能真去做。
+  //
+  //  ★ 三个工具的公共参数（都可选）：soul / memory / sessions / runtime。
+  //    不传就让 kit 自己推断；推断不出来它会 exit 2 并说清缺什么 —— 不许猜，
+  //    猜错就是去读别人的记忆。
+  // ══════════════════════════════════════════════════════════════════
+
+  const roots = {
+    type: 'object',
+    properties: {
+      soul: { type: 'string', description: '书房目录（你的 02-墨.jsonl 和那十一个目录所在的地方）' },
+      memory: { type: 'string', description: '记忆中枢目录（索引和 SELF.md 所在）' },
+      sessions: { type: 'string', description: 'DSH 会话日志目录（可选）' },
+      runtime: { type: 'string', description: 'mnemon 之类的运行时目录（可选）' },
+    },
+    required: [],
+  }
+
+  // ── 工具 5：下一步做哪一件 ──────────────────────────────────────────
+  ctx.tools.register({
+    name: 'agent_soul_plan',
+    description:
+      '告诉你现在该做的下一件事 —— 只给一件，并说清为什么是这件、怎么做。' +
+      '它按依赖顺序检查六层：配置 → 目录 → 自我层 → 账本 → 索引 → 体检，' +
+      '找到第一件没做完的就停下来。做完再问一次，它会给下一件。' +
+      '★ 这是「装完就驱动」的入口：不知道从哪下手的时候问它。',
+    parameters: roots,
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          ok: { type: 'boolean' },
+          done: { type: 'boolean' },
+          step: { type: 'number' },
+          total: { type: 'number' },
+          id: { type: 'string' },
+          title: { type: 'string' },
+          why: { type: 'string' },
+          how: { type: 'array', items: { type: 'string' } },
+          detail: { type: 'array', items: { type: 'string' } },
+          text: { type: 'string' },
+          error: { type: 'string' },
+        },
+      },
+      render: (_a, v) => asText(v.text ?? v),
+    },
+    execute: async (args = {}) => {
+      const r = await runKit('plan.mjs', ['--json'], envFromArgs(args))
+      const j = tryJson(r.stdout)
+      if (!j) {
+        return {
+          ok: false, done: false, step: 0, total: 6, id: '', title: '', why: '',
+          how: [], detail: [], text: '',
+          error: 'plan.mjs 没给出可解析的输出。它自己的话：\n' + (r.stderr || r.stdout || '（空）'),
+        }
+      }
+      const lines = []
+      if (j.done) {
+        lines.push('六层都在了。接下来就是拿它做事。')
+        lines.push(`  书房  ${j.config?.soul ?? '?'}`)
+        lines.push(`  中枢  ${j.config?.memory ?? '?'}`)
+      } else {
+        lines.push(`第 ${j.step} / ${j.total} 步：${j.title}`)
+        lines.push('')
+        lines.push(`为什么是这件：${j.why}`)
+        if (j.detail?.length) {
+          lines.push('')
+          lines.push('挡住你的是什么：')
+          for (const d of j.detail) lines.push('  ✗ ' + d)
+        }
+        lines.push('')
+        lines.push('怎么做：')
+        for (const h of j.how || []) lines.push('  ' + h)
+        lines.push('')
+        lines.push('做完这一件，再问一次 —— 会给下一件。')
+      }
+      return { ok: true, ...j, text: lines.join('\n') }
+    },
+  })
+
+  // ── 工具 6：搭骨架 ──────────────────────────────────────────────────
+  ctx.tools.register({
+    name: 'agent_soul_scaffold',
+    description:
+      '搭出记忆架构的骨架：十一个目录 + 账本 + AGENTS.md + 术语表 + SELF 模板。' +
+      '★ 默认只干跑（报计划，一个字节都不动）；apply=true 才真建。' +
+      '★ 已经存在的东西一律不碰 —— 重复跑安全，也不会覆盖你改过的内容。',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        apply: { type: 'boolean', description: 'true = 真建；默认 false = 只报计划' },
+        ...roots.properties,
+      },
+      required: [],
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          ok: { type: 'boolean' },
+          applied: { type: 'boolean' },
+          text: { type: 'string' },
+          error: { type: 'string' },
+        },
+      },
+      render: (_a, v) => asText(v.text ?? v),
+    },
+    execute: async (args = {}) => {
+      const argv = args.apply ? ['--apply'] : []
+      const r = await runKit('scaffold.mjs', argv, envFromArgs(args))
+      // scaffold 在配置不全时 exit 2 —— 那不是「坏了」，是「还差东西」，原样告诉人
+      const out = (r.stdout || '') + (r.stderr ? '\n' + r.stderr : '')
+      return {
+        ok: r.ok || r.code === 2,
+        applied: !!args.apply,
+        text: out || '（scaffold 没有输出，这不正常）',
+        error: r.ok ? undefined : `退出码 ${r.code}`,
+      }
+    },
+  })
+
+  // ── 工具 7：六层体检 ────────────────────────────────────────────────
+  ctx.tools.register({
+    name: 'agent_soul_check',
+    description:
+      '给六层做一次体检：会话日志 / 门牌回取 / 压缩机制 / 索引层 / 推送层 / 心跳 / 账本 / ' +
+      '热记忆 / 身份判据 / 换气。★ 它**会判定，不只是朗读** —— ' +
+      'error 表示「坏了」，warn 表示「还没装或还没开始用」（后者是正常的）。',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        deep: { type: 'boolean', description: '深检（会解日志，慢一些）；默认 true' },
+        ...roots.properties,
+      },
+      required: [],
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          ok: { type: 'boolean' },
+          verdict: { type: 'string' },
+          errors: { type: 'number' },
+          warns: { type: 'number' },
+          checks: { type: 'array', items: { type: 'object', additionalProperties: true } },
+          text: { type: 'string' },
+          error: { type: 'string' },
+        },
+      },
+      render: (_a, v) => asText(v.text ?? v),
+    },
+    execute: async (args = {}) => {
+      const argv = args.deep === false ? ['--json', '--fast'] : ['--json']
+      const r = await runKit('echo-doctor.mjs', argv, envFromArgs(args))
+      const j = tryJson(r.stdout)
+      if (!j) {
+        return {
+          ok: false, verdict: 'unknown', errors: 0, warns: 0, checks: [], text: '',
+          error: 'echo-doctor 没给出可解析的输出。它自己的话：\n' + (r.stderr || r.stdout || '（空）'),
+        }
+      }
+      const checks = j.checks || []
+      const errors = checks.filter((c) => c.status === 'error').length
+      const warns = checks.filter((c) => c.status === 'warn').length
+      const lines = []
+      lines.push(`体检：${j.verdict ?? (errors ? 'error' : warns ? 'warn' : 'ok')}`)
+      lines.push(`  ${errors} 错 / ${warns} 警 / ${checks.length} 项`)
+      lines.push('')
+      for (const c of checks) {
+        const mark = c.status === 'ok' ? '✓' : c.status === 'error' ? '✗' : c.status === 'warn' ? '!' : '·'
+        lines.push(`  ${mark} ${c.label}　${c.detail ?? ''}`)
+      }
+      if (errors) {
+        lines.push('')
+        lines.push('★ 有 error。别往上加东西，先修它 —— 体检器是「坏了会告诉你」的那层保险。')
+      }
+      return {
+        ok: errors === 0,
+        verdict: String(j.verdict ?? ''),
+        errors,
+        warns,
+        checks,
+        text: lines.join('\n'),
+      }
+    },
+  })
 }

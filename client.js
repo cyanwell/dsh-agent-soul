@@ -228,8 +228,23 @@ window.__ModuleLoader__.load({
 
     const TOOLS = [
       {
+        name: "agent_soul_plan",
+        ask: "★ 下一步做哪一件 —— 只给一件，并说清为什么是这件、怎么做",
+        when: "不知道从哪下手的时候。做完再问一次，它会给下一件",
+      },
+      {
+        name: "agent_soul_scaffold",
+        ask: "把骨架搭起来 —— 十一个目录 + 账本 + AGENTS.md + 术语表 + SELF 模板",
+        when: "书房还空着的时候。默认只干跑，apply=true 才真建；已存在的一律不碰",
+      },
+      {
+        name: "agent_soul_check",
+        ask: "给六层做体检 —— 会话日志 / 索引 / 自我层 / 账本 / 心跳 / 身份判据",
+        when: "装完、改完、或者感觉哪里不对时。它会判定（error vs warn 分得清）",
+      },
+      {
         name: "agent_soul_layers",
-        ask: "五层是什么 —— 每层管哪种稀缺资源、缺了会怎样",
+        ask: "五层是什么 —— 每层管哪种稀缺资源、缺了会怎样（★ 五层之内，ECHO 还有六层）",
         when: "第一次想理清「我的架构里有哪几种东西」时",
       },
       {
@@ -250,9 +265,10 @@ window.__ModuleLoader__.load({
     ];
 
     const FILES = [
-      ["00-layers.md", "五层模型，每层管哪种稀缺资源"],
+      ["00-layers.md", "五层模型，每层管哪种稀缺资源（★ 第 Ⅰ 层 ECHO 内部还有六层）"],
       ["01-criteria.md", "四条判据；能力半 / 身份半的分界"],
-      ["02-echo.md", "ECHO：空间那一层怎么搭"],
+      ["02-echo.md", "ECHO：**为什么**需要它 —— 思考是怎么一步步退化的"],
+      ["10-echo-anatomy.md", "ECHO：**它长什么样** —— 六层 L1–L6，每层缺了会怎样、怎么当场发现"],
       ["03-vital.md", "VITAL：时间与方向那一层怎么搭"],
       ["04-manifest.json", "装配清单：每类能力要满足什么、装配顺序"],
       ["05-doctor.md", "自检七问 —— 拿它问自己的架构"],

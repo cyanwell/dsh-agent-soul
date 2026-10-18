@@ -113,7 +113,7 @@ boot 后 1.2 秒和 5 秒各读一次 `ctx.get('compaction')`，把结果写进�
 ```powershell
 # 装进 profile
 dsh plugin --profile <名字> add "file:<仓库>/tools/soul-probe"
-# 重启，然后看 D:/AI/dsh-slots/logs/probe-compaction.log
+# 重启，然后看探针日志（默认 <tmp>/dsh-soul-probe-compaction.log；可用 SOUL_PROBE_LOG 指定）
 ```
 
 判读三件事：

@@ -1,7 +1,7 @@
 {
   "name": "dsh-agent-soul",
   "version": "0.1.0",
-  "description": "A portable architecture for an agent's own soul: five layers, four criteria, a manifest, a self-check, and a reference implementation. It ships questions, not answers.",
+  "description": "An architecture for an agent's own soul — and a driver that builds it. Six layers of memory (ECHO), an eleven-directory soul layout, and a homeostasis layer (VITAL). Its tools do the next step instead of handing you a questionnaire.",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -24,6 +24,9 @@
     "agent",
     "memory",
     "context",
-    "architecture"
+    "architecture",
+    "echo",
+    "vital",
+    "scaffold"
   ]
 }
