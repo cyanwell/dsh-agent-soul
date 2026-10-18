@@ -89,6 +89,78 @@ dsh plugin --profile <名字> add file:<本仓库>/plugins/<目录>
 
 ---
 
+## ★★ 2026-10-18 · 在真沙箱里装了一遍，撞出四个洞
+
+上面三处是**读代码**读出来的。下面四处是**真的装**才撞出来的 ——
+前三个洞用 mock 测、用眼睛看，都发现不了。
+
+**一、`dsh plugin add` 在这台机器上根本跑不了：pnpm 不在 PATH。**
+
+```
+'pnpm' is not recognized as an internal or external command,
+operable program or batch file.
+dsh: pnpm failed in profile directory <profile>
+```
+
+`dsh plugin` 内部转发给 pnpm，而本机（workbuddy 带的 node 22.22.2）**没有 pnpm**。
+`corepack enable` 也失败（它要往 node 目录写 shim，报 `Internal Error: not found: corepack`）。
+
+★ **能用的路**：`corepack pnpm` 本身是好的（它会自己下载 pnpm 12.14.0 到
+`%LOCALAPPDATA%\node\corepack\v1\pnpm\<ver>\`）。所以造一层薄壳放进 PATH 就行：
+
+```bat
+@echo off
+"<node.exe 的绝对路径>" "<node 目录>\node_modules\corepack\dist\corepack.js" pnpm %*
+```
+
+★ 两个坑：`dist` 下是 **`corepack.js`** 不是 `corepack.cjs`；`corepack enable` 失败不等于 `corepack pnpm` 不能用。
+
+**二、`compaction` 和 `pruner` 装完是死的 —— 它们没有 `dsh.bundle`。**
+
+13 个零件里 11 个有 `dsh.bundle`，只有这两个没有。装的时候 DSH 会明确警告：
+
+```
+warning: dsh-agent-compaction declares no dsh.bundle —
+installed as a plain dependency, not a profile layer
+(a later update that gains one activates it automatically)
+```
+
+**装了、退出码 0、但不会被加载。** 而且这正是第五层 ECHO 的地基 ——
+最要紧的两个，恰好是最装不上的两个。
+
+★ **根因**（不是疏漏，是形状不同）：它们 `export default class ... extends BasicCompactionEngine` /
+`extends ToolResultPruner`，**是引擎类的替代实现，不是 cordis 插件**。
+标准插件是 `export const name` + `export function apply` + `export default { name, apply }`。
+
+★ **⇒ 这两个包的 README 写着「用 `dsh plugin add` 装」，与实际形状矛盾。**
+要么给它俩补一层薄壳插件（`cordis.patch.yml` + 一个 `apply()` 里去替换引擎），
+要么把 README 改成「手动放到 profile 的 node_modules 并配 cordis.patch.yml 替换引擎」。
+**这件事还没做完，下一个接手的人从这里开始。**
+
+**三、`plugins/compaction` 目录里连 `cordis.patch.yml` 都没有。**
+
+只有 `index.js` / `package.json` / `README.md` 三个文件。
+对照 11 个有 bundle 的包，每个都带 `cordis.patch.yml`。**所以洞二不是「漏写字段」，是整个加载层缺了。**
+
+---
+
+## ★ 判据：装完怎么知道它活了
+
+**「文件复制过去了」不是判据。** 每一行都该有自己的验法：
+
+| 插件 | 验它活了 |
+|---|---|
+| `compaction` | 兜底压出来的 checkpoint 里**有没有 `log:<会话>#seq=<n>` 指针块** |
+| `pruner` | 被裁掉的工具结果**有没有替换成指向原文的标记** |
+| `memory` | 会话的 system prompt 里**有没有时钟 + 自我层** |
+| `clock` | 同上，看末尾那段诊断 |
+| 带 `client.js` 的 | 页面上**那块 UI 真渲染出来了**，不只是 Host 报 running |
+
+★ 最后一条是踩过的坑：客户端半的 `exports.inject = ["slots"]` 漏了，
+**Host 显示 running、控制台零报错、页面上什么都没有** —— 彻底静默失效。
+
+---
+
 ## 来源
 
 这部分在重构时从 `dsh-agent-organs` 迁入，原仓库保留作为开发源头。
