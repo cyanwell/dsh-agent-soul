@@ -51,3 +51,46 @@ dsh plugin --profile <名字> add file:<本仓库>/plugins/<目录>
 ```
 
 `agent_soul_install` 的 `plan` 就是按这个顺序给的，不用自己记。
+
+---
+
+## ★ 已知的源缺陷（不是你装错了）
+
+迁移时核出来三处**源仓库本来就带的毛病**。写在这里，免得复刻的人对着它们查半天：
+
+**一、四个 README 还在让你跑一个已被排除的文件。**
+
+`huanqi-panel` / `model-statusbar` / `riji` / `yantai` 的 README 里写着
+`node selftest.mjs`，但那个文件**没有迁进来**（`.gitignore` 规则排除本机自测脚本）。
+
+★ 这不影响插件运行 —— `selftest.mjs` 只是开发时的手动自测，装插件不需要它。
+你看到「文件不存在」是对的，不是你拷漏了。
+
+**二、`model-statusbar/package.json` 的 `files` 列了两个不存在的文件。**
+
+```json
+"files": ["index.js", "client.js", "cordis.patch.yml", "probe.ps1",
+          "selftest.mjs",        // ← 迁移时排除
+          "verify-gui.expr.js",  // ← ★ 源仓库里本来就没有这个文件
+          "README.md"]
+```
+
+`verify-gui.expr.js` 在源仓库也不存在 —— 是当初写 `files` 时多写的一行，不是迁移造成的。
+`files` 字段只影响 `npm pack` 打包，**不影响 DSH 加载**，所以装的时候不会报错。
+
+**三、`model-statusbar` 名实不符（清单里也标了）。**
+
+它按层位归在 Ⅱ「状态读数」那一格，但实际读的是**本地模型服务**（ComfyUI 的进程/显存/静息），
+不是上下文水位。真正读水位的是 `yantai`。清单里把这处写明了，
+因为复刻的人该知道这个格子里的实物和名字不完全对得上。
+
+★ 这三处都是在**源仓库**里的，本仓库只是照实搬过来，**没有改源码**。
+改源码会让这份副本和源头分叉，那比带着毛病更糟 —— 毛病能查，分叉查不出来。
+
+---
+
+## 来源
+
+这部分在重构时从 `dsh-agent-organs` 迁入，原仓库保留作为开发源头。
+迁入的是**源码**：不含 `node_modules`、不含演示视频、不含本机调试产物。
+98 个文件的 SHA-256 与源逐一对得上。
