@@ -274,11 +274,24 @@ export function registerInstallTool(ctx) {
         const { names, bundles } = await installedPackages(profile)
         const isDesktop = /[\\/]desktop$/.test(profile)
 
-        const allDirs = [
-          'compaction', 'pruner', 'memory', 'echo',
-          'clock', 'model-statusbar', 'huanqi', 'huanqi-panel',
-          'mobile-adapt', 'riji', 'splash', 'yantai',
-        ]
+        // ★★ 2026-10-18 改：原来这张表是硬编码的，和 soul/07-bundle.json 各记一份 ——
+        //   两处会漂（bundle 加了件，这里忘了加，于是那个件永远不会被报「缺」）。
+        //   现在以 bundle 为唯一真相；读不到才退回硬编码。
+        let bundle = null
+        try {
+          bundle = JSON.parse(await readFile(join(HERE, 'soul', '07-bundle.json'), 'utf8'))
+        } catch { /* 读不到就用兜底 */ }
+        const bundleParts = new Map()
+        if (bundle && Array.isArray(bundle.parts)) {
+          for (const p of bundle.parts) bundleParts.set(p.dir, p)
+        }
+        const allDirs = bundleParts.size
+          ? [...bundleParts.keys()]
+          : [
+              'compaction', 'pruner', 'memory', 'echo',
+              'clock', 'model-statusbar', 'huanqi', 'huanqi-panel',
+              'mobile-adapt', 'riji', 'splash', 'yantai',
+            ]
         const installed = allDirs.filter((d) => names.has(PKG(d)))
         const missing = allDirs.filter((d) => !names.has(PKG(d)))
         // ★ 装进 node_modules 但没进 bundles 的，等于「文件在、没启用」——
@@ -302,6 +315,27 @@ export function registerInstallTool(ctx) {
           lines.push('【缺】')
           if (missing.length === 0) lines.push('  （齐了）')
           for (const d of missing) lines.push('  ' + PKG(d))
+
+          // ★ 三种依赖。最有价值的是 reads —— 它回答「装了这个，我还必须建出什么」。
+          const withNeeds = [...installed, ...missing]
+            .map((d) => [d, bundleParts.get(d)])
+            .filter(([, p]) => p && ((p.needs && p.needs.length) || (p.reads && p.reads.length)))
+          if (withNeeds.length) {
+            lines.push('')
+            lines.push('【装了之后还缺什么，它才有用】')
+            for (const [d, p] of withNeeds) {
+              lines.push('  ' + PKG(d))
+              for (const n of p.needs || []) {
+                lines.push('     · 需要同时装 ' + n.what + '：' + n.why)
+              }
+              for (const r of p.reads || []) {
+                lines.push('     · 读「' + r.what + '」—— 缺了会：' + r.missing)
+              }
+            }
+            lines.push('')
+            lines.push('  ★ 「成功但空着」是最难查的一种坏 —— 插件没报错，界面能开，只是没内容。')
+            lines.push('    先确认上面这些产物在不在，再怀疑插件。')
+          }
           if (notBundled.length > 0) {
             lines.push('')
             lines.push('★ 有 ' + notBundled.length + ' 个是「文件在、没启用」：' + notBundled.map(PKG).join(', '))
