@@ -29,7 +29,18 @@ export const inject = ['webServer']
 // ★ 三个可配项 —— NODE 默认用【当前进程自己那个 node】，所以通常不用配。
 //   HUB 是「体检器 + 你的记忆库」所在目录；DOCTOR 是体检脚本。
 const NODE = process.env.ECHO_NODE || process.execPath
-const HUB = process.env.ECHO_HUB || path.join(path.dirname(fileURLToPath(import.meta.url)), 'runtime')
+// ★★★ HUB 解析（2026-10-18 沙箱实测修）：
+//   打包时 `echo-doctor.mjs` 就在**插件根目录**（和这个文件同级），不在 runtime/。
+//   而原来默认指 `<plugin>/runtime` —— 装完只要没配 ECHO_HUB，那个目录根本不存在，
+//   于是 spawn 找不到脚本 → 空输出 → JSON.parse('') → 面板报
+//   「体检器本身 · 输出不是 JSON」，**11 项检查一项都没跑**，整个哨兵是红的。
+//   而 README 写的是「不配也能跑，只是每项报读不到」—— 那是不成立的。
+//
+//   现在三级：ECHO_HUB（用户自定记忆库）> <plugin>/runtime（那里真有 doctor 才算）> <plugin>/ 本身。
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+const RUNTIME = path.join(HERE, 'runtime')
+const HUB = process.env.ECHO_HUB
+  || (fs.existsSync(path.join(RUNTIME, 'echo-doctor.mjs')) ? RUNTIME : HERE)
 const DOCTOR = process.env.ECHO_DOCTOR || path.join(HUB, 'echo-doctor.mjs')
 const MEMINDEX = path.join(HUB, 'memindex.mjs')
 const SELFMJS = path.join(HUB, 'self.mjs')

@@ -368,7 +368,7 @@ function checkIndex(logs) {
   };
 }
 
-function checkSelf() {
+function checkSelf(logs, deep) {
   const st = statSafe(SELF_MD);
   // ★ 还没装配 → warn（改完 SELF.src.md 跑一次 self.mjs 就好）。
   //   装配过却长期没更新 → 那才是后面的滞后判据要管的事。
@@ -377,13 +377,39 @@ function checkSelf() {
   const txt = readText(SELF_MD) || "";
   const sizeLine = /(\d+)\s*B\s*\/\s*预算\s*(\d+)\s*B/.exec(txt);
   const pct = sizeLine ? Math.round((Number(sizeLine[1]) / Number(sizeLine[2])) * 100) : null;
+  // ★★ 文件在 ≠ 被读到。2026-10-18 沙箱实测踩到的假绿：
+  //    SELF.md 明明装配好了，每轮 runtime context 还在喊「SELF.md 读不到（./SELF.md）」——
+  //    因为 dsh-agent-memory 的 selfPath 指向别处（默认 './SELF.md'），而 scaffold 把它写在 memory/hub/。
+  //    只查「文件存在」的话，这一项永远 ✓，而推送层其实一点没吃到。
+  //    所以深检要从**真实注入过的日志**里找证据 —— 这是唯一的硬判据。
+  let injected = null // null = 快检，没验
+  if (deep) {
+    const targetLog = logs.find((l) => l.bytes > 0)
+    if (targetLog) {
+      try {
+        const { events } = decodeCached(targetLog.file)
+        const raw = events.map((e) => JSON.stringify(e.data || {})).join("\n")
+        if (raw.includes("SELF.md 读不到")) injected = false
+        else if (raw.includes("自我层") || raw.includes("SELF.md")) injected = true
+      } catch { /* 解不出来就不下结论，别猜 */ }
+    }
+  }
+  if (injected === false) {
+    return {
+      id: "self", label: "推送层 SELF", status: "error",
+      detail: `SELF.md 在磁盘上（${st.size} B），但最近一轮注入时读不到 —— 查 dsh-agent-memory 的 selfPath 指到哪了，现在它多半在找 ./SELF.md`,
+      evidence: { bytes: st.size, path: SELF_MD, injected: false },
+    }
+  }
+
   let status = "ok";
   if (h > 72) status = "error"; else if (h > 24) status = "warn";
   if (pct !== null && pct > 95 && status === "ok") status = "warn";
   return {
     id: "self", label: "推送层 SELF", status,
-    detail: `${st.size} B${pct !== null ? `（预算 ${pct}%）` : ""}，装配于 ${iso(st.mtime)}（${round1(h)} 小时前）`,
-    evidence: { bytes: st.size, usedPct: pct, ageHours: round1(h) },
+    detail: `${st.size} B${pct !== null ? `（预算 ${pct}%）` : ""}，装配于 ${iso(st.mtime)}（${round1(h)} 小时前）`
+      + (injected === true ? "，最近的注入里读到了" : injected === null ? "" : ""),
+    evidence: { bytes: st.size, usedPct: pct, ageHours: round1(h), injected },
   };
 }
 
@@ -548,7 +574,7 @@ export function runDoctor(opts = {}) {
     checkDoorSign(logs, deep),
     checkCompaction(logs, deep),
     checkIndex(logs),
-    checkSelf(),
+    checkSelf(logs, deep),
     checkHeartbeat(),
     checkMo(),
     checkHotMemory(),

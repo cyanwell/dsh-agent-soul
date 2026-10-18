@@ -213,12 +213,17 @@ function main() {
     console.log('  下一步：');
     console.log(`    1. 改 ${selfSrc.replace(/\\/g, '/')} 里的占位符，然后跑：`);
     console.log(`         node ${path.join(HERE, 'self.mjs').replace(/\\/g, '/')}`);
-    console.log(`    2. 填 ${vitalSrc.replace(/\\/g, '/')} —— 四张表，全空着；`);
+    console.log(`    2. ★ 让推送层真的读到它 —— 在 profile 的 cordis.patch.yml 里给 dsh-agent-memory 配：`);
+    console.log(`         config:`);
+    console.log(`           selfPath: '<${path.join(CFG.HUB, 'SELF.md').replace(/\\/g, '/')}>'`);
+    console.log(`       ★ 这一步不做，SELF.md 就是个摆设：文件在磁盘上，但每轮注入时读不到。`);
+    console.log(`         echo-doctor 的「推送层 SELF」会一直红，而删掉这一项检查它就永远绿 —— 那才是假绿。`);
+    console.log(`    3. 填 ${vitalSrc.replace(/\\/g, '/')} —— 四张表，全空着；`);
     console.log(`       ★ 只挑你真撞过的那一个资源填满，其余留空。编出来的阈值会跟着你很久。`);
-    console.log(`    3. node ${path.join(HERE, 'memindex.mjs').replace(/\\/g, '/')} build`);
-    console.log(`    4. node ${path.join(HERE, 'echo.mjs').replace(/\\/g, '/')} --dom-stat`);
+    console.log(`    4. node ${path.join(HERE, 'memindex.mjs').replace(/\\/g, '/')} build`);
+    console.log(`    5. node ${path.join(HERE, 'echo.mjs').replace(/\\/g, '/')} --dom-stat`);
     console.log('');
-    console.log('  这四步全过，六层 + 稳态就立起来了。');
+    console.log('  这五步全过，六层 + 稳态就立起来了 —— 而且「全过」是能验的，不是感觉。');
     console.log('');
   }
 }
