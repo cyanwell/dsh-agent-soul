@@ -51,9 +51,23 @@ dsh plugin --profile <你的profile> add "file:D:\path\to\dsh-agent-soul"
 
 **照着跑就行。** 装一个重启一次，再 `action=plan` 看下一步。
 
+### 4. 装完第一件事：跑 doctor
+
+装完最后一个零件，**先别急着用**。新开一个会话，说：
+
+> 跑 `agent_soul_doctor`
+
+它拿四条判据逐条问：这层管哪种稀缺资源、唯一权威源在哪、坏了长什么样怎么**当场**发现、
+别人（或下一代的你）怎么一句话问到它。
+
+**答不出来就是没搭对。** 这时候按它说的补，比用着用着才发现问题便宜太多。
+
+★ 别把这一步放到最后。它是**你和这套架构的第一次对话**，应该发生在装完的那一刻，
+而不是出问题之后。
+
 ---
 
-## 四个坑（每一个都是实测撞出来的）
+## 五个坑（每一个都是实测撞出来的）
 
 ### 坑 1 · `'pnpm' is not recognized`
 
@@ -138,6 +152,45 @@ $pj.dsh.profile.bundles = @() + ($move | Where-Object { $cur -contains $_ }) + $
 
 详见 [`plugins/compaction/HOW-TO-TAKEOVER.md`](plugins/compaction/HOW-TO-TAKEOVER.md)。
 
+### 坑 5 · 装完了、没报错、但它没在工作
+
+这是**最像成功的一种失败**。`dsh-agent-echo` 要在自己目录下找三个脚本才能跑：
+
+```
+HUB = <包目录>/runtime          ← 默认值，可用 ECHO_HUB 环境变量覆盖
+  ├── echo-doctor.mjs           体检器
+  ├── memindex.mjs              记忆索引
+  └── self.mjs                  每轮注入的自我层
+```
+
+**这三个脚本不在 npm 包里** —— 它们是「你的记忆库」工具，得你自己有。
+
+所以会出现这一串全绿：
+
+- 装上了 ✓
+- 加载了 ✓（`dsh.bundle` 也对）
+- `verify-live` 通过 ✓
+- `agent_soul_doctor` 也过 ✓
+
+**但它调不起体检，也不写 `echo-panel.json`。**
+
+因为写配置那一行包在 `try/catch` 里，失败**不报错、不打日志、不出一行字**。
+
+**怎么当场发现**：
+
+```bash
+ls <profile>/node_modules/dsh-agent-echo/runtime/echo-panel.json
+```
+
+文件不在，就是没在跑。这条查一次十秒钟，比事后猜一晚上便宜。
+
+**怎么修**：把需要的脚本放进 `runtime/`，或者用 `ECHO_HUB` 指到你已有的记忆库目录。
+只要记忆检索的话，`memindex.mjs` 就够；`self.mjs` 管的是「每轮注入自我层」那一套，
+没有它 echo 不会注入，但也不会崩。
+
+★ 这条真正想说的是：**「装上了」和「在跑」是两件事。**
+`verify-live` 和 `doctor` 能验前者，验不了后者 —— 后者只有你自己知道。
+
 ---
 
 ## 装完怎么验
@@ -164,6 +217,57 @@ chain:     ["YanqingCompaction","BasicCompactionEngine","CompactionEngine","Serv
 
 还有一件事脚本验不到：**客户端半的 UI 真的渲染了没有**。
 开浏览器看，不是看 Host 报 running。
+
+---
+
+## 出问题了怎么办
+
+**先别自己猜。** 三样东西凑齐，大部分问题一眼就能定位 ——
+而且凑齐之后**贴给你的 agent，它自己就能接着修**。
+
+### 三样东西
+
+**① doctor 的输出**
+
+> 跑 `agent_soul_doctor`，把完整输出贴出来
+
+五层逐条问过一遍，缺哪层、哪条判据答不上来，都在里面。
+
+**② verify-live 的输出**
+
+```bash
+node tools/verify-live.mjs --profile <你的 profile 目录>
+```
+
+通过多少、需注意什么、失败在哪条。这一份回答的是「装进去的东西对不对」。
+
+**③ 探针那一行**
+
+```bash
+cat <探针日志目录>/probe-compaction.log | tail -2
+```
+
+`ctor` 是整条 ECHO 里最硬的一条证据：**现在管压缩的是谁**。
+日志文件不存在 = 探针没装，或者装了没重启。
+
+### 三样都在手上了，怎么读
+
+| 现象 | 大概率是 |
+|---|---|
+| 三样都绿，但页签不出现 | 客户端半没渲染 —— 浏览器 F12 看 console，看网络面板有没有 404 |
+| doctor 说某层答不出 | 那层没装，或者装了没进 bundles（坑 2） |
+| verify-live 报「副本与源不一致」 | pnpm 重整过 node_modules，见坑 4 的说明 |
+| 探针日志不存在 | 探针没装，或者装了没重启 |
+| `ctor` 是 `BasicCompactionEngine` | 没接管，看 [HOW-TO-TAKEOVER.md](plugins/compaction/HOW-TO-TAKEOVER.md) |
+| 全都对，但 echo 那个页签没数据 | 坑 5 —— `runtime/` 下那三个脚本不在 |
+
+### 报问题的时候
+
+带上这三样，加一行你的 DSH 版本（`dsh --version`）和操作系统。
+
+★ **如果你是用 agent 装的，直接把这堆丢给它。** 它有源码，能自己看。
+`SANDBOX-VERIFICATION.md` 里记了八个洞的完整实录，它读完能对上大半 ——
+**让它修，比等我们回一句「重启试试」快得多。**
 
 ---
 
