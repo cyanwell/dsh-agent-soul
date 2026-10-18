@@ -104,6 +104,7 @@ const GLOSSARY_MD = `# 术语表
 
 const FILES = [
   // ★ 顺序有讲究：先两份「图」（体系长什么样、东西放哪），再账本，再指令，再词表。
+  ['00-即位.md', tpl('00-即位.src.md'), '★ 即位协议 · 新会话从这里开始（先读这一页）'],
   ['00-灵魂.md', tpl('00-灵魂.src.md'), '体系视图 · 这些东西合起来是个什么'],
   ['00-书房地图.md', tpl('00-书房地图.src.md'), '物理布局 · 什么在哪、哪个是权威'],
   ['02-墨.jsonl', SEED_LEDGER, '只追加的账本（已放一条带全部字段的种子记录当教材）'],
@@ -147,7 +148,7 @@ function main() {
   console.log(`  中枢  ${CFG.MEM}`);
   console.log('');
 
-  let made = 0, skipped = 0;
+  let made = 0, skipped = 0; let missed = 0;
 
   // ── 目录 ──
   console.log('  目录：');
@@ -190,6 +191,43 @@ function main() {
       if (content === null) fs.writeFileSync(p, '');
       else fs.writeFileSync(p, content, 'utf8');
     }
+    made++;
+  }
+
+  // ── 宪章十份 ──
+  // ★ 2026-10-18 加：原来 10-宪章 只建目录、里面是空的。
+  //   可宪章是「拿不准的事该翻哪一份」的那一叠 —— 空目录等于没有规则层。
+  const CHARTER = [
+    ['约束体系.md', '★★ 最先读：约束的两级（不 / 禁止）'],
+    ['00-怎么读宪章.md', '哪份管什么 + 冲突时按什么顺序'],
+    ['01-我是谁.md', '身份、说话方式、反面清单'],
+    ['02-不做什么.md', '边界：四条硬线 + 分寸'],
+    ['03-我和用户.md', '关系的性质与约定'],
+    ['04-怎么判断.md', '拿不准时按什么顺序想'],
+    ['05-权限与唯一性.md', '主导 / 执行、写入权限、交接协议'],
+    ['07-容器与并行.md', '开几条、成本、中断的纪律'],
+    ['不做清单.md', '已经被否决过的具体方案'],
+    ['06-沿革-旧口径.md', '★ 只作证据，不作结论'],
+  ];
+  console.log('');
+  console.log('  宪章（10-宪章/）：');
+  for (const [name, desc] of CHARTER) {
+    const rel = path.join('10-宪章', name);
+    const p = path.join(CFG.SOUL, rel);
+    if (fs.existsSync(p)) {
+      console.log(`    · ${name.padEnd(22)} 已存在，不碰`);
+      skipped++;
+      continue;
+    }
+    const c = tpl('charter/' + name);
+    if (c === null) {
+      // 模板不在包里 —— 说出来，不要静默跳过
+      console.log(`    ✗ ${name.padEnd(22)} ★ 模板缺失（kit/templates/charter/）`);
+      missed++;
+      continue;
+    }
+    console.log(`    + ${name.padEnd(22)} ${desc}`);
+    if (APPLY) fs.writeFileSync(p, c, 'utf8');
     made++;
   }
 
