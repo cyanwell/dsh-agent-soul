@@ -18,7 +18,7 @@ import { join } from 'node:path'
 export const name = 'dsh-agent-riji'
 export const inject = ['webServer']
 
-const DIARY_DIR = process.env.RIJI_DIR || path.join(process.cwd(), 'diary')
+const DIARY_DIR = process.env.RIJI_DIR || join(process.cwd(), 'diary')
 
 function json(res, status, obj) {
   const body = JSON.stringify(obj)
