@@ -1,5 +1,8 @@
 # agent-soul · 灵魂架构
 
+> ★★ **要装它，看** → [INSTALL.md](INSTALL.md)：三步、四个坑、装完怎么验。
+> 　 仓库：**https://github.com/cyanwell/dsh-agent-soul**
+
 > ★ **理论篇**：这个仓库的说明书背后有一篇论文 —— [《回声 ECHO：面向长周期协作的外部记忆架构》](archive/paper/echo-architecture.html)，它讲了**为什么**这么设计，以及**实测跑成了什么样**。
 > ★ **它已经过时了** —— 架构在写完它之后又改过几轮。结论以 `soul/` 为准，它是沿革。
 
