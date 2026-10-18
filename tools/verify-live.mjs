@@ -237,9 +237,12 @@ if (warn.length) {
   for (const w of warn) console.log('  ! ' + w.label + ': ' + w.detail)
 }
 console.log('')
-console.log('★ 这个脚本**验不到**两件事，必须真跑：')
-console.log('   ① 兜底压缩用的是不是本包的类 → 跑一次压缩，看 checkpoint 前有没有 log:... 指针块')
+console.log('★ 这个脚本验不到、但可以另跑的：')
+console.log('   ① 兜底压缩用的是不是本包的类')
+console.log('      → 跑 tools/soul-probe（boot 后读 ctx.get("compaction")，看 ctor 是不是 YanqingCompaction）')
+console.log('      ★ 别再写成「跑一次压缩看门牌」—— 那要 88 万 token 才触发，空会话造不出来')
 console.log('   ② 客户端半的 UI 真渲染了没有 → 开浏览器看，不是看 Host 报 running')
+console.log('   ③ pruner 生效与否 → 只能靠一次真实裁剪：静态 marker = 内置赢，带 seq = 本包赢')
 console.log('')
 
 process.exit(fail.length ? 1 : 0)
