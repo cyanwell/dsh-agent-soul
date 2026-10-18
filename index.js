@@ -8,7 +8,7 @@
 //   下面四条 FIX 注释全部来自那次实现踩过的坑，逐条守住 —— 它们都是「静默失败」类：
 //   注册期不报错，运行时才坏，或者干脆把整个宿主拖下水。
 
-import { readFile } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { registerInstallTool } from './install.js'
@@ -26,6 +26,14 @@ const SOUL = join(HERE, 'soul')
 // soul/ 下的知识全部是纯文本，只读、不缓存 —— 改完刷新即可生效，不用重启。
 // ★ 为什么不把内容写死在代码里：它是「判据」不是「配置」，
 //   判据要能被读、被评议、被 fork 之后改成自己的。
+/**
+ * 列出 soul/ 目录下所有文件名。
+ * ★ 存在的意义：文件清单不该是硬编码的 —— 硬编码就会忘，忘了就漏检。
+ */
+async function readdirSoul() {
+  const dir = join(HERE, 'soul')
+  return await readdir(dir)
+}
 async function readSoul(file) {
   return await readFile(join(SOUL, file), 'utf8')
 }
@@ -157,21 +165,24 @@ export function apply(ctx) {
     execute: async () => {
       // ★ 加了新知识文件就必须加进这张清单 —— 否则 doctor 会漏检，
       //   而「检测法本身漏检」正是判据③最难发现的那种失败。
-      const files = [
-        '00-layers.md',
-        '01-criteria.md',
-        '02-echo.md',
-        '03-vital.md',
-        '04-manifest.json',
-        '05-doctor.md',
-        '06-reference.md',
-        '07-bundle.json',
-        '08-踩坑实录.md',
-        '09-dev-workflow.md',
-        '10-echo-anatomy.md',
-        '11-self.md',
+      // ★★ 2026-10-18 改：原来是硬编码清单，加 12-ledger.md 时忘了加进来 ——
+      //   而注释就在头上写着「漏了会漏检」。它自己踩了自己记的那个坑。
+      //   ★ 现在的做法：**扫目录为准，硬编码只作兜底**。
+      //     这样「加了新文件却忘了登记」这一类错误，结构上不可能再发生。
+      const FALLBACK = [
+        '00-layers.md', '01-criteria.md', '02-echo.md', '03-vital.md',
+        '04-manifest.json', '05-doctor.md', '06-reference.md', '07-bundle.json',
+        '08-踩坑实录.md', '09-dev-workflow.md', '10-echo-anatomy.md', '11-self.md',
+        '12-ledger.md',
       ]
-      const checks = []
+      let files = FALLBACK
+      let scannedSoul = false
+      try {
+        const listed = await readdirSoul()
+        const md = listed.filter((x) => /\.(md|json)$/i.test(x)).sort()
+        if (md.length > 0) { files = md; scannedSoul = true }
+      } catch { /* 目录读不到就退回硬编码 */ }
+      const checks = [] // 来源：' + (scannedSoul ? '目录扫描' : '硬编码兜底') + '
       for (const f of files) {
         try {
           const s = await readSoul(f)
