@@ -2,17 +2,17 @@
 
 > 2026-10-18，坐标 `D:\AI\dsh-demo`（沙箱，与灵魂目录隔开）。
 > 这份文件记的是**验证过程**，不是说明书 —— 包括撞出来的坑、判错的判据、
-> 和**到现在还没验成的那一条**。
+> 以及**一条我先判成「没验成」、后来发现验错了的**。
 
 ---
 
 ## 一句话结论
 
-**能装，能起，能跑，能画。** 12 个零件全部装进一个从零建起的 profile，
+**能装，能起，能跑，能画，能接管。** 12 个零件全部装进一个从零建起的 profile，
 16 个 bundle 全部加载，页面上的「砚台 / 日记 / 回声」真的画出来了，
-`agent_soul_*` 工具真的能调。
+`agent_soul_*` 工具真的能调，**运行中的 `ctx.compaction` 实测就是我们的 `YanqingCompaction`**。
 
-**但「压缩插件到底有没有接管」这一条，还没验成。**
+> ★ 最后这一条原本被我写成「没验成」。见第五节：不是没成功，是我一直没去问它一声。
 
 ---
 
@@ -181,16 +181,46 @@ button "当前时间"
 砚台 / 日记 / 回声 —— 三个客户端半真的渲染了。这是 `verify-live.mjs` 验不到的那一半：
 **不是 Host 报 running，是页面上真有那个东西。**
 
-### ★ 还没验成的那一条
+### ★ 那条我先判成「没验成」、后来发现是判据错了
 
 **兜底压缩用的是不是本包的类。**
 
-终极判据是：跑一次压缩，看 checkpoint 前面有没有 `log:<会话>#seq=<n>` 指针块。
+我原来的判据：跑一次压缩，看 checkpoint 前面有没有 `log:<会话>#seq=<n>` 指针块。
+要触发它得把上下文喂过阈值 —— 一个空会话造不出来，于是这一条「欠着」了整整六轮。
 
-- 有 → 全链路通了
-- 没有 → 「顺序」这个解释也不对，得回头看 `summarize` 到底有没有被调到
+**错在哪：我把「验行为」当成了唯一的路，忘了可以「验身份」。**
 
-要触发它得把上下文喂过阈值，这轮没做。**这一步欠着，不假装已经验过。**
+一次压缩要 88 万 token；而「现在管压缩的是哪个类」只需要一次 boot。
+于是我写了 `soul-probe` 包（`tools/soul-probe/`，已收进仓库）：它不注册任何服务，
+只在 boot 后 1.2 秒和 5 秒各读一次 `ctx.get('compaction')`，把结果写进日志。
+
+实测（2026-10-18 17:07，沙箱 `agent-soul-demo`）：
+
+```
+[result] {"when":"t+1200","how":"ctx.get","has":true,
+  "ctor":"YanqingCompaction",
+  "chain":["YanqingCompaction","BasicCompactionEngine","CompactionEngine","Service","Object"],
+  "overrides":["compactRegion","summarize"],
+  "ownKeys":["ctx","name","config","warnedPressureConfigTargets",
+             "overflowRetries","overflowAgents","__yqRange"],
+  "isProxy":false}
+```
+
+**运行中的 `ctx.compaction` 就是我们的类。** 三个判读点：
+
+- `ctor` 是 `YanqingCompaction`，不是 `BasicCompactionEngine` —— 占住服务名的是我们
+- `chain` 里 `BasicCompactionEngine` 在**第二层** —— 那是继承，不是两个实例并存
+- `ownKeys` 里有 `__yqRange` —— 只有我们的类才有的那个记 seq 范围的属性
+
+所以洞七的出路（把本包排到 `dsh-base` 之前）**是真解，不是绕路**。
+之前写「没验成」不是因为它失败，是因为**我一直没去问它一声**。
+
+★ **这一条要记的不是答案，是那个错。**
+判据选错，会把成功读成失败；而「等条件成熟」这种话，在条件其实不需要成熟的时候，
+就是拖延的另一件外衣。**能直接问的，别等着观察。**
+
+> 还剩一个更细的点没验：`summarize` 真被调用时门牌有没有写进产物。
+> 但那已经不是「接管没接管」的问题了 —— 管的是我们的类，`summarize` 就在 `overrides` 里。
 
 ---
 

@@ -1,0 +1,17 @@
+{
+  "name": "dsh-soul-probe",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "临时探针：boot 后读取 ctx.compaction 的真实身份，用来回答「我们的包到底接管了没有」",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

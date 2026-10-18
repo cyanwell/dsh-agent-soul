@@ -1,0 +1,5 @@
+# 探针包的 bundle patch：只把自己插进去。
+# 它不抢任何服务名，纯粹是 boot 之后读一眼 ctx.compaction 是谁。
+- insert:
+    - id: dsh-soul-probe
+      name: 'dsh-soul-probe'

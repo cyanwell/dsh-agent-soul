@@ -55,7 +55,30 @@
 #   c) **不用 insert，改 profile 层直接覆盖 base 的 patch 条目**。
 #      ★ 要读 dsh-base 的 cordis.patch.yml 原文，且 DSH 升级会断。
 #
-#   ★ 验法统一用：`node tools/probe-service-order.mjs`（它就是为回答这个问题写的）。
+# ── ★★★ 2026-10-18 结案：走 a)，而且走通了 ──────────────────
+#
+# 原写「三个方向，都还没做」。现在 a) 做了，**并且验到底了**：
+#
+#   · 手段：把 dsh-agent-compaction 排到 profile bundles 的**最前面**（dsh-base 之前）
+#   · 位置：profile 的 package.json → dsh.profile.bundles
+#   · 做法：见同目录 HOW-TO-TAKEOVER.md「路 A」，含一段可直接跑的 PowerShell
+#
+# ★ 运行时证据（不是"看着对"，是问了它一声）—— 用 tools/soul-probe/ 这个探针包：
+#
+#     ctor:      YanqingCompaction
+#     chain:     ["YanqingCompaction", "BasicCompactionEngine", "CompactionEngine", "Service", "Object"]
+#     overrides: ["compactRegion", "summarize"]
+#     ownKeys:   [..., "__yqRange"]
+#
+#   `BasicCompactionEngine` 在**继承链第二层** —— 是继承，不是两个实例并存。
+#
+# ★★ 另一条路（preset + isolate，本机主环境用的）见 HOW-TO-TAKEOVER.md「路 B」。
+#    它适用于「一个 profile 里有多个 preset，只想换其中一个」。
+#    要点：**id 不变、只换 name** —— 那是替换不是新增，压根不会触发先到先得。
+#
+# ★ 验法两件套：
+#   · tools/probe-service-order.mjs —— 假 ctx 最小复现，证明「先到先得」这条规则
+#   · tools/soul-probe/            —— 真 profile 探针，回答「现在是谁在管」
 - insert:
     - id: dsh-agent-compaction
       name: 'dsh-agent-compaction'

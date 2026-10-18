@@ -4,55 +4,128 @@
 
 ## 一句话
 
-**cordis 的服务注册是先到先得。** 谁先注册 compaction 这个名字，谁就占住它；
+**cordis 的服务注册是先到先得。** 谁先注册 `compaction` 这个名字，谁就占住它；
 后来的同名 Service **不报错、不警告，就是静默不生效**。
 
-实测（
-ode tools/probe-service-order.mjs）：
+实测（`tools/probe-service-order.mjs`，假 ctx 最小复现）：
 
-    Builtin → Mine     ⇒ ctx.compaction.who() === "builtin"   ← 先注册的赢
-    Mine → Builtin     ⇒ ctx.compaction.who() === "mine"      ← 先注册的赢
+```
+Builtin → Mine     ⇒ ctx.compaction.who() === "builtin"   ← 先注册的赢
+Mine → Builtin     ⇒ ctx.compaction.who() === "mine"      ← 先注册的赢
+```
 
-## 所以怎么装才对
+★ 注意：**这条只解释「为什么单独 insert 一个新行不管用」**。
+它**不**是说「换实现不可能」——换实现有两条路，见下。
 
-**必须让本包排在 @deepseek-ai/dsh-base 之前。**
+---
 
-dsh plugin add 是往 undles 末尾追加的，所以装完要手动调一次顺序：
+## 两条路，选一条
 
-`powershell
-$p = "<profile 目录>\package.json"
+### 路 A · 把本包排到 base 之前（整个 profile 都是你的）
+
+适用于：这个 profile 就是给灵魂用的，不需要保留「标准模式」。
+
+`dsh plugin add` 是往 `bundles` **末尾追加**的，所以装完要手动调一次顺序：
+
+```powershell
+$p  = "D:\AI\dsh-demo\profiles\agent-soul-demo\package.json"
 $pj = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
 $cur = @($pj.dsh.profile.bundles)
 $move = @("dsh-agent-compaction", "dsh-agent-pruner")
 $rest = $cur | Where-Object { $move -notcontains $_ }
 $pj.dsh.profile.bundles = @() + ($move | Where-Object { $cur -contains $_ }) + $rest
-($pj | ConvertTo-Json -Depth 20) | Set-Content $p -Encoding UTF8
-`
+[System.IO.File]::WriteAllText($p, ($pj | ConvertTo-Json -Depth 20), (New-Object System.Text.UTF8Encoding($false)))
+```
 
-然后重启，--dump-config 里应该看到：
+★ 写无 BOM：`Set-Content -Encoding UTF8` 在 PowerShell 5.1 里带 BOM，DSH 会 `JSON.parse` 失败。
 
-`
+重启后 `--dump-config` 应该看到：
+
+```
 - id: dsh-agent-compaction
 - id: dsh-agent-pruner
 - id: compaction-basic        ← 内置的排到后面去了
 - id: tool-result-pruner
-`
+```
 
-★ **DSH 尊重手写的 bundles 顺序**（2026-10-18 实测，--dump-config 原样保留）。
+★★ **DSH 尊重手写的 bundles 顺序**（2026-10-18 实测，`--dump-config` 原样保留）。
+
+★★★ **这条路已经验到底了** —— 不只是「顺序看着对」，是运行时的身份：
+
+```
+ctor:      YanqingCompaction
+chain:     ["YanqingCompaction", "BasicCompactionEngine", "CompactionEngine", "Service", "Object"]
+overrides: ["compactRegion", "summarize"]
+ownKeys:   [..., "__yqRange"]
+```
+
+`BasicCompactionEngine` 在**继承链第二层**，不是两个实例并存。验法见下面「怎么验」。
+
+### 路 B · preset + isolate（要保留标准模式，只在某个 preset 里换）
+
+适用于：一个 profile 里有多个 preset，只想让其中一个换成你的实现。
+
+**本机主环境用的就是这条**（`D:\AI\dsh\home\.agent-presets\yanqing\agent.cordis.yml`）：
+
+```yaml
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic              # ★ id 保持原名
+      name: 'dsh-yanqing-compaction'    # ★ 只换 name
+```
+
+★ **关键在「id 不变、只换 name」**：这一行是**替换**，不是新增 ——
+所以整个过程只有一次注册，先到先得根本不会被触发。
+
+★ 而 `isolate` 让这个实例只活在这个 preset 的 realm 里，不和别的 preset 抢名字。
+preset 里任何服务行**必须**挂在 `isolate` group 下，否则 `dsh-agent-presets` 在挂载时直接拒。
+
+★ 这条路**没有在沙箱里验过**（沙箱没装 presets，走的是路 A）。机制是从主环境配置读出来的。
+
+---
 
 ## 那 patch 是干什么的
 
-cordis.patch.yml 让本包**被加载**（dsh.bundle.patch 指对了、包能 import）。
-它**管不了**谁占住服务名 —— 那是层栈顺序的事。
+`cordis.patch.yml` 让本包**被加载**（`dsh.bundle.patch` 指对了、包能 import）。
+它**管不了**谁占住服务名 —— 那是层栈顺序或 realm 的事。
 
 ★ 两个是分工，不是二选一：
-  · dsh.bundle.patch → **能不能被加载**
-  · profile 的 undles 顺序 → **加载之后谁生效**
 
-## 还没验的一步
+- `dsh.bundle.patch` → **能不能被加载**
+- `bundles` 顺序 / `isolate` realm → **加载之后谁生效**
 
-顺序对了、服务起来了、页面也在 —— 但**还没跑过一次真实压缩**。
-终极判据仍然是那条：**跑一次兜底压缩，看 checkpoint 前面有没有 log:<会话>#seq=<n> 指针块。**
+---
 
-    · 有   → 全链路通了，可以写进「已验证」
-    · 没有 → 顺序这个解释也不对，得回头看 summarize 到底有没有被调到
+## 怎么验（别再等一次真实压缩）
+
+原来的验法：跑一次兜底压缩，看 checkpoint 前面有没有 `log:<会话>#seq=<n>` 指针块。
+
+**那个验法要 88 万 token 才会触发**，一个空会话造不出来 —— 于是很容易一欠再欠。
+
+**换成直接问它一声。** `tools/soul-probe/` 是个不注册任何服务的探针包：
+boot 后 1.2 秒和 5 秒各读一次 `ctx.get('compaction')`，把结果写进日志文件。
+
+```powershell
+# 装进 profile
+dsh plugin --profile <名字> add "file:<仓库>/tools/soul-probe"
+# 重启，然后看 D:/AI/dsh-slots/logs/probe-compaction.log
+```
+
+判读三件事：
+
+| 看什么 | 是 → | 否 → |
+|---|---|---|
+| `ctor` | `YanqingCompaction` | `BasicCompactionEngine` ＝ 没接管 |
+| `chain` 里 base 的位置 | 第二层（继承） | 两个并列 ＝ 有别的实例 |
+| `ownKeys` 里有没有 `__yqRange` | 有 ＝ 是我们的类 | 没有 ＝ 不是 |
+
+★★ **这一条比「跑一次压缩」更硬**，因为它回答的是「谁在管」，而不是「这一次产出对不对」。
+一次压缩只能证明「这一次走通了」，身份能证明「以后都走这条路」。
+
+★ 还有一个更细的点没验：`summarize` 真被调用时门牌有没有写进产物。
+但那已经不是「接管没接管」的问题了 —— 管的是我们的类，`summarize` 就在 `overrides` 里。
