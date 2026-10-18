@@ -117,6 +117,41 @@ Mine → Builtin     ⇒ ctx.compaction.who() === "mine"      ← 先注册的�
 ★ **出路**：profile 的 `bundles` 顺序**是手写的、DSH 尊重它**（实测 `--dump-config` 原样保留）。
 把本包提前即可 —— 见 `plugins/compaction/HOW-TO-TAKEOVER.md`。
 
+### 洞八 · `install.js` 编造了第 Ⅴ 层的内容 —— 工具在撒谎
+
+沙箱里跑 `action=plan`，第 5 步输出：
+
+> 「`plugins/tools/` 下三个（gateway / ledger / self）是脚本，不是 DSH 包，按各自 README 放到位。」
+
+**而 `plugins/tools/` 是个空目录**（文件数 0），三个脚本一个都不存在。
+
+查 `soul/04-manifest.json` 的 `layers[4]`（`V-ops`）：
+
+```json
+{ "id": "V-ops", "name": "运维", "manages": "让前面四层能持续跑下去的活",
+  "slots": [{ "what": "装配顺序与升级路径", "required": false,
+              "failure": "...", "check": "顺序是不是「先定权威源，再建机制」？反过来做一定会双重记账",
+              "examples": [] }] }
+```
+
+**一个槽位，`required: false`，`examples` 是空的。**
+全文搜 `gateway` / `ledger` / `self` —— 各出现 **0 次**。
+
+→ 那三个名字是 `install.js` 第 128 行**硬编码**的，不是从 manifest 读的。
+
+★ **为什么这比「没装」严重**：
+工具报错，agent 会停下来问；**工具撒谎，agent 会顺着走** ——
+它照着这条去找三个不存在的脚本，要么卡住，要么自己编一个出来。
+
+★ **修法**：第 5 步改成 `kind: 'slot'`，内容照 manifest 的槽位写。
+
+★ **连坐 bug**：渲染逻辑原来是
+`if (human) ... else if (tools) ... else { for (const d of s.parts) }`，
+改成 `slot` 后会掉进 `else`，而 `slot` 没有 `parts` → TypeError。三分支合一。
+
+★ **验法**：`test-plan-render.mjs` 把 ORDER 抽出来按渲染逻辑跑一遍 ——
+6 步、32 行、第 5 步正确、「有没有哪一步会掉进 else 但没有 parts」无输出。
+
 ---
 
 ## 三、怎么验的（以及验不到的）
