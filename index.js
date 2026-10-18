@@ -76,8 +76,13 @@ export function apply(ctx) {
       try {
         const manifest = await readManifest()
         const want = (!layer || layer === 'all') ? null : layer.toUpperCase()
+        // ★ 精确比层号，不用 startsWith。
+        //   id 形如 "I-echo" / "II-vital" / "III-capability" ——
+        //   startsWith("II") 会把 "III-capability" 一起带出来；
+        //   更糟的是 startsWith("I") 会把 I/II/III/IV 全带出来。
+        //   （2026-10-18 沙箱实测。）
         const picked = want
-          ? manifest.layers.filter((l) => String(l.id).toUpperCase().startsWith(want))
+          ? manifest.layers.filter((l) => String(l.id).toUpperCase().split('-')[0] === want)
           : manifest.layers
         const body = await readSoul('00-layers.md')
         return {
@@ -315,7 +320,11 @@ export function apply(ctx) {
         ok: r.ok || r.code === 2,
         applied: !!args.apply,
         text: out || '（scaffold 没有输出，这不正常）',
-        error: r.ok ? undefined : `退出码 ${r.code}`,
+        // ★ 成功时**不能有这个键**，哪怕值是 undefined。
+        //   DSH 的 snapshotJsonValue 遇到「含 undefined 自有属性」的对象会整份返回 undefined，
+        //   然后 snapshotToolValue 抛 "value is not lossless JSON" —— 成功的工具被判成坏输出。
+        //   2026-10-18 沙箱实测踩到的，假 ctx 探针查不出来（它不验序列化）。
+        ...(r.ok || r.code === 2 ? {} : { error: `退出码 ${r.code}` }),
       }
     },
   })
@@ -379,7 +388,9 @@ export function apply(ctx) {
       }
       return {
         ok: errors === 0,
-        verdict: String(j.verdict ?? ''),
+        // ★ doctor 的 JSON 里那个字段叫 overall，不叫 verdict ——
+        //   2026-10-18 沙箱实测：这里永远拿到 ''，而渲染文本写的是「体检：error」，两边打架。
+        verdict: String(j.overall ?? j.verdict ?? ''),
         errors,
         warns,
         checks,

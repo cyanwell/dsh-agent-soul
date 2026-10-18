@@ -348,7 +348,9 @@ function checkHuanqi(logs, deep) {
 function checkIndex(logs) {
   const metaPath = path.join(IDX, "meta.json");
   const meta = readText(metaPath);
-  if (!meta) return { id: "index", label: "索引层 L4", status: "error", detail: "索引还没建过", evidence: { metaPath } };
+  // ★ 「还没建」不是「坏了」。索引没建过 → warn（下一步就是建它）；
+  //   meta.json 在但解析不了 → 那才是 error（真坏了，修不好得重建）。
+  if (!meta) return { id: "index", label: "索引层 L4", status: "warn", detail: "索引还没建过 —— 跑一次 memindex.mjs build 就好", evidence: { metaPath } };
   let m;
   try { m = JSON.parse(meta) } catch { return { id: "index", label: "索引层 L4", status: "error", detail: "meta.json 解析失败", evidence: { metaPath } } }
   const built = new Date(m.builtAt).getTime();
@@ -368,7 +370,9 @@ function checkIndex(logs) {
 
 function checkSelf() {
   const st = statSafe(SELF_MD);
-  if (!st) return { id: "self", label: "推送层 SELF", status: "error", detail: "SELF.md 不存在", evidence: {} };
+  // ★ 还没装配 → warn（改完 SELF.src.md 跑一次 self.mjs 就好）。
+  //   装配过却长期没更新 → 那才是后面的滞后判据要管的事。
+  if (!st) return { id: "self", label: "推送层 SELF", status: "warn", detail: "SELF.md 还没装配 —— 跑一次 self.mjs 就好", evidence: {} };
   const h = hoursSince(st.mtime);
   const txt = readText(SELF_MD) || "";
   const sizeLine = /(\d+)\s*B\s*\/\s*预算\s*(\d+)\s*B/.exec(txt);
@@ -419,8 +423,22 @@ function checkHeartbeat() {
 }
 
 function checkMo() {
-  const txt = readText(MO);
-  if (!txt) return { id: "mo", label: "《墨》账本", status: "error", detail: "读不到 02-墨.jsonl", evidence: { MO } };
+  // ★ 「读不到」和「空着」是两件事。
+  //   原来用 `if (!txt)`，于是刚 scaffold 出来的 0 字节账本被判成 error「读不到 02-墨.jsonl」——
+  //   而那是「还没开始用」，不是「坏了」。新装的人第一次体检就看见这个，会以为装坏了。
+  //   判据和 error/warn 的划分是同一条：文件在但空着 → warn；文件根本不在 / 读不出 → error。
+  if (!fs.existsSync(MO)) {
+    return { id: "mo", label: "《墨》账本", status: "error", detail: "找不到 02-墨.jsonl（账本是你的一手层，它必须在）", evidence: { MO } };
+  }
+  let txt
+  try {
+    txt = fs.readFileSync(MO, "utf8")
+  } catch (e) {
+    return { id: "mo", label: "《墨》账本", status: "error", detail: "02-墨.jsonl 读不出来：" + (e && e.message ? e.message : e), evidence: { MO } };
+  }
+  if (!txt.trim()) {
+    return { id: "mo", label: "《墨》账本", status: "warn", detail: "账本在，还是空的 —— 写下第一条它就活了", evidence: { MO, bytes: fs.statSync(MO).size } };
+  }
   const lines = txt.split("\n").filter((l) => l.trim());
   let bad = 0, withText = 0, withGaiyao = 0, withFeel = 0, last = null, lastReadable = null;
   const types = {};
@@ -489,7 +507,9 @@ function checkVersionDrift() {
 
 function checkIdentity() {
   const txt = readText(MO);
-  if (!txt) return { id: "identity", label: "身份判据", status: "error", detail: "读不到《墨》", evidence: {} };
+  // ★ 账本读不到时，这一条是**连带**，不是独立故障 —— 账本本身已经由 checkMo 报过了。
+  //   同一个原因报两次 error，会让人以为哪里都坏了。降成 warn，并说清「先让账本有东西」。
+  if (!txt) return { id: "identity", label: "身份判据", status: "warn", detail: "账本还没有内容 —— 先写下第一条，《墨》里才有 lead 可认", evidence: {} };
   const leads = [];
   for (const line of txt.split("\n")) {
     if (!line.trim()) continue;
