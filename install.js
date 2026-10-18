@@ -292,11 +292,14 @@ export function registerInstallTool(ctx) {
               'clock', 'model-statusbar', 'huanqi', 'huanqi-panel',
               'mobile-adapt', 'riji', 'splash', 'yantai',
             ]
-        const installed = allDirs.filter((d) => names.has(PKG(d)))
-        const missing = allDirs.filter((d) => !names.has(PKG(d)))
+        // ★ 外部零件（external: true）不在本仓库，包名就是它自己（不加 dsh-agent- 前缀）
+        const isExternal = (d) => bundleParts.get(d) && bundleParts.get(d).external === true
+        const nameOf = (d) => (isExternal(d) ? d : PKG(d))
+        const installed = allDirs.filter((d) => names.has(nameOf(d)))
+        const missing = allDirs.filter((d) => !names.has(nameOf(d)))
         // ★ 装进 node_modules 但没进 bundles 的，等于「文件在、没启用」——
         //   这是最常见的一种假绿，必须单独报出来。
-        const notBundled = installed.filter((d) => bundles.length > 0 && !bundles.includes(PKG(d)))
+        const notBundled = installed.filter((d) => bundles.length > 0 && !bundles.includes(nameOf(d)))
 
         if (action === 'scan' || action === 'verify') {
           const lines = []
@@ -309,12 +312,12 @@ export function registerInstallTool(ctx) {
           if (installed.length === 0) lines.push('  （一个都没有）')
           for (const d of installed) {
             const b = bundles.length === 0 ? '' : bundles.includes(PKG(d)) ? '  ✓ 已进 bundles' : '  ★ 在 node_modules 但不在 bundles —— 等于没启用'
-            lines.push('  ' + PKG(d) + b)
+            lines.push('  ' + nameOf(d) + b)
           }
           lines.push('')
           lines.push('【缺】')
           if (missing.length === 0) lines.push('  （齐了）')
-          for (const d of missing) lines.push('  ' + PKG(d))
+          for (const d of missing) lines.push('  ' + nameOf(d))
 
           // ★ 三种依赖。最有价值的是 reads —— 它回答「装了这个，我还必须建出什么」。
           const withNeeds = [...installed, ...missing]
@@ -379,7 +382,7 @@ export function registerInstallTool(ctx) {
                 lines.push('  ✓ ' + PKG(d) + '  已装')
               } else {
                 needInstall++
-                lines.push('  · ' + PKG(d) + '  缺')
+                lines.push('  · ' + nameOf(d) + '  缺')
                 lines.push(indent(installCommand(profile, d, isDesktop, pluginsInfo.dir), '      '))
               }
             }
