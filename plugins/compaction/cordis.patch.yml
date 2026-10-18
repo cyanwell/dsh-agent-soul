@@ -1,8 +1,24 @@
 # dsh bundle patch: 把本插件插进 profile 的层栈。
 #
-# ★★★ 先说清楚：**这份 patch 现在不替换内置的 compaction-basic。**
+# ★★★ 结论先说：**这份 patch 能让本包被加载，但没能让它接管压缩服务。**
+#     2026-10-18 用 `tools/probe-service-order.mjs` 实测出来的，不是推测。
 #
-# 2026-10-18 在沙箱里实测 + 读 `@deepseek-ai/cordis-plugin-include/lib/index.js:68-104`：
+# ── 为什么 `insert` 不够 ─────────────────────────────────────
+#
+# cordis 的服务注册是**先到先得**：
+#
+#     Builtin → Mine     ⇒ ctx.compaction.who() === "builtin"   ← 先注册的赢
+#     Mine → Builtin     ⇒ ctx.compaction.who() === "mine"      ← 先注册的赢
+#
+# 也就是说，同名 `Service` 并存时**先注册的那个占住名字，后来的那个不生效**。
+# 而 profile 的层栈顺序是 `@deepseek-ai/dsh-base`（含 compaction-basic）在前，
+# 我们的包是 `insert` 进来的，**排在后面** ⇒ 输。
+#
+# ★ 而 `update` 这条路本来就不存在（见下），于是「用 patch 换掉实现」两条路都封死。
+#
+# ── 那 patch 的语法到底长什么样 ──────────────────────────────
+#
+# 读 `@deepseek-ai/cordis-plugin-include/lib/index.js:68-104`：
 #
 # ```js
 # const { id, insert, name, ...overrides } = patch;
@@ -20,14 +36,26 @@
 #      写成 `- update: [...]` 会整个被当成一个叫 `update` 的 overrides 键，于是 `id` 为空
 #      （实测报的正是 `patch: id is required for non-insert patches`）。
 #   ② **`name` 不能改** —— 有一致性校验，和原条目不一致就 skip。
-#      所以「用同一个 id 换掉实体」这条路**在 patch 层是封死的**。
 #   ③ 能改的只有 `config` 之类的**字段**，不是「换成另一个包」。
 #
-# ★ 所以下面走 `insert`：把本包作为**新的一层**挂上去。
-#   它和内置的 `compaction-basic` 会同时挂在 compaction 服务上 ——
-#   哪一个赢，取决于 cordis 服务注册的覆盖顺序，**这一点还没验**。
-#   ★ 验法（README 里那条判据）：跑一次兜底压缩，看 checkpoint 前有没有 `log:...` 指针块。
-#     有 → 本包赢了；没有 → 需要换一条路（见 README「下一个接手的人从这里开始」）。
+# ── 所以下面这段 `insert` 有什么用 ──────────────────────────
+#
+# 它让本包**被加载**（能 import、能构造），从而证明：
+#   · package.json 的 `dsh.bundle.patch` 指对了
+#   · patch 语法合法、不再报错
+#   · 包能在真实 profile 里 import 进来
+# ★ 但它**没能取代内置引擎**。别把「加载了」读成「生效了」。
+#
+# ── 下一个接手的人从这里开始（三个方向，都还没做）────────────
+#
+#   a) **把本包排到 base 之前**：改 profile 的 bundles 顺序，让本包先注册。
+#      ★ 最干净，但要确认 DSH 尊重手写的 bundles 顺序（未验）。
+#   b) **本包不去抢 `compaction` 这个名字**，改成注册一个新的服务名，
+#      再由别处把调用指过来。★ 需要读 compaction 的调用点，改动面大。
+#   c) **不用 insert，改 profile 层直接覆盖 base 的 patch 条目**。
+#      ★ 要读 dsh-base 的 cordis.patch.yml 原文，且 DSH 升级会断。
+#
+#   ★ 验法统一用：`node tools/probe-service-order.mjs`（它就是为回答这个问题写的）。
 - insert:
     - id: dsh-agent-compaction
       name: 'dsh-agent-compaction'
