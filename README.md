@@ -123,12 +123,15 @@ dsh plugin --profile <name> add github:<owner>/<repo>
 
 ## 包结构
 
+按**复刻流程**排，不按文件类型排。
+
 ```
 dsh-agent-soul/
 ├── package.json          元数据 + bundle 清单
 ├── cordis.patch.yml      insert 一行
-├── index.js              宿主半：三个只读工具
-├── soul/                 知识半 —— 纯文本，可读可改可 fork
+├── index.js              宿主半：三个只读工具（判据 / 清单 / 体检）
+├── install.js            ★ 第四个工具：看缺什么、给下一步命令
+├── soul/                 ★ 判据 —— 「该有什么」
 │   ├── 00-layers.md      五层模型
 │   ├── 01-criteria.md    四条判据
 │   ├── 02-echo.md        ECHO 机制
@@ -136,17 +139,28 @@ dsh-agent-soul/
 │   ├── 04-manifest.json  装配清单（判据：这一类该满足什么，不绑实现）
 │   ├── 05-doctor.md      自检七问
 │   ├── 06-reference.md   参考：出处与沿革
-│   └── 07-bundle.json    ★ 参考实现清单（我们具体用了什么，可替换）
-└── skeleton/             ★ 可抄的骨架 —— 空壳 + 注释，抄完就是你的
-    ├── 00-authority.md   权威源册（第 0 步，先填这个）
-    ├── 01-echo.md        账本 + 门牌 + 门 + 哨兵
-    ├── 02-vital.md       稳态设定点
-    ├── 03-self.md        自我层 / 推送层
-    └── 04-doctor.md      体检表
+│   └── 07-bundle.json    参考实现清单 + 安装方式（两个 profile 的差异）
+├── skeleton/             ★ 模板 —— 「长什么样」，空壳 + 注释，抄完就是你的
+│   ├── 00-authority.md   权威源册（第 0 步，先填这个）
+│   ├── 01-echo.md        账本 + 门牌 + 门 + 哨兵
+│   ├── 02-vital.md       稳态设定点
+│   ├── 03-self.md        自我层 / 推送层
+│   └── 04-doctor.md      体检表
+├── plugins/              ★ 零件 —— 「装什么」
+│   ├── 清单.md           按层组织：管什么 / 缺了会怎样 / 判据 / 验它活了 / 必选 / 前置
+│   ├── compaction … 13 个插件目录
+│   └── tools/            gateway / ledger / self（脚本，不是包）
+├── tools/
+│   └── init.mjs          ★ 装配器：问 8 个问题，生成填了一半的骨架
+└── archive/
+    └── paper/            某一版的架构论文 —— ★ 已过时，只作沿革，现状以 soul/ 为准
 ```
 
 ★ **知识半用纯文本放在包里，不写死在代码里。**
 因为它是**判据**不是**配置** —— 判据要能被读、被评议、被 fork 之后改成你自己的。
+
+★ **论文为什么在 archive/ 里**：它是某一版架构的描述，后来架构改过几轮，它跟不上了。
+放在根目录会让读的人拿它当现状。**一份过时的文档最好的位置是「沿革」，不是「门面」。**
 
 ---
 
