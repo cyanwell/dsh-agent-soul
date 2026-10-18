@@ -400,4 +400,90 @@ export function apply(ctx) {
       }
     },
   })
+
+  // ── 工具 8：验证之后，把「红了」翻译成「该改哪、去哪看」 ──────────────
+  // ★ 它和 doctor 的分工：doctor 只说自己看见了什么（evidence），
+  //   这一层补上「怎么修」和「去哪看」，并且真的去读那些文件。
+  //   2026-10-18 加：因为「推送层 SELF 红」这句话 agent 拿到之后没有下一步 ——
+  //   红在哪个文件的哪一行？该跑什么命令？日志在哪？
+  ctx.tools.register({
+    name: 'agent_soul_verify',
+    description:
+      '验证 + 定位：跑一遍六层体检，然后把每一条红的翻译成「红在哪、该做什么、去看哪」。' +
+      'doctor 只报告看见什么，这个工具补上具体动作，并且真的去读 evidence 里出现的文件（前后几行）。' +
+      '★ 如果体检器自己崩了，它会替你把 stderr 捞出来 —— 那是 doctor 做不到的事。',
+    parameters: { type: 'object', properties: {}, required: [] },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          ok: { type: 'boolean' },
+          overall: { type: 'string' },
+          counts: { type: 'object', additionalProperties: true },
+          total: { type: 'number' },
+          findings: { type: 'array', items: { type: 'object', additionalProperties: true } },
+          next: { type: 'string' },
+          text: { type: 'string' },
+          error: { type: 'string' },
+        },
+      },
+      render: (_args, value) => asText(value.text ?? value),
+    },
+    execute: async () => {
+      const r = await runKit('diagnose.mjs', ['--json'], envFromArgs({}))
+      const j = tryJson(r.stdout)
+      if (!j) {
+        // ★ 连诊断层都拿不到 JSON —— 那就把原始输出原样交出去，别吞掉
+        return {
+          ok: false,
+          error: '诊断层没有输出 JSON',
+          text: '诊断层没有输出 JSON。原始输出：\n' + String(r.stdout || '').slice(0, 1200) +
+                (r.stderr ? '\nstderr：\n' + String(r.stderr).slice(0, 1200) : ''),
+        }
+      }
+      const lines = []
+      const errs = (j.findings || []).filter((f) => f.status === 'error')
+      const warns = (j.findings || []).filter((f) => f.status === 'warn')
+      lines.push('体检：' + (j.overall || '?') + ' —— ' + j.total + ' 项，' +
+        errs.length + ' 红 / ' + warns.length + ' 黄')
+      if (!(j.findings || []).length) {
+        lines.push('')
+        lines.push('全部通过，没有需要处理的。')
+      } else {
+        for (const f of j.findings) {
+          lines.push('')
+          lines.push((f.status === 'error' ? '【红】' : '【黄】') + f.label + '  (' + f.id + ')')
+          lines.push('  说的是：' + (f.says || ''))
+          if (f.means) lines.push('  意思是：' + f.means)
+          const missing = (f.where || []).filter((w) => !w.exists)
+          if (missing.length) {
+            lines.push('  ★ 不存在：')
+            for (const w of missing) lines.push('    ' + w.path)
+          }
+          if (f.fix && f.fix.length) {
+            lines.push('  ★ 该做什么：')
+            for (const x of f.fix) lines.push('    · ' + x)
+          }
+          if (f.lookAt && f.lookAt.length) {
+            lines.push('  ★ 去看哪：')
+            for (const x of f.lookAt) lines.push('    · ' + x)
+          }
+        }
+        if (j.next) {
+          lines.push('')
+          lines.push('★ 下一步先做这一件：' + j.next)
+        }
+      }
+      return {
+        ok: true,
+        overall: String(j.overall ?? ''),
+        counts: j.counts || {},
+        total: Number(j.total ?? 0),
+        findings: j.findings || [],
+        next: String(j.next ?? ''),
+        text: lines.join('\n'),
+      }
+    },
+  })
 }
