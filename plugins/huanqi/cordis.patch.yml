@@ -1,0 +1,16 @@
+# 换气 bundle patch —— 默认值开箱即用，要调参就在 profile 层覆盖（见下方示例）
+# 默认值开箱即用 —— 它自己会检测「只有推理、没有正文」的步骤，
+# 并在第二次命中时介入。要调参就在 profile 层覆盖：
+#
+#   - set:
+#       - id: huanqi
+#         config:
+#           maxThinkingSteps: 3
+#           minReasoningChars: 2048
+#           similarityThreshold: 0.8
+#           escalate: steer
+#           cancelCause: thinking-loop
+
+- insert:
+    - id: huanqi
+      name: 'dsh-agent-huanqi'

@@ -1,0 +1,7 @@
+{
+  "_说明": "复制成 echo.config.json 并改成你自己的路径。不配也行 —— 那时用本文件旁边的相对目录。",
+  "hub": "./",
+  "soul": "./soul",
+  "mem": "./memory",
+  "sessions": "./sessions"
+}

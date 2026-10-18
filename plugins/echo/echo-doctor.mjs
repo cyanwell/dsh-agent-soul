@@ -1,0 +1,519 @@
+// echo-doctor.mjs —— 回声系统体检（回声 Echo · 自检器）v2
+// ============================================================================
+// 把回声做成独立面板，实时检测运行状态。
+// 体检太慢，要仪表盘 + 四级轮询
+//   （1级 5 分钟 / 2级 10 分钟 / 3级 30 分钟 / 4级 手动，默认 3 级）。
+//
+// ★★★ v2 的关键改动：**拆成快层与深层层**。
+//   起因：十项检查里九项是毫秒级的（读文件时间、meta.json、数账本行数），
+//   只有两项要解那份 74MB 的多帧日志（门牌实测 / 压缩统计）—— 而 v1 把那份日志**解了两遍**，
+//   于是 17 秒里有 16 秒花在重复解码上。这不是「体检慢」，这是「我算重了」。
+//   · fast（毫秒级）：不解日志。面板的秒级刷新靠它。
+//   · deep（约 5-8 秒）：真要解日志。靠 decodeCached 只解一次、两项共用。
+//
+// ★ 两条纪律（今晚的教训，一条都不许省）：
+//   ① **门牌那一项必须真去取一次**，不看配置 —— 今晚的故障就是「配置看着对、实际取不出来」，
+//      只读配置的体检会全部报绿，那种绿比红更坏。
+//   ② **判据不许被注释骗** —— 版本漂移第一次跑报了 5 处，全是我当天写的修复注释。
+// ============================================================================
+
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import zlib from "node:zlib";
+
+// ★ 四个根路径 —— 从 echo.config.json（与本文件同目录）或环境变量读。
+//   都不给就用本文件旁边的相对目录。★ 这一块是【必须由使用者配】的：
+//   这个体检器不知道你的记忆库/账本/会话日志在哪，它只负责检查它们。
+let CFG = {};
+try { CFG = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "echo.config.json"), "utf8")); } catch {}
+const HUB      = process.env.ECHO_HUB      || CFG.hub      || path.dirname(fileURLToPath(import.meta.url));
+const SOUL     = process.env.ECHO_SOUL     || CFG.soul     || path.join(HUB, "soul");
+const MEM      = process.env.ECHO_MEM      || CFG.mem      || path.join(HUB, "memory");
+const SESSIONS = process.env.ECHO_SESSIONS || CFG.sessions || path.join(HUB, "sessions");
+const IDX = path.join(HUB, "index");
+const MO = path.join(SOUL, "ledger.jsonl");
+const SELF_MD = path.join(HUB, "SELF.md");
+const HEARTBEAT_DIR = path.join(HUB, "heartbeat");
+const RUNTIME = process.env.ECHO_RUNTIME || path.join(HUB, "runtime");
+
+const MARK = "⛬ 压缩索引（非原文）";
+const MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
+// ★ 版本无感：认 session.v<N>.jsonl.zstd，不认死 v3（当初的故障根因）。
+const LOG_RE = /^session\.v(\d+)\.jsonl\.zstd$/;
+
+// ──────────────────────────── 工具 ────────────────────────────
+
+const readText = (p) => { try { return fs.readFileSync(p, "utf8") } catch { return null } };
+const statSafe = (p) => { try { return fs.statSync(p) } catch { return null } };
+// ★ 修：原来这里是 `new Date(d).toISOString()` —— 而 **toISOString 永远输出 UTC**，
+//   于是本地 10-08 04:36 被显示成 10-07 20:36，**整整差 8 小时**。
+//   ★ 症状为什么难缠：`hoursSince()` 用的是 Date 差值，所以「距今 34.7 小时」是对的 ——
+//     **只有绝对时刻错**。于是一个人看着「34.7 小时前」觉得没毛病，
+//     却对着「最后一次 10-07 20:36」去日志里找，永远找不到那一行（日志里写的是 10-08 4:36）。
+//   ★ 这是「一半对一半错」的典型：它比整段全错更容易骗过人。
+const iso = (d) => {
+  const x = new Date(d);
+  if (Number.isNaN(x.getTime())) return "(无效时间)";
+  const p = (n) => String(n).padStart(2, "0");
+  return `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())} `
+       + `${p(x.getHours())}:${p(x.getMinutes())}:${p(x.getSeconds())}`;
+};
+const hoursSince = (t) => (Date.now() - Number(t)) / 3600000;
+const round1 = (n) => Math.round(n * 10) / 10;
+
+/** 多帧 zstd → 事件数组。半行/坏行跳过，不因一行坏掉整份日志。 */
+function decodeZstd(file) {
+  let buf;
+  try { buf = fs.readFileSync(file) } catch { return { events: [], frames: 0, failed: 0 } }
+  const frames = [];
+  let i = buf.indexOf(MAGIC, 0);
+  while (i >= 0) {
+    const n = buf.indexOf(MAGIC, i + 4);
+    frames.push(buf.subarray(i, n === -1 ? buf.length : n));
+    i = n;
+  }
+  const chunks = [];
+  let failed = 0;
+  for (const f of frames) { try { chunks.push(zlib.zstdDecompressSync(f)) } catch { failed++ } }
+  const events = [];
+  for (const line of Buffer.concat(chunks).toString("utf8").split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    try { events.push(JSON.parse(t)) } catch { /* 半行 */ }
+  }
+  // ★★★ 手滑回归：这里原本写成 `{ events, frames, failed }` ——
+  //   把**帧数组本身**（几百个大 Buffer）当成"帧数"返回了出去。
+  //   后果不是报错，而是 deep 模式的 JSON 被撑到 **2.8 亿字符**，
+  //   `JSON.stringify` 抛 `RangeError: Invalid string length`，
+  //   于是"深检永远拿不到报告、面板永远显示待深检"。
+  //   而 fast 模式不用这个字段 ⇒ 症状只在深检出现，极难一眼看穿。
+  //   ★ 教训：重写文件时的"手滑回归"，比新写的 bug 更难找 —— 因为旧版是对的。
+  return { events, frames: frames.length, failed };
+}
+
+/**
+ * ★★ v2 的缓存 —— 「体检从 17 秒降到 5 秒」的全部秘密。
+ * 门牌实测与压缩统计要的是**同一份**日志；v1 各解一遍 = 白花一倍时间。
+ * 键带 size+mtime：日志一被追加就自动失效，不会拿旧数据糊弄。
+ */
+const _decCache = new Map();
+function decodeCached(file) {
+  const st = statSafe(file);
+  const key = `${file}|${st ? st.size : 0}|${st ? st.mtimeMs : 0}`;
+  const hit = _decCache.get(key);
+  if (hit) return hit;
+  const r = decodeZstd(file);
+  _decCache.clear();               // 只留最新一份，别把内存吃光
+  _decCache.set(key, r);
+  return r;
+}
+
+/** 列出所有会话日志（版本无感），按 mtime 降序。 */
+function listLogs() {
+  const out = [];
+  let buckets = [];
+  try { buckets = fs.readdirSync(SESSIONS) } catch { return out }
+  for (const b of buckets) {
+    const bp = path.join(SESSIONS, b);
+    if (!statSafe(bp)?.isDirectory()) continue;
+    let sids = [];
+    try { sids = fs.readdirSync(bp) } catch { continue }
+    for (const sid of sids) {
+      const sd = path.join(bp, sid);
+      if (!statSafe(sd)?.isDirectory()) continue;
+      let names = [];
+      try { names = fs.readdirSync(sd) } catch { continue }
+      for (const n of names) {
+        const m = LOG_RE.exec(n);
+        if (!m) continue;
+        const st = statSafe(path.join(sd, n));
+        if (!st?.isFile()) continue;
+        out.push({ bucket: b, sid, name: n, ver: Number(m[1]), file: path.join(sd, n), bytes: st.size, mtime: st.mtimeMs });
+      }
+    }
+  }
+  out.sort((a, b) => b.mtime - a.mtime);
+  return out;
+}
+
+// ──────────────────── 快层：不解日志，毫秒级 ────────────────────
+
+function checkLogs(logs) {
+  if (logs.length === 0) {
+    return { id: "logs", label: "会话日志", status: "error", detail: "一个会话日志都没找到 —— 路径或权限出了问题", evidence: { root: SESSIONS } };
+  }
+  const newest = logs[0];
+  const age = hoursSince(newest.mtime);
+  const vers = {};
+  for (const l of logs) vers[l.ver] = (vers[l.ver] || 0) + 1;
+  const versStr = Object.keys(vers).sort((a, b) => a - b).map((v) => `v${v}×${vers[v]}`).join(" / ");
+  const bySid = {};
+  for (const l of logs) (bySid[l.sid] ||= []).push(l.ver);
+  const multi = Object.entries(bySid).filter(([, v]) => new Set(v).size > 1);
+  const status = age > 24 ? "warn" : "ok";
+  return {
+    id: "logs", label: "会话日志", status,
+    detail: `${logs.length} 份日志，版本 ${versStr}；最新一份 ${round1(age)} 小时前`,
+    evidence: {
+      total: logs.length, versions: vers,
+      newest: { sid: newest.sid, file: newest.name, bytes: newest.bytes, ageHours: round1(age) },
+      multiVersionSessions: multi.length,
+      note: multi.length ? `${multi.length} 个会话同时有多版本日志（宿主行为；读取端必须版本无感）` : null,
+    },
+  };
+}
+
+/** ★ 深度项：门牌实测。deep=false 时返回 info，由调用方补上次深检结果。 */
+function checkDoorSign(logs, deep) {
+  const target = logs.find((l) => l.bytes > 0);
+  if (!target) return { id: "doorsign", label: "门牌回取（实测）", status: "warn", detail: "没有可测的日志", evidence: {}, deep: true };
+  if (!deep) return { id: "doorsign", label: "门牌回取（实测）", status: "info", detail: "待深度检测…", evidence: { skipped: true }, deep: true };
+
+  const { events, frames, failed } = decodeCached(target.file);
+  if (events.length === 0) {
+    return { id: "doorsign", label: "门牌回取（实测）", status: "error", detail: "日志解不出任何事件", evidence: { file: target.file, frames, failed }, deep: true };
+  }
+  const summaries = events.filter((e) => e.type === "compaction/summary");
+  if (summaries.length === 0) {
+    return { id: "doorsign", label: "门牌回取（实测）", status: "warn", detail: "这份日志里还没有压缩摘要，无可测门牌", evidence: { events: events.length }, deep: true };
+  }
+  const last = summaries[summaries.length - 1];
+  const raw = JSON.stringify(last.data || {});
+  const m = /#seq=(\d+)/.exec(raw);
+  if (!m) {
+    return {
+      id: "doorsign", label: "门牌回取（实测）", status: "error",
+      detail: "最近一次压缩的摘要里没有门牌 —— 压缩发生了，但回取链断了",
+      evidence: { summarySeq: last.seq, time: iso(last.time), hasMark: raw.includes(MARK) }, deep: true,
+    };
+  }
+  const want = Number(m[1]);
+  const hit = events.find((e) => e.seq === want);
+  const sr = last.data?.shadowedRange;
+  const srMatch = sr && Number(sr.start) === want;
+  if (!hit) {
+    return {
+      id: "doorsign", label: "门牌回取（实测）", status: "error",
+      detail: `门牌写着 seq=${want}，但在日志里取不到 —— 这就是「静默失效」的长相`,
+      evidence: { summarySeq: last.seq, want, file: target.file, events: events.length, maxSeq: Math.max(...events.map((e) => e.seq || 0)) }, deep: true,
+    };
+  }
+  return {
+    id: "doorsign", label: "门牌回取（实测）", status: srMatch ? "ok" : "warn",
+    detail: `门牌 seq=${want} 真取到了（${hit.type}）${srMatch ? "，且与 shadowedRange 一致" : "，但与 shadowedRange 不符"}`,
+    evidence: {
+      summarySeq: last.seq, time: iso(last.time), want, gotType: hit.type,
+      shadowedRange: sr || null, rangeMatches: !!srMatch,
+      summaryCount: summaries.length, events: events.length, frames, failed,
+    },
+    deep: true,
+  };
+}
+
+/** ★ 深度项：压缩统计。与门牌共用同一个 decodeCached，不再各解一遍。 */
+function checkCompaction(logs, deep) {
+  const target = logs.find((l) => l.bytes > 0);
+  if (!target) return { id: "compaction", label: "压缩机制", status: "warn", detail: "没有可测的日志", evidence: {}, deep: true };
+  if (!deep) return { id: "compaction", label: "压缩机制", status: "info", detail: "待深度检测…", evidence: { skipped: true }, deep: true };
+
+  const { events } = decodeCached(target.file);
+  const tally = {};
+  for (const e of events) if (typeof e.type === "string" && e.type.startsWith("compaction/")) tally[e.type] = (tally[e.type] || 0) + 1;
+  const start = tally["compaction/start"] || 0;
+  const sum = tally["compaction/summary"] || 0;
+  const end = tally["compaction/end"] || 0;
+  const prune = tally["compaction/prune"] || 0;
+  const errs = events.filter((e) => e.type === "compaction/end" && e.data && e.data.error);
+  const ratio = start ? sum / start : 1;
+  let status = "ok";
+  if (start === 0) status = "warn";
+  else if (ratio < 0.9 || errs.length > 0) status = "warn";
+  const lastEnd = [...events].reverse().find((e) => e.type === "compaction/end");
+  return {
+    id: "compaction", label: "压缩机制", status,
+    detail: `start ${start} / summary ${sum} / end ${end} / prune ${prune}${errs.length ? `；${errs.length} 次带 error` : ""}`,
+    evidence: { tally, ratio: round1(ratio * 100) / 100, errors: errs.slice(-3).map((e) => ({ seq: e.seq, error: e.data.error })), lastEndAt: lastEnd ? iso(lastEnd.time) : null },
+    deep: true,
+  };
+}
+
+/**
+ * ★ 深度项：换气（思考预算）—— 稳态的时间维。
+ * 为什么需要它：换气的判定参数（相似度 0.8 / 连续 3 次 / 上限 4 次 / 推理门槛 2048 字符）
+ * 一次调好之后**没有任何反馈回路** —— 断过几次、有没有误伤，此前无人知道。
+ * ★ 实测确认：换气**不写事件**（没有 huanqi/* 之类），
+ *   所以这里不测"药效"，测**病症**：一个回合烧光预算、正文一个字没出来。
+ *   形状 = assistant/message 的 content 里只有 reasoning，没有 text / tool-call。
+ * ★ 双插件对账：换气只收「推理 >= minReasoningChars（默认 2048）」的，
+ *   而 dsh-stalled-turn-continue 不看长度、两种 turn/end kind 都收 —— 两者是接力，不是重复。
+ */
+function checkHuanqi(logs, deep) {
+  if (!deep) return { id: "huanqi", label: "换气（思考预算）", status: "info", detail: "待深度检测…", evidence: { skipped: true }, deep: true };
+  const targets = logs.filter((l) => l.bytes > 0).slice(0, 8);
+  if (!targets.length) return { id: "huanqi", label: "换气（思考预算）", status: "warn", detail: "没有可测的日志", evidence: {}, deep: true };
+
+  const MIN_REASONING = 2048; // = 换气默认 minReasoningChars
+  let total = 0, noReply = 0, overThreshold = 0;
+  const reasons = {};
+  const samples = [];
+  for (const t of targets) {
+    const { events } = decodeCached(t.file);   // 与门牌/压缩共用同一份缓存
+    for (const e of events) {
+      if (e.type === "turn/end" && e.data && e.data.reason) {
+        const k = typeof e.data.reason.kind === "string" ? e.data.reason.kind : "unknown";
+        reasons[k] = (reasons[k] || 0) + 1;
+      }
+      if (e.type !== "assistant/message") continue;
+      const content = e.data && e.data.message && e.data.message.content;
+      if (!Array.isArray(content)) continue;
+      total++;
+      const visible = content.some((p) => p && (p.type === "text" || p.type === "tool-call" || p.type === "tool_call"));
+      if (visible) continue;
+      noReply++;
+      const rlen = content.reduce((a, p) => a + (p && p.type === "reasoning" && p.text ? p.text.length : 0), 0);
+      if (rlen >= MIN_REASONING) {
+        overThreshold++;
+        if (samples.length < 5) samples.push({ sid: t.sid.slice(0, 12), seq: e.seq, reasoningChars: rlen });
+      }
+    }
+  }
+
+  // ★ 判据：有病症却零介入 = 该响的没响。这是这一项存在的全部意义。
+  const hasSymptom = overThreshold > 0;
+  const everBroke = Object.keys(reasons).some((k) => /repetitive|loop|no-visible/i.test(k));
+  let status = "ok";
+  let note = "";
+  if (hasSymptom && !everBroke) { status = "warn"; note = "；该介入的回合存在，但日志里零介入痕迹"; }
+  else if (hasSymptom && everBroke) { note = "；已见过介入痕迹"; }
+
+  return {
+    id: "huanqi", label: "换气（思考预算）", status,
+    detail: `无输出回合 ${noReply}/${total}（推理 ≥${MIN_REASONING} 的 ${overThreshold} 条）${note}`,
+    evidence: {
+      logsSampled: targets.length, assistantMessages: total, noVisibleOutput: noReply,
+      overReasoningThreshold: overThreshold, minReasoningChars: MIN_REASONING,
+      turnEndReasons: reasons, samples,
+      crossCheck: "换气只覆盖推理 ≥2048 的；dsh-stalled-turn-continue 覆盖全部无输出回合（两者接力）",
+    },
+    deep: true,
+  };
+}
+
+function checkIndex(logs) {
+  const metaPath = path.join(IDX, "meta.json");
+  const meta = readText(metaPath);
+  if (!meta) return { id: "index", label: "索引层 L4", status: "error", detail: "索引还没建过", evidence: { metaPath } };
+  let m;
+  try { m = JSON.parse(meta) } catch { return { id: "index", label: "索引层 L4", status: "error", detail: "meta.json 解析失败", evidence: { metaPath } } }
+  const built = new Date(m.builtAt).getTime();
+  const lagH = hoursSince(built);
+  const newer = logs.filter((l) => l.mtime > built).length;
+  // ★ 「新增几份日志」只作信息、不作判据 —— 任何一轮对话都会产生新日志，
+  //   拿它当警告会让面板永远亮黄灯。真判据是滞后时间。
+  let status = "ok";
+  if (lagH > 72) status = "error";
+  else if (lagH > 24) status = "warn";
+  return {
+    id: "index", label: "索引层 L4", status,
+    detail: `建于 ${iso(built)}（${round1(lagH)} 小时前）；摘要 ${m.summaries ?? "?"} / 原话 ${m.words ?? "?"}；之后新增 ${newer} 份`,
+    evidence: { builtAt: m.builtAt, elapsedSec: m.elapsedSec, summaries: m.summaries, words: m.words, logs: m.logs, logsNewerThanIndex: newer, lagHours: round1(lagH) },
+  };
+}
+
+function checkSelf() {
+  const st = statSafe(SELF_MD);
+  if (!st) return { id: "self", label: "推送层 SELF", status: "error", detail: "SELF.md 不存在", evidence: {} };
+  const h = hoursSince(st.mtime);
+  const txt = readText(SELF_MD) || "";
+  const sizeLine = /(\d+)\s*B\s*\/\s*预算\s*(\d+)\s*B/.exec(txt);
+  const pct = sizeLine ? Math.round((Number(sizeLine[1]) / Number(sizeLine[2])) * 100) : null;
+  let status = "ok";
+  if (h > 72) status = "error"; else if (h > 24) status = "warn";
+  if (pct !== null && pct > 95 && status === "ok") status = "warn";
+  return {
+    id: "self", label: "推送层 SELF", status,
+    detail: `${st.size} B${pct !== null ? `（预算 ${pct}%）` : ""}，装配于 ${iso(st.mtime)}（${round1(h)} 小时前）`,
+    evidence: { bytes: st.size, usedPct: pct, ageHours: round1(h) },
+  };
+}
+
+function checkHeartbeat() {
+  let newest = 0, file = null;
+  try {
+    for (const n of fs.readdirSync(HEARTBEAT_DIR)) {
+      const p = path.join(HEARTBEAT_DIR, n);
+      const st = statSafe(p);
+      if (st?.isFile() && st.mtimeMs > newest) { newest = st.mtimeMs; file = n }
+    }
+  } catch { return { id: "heartbeat", label: "心跳（自律神经）", status: "error", detail: "读不到心跳目录", evidence: { dir: HEARTBEAT_DIR } } }
+  if (!newest) return { id: "heartbeat", label: "心跳（自律神经）", status: "error", detail: "心跳从没跑过", evidence: { dir: HEARTBEAT_DIR } };
+  const h = hoursSince(newest);
+  let status = "ok";
+  if (h > 96) status = "error"; else if (h > 48) status = "warn";
+  return {
+    id: "heartbeat", label: "心跳（自律神经）", status,
+    detail: `最后一次 ${iso(newest)}（${round1(h)} 小时前，${file}）`,
+    evidence: { lastRun: iso(newest), file, ageHours: round1(h), dir: HEARTBEAT_DIR },
+  };
+}
+
+function checkMo() {
+  const txt = readText(MO);
+  if (!txt) return { id: "mo", label: "账本账本", status: "error", detail: "读不到 ledger.jsonl", evidence: { MO } };
+  const lines = txt.split("\n").filter((l) => l.trim());
+  let bad = 0, withText = 0, withGaiyao = 0, withFeel = 0, last = null, lastReadable = null;
+  const types = {};
+  for (const line of lines) {
+    let r;
+    try { r = JSON.parse(line) } catch { bad++; continue }
+    const hasText = typeof r.text === "string" && r.text.length > 0;
+    const hasG = typeof r["概要"] === "string" && r["概要"].length > 0;
+    if (hasText) withText++;
+    if (hasG) withGaiyao++;
+    if (typeof r.feel === "string" && r.feel) withFeel++;
+    types[r.type] = (types[r.type] || 0) + 1;
+    last = r;
+    lastReadable = hasText || hasG;
+  }
+  const unreadable = lines.length - withText - withGaiyao;
+  let status = "ok";
+  if (bad > 0 || unreadable > 0) status = "warn";
+  if (last && !lastReadable) status = "error";
+  return {
+    id: "mo", label: "账本账本", status,
+    detail: `${lines.length} 条；正文在 text ${withText} / 在 概要 ${withGaiyao}；带 feel ${withFeel}${unreadable > 0 ? `；★ ${unreadable} 条两种字段都没有` : ""}`,
+    evidence: { lines: lines.length, withText, withGaiyao, withFeel, unreadable, badLines: bad, types, lastAt: last?.t || null, lastType: last?.type || null, lastReadable: !!lastReadable },
+  };
+}
+
+function checkHotMemory() {
+  const items = [];
+  for (const [name, cap] of [["USER.md", 4096], ["MEMORY.md", 10240]]) {
+    const st = statSafe(path.join(RUNTIME, name));
+    if (!st) { items.push({ name, bytes: null, cap, pct: null }); continue }
+    items.push({ name, bytes: st.size, cap, pct: Math.round((st.size / cap) * 100) });
+  }
+  const worst = items.filter((i) => i.pct !== null).sort((a, b) => b.pct - a.pct)[0];
+  let status = "ok";
+  if (worst && worst.pct >= 90) status = "warn";
+  return {
+    id: "hot", label: "L1 热记忆", status,
+    detail: items.map((i) => `${i.name} ${i.bytes ?? "?"}B${i.pct !== null ? `（${i.pct}%）` : ""}`).join("　｜　"),
+    evidence: { items },
+  };
+}
+
+function checkVersionDrift() {
+  const hits = [];
+  let files = [];
+  try { files = fs.readdirSync(HUB).filter((n) => n.endsWith(".mjs") && !n.startsWith("_")) } catch { /* */ }
+  for (const n of files) {
+    const t = readText(path.join(HUB, n));
+    if (t === null) continue;
+    t.split("\n").forEach((line, i) => {
+      const s = line.trim();
+      // ★ 先剔注释 —— 否则「修复说明里引用了那个坏写法」会被当成**新的**坏写法（第一次跑就踩了）。
+      if (s.startsWith("//") || s.startsWith("*") || s.startsWith("/*")) return;
+      if (/["'`]session\.v\d+\.jsonl\.zstd["'`]/.test(line)) hits.push({ file: n, line: i + 1, text: s.slice(0, 110) });
+    });
+  }
+  return {
+    id: "drift", label: "版本漂移扫描", status: hits.length ? "error" : "ok",
+    detail: hits.length
+      ? `★ 还有 ${hits.length} 处把日志名写死成字面量 —— 宿主下次升版会重演静默失效`
+      : `扫了 ${files.length} 个脚本，没有写死版本号的字面量（全部版本无感）`,
+    evidence: { scanned: files.length, hits },
+  };
+}
+
+function checkIdentity() {
+  const txt = readText(MO);
+  if (!txt) return { id: "identity", label: "身份判据", status: "error", detail: "读不到账本", evidence: {} };
+  const leads = [];
+  for (const line of txt.split("\n")) {
+    if (!line.trim()) continue;
+    try { const r = JSON.parse(line); if (r.type === "lead") leads.push(r) } catch { /* */ }
+  }
+  const lastLead = leads[leads.length - 1] || null;
+  let state = null;
+  try { const s = readText(path.join(HUB, "state.json")); state = s ? JSON.parse(s) : null } catch { /* */ }
+  const stateSid = state?.session || null;
+  const leadSid = lastLead?.by ? `session-${lastLead.by}` : null;
+  const staleNote = stateSid && leadSid && !stateSid.includes(lastLead.by)
+    ? `state.json 里记的还是 ${stateSid}，与当前 lead 署名（${leadSid}）不一致 —— 只是 mark 没跟上，不影响判据`
+    : null;
+  return {
+    id: "identity", label: "身份判据（换容器/换届）", status: "ok",
+    detail: `账本里 ${leads.length} 代 lead，最后一条署名 ${leadSid || "?"} —— 判据只认账本，与容器/工作区无关`,
+    evidence: { leadCount: leads.length, lastLeadBy: leadSid, lastLeadAt: lastLead?.t || null, stateSession: stateSid, staleNote },
+  };
+}
+
+// ──────────────────────── 汇总 ────────────────────────
+
+/**
+ * 跑一次体检。
+ * @param {{deep?: boolean}} opts
+ *   deep=true（默认）→ 解日志：门牌实测 + 压缩统计，约 5-8s。
+ *   deep=false      → 只跑快层（毫秒级）；两项深度检查返回 status:"info"，
+ *                     由调用方（面板宿主半）补上「上次深检」的结果，用户看不到空窗。
+ */
+export function runDoctor(opts = {}) {
+  const deep = opts.deep !== false;
+  const t0 = Date.now();
+  const logs = listLogs();
+  const checks = [
+    checkLogs(logs),
+    checkDoorSign(logs, deep),
+    checkCompaction(logs, deep),
+    checkIndex(logs),
+    checkSelf(),
+    checkHeartbeat(),
+    checkMo(),
+    checkHotMemory(),
+    checkVersionDrift(),
+    checkIdentity(),
+    checkHuanqi(logs, deep),
+  ];
+  const order = { error: 0, warn: 1, ok: 2, info: 3 };
+  // 总判只看有结论的项 —— info（待深检）不拉低总判，否则快检永远是"未完成"
+  const judged = checks.filter((c) => c.status !== "info");
+  const worst = judged.reduce((a, c) => (order[c.status] < order[a] ? c.status : a), "ok");
+  return {
+    at: iso(Date.now()),
+    mode: deep ? "deep" : "fast",
+    overall: worst,
+    counts: {
+      error: judged.filter((c) => c.status === "error").length,
+      warn: judged.filter((c) => c.status === "warn").length,
+      ok: judged.filter((c) => c.status === "ok").length,
+      pending: checks.filter((c) => c.status === "info").length,
+    },
+    ms: Date.now() - t0,
+    checks,
+  };
+}
+
+// ──────────────────────── 命令行 ────────────────────────
+
+const isMain = process.argv[1] && /echo-doctor\.mjs$/.test(process.argv[1].replace(/\\/g, "/"));
+if (isMain) {
+  const fast = process.argv.includes("--fast");
+  const report = runDoctor({ deep: !fast });
+  if (process.argv.includes("--json")) {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    const icon = { ok: "✓", warn: "!", error: "✗", info: "·" };
+    console.log(`回声 Echo · 体检（${report.mode}）  ${report.at}   （总判 ${report.overall}，${report.counts.error} 错 / ${report.counts.warn} 警 / ${report.counts.ok} 好${report.counts.pending ? ` / ${report.counts.pending} 待深检` : ""}，用时 ${report.ms}ms）`);
+    console.log("");
+    for (const c of report.checks) console.log(`${icon[c.status]} ${c.label.padEnd(18, "　")} ${c.detail}`);
+    const bad = report.checks.filter((c) => c.status === "error" || c.status === "warn");
+    if (bad.length) {
+      console.log("");
+      console.log("证据：");
+      for (const c of bad) console.log(`  [${c.id}] ${JSON.stringify(c.evidence)}`);
+    }
+  }
+  process.exit(report.overall === "error" ? 2 : report.overall === "warn" ? 1 : 0);
+}

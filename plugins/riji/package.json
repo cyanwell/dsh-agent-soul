@@ -1,0 +1,22 @@
+{
+  "name": "dsh-agent-riji",
+  "version": "0.1.0",
+  "description": "日记 —— DSH 顶栏的一格：把日记目录里的 markdown 显示成目录 + 原文。★ 读的是一手 markdown，不是转述。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
+  "license": "MIT"
+}

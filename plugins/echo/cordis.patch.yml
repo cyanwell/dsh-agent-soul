@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-agent-echo
+      name: dsh-agent-echo

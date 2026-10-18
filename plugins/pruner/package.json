@@ -1,0 +1,15 @@
+{
+  "name": "dsh-agent-pruner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "给 DSH 的工具结果裁剪装上「门牌」：把官方那句静态 marker 换成带 seq 的版本，让被挖掉的那块也能按记忆架构回取",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-compaction-tool-result-pruner": "*"
+  }
+}

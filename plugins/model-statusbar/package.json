@@ -1,0 +1,31 @@
+{
+  "name": "dsh-agent-model-statusbar",
+  "version": "0.1.0",
+  "description": "模型状态栏插件 —— 侧边栏底部一张常驻小卡片：显示本地模型服务的进程 / 接口 / 显存占用 / 空闲静息状态。★ 它和电源控制是一对：一个能开关，一个把状态摆出来。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "probe.ps1",
+    "selftest.mjs",
+    "verify-gui.expr.js",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
+  "license": "MIT"
+}

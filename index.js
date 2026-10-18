@@ -11,6 +11,7 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { registerInstallTool } from './install.js'
 
 export const name = 'dsh-agent-soul'
 
@@ -182,4 +183,9 @@ export function apply(ctx) {
       }
     },
   })
+
+  // ── 工具 4：安装指导 ────────────────────────────────────────────────
+  // ★ 它只给命令，不执行安装。理由写在 install.js 顶上三条。
+  //   和前面三个工具的分工：那三个回答「该有什么」，这一个回答「还缺什么、下一步跑什么」。
+  registerInstallTool(ctx)
 }

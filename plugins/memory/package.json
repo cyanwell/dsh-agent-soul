@@ -1,0 +1,38 @@
+{
+  "name": "dsh-agent-memory",
+  "version": "0.1.0",
+  "description": "Pushes a live clock and a fixed-size self layer into every model step, so a turn-based agent stops having to remember to go look. · 把活时钟与定长自我层推进每一步的提示里：不连续不是缺陷，是还没设计。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "memory",
+    "context",
+    "system-prompt"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

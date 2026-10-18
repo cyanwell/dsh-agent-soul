@@ -1,0 +1,21 @@
+{
+  "name": "dsh-agent-splash",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "启动画面插件：在设置面板里换启动动画、调淡入淡出与显示项。★ 它是个【播放器】—— 动画文件你自己放，它只负责播放与配置。",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  }
+}

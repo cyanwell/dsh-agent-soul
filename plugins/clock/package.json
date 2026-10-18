@@ -1,0 +1,32 @@
+{
+  "name": "dsh-agent-clock",
+  "version": "0.1.0",
+  "description": "侧边栏底部时钟按钮：点击弹出当前时间面板。★ 它是 dsh-agent-memory 的另一半 —— 那个把活时钟推进提示里给 agent 看，这个把同一个时钟摆在界面上给人看。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
+  "keywords": [
+    "dsh",
+    "plugin",
+    "clock"
+  ],
+  "license": "MIT"
+}

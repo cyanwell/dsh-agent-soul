@@ -1,0 +1,14 @@
+# dsh bundle patch: 把本插件插进 profile 的层栈。
+#
+# `name` 必须与包名一致，加载器才认得 profile 的 node_modules 里的它。
+# 要改默认值就在下面加 config:（全部可选项见 lib/index.js 的 DEFAULTS）。
+- insert:
+    - id: dsh-agent-memory
+      name: 'dsh-agent-memory'
+      # config:
+      #   selfPath: './SELF.md'
+      #   statePath: './state.json'
+      #   order: 130              # 排在 SUBAGENT_DELEGATION(120) 之后
+      #   includeSelf: true       # false = 只注入时钟
+      #   includeSubagents: false # 分会话（器官）不注入
+      #   maxBytes: 8192

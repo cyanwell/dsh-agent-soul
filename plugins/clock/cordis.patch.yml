@@ -1,0 +1,10 @@
+# dsh-agent-clock —— 宿主半的注册行。
+#
+# 桌面端的 profile 不能用 CLI 安装，
+# 走手动两步：① 复制四个文件进 profiles\desktop\node_modules\dsh-agent-clock
+#            ② 往 profiles\desktop\package.json 的 dsh.profile.bundles 加 'dsh-agent-clock'
+# 浏览器半由 package.json 的 dsh.client 声明 + exports["./client"] 自动拾取，
+# 会被写进 window.__DSH_BOOT__ 的 entries 表。
+- insert:
+    - id: dsh-agent-clock
+      name: dsh-agent-clock

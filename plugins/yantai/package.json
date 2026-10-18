@@ -1,0 +1,22 @@
+{
+  "name": "dsh-agent-yantai",
+  "version": "0.1.0",
+  "description": "工作台 —— 右栏/整页的一块仪表盘：上下文水位、未结的活、最近的账本、以及几扇门（点一下复制命令）。★ 它把「我现在是什么状态」摊开在一屏里。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,21 @@
+{
+  "name": "dsh-agent-huanqi-panel",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "换气设置面板 —— 在 DSH 设置面板里直接调换气插件的参数，并显示实时延续额度。★ 写配置走【字节级编辑】：只改值，不重排 YAML，注释与缩进原样保留。",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  }
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "name": "记事本",
+    "target": "C:\\\\Windows\\\\notepad.exe",
+    "icon": ""
+  },
+  {
+    "name": "计算器",
+    "target": "C:\\\\Windows\\\\System32\\\\calc.exe",
+    "icon": ""
+  }
+]
