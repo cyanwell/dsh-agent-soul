@@ -575,5 +575,11 @@ if (isMain) {
       for (const c of bad) console.log(`  [${c.id}] ${JSON.stringify(c.evidence)}`);
     }
   }
-  process.exit(report.overall === "error" ? 2 : report.overall === "warn" ? 1 : 0);
+  // ★ 退出码只反映 **error**。
+  //   原来 warn 也返回 1，实测撞出一处自相矛盾：同一个空书房里
+  //   plan.mjs 说「全部就位」，doctor 却 exit 1 —— 而它的 5 个 warn 全是
+  //   「还没有会话日志 / 没有心跳 / 没有换气」，那是**还没开始用**的正常状态。
+  //   把正常标成失败，别人学到的第一课就是「这个退出码可以忽略」。
+  //   ★ 这和 error/warn 的划分是同一条判据：还没建、还没跑、还没装，都不是故障。
+  process.exit(report.overall === "error" ? 2 : 0);
 }
