@@ -317,14 +317,16 @@ export function apply(ctx) {
       // scaffold 在配置不全时 exit 2 —— 那不是「坏了」，是「还差东西」，原样告诉人
       const out = (r.stdout || '') + (r.stderr ? '\n' + r.stderr : '')
       return {
-        ok: r.ok || r.code === 2,
+        // ★ exit 2 = 配置不全，scaffold 什么都没建。那不是成功 ——
+        //   2026-10-18 沙箱实测：它被当成 ok 返回，用户看到的是「成功」而磁盘上什么都没有。
+        ok: r.ok,
         applied: !!args.apply,
         text: out || '（scaffold 没有输出，这不正常）',
         // ★ 成功时**不能有这个键**，哪怕值是 undefined。
         //   DSH 的 snapshotJsonValue 遇到「含 undefined 自有属性」的对象会整份返回 undefined，
         //   然后 snapshotToolValue 抛 "value is not lossless JSON" —— 成功的工具被判成坏输出。
         //   2026-10-18 沙箱实测踩到的，假 ctx 探针查不出来（它不验序列化）。
-        ...(r.ok || r.code === 2 ? {} : { error: `退出码 ${r.code}` }),
+        ...(r.ok ? {} : { error: `退出码 ${r.code}（scaffold 没建成任何东西）` }),
       }
     },
   })

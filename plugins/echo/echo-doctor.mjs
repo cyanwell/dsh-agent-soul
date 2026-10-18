@@ -1,11 +1,11 @@
 // echo-doctor.mjs —— 回声系统体检（回声 Echo · 自检器）v2
 // ============================================================================
-// 把回声做成独立面板，实时检测运行状态。
-// 体检太慢，要仪表盘 + 四级轮询
+// 爀曦 2026-10-08 04:22 要求：把回声做成独立面板，实时检测运行状态。
+// 爀曦 2026-10-08 04:42 追加：体检太慢，要仪表盘 + 四级轮询
 //   （1级 5 分钟 / 2级 10 分钟 / 3级 30 分钟 / 4级 手动，默认 3 级）。
 //
 // ★★★ v2 的关键改动：**拆成快层与深层层**。
-//   起因：十项检查里九项是毫秒级的（读文件时间、meta.json、数账本行数），
+//   起因：十项检查里九项是毫秒级的（读文件时间、meta.json、数《墨》行数），
 //   只有两项要解那份 74MB 的多帧日志（门牌实测 / 压缩统计）—— 而 v1 把那份日志**解了两遍**，
 //   于是 17 秒里有 16 秒花在重复解码上。这不是「体检慢」，这是「我算重了」。
 //   · fast（毫秒级）：不解日志。面板的秒级刷新靠它。
@@ -19,34 +19,29 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
+import * as CFG from "./echo-config.mjs";
 
-// ★ 四个根路径 —— 从 echo.config.json（与本文件同目录）或环境变量读。
-//   都不给就用本文件旁边的相对目录。★ 这一块是【必须由使用者配】的：
-//   这个体检器不知道你的记忆库/账本/会话日志在哪，它只负责检查它们。
-let CFG = {};
-try { CFG = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "echo.config.json"), "utf8")); } catch {}
-const HUB      = process.env.ECHO_HUB      || CFG.hub      || path.dirname(fileURLToPath(import.meta.url));
-const SOUL     = process.env.ECHO_SOUL     || CFG.soul     || path.join(HUB, "soul");
-const MEM      = process.env.ECHO_MEM      || CFG.mem      || path.join(HUB, "memory");
-const SESSIONS = process.env.ECHO_SESSIONS || CFG.sessions || path.join(HUB, "sessions");
+const HUB = CFG.HUB;
+const SOUL = CFG.SOUL;
+const MEM = CFG.MEM;
+const SESSIONS = CFG.SESSIONS;
 const IDX = path.join(HUB, "index");
-const MO = path.join(SOUL, "ledger.jsonl");
+const MO = path.join(SOUL, "02-墨.jsonl");
 const SELF_MD = path.join(HUB, "SELF.md");
 const HEARTBEAT_DIR = path.join(HUB, "heartbeat");
-const RUNTIME = process.env.ECHO_RUNTIME || path.join(HUB, "runtime");
+const RUNTIME = CFG.RUNTIME;
 
 const MARK = "⛬ 压缩索引（非原文）";
 const MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
-// ★ 版本无感：认 session.v<N>.jsonl.zstd，不认死 v3（当初的故障根因）。
+// ★ 版本无感：认 session.v<N>.jsonl.zstd，不认死 v3（2026-10-08 的故障根因）。
 const LOG_RE = /^session\.v(\d+)\.jsonl\.zstd$/;
 
 // ──────────────────────────── 工具 ────────────────────────────
 
 const readText = (p) => { try { return fs.readFileSync(p, "utf8") } catch { return null } };
 const statSafe = (p) => { try { return fs.statSync(p) } catch { return null } };
-// ★ 修：原来这里是 `new Date(d).toISOString()` —— 而 **toISOString 永远输出 UTC**，
+// ★ 2026-10-09 修：原来这里是 `new Date(d).toISOString()` —— 而 **toISOString 永远输出 UTC**，
 //   于是本地 10-08 04:36 被显示成 10-07 20:36，**整整差 8 小时**。
 //   ★ 症状为什么难缠：`hoursSince()` 用的是 Date 差值，所以「距今 34.7 小时」是对的 ——
 //     **只有绝对时刻错**。于是一个人看着「34.7 小时前」觉得没毛病，
@@ -73,16 +68,39 @@ function decodeZstd(file) {
     frames.push(buf.subarray(i, n === -1 ? buf.length : n));
     i = n;
   }
+  // ★★★ 2026-10-18 修：解压总量封顶，且从**尾部**往前解。
+  //   起因：本会话自己的日志 session-1099f531 已达 155 MB（zstd），解压后 1 GB 以上，
+  //   `Buffer.concat(chunks).toString("utf8")` 直接抛
+  //   `Cannot create a string longer than 0x1fffffe8 characters`（约 512 MB 上限），
+  //   于是深检整轮崩掉 → 面板永远停在「待深度检测…」。体检器被被体检的对象撑爆了。
+  //   为什么从尾部解不损失语义：门牌实测要「最后一次 compaction/summary」、
+  //   压缩统计要最近的 compaction/*、换气要最近的 turn/end —— 全都在日志末端。
+  const MAX_TOTAL = 192 * 1024 * 1024;   // 解压后总字节上限
   const chunks = [];
   let failed = 0;
-  for (const f of frames) { try { chunks.push(zlib.zstdDecompressSync(f)) } catch { failed++ } }
+  let total = 0;
+  for (let k = frames.length - 1; k >= 0; k--) {
+    let b;
+    try { b = zlib.zstdDecompressSync(frames[k]) } catch { failed++; continue }
+    if (total + b.length > MAX_TOTAL) {
+      if (chunks.length === 0) {
+        // 单帧就超限：只取尾部，前面的半行会被 JSON.parse 的 try 吃掉
+        chunks.unshift(b.subarray(b.length - MAX_TOTAL));
+        total = MAX_TOTAL;
+      }
+      break;
+    }
+    chunks.unshift(b);
+    total += b.length;
+    if (total >= MAX_TOTAL) break;
+  }
   const events = [];
   for (const line of Buffer.concat(chunks).toString("utf8").split("\n")) {
     const t = line.trim();
     if (!t) continue;
     try { events.push(JSON.parse(t)) } catch { /* 半行 */ }
   }
-  // ★★★ 手滑回归：这里原本写成 `{ events, frames, failed }` ——
+  // ★★★ 2026-10-08 手滑回归：这里原本写成 `{ events, frames, failed }` ——
   //   把**帧数组本身**（几百个大 Buffer）当成"帧数"返回了出去。
   //   后果不是报错，而是 deep 模式的 JSON 被撑到 **2.8 亿字符**，
   //   `JSON.stringify` 抛 `RangeError: Invalid string length`，
@@ -141,7 +159,34 @@ function listLogs() {
 
 function checkLogs(logs) {
   if (logs.length === 0) {
-    return { id: "logs", label: "会话日志", status: "error", detail: "一个会话日志都没找到 —— 路径或权限出了问题", evidence: { root: SESSIONS } };
+    // ★ 「一个日志都没有」要分清楚，别混成一种（2026-10-18 修了三版才收敛）。
+    //
+    //   ★ 关键词：会话日志是 **DSH 自己产生的**，不是我们建的。
+    //     ECHO_SESSIONS 只是指向它。所以「目录不在」多半是「DSH 还没跑过」，
+    //     那是**正常的新装状态**，不是故障。
+    //
+    //   ① 根本没配 SESSIONS        → **error**。门没了，这才是真故障。
+    //   ② 配了、目录不在 / 空着    → **warn**。还没开始用，第一次对话之后就有了。
+    //
+    //   ★ 原来一律报 error。后果：新用户装完跑第一次体检就看见一片红，
+    //     而那红色全是「你还没开始用」。**体检器是保险，不该对「还没开始」拉警报** ——
+    //     第一次就红，人只会学会忽略它，那这层保险就废了。
+    if (!CFG.SESSIONS) {
+      return {
+        id: "logs", label: "会话日志", status: "error",
+        detail: "没找到会话日志目录，也没配置 ECHO_SESSIONS —— 这一层没有门",
+        evidence: { root: null },
+      };
+    }
+    const dir = SESSIONS.replace(/\//g, path.sep);
+    const dirExists = fs.existsSync(dir);
+    return {
+      id: "logs", label: "会话日志", status: "warn",
+      detail: dirExists
+        ? "目录在，但还没有日志 —— 你还没开始用。第一次对话之后这里就会有东西"
+        : "目录还不存在 —— DSH 还没产生会话日志，或者路径填错了。第一次对话之后再看",
+      evidence: { root: SESSIONS, dirExists },
+    };
   }
   const newest = logs[0];
   const age = hoursSince(newest.mtime);
@@ -242,7 +287,7 @@ function checkCompaction(logs, deep) {
  * ★ 深度项：换气（思考预算）—— 稳态的时间维。
  * 为什么需要它：换气的判定参数（相似度 0.8 / 连续 3 次 / 上限 4 次 / 推理门槛 2048 字符）
  * 一次调好之后**没有任何反馈回路** —— 断过几次、有没有误伤，此前无人知道。
- * ★ 实测确认：换气**不写事件**（没有 huanqi/* 之类），
+ * ★ 2026-10-14 实测确认：换气**不写事件**（没有 huanqi/* 之类），
  *   所以这里不测"药效"，测**病症**：一个回合烧光预算、正文一个字没出来。
  *   形状 = assistant/message 的 content 里只有 reasoning，没有 text / tool-call。
  * ★ 双插件对账：换气只收「推理 >= minReasoningChars（默认 2048）」的，
@@ -303,7 +348,9 @@ function checkHuanqi(logs, deep) {
 function checkIndex(logs) {
   const metaPath = path.join(IDX, "meta.json");
   const meta = readText(metaPath);
-  if (!meta) return { id: "index", label: "索引层 L4", status: "error", detail: "索引还没建过", evidence: { metaPath } };
+  // ★ 「还没建」不是「坏了」。索引没建过 → warn（下一步就是建它）；
+  //   meta.json 在但解析不了 → 那才是 error（真坏了，修不好得重建）。
+  if (!meta) return { id: "index", label: "索引层 L4", status: "warn", detail: "索引还没建过 —— 跑一次 memindex.mjs build 就好", evidence: { metaPath } };
   let m;
   try { m = JSON.parse(meta) } catch { return { id: "index", label: "索引层 L4", status: "error", detail: "meta.json 解析失败", evidence: { metaPath } } }
   const built = new Date(m.builtAt).getTime();
@@ -321,20 +368,48 @@ function checkIndex(logs) {
   };
 }
 
-function checkSelf() {
+function checkSelf(logs, deep) {
   const st = statSafe(SELF_MD);
-  if (!st) return { id: "self", label: "推送层 SELF", status: "error", detail: "SELF.md 不存在", evidence: {} };
+  // ★ 还没装配 → warn（改完 SELF.src.md 跑一次 self.mjs 就好）。
+  //   装配过却长期没更新 → 那才是后面的滞后判据要管的事。
+  if (!st) return { id: "self", label: "推送层 SELF", status: "warn", detail: "SELF.md 还没装配 —— 跑一次 self.mjs 就好", evidence: {} };
   const h = hoursSince(st.mtime);
   const txt = readText(SELF_MD) || "";
   const sizeLine = /(\d+)\s*B\s*\/\s*预算\s*(\d+)\s*B/.exec(txt);
   const pct = sizeLine ? Math.round((Number(sizeLine[1]) / Number(sizeLine[2])) * 100) : null;
+  // ★★ 文件在 ≠ 被读到。2026-10-18 沙箱实测踩到的假绿：
+  //    SELF.md 明明装配好了，每轮 runtime context 还在喊「SELF.md 读不到（./SELF.md）」——
+  //    因为 dsh-agent-memory 的 selfPath 指向别处（默认 './SELF.md'），而 scaffold 把它写在 memory/hub/。
+  //    只查「文件存在」的话，这一项永远 ✓，而推送层其实一点没吃到。
+  //    所以深检要从**真实注入过的日志**里找证据 —— 这是唯一的硬判据。
+  let injected = null // null = 快检，没验
+  if (deep) {
+    const targetLog = logs.find((l) => l.bytes > 0)
+    if (targetLog) {
+      try {
+        const { events } = decodeCached(targetLog.file)
+        const raw = events.map((e) => JSON.stringify(e.data || {})).join("\n")
+        if (raw.includes("SELF.md 读不到")) injected = false
+        else if (raw.includes("自我层") || raw.includes("SELF.md")) injected = true
+      } catch { /* 解不出来就不下结论，别猜 */ }
+    }
+  }
+  if (injected === false) {
+    return {
+      id: "self", label: "推送层 SELF", status: "error",
+      detail: `SELF.md 在磁盘上（${st.size} B），但最近一轮注入时读不到 —— 查 dsh-agent-memory 的 selfPath 指到哪了，现在它多半在找 ./SELF.md`,
+      evidence: { bytes: st.size, path: SELF_MD, injected: false },
+    }
+  }
+
   let status = "ok";
   if (h > 72) status = "error"; else if (h > 24) status = "warn";
   if (pct !== null && pct > 95 && status === "ok") status = "warn";
   return {
     id: "self", label: "推送层 SELF", status,
-    detail: `${st.size} B${pct !== null ? `（预算 ${pct}%）` : ""}，装配于 ${iso(st.mtime)}（${round1(h)} 小时前）`,
-    evidence: { bytes: st.size, usedPct: pct, ageHours: round1(h) },
+    detail: `${st.size} B${pct !== null ? `（预算 ${pct}%）` : ""}，装配于 ${iso(st.mtime)}（${round1(h)} 小时前）`
+      + (injected === true ? "，最近的注入里读到了" : injected === null ? "" : ""),
+    evidence: { bytes: st.size, usedPct: pct, ageHours: round1(h), injected },
   };
 }
 
@@ -346,8 +421,23 @@ function checkHeartbeat() {
       const st = statSafe(p);
       if (st?.isFile() && st.mtimeMs > newest) { newest = st.mtimeMs; file = n }
     }
-  } catch { return { id: "heartbeat", label: "心跳（自律神经）", status: "error", detail: "读不到心跳目录", evidence: { dir: HEARTBEAT_DIR } } }
-  if (!newest) return { id: "heartbeat", label: "心跳（自律神经）", status: "error", detail: "心跳从没跑过", evidence: { dir: HEARTBEAT_DIR } };
+  } catch {
+    // ★ 心跳是**可选**那一层（要另外装定时任务）。没装 ≠ 坏了。
+    //   ★ 但要说清「如果你装过，那它是停了」—— doctor 分不出「没装」和「装了但目录被删」，
+    //     所以给 warn 而不是 error，把判断权留给人。
+    return {
+      id: "heartbeat", label: "心跳（自律神经）", status: "warn",
+      detail: "没有心跳目录 —— 这一层可选，没装是正常的。装过的话，那就是它停了",
+      evidence: { dir: HEARTBEAT_DIR, installed: false },
+    };
+  }
+  if (!newest) {
+    return {
+      id: "heartbeat", label: "心跳（自律神经）", status: "warn",
+      detail: "目录在，但一次都没跑过 —— 定时任务可能还没触发，或者没装上",
+      evidence: { dir: HEARTBEAT_DIR, installed: true },
+    };
+  }
   const h = hoursSince(newest);
   let status = "ok";
   if (h > 96) status = "error"; else if (h > 48) status = "warn";
@@ -359,8 +449,22 @@ function checkHeartbeat() {
 }
 
 function checkMo() {
-  const txt = readText(MO);
-  if (!txt) return { id: "mo", label: "账本账本", status: "error", detail: "读不到 ledger.jsonl", evidence: { MO } };
+  // ★ 「读不到」和「空着」是两件事。
+  //   原来用 `if (!txt)`，于是刚 scaffold 出来的 0 字节账本被判成 error「读不到 02-墨.jsonl」——
+  //   而那是「还没开始用」，不是「坏了」。新装的人第一次体检就看见这个，会以为装坏了。
+  //   判据和 error/warn 的划分是同一条：文件在但空着 → warn；文件根本不在 / 读不出 → error。
+  if (!fs.existsSync(MO)) {
+    return { id: "mo", label: "《墨》账本", status: "error", detail: "找不到 02-墨.jsonl（账本是你的一手层，它必须在）", evidence: { MO } };
+  }
+  let txt
+  try {
+    txt = fs.readFileSync(MO, "utf8")
+  } catch (e) {
+    return { id: "mo", label: "《墨》账本", status: "error", detail: "02-墨.jsonl 读不出来：" + (e && e.message ? e.message : e), evidence: { MO } };
+  }
+  if (!txt.trim()) {
+    return { id: "mo", label: "《墨》账本", status: "warn", detail: "账本在，还是空的 —— 写下第一条它就活了", evidence: { MO, bytes: fs.statSync(MO).size } };
+  }
   const lines = txt.split("\n").filter((l) => l.trim());
   let bad = 0, withText = 0, withGaiyao = 0, withFeel = 0, last = null, lastReadable = null;
   const types = {};
@@ -381,7 +485,7 @@ function checkMo() {
   if (bad > 0 || unreadable > 0) status = "warn";
   if (last && !lastReadable) status = "error";
   return {
-    id: "mo", label: "账本账本", status,
+    id: "mo", label: "《墨》账本", status,
     detail: `${lines.length} 条；正文在 text ${withText} / 在 概要 ${withGaiyao}；带 feel ${withFeel}${unreadable > 0 ? `；★ ${unreadable} 条两种字段都没有` : ""}`,
     evidence: { lines: lines.length, withText, withGaiyao, withFeel, unreadable, badLines: bad, types, lastAt: last?.t || null, lastType: last?.type || null, lastReadable: !!lastReadable },
   };
@@ -429,7 +533,9 @@ function checkVersionDrift() {
 
 function checkIdentity() {
   const txt = readText(MO);
-  if (!txt) return { id: "identity", label: "身份判据", status: "error", detail: "读不到账本", evidence: {} };
+  // ★ 账本读不到时，这一条是**连带**，不是独立故障 —— 账本本身已经由 checkMo 报过了。
+  //   同一个原因报两次 error，会让人以为哪里都坏了。降成 warn，并说清「先让账本有东西」。
+  if (!txt) return { id: "identity", label: "身份判据", status: "warn", detail: "账本还没有内容 —— 先写下第一条，《墨》里才有 lead 可认", evidence: {} };
   const leads = [];
   for (const line of txt.split("\n")) {
     if (!line.trim()) continue;
@@ -445,7 +551,7 @@ function checkIdentity() {
     : null;
   return {
     id: "identity", label: "身份判据（换容器/换届）", status: "ok",
-    detail: `账本里 ${leads.length} 代 lead，最后一条署名 ${leadSid || "?"} —— 判据只认账本，与容器/工作区无关`,
+    detail: `《墨》里 ${leads.length} 代 lead，最后一条署名 ${leadSid || "?"} —— 判据只认《墨》，与容器/工作区无关`,
     evidence: { leadCount: leads.length, lastLeadBy: leadSid, lastLeadAt: lastLead?.t || null, stateSession: stateSid, staleNote },
   };
 }
@@ -468,7 +574,7 @@ export function runDoctor(opts = {}) {
     checkDoorSign(logs, deep),
     checkCompaction(logs, deep),
     checkIndex(logs),
-    checkSelf(),
+    checkSelf(logs, deep),
     checkHeartbeat(),
     checkMo(),
     checkHotMemory(),
@@ -515,5 +621,11 @@ if (isMain) {
       for (const c of bad) console.log(`  [${c.id}] ${JSON.stringify(c.evidence)}`);
     }
   }
-  process.exit(report.overall === "error" ? 2 : report.overall === "warn" ? 1 : 0);
+  // ★ 退出码只反映 **error**。
+  //   原来 warn 也返回 1，实测撞出一处自相矛盾：同一个空书房里
+  //   plan.mjs 说「全部就位」，doctor 却 exit 1 —— 而它的 5 个 warn 全是
+  //   「还没有会话日志 / 没有心跳 / 没有换气」，那是**还没开始用**的正常状态。
+  //   把正常标成失败，别人学到的第一课就是「这个退出码可以忽略」。
+  //   ★ 这和 error/warn 的划分是同一条判据：还没建、还没跑、还没装，都不是故障。
+  process.exit(report.overall === "error" ? 2 : 0);
 }

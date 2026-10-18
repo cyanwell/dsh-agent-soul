@@ -107,6 +107,18 @@ function main() {
   console.log('回声 · 搭骨架' + (APPLY ? '（执行）' : '（干跑 —— 加 --apply 才真建）'));
   console.log('─'.repeat(72));
 
+  // ★ 2026-10-18 沙箱实测修：原来直接 checkConfig，SOUL/MEM 目录不存在就 exit 2。
+  //   可「搭骨架」本来就该把目录建出来 —— 要求用户先手动建好两个空目录，语义是反的。
+  //   干跑时不动磁盘（只提示），真跑时先把根目录补上。
+  if (APPLY) {
+    for (const d of [CFG.SOUL, CFG.MEM]) {
+      try { fs.mkdirSync(d, { recursive: true }) } catch (e) {
+        console.log('  没法建目录 ' + d + '：' + (e && e.message ? e.message : e));
+        process.exit(2);
+      }
+    }
+  }
+
   const r = CFG.checkConfig({ allowMissingSessions: true });
   if (!r.ok) {
     console.log('  没法开始，配置不全：');
