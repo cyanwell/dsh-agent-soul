@@ -128,13 +128,21 @@ dsh-agent-soul/
 ├── package.json          元数据 + bundle 清单
 ├── cordis.patch.yml      insert 一行
 ├── index.js              宿主半：三个只读工具
-└── soul/                 知识半 —— 纯文本，可读可改可 fork
-    ├── 00-layers.md      五层模型
-    ├── 01-criteria.md    四条判据
-    ├── 02-echo.md        ECHO 机制
-    ├── 03-vital.md       VITAL 机制
-    ├── 04-manifest.json  装配清单
-    └── 05-doctor.md      自检七问
+├── soul/                 知识半 —— 纯文本，可读可改可 fork
+│   ├── 00-layers.md      五层模型
+│   ├── 01-criteria.md    四条判据
+│   ├── 02-echo.md        ECHO 机制
+│   ├── 03-vital.md       VITAL 机制
+│   ├── 04-manifest.json  装配清单（判据：这一类该满足什么，不绑实现）
+│   ├── 05-doctor.md      自检七问
+│   ├── 06-reference.md   参考：出处与沿革
+│   └── 07-bundle.json    ★ 参考实现清单（我们具体用了什么，可替换）
+└── skeleton/             ★ 可抄的骨架 —— 空壳 + 注释，抄完就是你的
+    ├── 00-authority.md   权威源册（第 0 步，先填这个）
+    ├── 01-echo.md        账本 + 门牌 + 门 + 哨兵
+    ├── 02-vital.md       稳态设定点
+    ├── 03-self.md        自我层 / 推送层
+    └── 04-doctor.md      体检表
 ```
 
 ★ **知识半用纯文本放在包里，不写死在代码里。**
@@ -144,7 +152,14 @@ dsh-agent-soul/
 
 ## 改
 
-`soul/` 下的六份文件就是全部内容。改完**刷新即可生效，不用重启**（工具每次请求重新读盘）。
+`soul/` 下的七份文件就是全部内容。改完**刷新即可生效，不用重启**（工具每次请求重新读盘）。
+
+`skeleton/` 下的五份是**另一回事**，别混：`soul/` 是判据（回答"该有什么"），
+`skeleton/` 是模板（回答"长什么样"）。`skeleton/` 不参与任何工具，纯供人抄走。
+
+★ 为什么分开放：`index.js` 的 doctor 会逐个核对 `soul/` 下的文件，
+把模板混进去会改动工具契约。判据和模板的读者也不同 ——
+判据是给"决定要不要这么做"的人看的，模板是给"已经决定要做了、现在动手"的人看的。
 
 `04-manifest.json` 里每条 `examples` 一律留空 —— 这是**故意的**：
 绑死具体包名就等于把「权威源」放进清单里（违反判据 ②），而且会随版本腐烂。

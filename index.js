@@ -158,6 +158,7 @@ export function apply(ctx) {
         '04-manifest.json',
         '05-doctor.md',
         '06-reference.md',
+        '07-bundle.json',
       ]
       const checks = []
       for (const f of files) {
