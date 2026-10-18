@@ -131,14 +131,60 @@ const ORDER = [
 
 const PKG = (dir) => 'dsh-agent-' + dir
 
+/**
+ * ★ 找到 plugins/ 到底在哪。
+ *
+ * 这个函数是补一个真坑的：第一版把命令写成
+ *   `dsh plugin add file:<soul 仓库>/plugins/compaction`
+ * —— 一个占位符。**agent 照着这份指引去装，会卡在这里。**
+ * 实测（2026-10-18，沙箱 `dsh-demo` 里跑一次真实会话）它说：
+ *   「`<soul 仓库>` 是占位符，我这边推不出来 —— 找过 profile/plugins、
+ *     dsh-demo/plugins、workspace/plugins，都不存在」。
+ *
+ * 所以：**能算就算出来，算不出来就说清算过哪里。**
+ *
+ * 三个来源，按可信度排：
+ *   ① 环境变量 AGENT_SOUL_REPO —— 人明确告诉我们的，最可信
+ *   ② HERE/plugins —— 本仓库的形态：插件包就在仓库根上，plugins/ 是它的兄弟目录
+ *   ③ HERE/../plugins —— 万一将来包被挪进子目录（比如 packages/agent-soul/）
+ */
+async function findPluginsDir() {
+  const tried = []
+
+  const fromEnv = process.env.AGENT_SOUL_REPO
+  if (fromEnv) {
+    const p = join(fromEnv, 'plugins')
+    tried.push({ how: '环境变量 AGENT_SOUL_REPO', path: p })
+    try {
+      await access(join(p, 'compaction', 'package.json'))
+      return { dir: p, tried, from: '环境变量 AGENT_SOUL_REPO' }
+    } catch {}
+  }
+
+  // ★ 顺序要紧：HERE/plugins 在前。第一版写成 [.., ../..] 把这条路漏了，
+  //   于是从仓库里跑也找不到 —— 实测抓到的（2026-10-18）。
+  for (const up of ['.', '..', join('..', '..')]) {
+    const p = up === '.' ? join(HERE, 'plugins') : resolve(HERE, up, 'plugins')
+    tried.push({ how: up === '.' ? '插件包同目录下的 plugins/' : `从插件包往上 ${up} 再找 plugins/`, path: p })
+    try {
+      await access(join(p, 'compaction', 'package.json'))
+      return { dir: p, tried, from: up === '.' ? '插件包同目录' : `从插件包反推（${up}）` }
+    } catch {}
+  }
+
+  return { dir: null, tried, from: null }
+}
+
 /** 一条能直接粘进终端的安装命令。desktop 给手动两步，其它给 CLI。 */
-function installCommand(profile, dir, isDesktop) {
+function installCommand(profile, dir, isDesktop, pluginsDir) {
   const pkg = PKG(dir)
+  // ★ 有真实路径就用真实路径；没有就写清占位符该填什么，别让它看起来像能直接跑
+  const src = pluginsDir ? join(pluginsDir, dir) : `<soul 仓库>/plugins/${dir}`
   if (isDesktop) {
     return [
       '手动两步（桌面端不接受 CLI 安装）：',
       '  # ① 复制四个文件进 profile',
-      `  #    源：<soul 仓库>/plugins/${dir}/`,
+      `  #    源：${src}${pluginsDir ? '/' : '/'}`,
       `  #    目标：${join(profile, 'node_modules', pkg)}/`,
       '  #    要的文件：package.json / cordis.patch.yml / index.js / client.js',
       '  # ② 往 ' + join(profile, 'package.json') + ' 的 dsh.profile.bundles 里加 "' + pkg + '"',
@@ -146,7 +192,7 @@ function installCommand(profile, dir, isDesktop) {
       '  # ③ 重启 DSH（不是刷新页面）',
     ].join('\n')
   }
-  return `dsh plugin --profile ${profile.split(/[\\/]/).pop()} add file:<soul 仓库>/plugins/${dir}`
+  return `dsh plugin --profile ${profile.split(/[\\/]/).pop()} add file:${src}`
 }
 
 export function registerInstallTool(ctx) {
@@ -249,10 +295,27 @@ export function registerInstallTool(ctx) {
         }
 
         // ── plan ──
+        // ★ 先找 plugins/ 在哪。找不到就明说，别让命令里留一个占位符假装能跑
+        //   —— 那是实测踩过的坑：agent 会照着占位符去装，然后卡住。
+        const pluginsInfo = await findPluginsDir()
         const lines = []
         lines.push('装配顺序（按这个走，不要跳步）')
         lines.push('profile: ' + profile)
         lines.push('')
+        if (pluginsInfo.dir) {
+          lines.push('插件源码目录：' + pluginsInfo.dir)
+          lines.push('  （来源：' + pluginsInfo.from + '）')
+        } else {
+          lines.push('★ 插件源码目录：没找到 —— 下面命令里的 <soul 仓库> 得换成真实路径')
+          lines.push('  找过：')
+          for (const t of pluginsInfo.tried) {
+            lines.push('    · ' + t.path)
+            lines.push('      （' + t.how + '）')
+          }
+          lines.push('  ★ 为什么会找不到：装进 profile 的只有插件本体，plugins/ 那 13 个零件没跟着进去。')
+          lines.push('  ★ 最快的办法：设环境变量 AGENT_SOUL_REPO=<仓库根>，再跑一次 plan。')
+          lines.push('')
+        }
         let needInstall = 0
         for (const s of ORDER) {
           lines.push('── 第 ' + s.step + ' 步 · ' + s.title + ' ──')
@@ -268,7 +331,7 @@ export function registerInstallTool(ctx) {
               } else {
                 needInstall++
                 lines.push('  · ' + PKG(d) + '  缺')
-                lines.push(indent(installCommand(profile, d, isDesktop), '      '))
+                lines.push(indent(installCommand(profile, d, isDesktop, pluginsInfo.dir), '      '))
               }
             }
           }

@@ -242,6 +242,11 @@ window.__ModuleLoader__.load({
         ask: "我这套装对了吗 —— 四条判据逐条问，加包内知识文件的核对",
         when: "装完、改完，或者感觉哪里不对时，先跑它",
       },
+      {
+        name: "agent_soul_install",
+        ask: "还缺什么、下一步跑什么命令 —— scan / plan / verify 三个动作",
+        when: "真要动手装的时候。它会读你的 profile，按装配顺序给精确命令",
+      },
     ];
 
     const FILES = [
@@ -252,10 +257,14 @@ window.__ModuleLoader__.load({
       ["04-manifest.json", "装配清单：每类能力要满足什么、装配顺序"],
       ["05-doctor.md", "自检七问 —— 拿它问自己的架构"],
       ["06-reference.md", "一份参考实现：谁取代了谁、三个只有踩过才知道的坑"],
+      ["07-bundle.json", "参考实现清单 + 安装方式（两个 profile 的差异）"],
+      ["08-踩坑实录.md", "真踩过的坑：症状 / 怎么发现 / 后来证明错在哪"],
+      ["09-dev-workflow.md", "隔离沙箱：新插件先在哪试，别直接上主力"],
     ];
 
     const STEPS = [
       ["先定「你的权威源在哪」", "不先做这一步，装什么都会双重记账 —— 同一个结论有两份，冲突时不知道听谁的。"],
+      ["看看还缺什么", "跟 agent 说「用 agent_soul_install 扫一下我的 profile」，它会按装配顺序给你精确命令。"],
       ["跑一次体检", "跟 agent 说「用 agent_soul_doctor 给我做一次体检」，拿到七问和文件核对。"],
       ["对着清单补缺口", "用 agent_soul_manifest 看每类能力该满足什么，再自己去挑插件 —— 或者自己写。"],
     ];
