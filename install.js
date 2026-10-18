@@ -122,10 +122,27 @@ const ORDER = [
   },
   {
     step: 5,
-    title: 'Ⅴ 运维',
-    kind: 'tools',
+    title: 'Ⅴ 运维 · 装配顺序与升级路径',
+    kind: 'slot',
     why: '让前面四层能持续跑下去。',
-    how: '`plugins/tools/` 下三个（gateway / ledger / self）是脚本，不是 DSH 包，按各自 README 放到位。',
+
+    // ★★★ 2026-10-18 修正（第八个洞）：
+    //   这一段原来写的是
+    //     「`plugins/tools/` 下三个（gateway / ledger / self）是脚本，不是 DSH 包，按各自 README 放到位。」
+    //   —— **那是编的。** `plugins/tools/` 是个空目录，三个脚本一个都不存在，
+    //   而 manifest 里第 Ⅴ 层也从来没有出现过这三个名字。
+    //   查证：`soul/04-manifest.json` 的 `layers[4]` 只有一个 slot，
+    //   `what: "装配顺序与升级路径"`、`required: false`、`examples: []`。
+    //   ★ 后果：agent 照着这条去找三个脚本，会找不到，然后要么卡住、要么自己编一个。
+    //     工具撒谎比工具报错更坏 —— 报错它会停下来问，撒谎它会顺着走。
+    how: [
+      '这一层**不是一个包**，是一个槽位：它问的是「你打算怎么装配、怎么升级」。',
+      'manifest 里它的判据只有一句 ——',
+      '「顺序是不是『先定权威源，再建机制』？反过来做一定会双重记账」。',
+      '所以这一步没有命令可跑。你要做的是**写下自己的装配顺序和升级路径**，',
+      '放进你的权威源（第 0 步那份）里。`required: false` —— 不写也能跑，',
+      '但下次升级时，你会把已有的拆坏。',
+    ].join(''),
   },
 ]
 
@@ -320,9 +337,7 @@ export function registerInstallTool(ctx) {
         for (const s of ORDER) {
           lines.push('── 第 ' + s.step + ' 步 · ' + s.title + ' ──')
           lines.push('  为什么：' + s.why)
-          if (s.kind === 'human') {
-            lines.push('  ' + s.how)
-          } else if (s.kind === 'tools') {
+          if (s.kind === 'human' || s.kind === 'tools' || s.kind === 'slot') {
             lines.push('  ' + s.how)
           } else {
             for (const d of s.parts) {
