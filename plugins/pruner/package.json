@@ -11,5 +11,10 @@
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-compaction-tool-result-pruner": "*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   }
 }

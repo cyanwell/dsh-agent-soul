@@ -11,5 +11,10 @@
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-compaction-basic": "*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   }
 }

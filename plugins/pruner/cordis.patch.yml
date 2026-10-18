@@ -1,0 +1,17 @@
+# dsh bundle patch: 把本插件插进 profile 的层栈。
+#
+# ★★★ 和 compaction 那份同样的问题，完整理由见 `../compaction/cordis.patch.yml`。
+#
+# 一句话：**patch 是扁平的 `{ id, name, ...overrides }`，没有 `update` 关键字，
+# 而且 `name` 有一致性校验**（`cordis-plugin-include/lib/index.js:68-104`）。
+# 所以「用同一个 id 把实体换掉」在 patch 层是封死的 —— 写了也不生效，
+# 只会得到 `patch: id is required for non-insert patches` 这一句 warning。
+#
+# 下面走 `insert`，把本包作为新的一层挂上去。
+# 它和内置的 `tool-result-pruner` 会同时存在，谁赢取决于 cordis 服务注册顺序 —— **还没验**。
+#
+# ★ 验法：跑一次工具结果裁剪，看被挖掉的那块**有没有替换成带 seq 的门牌**，
+#   而不是内置那句静态 marker。有 → 本包赢了；没有 → 见 README 的下一步。
+- insert:
+    - id: dsh-agent-pruner
+      name: 'dsh-agent-pruner'

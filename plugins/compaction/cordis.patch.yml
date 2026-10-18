@@ -1,0 +1,33 @@
+# dsh bundle patch: 把本插件插进 profile 的层栈。
+#
+# ★★★ 先说清楚：**这份 patch 现在不替换内置的 compaction-basic。**
+#
+# 2026-10-18 在沙箱里实测 + 读 `@deepseek-ai/cordis-plugin-include/lib/index.js:68-104`：
+#
+# ```js
+# const { id, insert, name, ...overrides } = patch;
+# if (insert) { ...; continue; }
+# if (!id) { warn("patch: id is required for non-insert patches"); continue; }
+# const target = entryMap.get(id);
+# if (name && name !== target.name) {
+#   warn("patch: name mismatch for %C (expected %C, got %C), skipping"); continue;
+# }
+# for (const [key, value] of Object.entries(overrides)) target[key] = value;
+# ```
+#
+# 三条由此确定：
+#   ① **patch 是扁平的** —— 形状是 `{ id, name, ...overrides }`，**没有 `update` 关键字**。
+#      写成 `- update: [...]` 会整个被当成一个叫 `update` 的 overrides 键，于是 `id` 为空
+#      （实测报的正是 `patch: id is required for non-insert patches`）。
+#   ② **`name` 不能改** —— 有一致性校验，和原条目不一致就 skip。
+#      所以「用同一个 id 换掉实体」这条路**在 patch 层是封死的**。
+#   ③ 能改的只有 `config` 之类的**字段**，不是「换成另一个包」。
+#
+# ★ 所以下面走 `insert`：把本包作为**新的一层**挂上去。
+#   它和内置的 `compaction-basic` 会同时挂在 compaction 服务上 ——
+#   哪一个赢，取决于 cordis 服务注册的覆盖顺序，**这一点还没验**。
+#   ★ 验法（README 里那条判据）：跑一次兜底压缩，看 checkpoint 前有没有 `log:...` 指针块。
+#     有 → 本包赢了；没有 → 需要换一条路（见 README「下一个接手的人从这里开始」）。
+- insert:
+    - id: dsh-agent-compaction
+      name: 'dsh-agent-compaction'
