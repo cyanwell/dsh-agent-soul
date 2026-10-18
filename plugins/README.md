@@ -117,7 +117,7 @@ dsh: pnpm failed in profile directory <profile>
 
 **二、`compaction` 和 `pruner` 装完是死的 —— 它们没有 `dsh.bundle`。**
 
-13 个零件里 11 个有 `dsh.bundle`，只有这两个没有。装的时候 DSH 会明确警告：
+14 个零件里 12 个有 `dsh.bundle`，只有这两个没有。装的时候 DSH 会明确警告：
 
 ```
 warning: dsh-agent-compaction declares no dsh.bundle —

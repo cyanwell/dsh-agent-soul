@@ -167,8 +167,9 @@ dsh plugin --profile <name> add github:<owner>/<repo>
 dsh-agent-soul/
 ├── package.json          元数据 + bundle 清单
 ├── cordis.patch.yml      insert 一行
-├── index.js              宿主半：三个只读工具（判据 / 清单 / 体检）
-├── install.js            ★ 第四个工具：看缺什么、给下一步命令
+├── index.js              宿主半：8 个工具（判据 / 清单 / 体检 / 安装 / 下一步 / 脚手架 / 核对 / 验证定位）
+├── install.js            安装指导：看缺什么、给下一步命令（不执行）
+├── kit/echo/diagnose.mjs ★ 诊断层：把「红了」翻译成「改哪、看哪、跑什么」
 ├── soul/                 ★ 判据 —— 「该有什么」
 │   ├── 00-layers.md      五层模型
 │   ├── 01-criteria.md    四条判据
@@ -177,9 +178,12 @@ dsh-agent-soul/
 │   ├── 04-manifest.json  装配清单（判据：这一类该满足什么，不绑实现）
 │   ├── 05-doctor.md      自检七问
 │   ├── 06-reference.md   参考：出处与沿革
-│   ├── 07-bundle.json    参考实现清单 + 安装方式（两个 profile 的差异）
+│   ├── 07-bundle.json    参考实现清单：14 个零件 + 三种依赖（depends/needs/reads）+ 安装方式
 │   ├── 08-踩坑实录.md    ★ 真踩过的坑：症状 / 怎么发现 / 后来证明错在哪
-│   └── 09-dev-workflow.md ★ 隔离沙箱：新插件先在哪试，别直接上主力
+│   ├── 09-dev-workflow.md ★ 隔离沙箱：新插件先在哪试，别直接上主力
+│   ├── 10-echo-anatomy.md  ★ ECHO 内部六层 L1–L6 的解剖
+│   ├── 11-self.md          ★ 推送层：为什么它和指令层分开
+│   └── 12-ledger.md        ★ 账本：八种类型、六个字段、为什么只追加
 ├── skeleton/             ★ 模板 —— 「长什么样」，空壳 + 注释，抄完就是你的
 │   ├── 00-authority.md   权威源册（第 0 步，先填这个）
 │   ├── 01-echo.md        账本 + 门牌 + 门 + 哨兵
@@ -188,7 +192,7 @@ dsh-agent-soul/
 │   └── 04-doctor.md      体检表
 ├── plugins/              ★ 零件 —— 「装什么」
 │   ├── 清单.md           按层组织：管什么 / 缺了会怎样 / 判据 / 验它活了 / 必选 / 前置
-│   ├── compaction … 13 个插件目录
+│   ├── compaction … 14 个插件目录
 │   └── tools/            gateway / ledger / self（脚本，不是包）
 ├── tools/
 │   └── init.mjs          ★ 装配器：问 8 个问题，生成填了一半的骨架
