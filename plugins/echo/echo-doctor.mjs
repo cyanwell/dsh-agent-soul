@@ -522,11 +522,16 @@ function checkVersionDrift() {
       if (/["'`]session\.v\d+\.jsonl\.zstd["'`]/.test(line)) hits.push({ file: n, line: i + 1, text: s.slice(0, 110) });
     });
   }
+  // ★ 扫到 0 个脚本时报 ok 是空绿：那不是「没问题」，是「没检查」。
+  //   2026-10-18 沙箱里就撞上了 —— HUB 指到打包目录，那里没有 .mjs，于是这项永远绿。
+  const status = hits.length ? "error" : (files.length === 0 ? "warn" : "ok")
+  const detail = hits.length
+    ? `★ 还有 ${hits.length} 处把日志名写死成字面量 —— 宿主下次升版会重演静默失效`
+    : files.length === 0
+      ? `一个脚本都没扫到 —— HUB 指的地方没有 .mjs，这项等于没检查（不是「没问题」）`
+      : `扫了 ${files.length} 个脚本，没有写死版本号的字面量（全部版本无感）`
   return {
-    id: "drift", label: "版本漂移扫描", status: hits.length ? "error" : "ok",
-    detail: hits.length
-      ? `★ 还有 ${hits.length} 处把日志名写死成字面量 —— 宿主下次升版会重演静默失效`
-      : `扫了 ${files.length} 个脚本，没有写死版本号的字面量（全部版本无感）`,
+    id: "drift", label: "版本漂移扫描", status, detail,
     evidence: { scanned: files.length, hits },
   };
 }
