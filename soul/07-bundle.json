@@ -317,12 +317,7 @@
       "external": true,
       "manages": "空间 —— 可复用的技术结论放在哪、怎么按语义取回",
       "provides": "一个 19 包的组合：主包 + 11 个 provider（byterover / hindsight / holographic / honcho / mem0 / mnemon-native / openviking / retaindb / supermemory）+ 3 个 source（documents / memory-spaces / runtime）+ 5 个 strategy（auto-capture / default-three-tier / general / light-context / scoped）",
-      "required": false,
-      "为什么「可选」但「重要」": {
-        "可选": "没有它，第一套记忆（账本 + 书房 + 会话日志）照样工作，六层体检也不会红。",
-        "重要": "★ 架构里「两套记忆」的分工是核心判断之一 —— 一手事件进账本，可复用的技术结论进记忆空间。缺了它，那半边等于没有登记处，技术结论只能退化成「写在某个文档里，靠人记得去翻」。",
-        "已发生过的事": "沙箱 profile 从第一天起就没装它，于是 dsh-agent-mnemon-probe 一直报「未配置」、mnemon_recall / mnemon_remember 全部不可用 —— 而没有人注意到，因为「没装」看起来像「没配好」。"
-      },
+      "required": true,
       "来源": "第三方（github.com/omdsh-dev/dsh-mnemon），npm 上有正式发布，MIT。不是我们写的，我们只用它。",
       "和我们的关系": "★ 我们的 dsh-agent-mnemon-probe 是自创的探针，读它的记忆空间并报使用量。两个包名字很像，但一个是别人的引擎、一个是我们的仪表。",
       "装法": [
@@ -338,7 +333,16 @@
           "why": "★ 反向依赖：探针依赖它。没有 mnemon 的话，探针只能报「未配置」—— 那不是探针坏了，是它要读的东西不存在。"
         }
       ],
-      "reads": []
+      "reads": [],
+      "为什么必备": {
+        "一句话": "架构里「两套记忆」的分工是核心判断之一。缺了它，那半边没有登记处 —— 可复用的技术结论只能退化成「写在某个文档里，靠人记得去翻」。",
+        "具体丢什么": [
+          "一手事件进账本，可复用的技术结论进记忆空间 —— 这是两条不同的路。只有账本，就等于只留了「当时发生了什么」，丢了「我们以前对这类问题下过什么结论」。",
+          "跨会话语义检索是它的长处：账本搜得准，但账本不是为「找判据」设计的。"
+        ],
+        "不装会怎样": "六层体检不会红，mnemon-probe 只会报「未配置」——它不是坏了，是它要读的东西不存在。★ 这就是为什么它被漏了这么久：没装看起来像没配好。",
+        "已发生过的事": "沙箱 profile 从第一天起就没装（19 个包全缺），而没有人注意到。"
+      }
     }
   ],
   "tools": [

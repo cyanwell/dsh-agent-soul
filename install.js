@@ -317,7 +317,18 @@ export function registerInstallTool(ctx) {
           lines.push('')
           lines.push('【缺】')
           if (missing.length === 0) lines.push('  （齐了）')
-          for (const d of missing) lines.push('  ' + nameOf(d))
+          const missingRequired = missing.filter((d) => bundleParts.get(d)?.required === true)
+          for (const d of missing) {
+            const p = bundleParts.get(d)
+            const tag = p?.required === true ? '  ★ 必备 —— 缺了架构少一层' : ''
+            lines.push('  ' + nameOf(d) + tag)
+          }
+          if (missingRequired.length) {
+            lines.push('')
+            lines.push('★ 缺 ' + missingRequired.length + ' 个必备件：' + missingRequired.map(nameOf).join(', '))
+            lines.push('  必备件不是「装上更好」，是「不装那一层就不存在」——')
+            lines.push('  而它不会让体检变红，只会让某个零件一直报「未配置」。')
+          }
 
           // ★ 三种依赖。最有价值的是 reads —— 它回答「装了这个，我还必须建出什么」。
           const withNeeds = [...installed, ...missing]
