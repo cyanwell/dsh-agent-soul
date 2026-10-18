@@ -45,7 +45,18 @@ const DIRS = [
 ];
 
 // ══ 根文件：名字 + 模板内容（null = 建空文件）══
-const EMPTY_LEDGER = null;
+// ★★ 2026-10-18 改：原来这里建的是 0 字节文件，注释写「你自己往里写」。
+//    可「一个空文件」教不会任何东西 —— 新人看到它不知道八种类型、不知道 ref 干什么、
+//    不知道 feel 是可选的。所以改成**放一条带全部字段的种子记录**当实物教材。
+//    账本依然是只追加的：这条种子就是第 1 条，以后往后加。
+const SEED_LEDGER = JSON.stringify({
+  t: new Date().toISOString(),
+  by: 'scaffold',
+  type: 'fact',
+  text: '账本建成。八种类型：fact（发生了什么）/ promise（承诺，只有主导能写）/ shelved（搁置）/ gain（得到）/ loss（失去）/ persona（对自己的修正）/ container（容器退场）/ lead（主导归属）。写得像索引，不要写成长文；ref 指原文，没有 ref 的记录以后无法回取。详见 soul/12-ledger.md',
+  ref: 'dsh-agent-soul: kit/echo/scaffold.mjs',
+  feel: '（这一行是可选的。写之前先问自己一句：这件事我有感觉吗？有就写，没有就不写 —— 前者是诚实，后者也是）',
+}) + '\n';
 
 const AGENTS_MD = `# 工作区指令（最小骨架）
 
@@ -92,7 +103,10 @@ const GLOSSARY_MD = `# 术语表
 `;
 
 const FILES = [
-  ['02-墨.jsonl', EMPTY_LEDGER, '只追加的账本（空文件，你自己往里写）'],
+  // ★ 顺序有讲究：先两份「图」（体系长什么样、东西放哪），再账本，再指令，再词表。
+  ['00-灵魂.md', tpl('00-灵魂.src.md'), '体系视图 · 这些东西合起来是个什么'],
+  ['00-书房地图.md', tpl('00-书房地图.src.md'), '物理布局 · 什么在哪、哪个是权威'],
+  ['02-墨.jsonl', SEED_LEDGER, '只追加的账本（已放一条带全部字段的种子记录当教材）'],
   ['AGENTS.md', AGENTS_MD, '工作区指令 · 最小骨架'],
   ['GLOSSARY.md', GLOSSARY_MD, '术语表'],
 ];

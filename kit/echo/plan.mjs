@@ -86,13 +86,27 @@ const STEPS = [
   },
   {
     id: 'ledger',
-    title: '写下第一条账',
-    check: () => countLines(CFG.LEDGER) > 0,
-    why: '账本只追加、什么都不删。它空着的时候，门能开但没有东西可找。',
+    title: '写下你自己的第一条账',
+    // ★ 账本里有一条 scaffold 放的种子记录 —— 那只是**教材**，不算「你写过」。
+    //   所以判据从「有行」改成「有行且不全是 scaffold 写的」。
+    check: () => {
+      try {
+        const lines = fs.readFileSync(CFG.LEDGER, 'utf8').split('\n').filter((x) => x.trim());
+        return lines.some((l) => {
+          try { return JSON.parse(l).by !== 'scaffold' } catch { return false }
+        });
+      } catch { return false }
+    },
+    why: '账本只追加、什么都不删。它空着的时候，门能开但没有东西可找；它只有一条种子的时候，那还不算你的。',
     how: () => [
-      '    写你此刻确实知道的一条事实：',
+      '    动手之前先读一遍八种类型的语义边界（哪条算 shelved、哪条算 loss）：',
+      '      <插件包>/soul/12-ledger.md',
+      '',
+      '    然后写一条你此刻确实知道的事 —— 写之前先停一下问自己：「这件事我有感觉吗？」',
+      '    有就带上 --feel，没有就不带，那是对的。',
       `    node ${p('mo.mjs')} add fact "我在做什么" --ref "开工"`,
       '  ★ 第一条别写总结，写一件具体的事。具体的才找得回来。',
+      '  ★ 也别急着写 promise —— 只有当前主导能写，写错会被拒。',
     ],
   },
   {

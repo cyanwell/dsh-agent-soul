@@ -26,10 +26,16 @@ const HUB = CFG.HUB;
 const SOUL = CFG.SOUL;
 const MEM = CFG.MEM;
 const SESSIONS = CFG.SESSIONS;
-const IDX = path.join(HUB, "index");
-const MO = path.join(SOUL, "02-墨.jsonl");
-const SELF_MD = path.join(HUB, "SELF.md");
-const HEARTBEAT_DIR = path.join(HUB, "heartbeat");
+// ★★ 2026-10-18 真机实测踩到：没配 ECHO_SOUL / ECHO_MEMORY 时 CFG.HUB 是 null，
+//    而这几行在**模块加载阶段**就 path.join(null, ...) —— 直接 TypeError，
+//    doctor 连一行 JSON 都吐不出来。面板只看到空输出，只能说「输出不是 JSON」。
+//    ★ 而体检器的职责恰恰是「告诉人哪里没配好」—— 它必须先能开口。
+//    所以：没有根目录就留 null，由下面的各项检查各自报「没配」，绝不在这里炸。
+const safeJoin = (base, ...rest) => (base ? path.join(base, ...rest) : null);
+const IDX = safeJoin(HUB, "index");
+const MO = safeJoin(SOUL, "02-墨.jsonl");
+const SELF_MD = safeJoin(HUB, "SELF.md");
+const HEARTBEAT_DIR = safeJoin(HUB, "heartbeat");
 const RUNTIME = CFG.RUNTIME;
 
 const MARK = "⛬ 压缩索引（非原文）";
@@ -156,6 +162,25 @@ function listLogs() {
 }
 
 // ──────────────────── 快层：不解日志，毫秒级 ────────────────────
+
+/** ★ 配置本身有没有到位 —— 这一项必须排在最前面。
+ *  因为「装完了但还没配」是每个新人的第一步，那时候其余各项全是「读不到」，
+ *  光看那些看不出根因。这一项直接说：先去跑 scaffold。 */
+function checkConfigState() {
+  const r = CFG.checkConfig({ allowMissingSessions: true })
+  if (r.ok) {
+    return {
+      id: "config", label: "配置（三个根）", status: "ok",
+      detail: `书房 ${CFG.SOUL} ｜ 中枢 ${CFG.MEM} ｜ 日志 ${CFG.SESSIONS || "（还没推出来）"}`,
+      evidence: CFG.describe(),
+    }
+  }
+  return {
+    id: "config", label: "配置（三个根）", status: "error",
+    detail: "还没配好：" + r.problems.join("；") + " —— 先跑一次 agent_soul_scaffold，它会把目录建出来",
+    evidence: { problems: r.problems, hints: r.hints },
+  }
+}
 
 function checkLogs(logs) {
   if (logs.length === 0) {
@@ -573,8 +598,28 @@ function checkIdentity() {
 export function runDoctor(opts = {}) {
   const deep = opts.deep !== false;
   const t0 = Date.now();
+
+  // ★★★ 没配好就只报这一项，不往下跑。
+  //   2026-10-18 真机实测：新人装完之后第一个看到的就是这个状态 ——
+  //   而旧代码在这里 path.join(null, ...) 直接 TypeError，doctor 一行 JSON 都吐不出来。
+  //   面板只能说「输出不是 JSON」，于是真正的病因（「还没配」）被埋在三层之下。
+  //   ★ 体检器必须是最后崩的那个 —— 它崩了，就没人能告诉人哪里坏了。
+  const cfg = CFG.checkConfig({ allowMissingSessions: true });
+  if (!cfg.ok) {
+    return {
+      at: iso(Date.now()), mode: deep ? "deep" : "fast", overall: "error",
+      counts: { error: 1, warn: 0, ok: 0, pending: 0 }, ms: Date.now() - t0,
+      checks: [{
+        id: "config", label: "配置（三个根）", status: "error",
+        detail: "还没配好：" + cfg.problems.join("；") + " —— 先跑一次 agent_soul_scaffold，它会把目录建出来",
+        evidence: { problems: cfg.problems, hints: cfg.hints, describe: CFG.describe() },
+      }],
+    };
+  }
+
   const logs = listLogs();
   const checks = [
+    checkConfigState(),
     checkLogs(logs),
     checkDoorSign(logs, deep),
     checkCompaction(logs, deep),
