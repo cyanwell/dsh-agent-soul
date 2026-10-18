@@ -182,6 +182,24 @@ function main() {
     made++;
   }
 
+  // ── VITAL 模板 ──
+  //   ★ 放在 30-状态/ 而不是 hub/ —— 稳态是「当下的情况」，和交接、待办是一类东西。
+  const vitalSrc = path.join(CFG.SOUL.replace(/\//g, path.sep), '30-状态', 'VITAL.md');
+  console.log('');
+  console.log('  稳态层：');
+  if (fs.existsSync(vitalSrc)) {
+    console.log(`    · 30-状态/VITAL.md  已存在，不碰`);
+    skipped++;
+  } else {
+    const t = tpl('VITAL.src.md');
+    console.log(`    + 30-状态/VITAL.md  ${t ? '模板已就位（两个资源 × 两个失效方向，全部待填）' : '★ 模板文件丢了'}`);
+    if (APPLY && t) {
+      fs.mkdirSync(path.dirname(vitalSrc), { recursive: true });
+      fs.writeFileSync(vitalSrc, t, 'utf8');
+    }
+    made++;
+  }
+
   console.log('');
   console.log('─'.repeat(72));
   console.log(`  ${APPLY ? '建了' : '将建'} ${made} 项，跳过 ${skipped} 项`);
@@ -193,12 +211,14 @@ function main() {
     console.log('');
   } else {
     console.log('  下一步：');
-    console.log(`    1. 改 ${selfSrc.replace(/\\/g, '/')} 里的占位符`);
-    console.log(`    2. node ${path.join(HERE, 'self.mjs').replace(/\\/g, '/')}`);
+    console.log(`    1. 改 ${selfSrc.replace(/\\/g, '/')} 里的占位符，然后跑：`);
+    console.log(`         node ${path.join(HERE, 'self.mjs').replace(/\\/g, '/')}`);
+    console.log(`    2. 填 ${vitalSrc.replace(/\\/g, '/')} —— 四张表，全空着；`);
+    console.log(`       ★ 只挑你真撞过的那一个资源填满，其余留空。编出来的阈值会跟着你很久。`);
     console.log(`    3. node ${path.join(HERE, 'memindex.mjs').replace(/\\/g, '/')} build`);
     console.log(`    4. node ${path.join(HERE, 'echo.mjs').replace(/\\/g, '/')} --dom-stat`);
     console.log('');
-    console.log('  这四步全过，六层就立起来了。');
+    console.log('  这四步全过，六层 + 稳态就立起来了。');
     console.log('');
   }
 }
