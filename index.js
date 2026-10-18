@@ -164,6 +164,7 @@ export function apply(ctx) {
         '08-踩坑实录.md',
         '09-dev-workflow.md',
         '10-echo-anatomy.md',
+        '11-self.md',
       ]
       const checks = []
       for (const f of files) {
