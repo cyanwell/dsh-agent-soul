@@ -139,7 +139,9 @@ dsh-agent-soul/
 │   ├── 04-manifest.json  装配清单（判据：这一类该满足什么，不绑实现）
 │   ├── 05-doctor.md      自检七问
 │   ├── 06-reference.md   参考：出处与沿革
-│   └── 07-bundle.json    参考实现清单 + 安装方式（两个 profile 的差异）
+│   ├── 07-bundle.json    参考实现清单 + 安装方式（两个 profile 的差异）
+│   ├── 08-踩坑实录.md    ★ 真踩过的坑：症状 / 怎么发现 / 后来证明错在哪
+│   └── 09-dev-workflow.md ★ 隔离沙箱：新插件先在哪试，别直接上主力
 ├── skeleton/             ★ 模板 —— 「长什么样」，空壳 + 注释，抄完就是你的
 │   ├── 00-authority.md   权威源册（第 0 步，先填这个）
 │   ├── 01-echo.md        账本 + 门牌 + 门 + 哨兵
