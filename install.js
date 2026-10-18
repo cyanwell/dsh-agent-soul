@@ -377,7 +377,7 @@ export function registerInstallTool(ctx) {
             lines.push('    · ' + t.path)
             lines.push('      （' + t.how + '）')
           }
-          lines.push('  ★ 为什么会找不到：装进 profile 的只有插件本体，plugins/ 那 13 个零件没跟着进去。')
+          lines.push('  ★ 为什么会找不到：装进 profile 的只有插件本体，plugins/ 那 14 个零件没跟着进去。')
           lines.push('  ★ 最快的办法：设环境变量 AGENT_SOUL_REPO=<仓库根>，再跑一次 plan。')
           lines.push('')
         }

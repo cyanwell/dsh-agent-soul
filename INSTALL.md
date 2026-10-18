@@ -2,7 +2,7 @@
 
 > 仓库：**https://github.com/cyanwell/dsh-agent-soul**
 >
-> 一个 DSH（DeepSeek Harness）插件。装上它，宿主里会多出四个工具，
+> 一个 DSH（DeepSeek Harness）插件。装上它，宿主里会多出 8 个工具，
 > 它们不替你搭架构，只回答四个问题：**五层是什么、该装哪些、我装对了吗、下一步跑什么。**
 
 ---
@@ -318,7 +318,7 @@ cat "${SOUL_PROBE_LOG:-<tmp>/dsh-soul-probe-compaction.log}" | tail -2
 
 ```
 agent-soul/
-├── index.js              四个工具（layers / manifest / install / doctor）
+├── index.js              8 个工具（layers / manifest / doctor / install / plan / scaffold / check / verify）
 ├── install.js            安装指引生成器
 ├── client.js             Web 端 UI
 ├── soul/
