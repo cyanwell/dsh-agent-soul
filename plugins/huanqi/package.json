@@ -77,5 +77,6 @@
     "@deepseek-ai/dsh-llm": {
       "optional": false
     }
-  }
+  },
+  "author": "dsh-agent-organs contributors"
 }

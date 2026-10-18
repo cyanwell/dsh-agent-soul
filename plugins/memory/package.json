@@ -34,5 +34,6 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
-  }
+  },
+  "author": "dsh-agent-organs contributors"
 }

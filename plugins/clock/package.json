@@ -28,5 +28,6 @@
     "plugin",
     "clock"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "author": "dsh-agent-organs contributors"
 }

@@ -18,5 +18,13 @@
       "inject": []
     }
   },
-  "license": "MIT"
+  "license": "MIT",
+  "author": "dsh-agent-organs contributors",
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "selftest.mjs"
+  ]
 }

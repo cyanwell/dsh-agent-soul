@@ -18,5 +18,7 @@
       "platform": "web",
       "inject": []
     }
-  }
+  },
+  "author": "dsh-agent-organs contributors",
+  "license": "MIT"
 }

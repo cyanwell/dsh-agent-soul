@@ -27,5 +27,6 @@
       "inject": []
     }
   },
-  "license": "MIT"
+  "license": "MIT",
+  "author": "dsh-agent-organs contributors"
 }
