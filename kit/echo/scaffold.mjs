@@ -192,7 +192,7 @@ function main() {
     skipped++;
   } else {
     const t = tpl('VITAL.src.md');
-    console.log(`    + 30-状态/VITAL.md  ${t ? '模板已就位（两个资源 × 两个失效方向，全部待填）' : '★ 模板文件丢了'}`);
+    console.log(`    + 30-状态/VITAL.md  ${t ? '模板已就位（三种资源 × 三件套，全部待填）' : '★ 模板文件丢了'}`);
     if (APPLY && t) {
       fs.mkdirSync(path.dirname(vitalSrc), { recursive: true });
       fs.writeFileSync(vitalSrc, t, 'utf8');
