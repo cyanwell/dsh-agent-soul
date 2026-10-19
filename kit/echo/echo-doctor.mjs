@@ -316,7 +316,8 @@ function checkCompaction(logs, deep) {
  *   所以这里不测"药效"，测**病症**：一个回合烧光预算、正文一个字没出来。
  *   形状 = assistant/message 的 content 里只有 reasoning，没有 text / tool-call。
  * ★ 双插件对账：换气只收「推理 >= minReasoningChars（默认 2048）」的，
- *   而 dsh-stalled-turn-continue 不看长度、两种 turn/end kind 都收 —— 两者是接力，不是重复。
+ *   ★ 2026-10-19：空回合这一条已经并进换气（judge ④），不再需要 dsh-stalled-turn-continue。
+ *   那个独立插件会另记一套 maxConsecutive，两边都续就是一轮变两轮。
  */
 function checkHuanqi(logs, deep) {
   if (!deep) return { id: "huanqi", label: "换气（思考预算）", status: "info", detail: "待深度检测…", evidence: { skipped: true }, deep: true };
@@ -364,7 +365,7 @@ function checkHuanqi(logs, deep) {
       logsSampled: targets.length, assistantMessages: total, noVisibleOutput: noReply,
       overReasoningThreshold: overThreshold, minReasoningChars: MIN_REASONING,
       turnEndReasons: reasons, samples,
-      crossCheck: "换气只覆盖推理 ≥2048 的；dsh-stalled-turn-continue 覆盖全部无输出回合（两者接力）",
+      crossCheck: "换气自己覆盖四种退化（含空回合）；不再需要 dsh-stalled-turn-continue —— 两套账会让一轮被续成两轮",
     },
     deep: true,
   };

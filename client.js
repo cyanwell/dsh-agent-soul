@@ -164,7 +164,7 @@ window.__ModuleLoader__.load({
       ["dsh-agent-pruner", "裁剪器 · 门牌", "把官方那句死 marker 换成带 seq 的"],
       ["dsh-agent-memory", "热记忆 · 推送层", "把活时钟与定长自我层推进每一步"],
       ["dsh-agent-echo", "哨兵 · 体检台", "把记忆中枢的状态摆出来，并说清它测不到什么"],
-      ["dsh-agent-huanqi", "换气 · 思考预算", "检测推理循环并打断，带一本额度账"],
+      ["dsh-agent-huanqi", "换气 · 思考预算", "四条判据治「只想不做」：流内早杀 / 流末 / 重复 / 空回合，共用一本额度账"],
       ["dsh-agent-huanqi-panel", "换气的面板", "在设置页里调换气参数（字节级改 YAML，不动注释）"],
       ["dsh-agent-clock", "侧边栏时钟", "把同一个时钟摆到界面上（memory 摆在提示里）"],
       ["dsh-agent-mnemon-probe", "热记忆探针", "每轮报磁盘状态：条数 / 字节 / 预算占比"],

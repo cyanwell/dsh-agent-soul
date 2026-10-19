@@ -3,7 +3,7 @@
  *
  * The other fixture suites are built from real session captures, and a model
  * narrating its own work writes absolute paths into its reasoning. Three fixtures
- * shipped that way — one carried `C:\\Users\\<user>` four times, plus npx cache
+ * shipped that way — one carried `C:\Users\<user>` four times, plus npx cache
  * hashes and a live session UUID — because the fixtures were checked for "is this
  * a loop?" and never for "what else is in here?".
  *
@@ -159,14 +159,14 @@ test('the rules catch every separator and escaping form a capture can hold', () 
   // four-backslash path. Each case below is a form a real capture can contain,
   // because a capture may be plain text, JSON-escaped once, or escaped twice.
   const mustCatch = [
-    ['one backslash', 'C:\\Users\\<user>\\AppData'],
-    ['two backslashes', 'C:\\Users\\<user>\\\\AppData'],
-    ['four backslashes', 'C:\\\\\\\\Users\\\\\\\\<user>\\\\\\\\AppData'],
-    ['forward slashes', 'C:/Users/<user>/AppData'],
-    ['mixed separators', 'C:\\/Users\\/<user>/AppData'],
-    ['lowercase drive', 'c:\\users\\<user>'],
-    ['linux home', '/home/<user>/project'],
-    ['macOS home', '/Users/<user>/project'],
+    ['one backslash', 'C:\\Users\\71026\\AppData'],
+    ['two backslashes', 'C:\\\\Users\\\\71026\\\\AppData'],
+    ['four backslashes', 'C:\\\\\\\\Users\\\\\\\\71026\\\\\\\\AppData'],
+    ['forward slashes', 'C:/Users/71026/AppData'],
+    ['mixed separators', 'C:\\/Users\\/71026/AppData'],
+    ['lowercase drive', 'c:\\users\\71026'],
+    ['linux home', '/home/71026/project'],
+    ['macOS home', '/Users/71026/project'],
     ['npx hash', '_npx\\\\c8633a242642d858'],
     ['npx hash, one slash', '_npx\\c8633a242642d858'],
     ['session dir', 'session-e6c96e85-9abf-4487-b1e6-d3e00c635e5b'],
@@ -178,7 +178,7 @@ test('the rules catch every separator and escaping form a capture can hold', () 
   ]
   const mustPass = [
     ['the redaction placeholders', 'C:\\\\Users\\\\user0 _npx\\\\0000000000000000 session-00000000-0000-0000-0000-000000000000'],
-    ['an unrelated number', 'the value is <user> items'],
+    ['an unrelated number', 'the value is 71026 items'],
     ['a short hex string', 'hash abc123def456'],
     ['an ordinary path without a user', 'C:\\\\Program Files\\\\nodejs'],
   ]

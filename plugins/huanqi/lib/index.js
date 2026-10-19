@@ -193,6 +193,25 @@ export const Config = z.object({
     breakCode: z.string().default('REPETITIVE_OUTPUT'),
     breakCorrection: z.boolean().default(true),
     resumeAfterBreak: z.boolean().default(false),
+    /**
+     * 空回合也续一轮（2026-10-19 从 `dsh-stalled-turn-continue` 吸收）。
+     *
+     * 上面所有判据都挂在 `llm/stream` 上 —— 它们只在「有一次模型调用」时才有机会看一眼。
+     * 而有一种失败是「调用了，但什么都没留下」：模型只发了 reasoning 块，
+     * 然后直接给 end-of-turn，没有 text、没有工具调用。引擎把它当成正常结束
+     * （`finish_reason: stop`、零工具调用），于是 auto-continue 不管它，
+     * 会话就停在那儿等人手打「继续」。
+     *
+     * ★ 这是换气原本的第四个缺口。前三个（流内早杀 / 流末 reasoning-only /
+     *   重复输出）都要求「流里有东西可看」，而空回合**流里什么都没有**。
+     *
+     * ★ 判据：`turn/end` 且 reason 是 `completed` 或 `no-visible-output`，
+     *   且这一轮从头到尾没出现 text / tool-call。
+     *
+     * ★ 它和流内那几条**共用同一个额度账本**（`ledger`），不另立一本 ——
+     *   一次续命就是一次续命，不管起因是哪种病。`false` 关掉这条，别的不受影响。
+     */
+    emptyTurnContinue: z.boolean().default(true),
 });
 export const name = 'huanqi';
 /**
@@ -441,14 +460,14 @@ export function containment(a, b) {
  * ## 三条不能改的规则
  *
  * 1. **上限调高不充值。** 用户把 `maxContinuations` 从 4 调到 8，当前额度**不动**；
- *    要涨得靠正常对话攒。（设计取舍：「上限是天花板，不是充值。」）
+ *    要涨得靠正常对话攒。（爀曦 2026-10-10 明确同意：「上限是天花板，不是充值。」）
  * 2. **上限调低要压。** 额度高于新上限时立刻压到新上限。
  * 3. **额度最低 1。** 到 1 就不再降 —— 继续降等于彻底关掉这个功能，
  *    而那时恰恰最需要它把问题摆到用户面前。
  *
  * ## 全局，不按会话
  *
- * 额度是**跨会话共享**的（设计取舍：分会话管理会很麻烦）。
+ * 额度是**跨会话共享**的（爀曦 2026-10-10 定：「分会话管理会很麻烦」）。
  * 所以一个会话把额度耗光，会影响其他会话 —— 这是有意的：
  * **上下文变脏通常是全局性的**（同一台机器、同一批模型、同样的用法）。
  */
@@ -679,7 +698,7 @@ export class CreditLedger {
         const home = process.env.DSH_HOME;
         return home !== undefined && home !== ''
             ? join(home, 'state', 'dsh-agent-huanqi.json')
-            : join('.', 'dsh-agent-huanqi.json');
+            : join('.', 'dsh-huanqi.json');
     }
 }
 export class LoopDetector {
@@ -1317,7 +1336,7 @@ const ZH = {
         + `延续额度剩 ${credit}/${max}（每 ${threshold} 个正常轮涨回一点）。`
         + '继续完成你原本的任务，不要复述这段思考。',
     circuitBreakNotice: (max) => `〔换气〕本场思考已熔断：连续 ${max} 次延续都没有产出正文，不再开新一轮。`
-        + '请对它说「保存当前进度，做好手动压缩」，然后开一条新会话继续。',
+        + '请对砚青说「保存当前进度，做好手动压缩」，然后开一条新会话继续。',
     creditWarning: (credit, max, threshold) => `〔换气〕延续额度只剩 ${credit}/${max}：上下文可能已经变脏。`
         + `建议手动压缩上下文；正常对话每满 ${threshold} 轮会涨回一点。`,
     silentCutNotice: (chars, credit, max) => `〔换气〕本轮思考写了 ${chars} 字，正文和工具调用都还没产生，已在流中截断。`
@@ -1344,7 +1363,7 @@ export function apply(ctx, config) {
     /**
      * 换气账本。
      *
-     * ★ **全局一份，跨会话共享**（设计取舍：分会话管理会很麻烦）。
+     * ★ **全局一份，跨会话共享**（爀曦 2026-10-10 定：「分会话管理会很麻烦」）。
      * 理由是上下文变脏通常是全局性的 —— 同一台机器、同一批模型、同样的用法。
      * 所以一个会话把额度耗光会影响别的会话，**这是有意的**。
      */
@@ -1359,57 +1378,6 @@ export function apply(ctx, config) {
     if (ledger.load(ledgerPath, warnLedger)) {
         ctx.logger.info(`dsh-agent-huanqi: restored credit ${ledger.credit}/${ledger.creditMax} from ${ledgerPath}`);
     }
-    /* ─── 本机补丁 · 账本热重载 BEGIN ─── */
-    function yqReadMax() {
-        try {
-            const home = process.env.DSH_HOME;
-            if (!home) return undefined;
-            for (const prof of ["desktop", "web"]) {
-                const f = home + "/profiles/" + prof + "/cordis.patch.yml";
-                if (!existsSync(f)) continue;
-                const text = readFileSync(f, "utf8");
-                const at = text.indexOf("- id: huanqi");
-                if (at < 0) continue;
-                const tail = text.slice(at);
-                const key = "maxContinuations:";
-                const k = tail.indexOf(key);
-                if (k < 0) continue;
-                let j = k + key.length;
-                while (tail[j] === " ") j++;
-                let num = "";
-                while (tail[j] >= "0" && tail[j] <= "9") { num = num + tail[j]; j++; }
-                if (num !== "") return Number(num);
-            }
-        } catch { /* 读不到就继续用启动时的值 */ }
-        return undefined;
-    }
-
-    function yqSyncFromDisk() {
-        try {
-            const want = yqReadMax();
-            if (want !== undefined && (want !== ledger.max || want !== ledger.state.creditMax)) {
-                ledger.reconcileMax(want);
-                ledger.max = want;
-                ctx.logger.info("dsh-agent-huanqi: [hot-reload] max -> " + want);
-            }
-            if (ledgerPath === "" || !existsSync(ledgerPath)) return;
-            const raw = JSON.parse(readFileSync(ledgerPath, "utf8"));
-            const s = ledger.state;
-            if (typeof raw.credit === "number") {
-                const next = Math.max(0, Math.min(Math.trunc(raw.credit), s.creditMax));
-                if (next !== s.credit) {
-                    s.credit = next;
-                    ctx.logger.info("dsh-agent-huanqi: [hot-reload] credit -> " + next + "/" + s.creditMax);
-                }
-            }
-            if (typeof raw.normalTurns === "number" && raw.normalTurns >= 0
-                && Math.trunc(raw.normalTurns) !== s.normalTurns) {
-                s.normalTurns = Math.trunc(raw.normalTurns);
-            }
-        } catch { /* 文件正在被写、JSON 半截 —— 下一轮再看。★ 绝不抛 */ }
-    }
-    /* ─── 本机补丁 · 账本热重载 END ─── */
-
     function detectorFor(agent) {
         let detector = detectors.get(agent);
         if (detector === undefined) {
@@ -1600,6 +1568,84 @@ export function apply(ctx, config) {
             ctx.logger.warn(`dsh-loop-guard: could not resume after a break: ${String(error)}`);
         });
     }
+    /* ── 空回合（2026-10-19 从 dsh-stalled-turn-continue 吸收）─────────────────
+     *
+     * 上面所有判据都挂在 `llm/stream` 上 —— 也就是说，**它们只在「有一次模型调用」时
+     * 才有机会看一眼**。而有一种失败是「调用了，但什么都没留下」：只发了 reasoning，
+     * 然后直接 end-of-turn，没有 text、没有 tool-call。引擎认为这一轮正常结束了，
+     * 于是没有人再开口，会话停在那里。
+     *
+     * ★ 这条判据必须挂在 `session/event` 上：只有 `turn/end` 知道「整个回合结束了」，
+     *   而流只知道「这一次调用结束了」。一次回合可能有好几次调用，
+     *   中间某次没产出是正常的，整轮都没产出才是病。
+     *
+     * ★ 记账：**共用同一个 `ledger`**。一次续命就是一次续命，不分病种。
+     *   额度耗尽时和流内那条一样熔断 —— 并且**留一条可见的消息**，
+     *   因为空消息会让会话从那一刻起永久不可用。
+     */
+    if (config.emptyTurnContinue && config.maxContinuations > 0) {
+        /** sessionId → 这一轮到目前为止有没有出现 text / tool-call。 */
+        const turnHasOutput = new Map();
+        ctx.on('session/event', ((session, event) => {
+            const sid = session === undefined || session === null ? undefined : session.id;
+            if (typeof sid !== 'string')
+                return;
+            const type = event === undefined ? undefined : event.type;
+            if (type === 'turn/start') {
+                turnHasOutput.set(sid, false);
+                return;
+            }
+            if (type === 'assistant/message') {
+                // 一条 assistant 消息只要有 text 或 tool-call，这一轮就算有产出。
+                const data = event === undefined ? undefined : event.data;
+                const content = data === undefined ? undefined : data.message?.content;
+                if (Array.isArray(content)) {
+                    const has = content.some((part) => {
+                        if (part === null || typeof part !== 'object')
+                            return false;
+                        const t = part.type;
+                        return t === 'text' || t === 'tool-call' || t === 'tool_call';
+                    });
+                    if (has)
+                        turnHasOutput.set(sid, true);
+                }
+                return;
+            }
+            if (type !== 'turn/end')
+                return;
+            // 只认「正常结束」这两种；error / interrupted / max-tokens 归 auto-continue 管。
+            const data = event === undefined ? undefined : event.data;
+            const kind = data === undefined ? undefined : data.reason?.kind;
+            if (kind !== 'completed' && kind !== 'no-visible-output')
+                return;
+            // 这一轮出过东西 → 是真实进展，不是空回合。
+            if (turnHasOutput.get(sid) === true)
+                return;
+            turnHasOutput.delete(sid);
+            const agent = ctx.agents.get(sid);
+            if (agent === undefined)
+                return;
+            const strings = stringsFor(readLanguage(ctx));
+            if (ledger.canContinue()) {
+                const left = ledger.spendContinuation();
+                if (ledger.onContinuation({ window: config.anomalyWindow, now: Date.now() })) {
+                    ctx.logger.warn(`dsh-agent-huanqi: empty-turn continuation inside the anomaly window (${config.anomalyWindow} turns); credit penalised to ${ledger.credit}`);
+                }
+                ledger.save(ledgerPath, warnLedger);
+                ctx.logger.warn(`dsh-agent-huanqi: turn ended with no visible output; continuing (credit left ${left}/${ledger.creditMax})`);
+                scheduleResume(agent, strings.continueNotice(left, ledger.creditMax, config.normalTurnThreshold), `huanqi: empty-turn continuation, credit ${left}/${ledger.creditMax}`);
+                if (left <= config.warnAtCredit) {
+                    agent.inject(message(strings.creditWarning(left, ledger.creditMax, config.normalTurnThreshold), 'notice', `huanqi: credit low (${left}/${ledger.creditMax})`));
+                }
+            }
+            else {
+                ledger.noteCircuitBreak();
+                ledger.save(ledgerPath, warnLedger);
+                ctx.logger.warn('dsh-agent-huanqi: empty turn and continuation budget exhausted; circuit-breaking');
+                agent.inject(message(strings.circuitBreakNotice(ledger.creditMax), 'notice', 'huanqi: circuit break (empty turn)'));
+            }
+        }));
+    }
     // Observe every streaming model call through the `llm/stream` waterfall. This
     // is present on both dsh 0.1.2-rc.1 and 0.1.5-alpha.1 and carries the SAME
     // StreamChunk delta types, so no version branching is needed.
@@ -1677,7 +1723,7 @@ export function apply(ctx, config) {
                 }
                 /* ── 流内早杀：思考够长、产出还是零 ────────────────────────────────
                  * ★ 这是唯一一条**只看"有没有产出"**的流内判据。形态维度是死的 ——
-                 * 实测过（实测）：短语池去重比在正常长推理里能低到
+                 * 实测过（2026-10-11，本会话 6737 步）：短语池去重比在正常长推理里能低到
                  * 0.12，和真循环的 0.13 完全重叠；句长同理。`low-entropy` 那条被删掉
                  * 就是这个原因（见 `observe` 上那段标定），所以这里不再碰形态。
                  *
@@ -1725,7 +1771,7 @@ export function apply(ctx, config) {
             // 理由：那条判据的原作者实测它有误报空间（见 `observe` 上那段标定记录），
             // 而"再给它续一轮"这个动作比"提醒它一句"贵得多 —— **不该建立在可能误报的判据上**。
             //
-            // ★ 它有**两条入口**（实测）：
+            // ★ 它有**两条入口**（2026-10-11 加第二条）：
             //   ① `silentCut`：流内早杀 —— 思考写到 `silentReasoningChars` 还是零产出，
             //      当场截断。**不等这一轮自己结束**，因为真实循环能在一次调用里写满 5140 字。
             //   ② 流末判定：`reasoning-only` 且连续停滞达到 `reasoningOnlySteps`（默认 1）。
@@ -1751,7 +1797,7 @@ export function apply(ctx, config) {
                     const strings = stringsFor(readLanguage(ctx));
                     if (ledger.canContinue()) {
                         const left = ledger.spendContinuation();
-                        /* ★ 异常判定（实测）：出正文后 `anomalyWindow` 轮之内又卡，
+                        /* ★ 异常判定（2026-10-10 接线）：出正文后 `anomalyWindow` 轮之内又卡，
                          * 说明"卡"不是偶然，是上下文在变脏 —— 除了这次延续本身扣的那一分，
                          * 再额外扣一分。它让额度不只在"我摔了"时降，也在"脚下越来越滑"时降。 */
                         if (ledger.onContinuation({ window: config.anomalyWindow, now: Date.now() })) {
@@ -1796,7 +1842,7 @@ export function apply(ctx, config) {
              * ★ 攒够 `normalTurnThreshold` 轮才涨 1 点，并且涨不过上限。
              * 这两条都在 `onNormalTurn` 里；这里只负责"判定 + 落盘"。
              *
-             * ★ 同时喂"异常窗口"的计数器（实测）：
+             * ★ 同时喂"异常窗口"的计数器（2026-10-10 补）：
              *   出正文 → `noteOutput()` 重置基准；
              *   没出正文 → `noteTurn()` 窗口 +1，下一轮再卡就可能是"刚恢复又卡"。
              *   这两个合起来才是完整的体温计 —— 只量"摔了没"不够，还要量"脚下是不是越来越滑"。
