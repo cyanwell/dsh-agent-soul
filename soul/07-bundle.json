@@ -114,11 +114,16 @@
       "name": "哨兵",
       "layer": "I-echo",
       "manages": "空间 —— 校验前面几件是不是还活着",
-      "provides": "分级体检（ok / warn / error / pending）+ 只读状态面板",
+      "provides": "分级体检（ok / warn / error / pending）+ 只读状态面板 + **换气每轮判词的观测面**（读 huanqi 写的 JSONL，列出最近每一轮的 kind / 最后一条消息形状 / 判词 / 额度）",
       "required": true,
-      "check": "它有 pending 级吗？「跳过」会不会被显示成「通过」？它自己承认查不到什么吗？",
+      "check": "它有 pending 级吗？「跳过」会不会被显示成「通过」？它自己承认查不到什么吗？★ 它能不能回答「另一个零件到底有没有在看着这一轮」—— 而不是只告诉你文件在不在？",
       "depends": [],
-      "needs": [],
+      "needs": [
+        {
+          "what": "huanqi",
+          "why": "★ 2026-10-19 起它多了一块「换气 · 每轮判词」，读的是 huanqi 写的 state/huanqi-turns.jsonl。技术上不依赖（文件不在就显示「还没有记录」，不会崩），但没有 huanqi 时那一块永远是空的。"
+        }
+      ],
       "reads": [
         {
           "what": "三个数据根（soul / memory / sessions）",
@@ -129,9 +134,14 @@
           "what": "echo-doctor.mjs + echo-config.mjs",
           "why": "体检器是 spawn 出去的子进程",
           "missing": "★ 面板报「输出不是 JSON」—— 而真因是子进程 ERR_MODULE_NOT_FOUND，隔了三层"
+        },
+        {
+          "what": "<DSH_HOME>/state/huanqi-turns.jsonl（换气写的每轮判词）+ dsh-huanqi.json（额度账本）",
+          "why": "「换气 · 每轮判词」那一块要读它 —— 这是唯一能把「它到底有没有在看着」变成可见证据的地方",
+          "missing": "★ **不报错，只是空着** —— 面板上写「还没有记录」。这正是 reads 这一类最典型的坑：装好了、看着正常、而它其实一次都没跑过。"
         }
       ],
-      "依赖说明": "★ 它必须是最后崩的那个 —— 它崩了，就没人能告诉人哪里坏了。"
+      "依赖说明": "★ 它必须是最后崩的那个 —— 它崩了，就没人能告诉人哪里坏了。★★ 2026-10-19 起它同时是「稳态引擎的观测面」：换气的判断以前只进 ctx.logger，而桌面端 logger 不落盘，所以「它有没有在看着这一轮」在机器上没有任何痕迹。现在换气每轮写一条 JSONL，回声读它。"
     },
     {
       "dir": "mnemon-probe",
@@ -202,9 +212,9 @@
       "name": "稳态引擎",
       "layer": "II-vital",
       "manages": "方向 —— 漂移检测（推理泄漏、重复、原地打转）",
-      "provides": "检测 + 干预",
+      "provides": "检测 + 干预 + **每轮判词落盘**（写 state/huanqi-turns.jsonl，给回声面板读）",
       "required": false,
-      "check": "它的每一条阈值背后挂着哪个具体失败？答不上来的阈值会误伤。它的干预有没有对应的观测面（误伤记录）？",
+      "check": "它的每一条阈值背后挂着哪个具体失败？答不上来的阈值会误伤。它的干预有没有对应的观测面（误伤记录）？★ 它跑起来了吗 —— 是「文件在」还是「apply() 真的进了、而且走到底了」？后者要能看到日志或产物，不能靠配置正确来推断。",
       "depends": [],
       "needs": [],
       "reads": [
@@ -214,7 +224,7 @@
           "missing": "检测不出东西"
         }
       ],
-      "依赖说明": "实际依赖 DSH 自带的 @deepseek-ai/dsh-agent 与 dsh-llm。★ 它的每条阈值背后都该挂一个具体失败 —— 答不上来的阈值会误伤。",
+      "依赖说明": "实际依赖 DSH 自带的 @deepseek-ai/dsh-agent 与 dsh-llm。★★ peer 范围必须含 >=0.2.1-rc2 <0.3.0 这一条，而且**必须单独写一条 comparator** —— semver 只在同一组里出现同 major.minor.patch 的 comparator 时才 admit 那处的 prerelease；写成 >=0.1.2-rc.1 <0.3.0 既不 admit 0.2.1-rc2、又会误 admit 没测过的 0.2.x 正式版，两头都错。★★ 2026-10-19 起它每轮结束往 <DSH_HOME>/state/huanqi-turns.jsonl 写一条判词（kind / 最后一条消息形状 / 有没有产出 / 判词 / 剩余额度），由 echo 面板读 —— 这是它从「不可视」变成「可视」的那一步，也是「它到底有没有在看着这一轮」第一次有了机器可读的证据。★ 它的每条阈值背后都该挂一个具体失败 —— 答不上来的阈值会误伤。",
       "来源": {
         "性质": "自创。功能设计、三档动作、额度账、面板联动都是我们定的。",
         "吸收了什么": [
