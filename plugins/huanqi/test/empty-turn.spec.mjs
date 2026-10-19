@@ -203,6 +203,57 @@ test('★ 有产出的回合：出过 tool-call 也算产出', async () => {
   assert.equal(agent.followups.length, 0, '工具调用也是产出')
 })
 
+test('★★ 前面调过工具、最后一步卡在思考里 → 必须续（2026-10-19 实测形状）', async () => {
+  // 这条是爀曦当天真实撞到的形状，原话：
+  //   「前面有正常思考和调用文件、读写，但是到最后一步思考的时候停留在思考里了，
+  //     没有再继续调用，输出，结果就是最后一步没有正文输出」
+  //
+  // ★ 为什么第一版漏了它：第一版记的是「这一轮里**任何一次**产出」，
+  //   于是每次读文件、写文件（tool-call）都把整轮标成「有产出」——
+  //   最后一步卡死的时候，判据永远不触发。
+  //
+  // ★ 为什么判据 ① 也没接住：流内早杀要求思考够 silentReasoningChars（默认 3000），
+  //   而「最后一步想了一会儿就停住」常常够不到那个量。
+  const agent = resumeAgent()
+  const { emit } = host(agent, { ledgerPath: ledgerFor('tool-then-stall') })
+
+  emit('s1', 'turn/start')
+  // 前面几步：正常读文件、写文件
+  emit('s1', 'assistant/message', textMessage)
+  emit('s1', 'assistant/message', {
+    message: { content: [{ type: 'tool-call', name: 'read', arguments: '{}' }] },
+  })
+  emit('s1', 'assistant/message', {
+    message: { content: [{ type: 'tool-call', name: 'write', arguments: '{}' }] },
+  })
+  // 最后一步：只有思考，没有正文、没有工具调用
+  emit('s1', 'assistant/message', reasoningOnlyMessage)
+  emit('s1', 'turn/end', { reason: { kind: 'completed' } })
+
+  await agent.settle()
+  assert.equal(
+    agent.followups.length, 1,
+    '★ 最后一步没有产出 = 卡住了，前面调过工具不算这一轮的产出',
+  )
+})
+
+test('★ 最后一步是 tool-call → 正常，不续', async () => {
+  // 对照组：一轮以工具调用结束是**正常**的（它在等工具结果，或者这轮就该结束）。
+  // 只有「以纯思考结束」才是卡住。
+  const agent = resumeAgent()
+  const { emit } = host(agent, { ledgerPath: ledgerFor('ends-with-tool') })
+
+  emit('s1', 'turn/start')
+  emit('s1', 'assistant/message', textMessage)
+  emit('s1', 'assistant/message', {
+    message: { content: [{ type: 'tool-call', name: 'read', arguments: '{}' }] },
+  })
+  emit('s1', 'turn/end', { reason: { kind: 'completed' } })
+
+  await agent.settle()
+  assert.equal(agent.followups.length, 0, '以工具调用收尾是正常的')
+})
+
 test('★ 同一轮里先空转后产出 → 不续', async () => {
   const agent = resumeAgent()
   const { emit } = host(agent, { ledgerPath: ledgerFor('mixed') })

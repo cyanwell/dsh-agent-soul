@@ -1588,15 +1588,30 @@ export function apply(ctx, config) {
     // 而 `undefined` 在做真值判断时等于「关掉」—— 那条判据就会静默失效，没人知道。
     // 默认开 = 只有显式写 false 才关。
     if (config.emptyTurnContinue !== false && config.maxContinuations > 0) {
-        /** sessionId → 这一轮到目前为止有没有出现 text / tool-call。 */
-        const turnHasOutput = new Map();
+        /**
+         * sessionId → **最后一条** assistant 消息有没有出现 text / tool-call。
+         *
+         * ★ 2026-10-19 修（爀曦当天实测抓到的真实形状）：
+         *   第一版记的是「这一轮里**任何一次**产出」，于是每次读文件、写文件（tool-call）
+         *   都会把整轮标成「有产出」—— 而**最后一步卡在思考里**的时候，判据就永远不触发。
+         *
+         *   真实形状（他的原话）：「前面有正常思考和调用文件、读写，但是到最后一步思考的时候
+         *   停留在思考里了，没有再继续调用，输出，结果就是最后一步没有正文输出」。
+         *
+         *   而判据 ①（流内早杀）要求思考够 silentReasoningChars 才动，最后那一步常常够不到。
+         *   **两条判据都漏在这个形状上。**
+         *
+         *   所以这里记的是「最后一条」—— 每收到一条 assistant/message 就**覆盖**，
+         *   不是 OR 累积。turn/end 时看最后留下的那个值。
+         */
+        const lastMessageHadOutput = new Map();
         ctx.on('session/event', ((session, event) => {
             const sid = session === undefined || session === null ? undefined : session.id;
             if (typeof sid !== 'string')
                 return;
             const type = event === undefined ? undefined : event.type;
             if (type === 'turn/start') {
-                turnHasOutput.set(sid, false);
+                lastMessageHadOutput.set(sid, false);
                 return;
             }
             if (type === 'assistant/message') {
@@ -1610,8 +1625,8 @@ export function apply(ctx, config) {
                         const t = part.type;
                         return t === 'text' || t === 'tool-call' || t === 'tool_call';
                     });
-                    if (has)
-                        turnHasOutput.set(sid, true);
+                    // ★ 覆盖，不是 OR —— 见上面那段注释
+                    lastMessageHadOutput.set(sid, has);
                 }
                 return;
             }
@@ -1622,10 +1637,20 @@ export function apply(ctx, config) {
             const kind = data === undefined ? undefined : data.reason?.kind;
             if (kind !== 'completed' && kind !== 'no-visible-output')
                 return;
-            // 这一轮出过东西 → 是真实进展，不是空回合。
-            if (turnHasOutput.get(sid) === true)
+            // ★ 看的是**最后一条**消息有没有产出，不是「这一轮任何一次」。
+            // 前面调过工具、最后一步卡在思考里 —— 这恰恰是最常见的形状，必须接住。
+            const lastHad = lastMessageHadOutput.get(sid) === true;
+            // ★★ 诊断日志（2026-10-19 加）：出手和不出手都要留痕。
+            // 起因是那次「最后一步卡住」发生时查不到任何东西 —— 判据没动，也没说为什么。
+            try {
+                ctx.logger?.debug?.('[huanqi] turn/end kind=%s 最后一条有产出=%s → %s', kind, lastHad, lastHad ? '不续' : '准备续');
+            }
+            catch {
+                // 日志失败不许影响主流程
+            }
+            if (lastHad)
                 return;
-            turnHasOutput.delete(sid);
+            lastMessageHadOutput.delete(sid);
             const agent = ctx.agents.get(sid);
             if (agent === undefined)
                 return;
