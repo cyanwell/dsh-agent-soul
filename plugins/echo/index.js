@@ -1,50 +1,118 @@
-// dsh-agent-echo —— 宿主半 v2（仪表盘版）
+// dsh-yanqing-echo —— 宿主半 v2（仪表盘版）
 // ============================================================================
 // v1 能体检，但每次要 10-20 秒，面板打开就是干等。
-// v2：像任务管理器那样实时，并且分四级轮询：
+// v2（爀曦 2026-10-08 04:42 要求）：像任务管理器那样实时，并且分四级轮询：
 //     1 级 = 5 分钟 ｜ 2 级 = 10 分钟 ｜ 3 级 = 30 分钟（默认）｜ 4 级 = 只手动
 //
 // ★★★ 架构（「实时感」的来源）：
 //     **面板读缓存，后台按等级体检。** 客户端 2 秒拉一次 /api/status 只是读内存（微秒级），
 //     永远不会等体检；体检由插件自己的定时器在后台做，做完替换缓存。
-//     · 快检（约 0.9s）：不解日志 —— 会话日志/索引/SELF/心跳/账本/热记忆/漂移/身份
+//     · 快检（约 0.9s）：不解日志 —— 会话日志/索引/SELF/心跳/《墨》/热记忆/漂移/身份
 //     · 深检（约 9.5s）：解一次日志 —— 门牌实测 + 压缩统计
 //     合并后交给面板：深度项用深检结果覆盖，其余用快检结果，各自带时间戳。
 //
 // ★★ 两条纪律，一条都没省：
 //   ① **体检跑在子进程里** —— 绝不在 DSH 主进程同步解 74MB 日志，那会把所有会话一起卡住。
-//   ② **体检逻辑只有一份**（<你的记忆库>\echo-doctor.mjs），命令行与面板共用。
+//   ② **体检逻辑只有一份**（D:\AI\memory\hub\echo-doctor.mjs），命令行与面板共用。
 // ============================================================================
 
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 
-export const name = 'dsh-agent-echo'
+export const name = 'dsh-yanqing-echo'
 // ★ 只声明真正用到的服务。多写一个不存在的服务名 → 一直等 → apply 永不执行（静默失效）。
 export const inject = ['webServer']
 
-// ★ 三个可配项 —— NODE 默认用【当前进程自己那个 node】，所以通常不用配。
-//   HUB 是「体检器 + 你的记忆库」所在目录；DOCTOR 是体检脚本。
-const NODE = process.env.ECHO_NODE || process.execPath
-// ★★★ HUB 解析（2026-10-18 沙箱实测修）：
-//   打包时 `echo-doctor.mjs` 就在**插件根目录**（和这个文件同级），不在 runtime/。
-//   而原来默认指 `<plugin>/runtime` —— 装完只要没配 ECHO_HUB，那个目录根本不存在，
-//   于是 spawn 找不到脚本 → 空输出 → JSON.parse('') → 面板报
-//   「体检器本身 · 输出不是 JSON」，**11 项检查一项都没跑**，整个哨兵是红的。
-//   而 README 写的是「不配也能跑，只是每项报读不到」—— 那是不成立的。
-//
-//   现在三级：ECHO_HUB（用户自定记忆库）> <plugin>/runtime（那里真有 doctor 才算）> <plugin>/ 本身。
-const HERE = path.dirname(fileURLToPath(import.meta.url))
-const RUNTIME = path.join(HERE, 'runtime')
-const HUB = process.env.ECHO_HUB
-  || (fs.existsSync(path.join(RUNTIME, 'echo-doctor.mjs')) ? RUNTIME : HERE)
-const DOCTOR = process.env.ECHO_DOCTOR || path.join(HUB, 'echo-doctor.mjs')
+const NODE = 'C:/Users/pc/.workbuddy/binaries/node/versions/22.22.2-3/node.exe'
+const HUB = 'D:/AI/memory/hub'
+const DOCTOR = path.join(HUB, 'echo-doctor.mjs')
 const MEMINDEX = path.join(HUB, 'memindex.mjs')
 const SELFMJS = path.join(HUB, 'self.mjs')
 const CFG = path.join(HUB, 'echo-panel.json')
+
+/**
+ * ★★ 换气检测层（2026-10-19 加）
+ *
+ * 换气插件每一轮结束往 `state/huanqi-turns.jsonl` 写一条判词，这里只负责读。
+ * 两边的契约就是一个 JSONL：换气不认识回声，回声也不需要换气的任何内部状态。
+ *
+ * 为什么不让换气直接暴露 HTTP 路由、由面板去拉？
+ *   · 换气是「守卫」，它越少依赖别人越好 —— 守卫不该为了被看见而引入 web 依赖
+ *   · 落盘还有个额外好处：**进程重启、面板没开的时候，那段历史也还在**
+ */
+const DSH_HOME = process.env.DSH_HOME !== undefined && process.env.DSH_HOME !== ''
+  ? process.env.DSH_HOME
+  : 'D:/AI/dsh/home'
+const HUANQI_STATE = path.join(DSH_HOME, 'state')
+const HUANQI_TURNS = path.join(HUANQI_STATE, 'huanqi-turns.jsonl')
+const HUANQI_LEDGER = path.join(HUANQI_STATE, 'dsh-huanqi.json')
+/** 面板两秒拉一次 status，别每次都把整个 JSONL 读一遍。 */
+const HUANQI_CACHE_MS = 2000
+let huanqiCache = { at: 0, key: '', value: null }
+
+/**
+ * 读换气账本 + 最近若干轮判词。
+ *
+ * ★ 返回的 `turns` 是**最新的在前** —— 面板要的是「刚才那一轮发生了什么」，
+ *   不是「最早那一轮」。
+ * ★ 坏行直接跳过：JSONL 的价值就在于一行坏了不牵连别人。
+ */
+function readHuanqi(limit) {
+  const key = String(limit)
+  const now = Date.now()
+  if (huanqiCache.value !== null && huanqiCache.key === key && now - huanqiCache.at < HUANQI_CACHE_MS) {
+    return huanqiCache.value
+  }
+
+  const out = {
+    turnsPath: HUANQI_TURNS,
+    ledgerPath: HUANQI_LEDGER,
+    exists: false,
+    total: 0,
+    turns: [],
+    byVerdict: {},
+    lastHour: 0,
+    firstAt: null,
+    lastAt: null,
+    ledger: null,
+    ledgerAgeMs: null,
+  }
+
+  try {
+    const raw = fs.readFileSync(HUANQI_TURNS, 'utf8')
+    out.exists = true
+    const all = []
+    for (const line of raw.split('\n')) {
+      if (line.trim() === '') continue
+      try { all.push(JSON.parse(line)) } catch { /* 坏行跳过 */ }
+    }
+    out.total = all.length
+    out.turns = all.slice(-limit).reverse()
+    for (const t of all) {
+      const head = String(t && t.verdict ? t.verdict : '?').split(':')[0]
+      out.byVerdict[head] = (out.byVerdict[head] || 0) + 1
+    }
+    if (all.length > 0) {
+      out.firstAt = all[0].t ?? null
+      out.lastAt = all[all.length - 1].t ?? null
+    }
+    const cutoff = now - 3600_000
+    out.lastHour = all.filter((t) => Date.parse(t && t.t ? t.t : '') >= cutoff).length
+  } catch {
+    // 文件还不存在 —— 换气一次都还没跑过，或还没重启加载新版
+  }
+
+  try {
+    const st = fs.statSync(HUANQI_LEDGER)
+    out.ledgerAgeMs = now - st.mtimeMs
+    out.ledger = JSON.parse(fs.readFileSync(HUANQI_LEDGER, 'utf8'))
+  } catch { /* 账本还没有也正常 */ }
+
+  huanqiCache = { at: now, key, value: out }
+  return out
+}
 
 /** 四级：分钟数。0 = 不自动跑（只手动）。默认 3 级。 */
 const LEVEL_MIN = { 1: 5, 2: 10, 3: 30, 4: 0 }
@@ -228,7 +296,7 @@ export function apply(ctx) {
 
   ctx.webServer.register({
     kind: 'prefix',
-    path: '/agent-echo',
+    path: '/yanqing-echo',
     handler: async (req, res) => {
       // 桌面端（Electron）页面 origin 是 file:// 或 app://，必须放行跨域。
       res.setHeader('Access-Control-Allow-Origin', '*')
@@ -238,7 +306,7 @@ export function apply(ctx) {
 
       let url
       try { url = new URL(req.url, 'http://127.0.0.1:19387') } catch { return json(res, 400, { error: 'bad url' }) }
-      const p = url.pathname.replace(/^\/agent-echo/, '') || '/'
+      const p = url.pathname.replace(/^\/yanqing-echo/, '') || '/'
 
       try {
         if (p === '/api/status' || p === '/') return json(res, 200, merged())
@@ -257,6 +325,11 @@ export function apply(ctx) {
         }
 
         if (p === '/api/rebuild' && req.method === 'POST') return json(res, 200, await rebuild())
+
+        if (p === '/api/huanqi') {
+          const n = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 60))
+          return json(res, 200, readHuanqi(n))
+        }
 
         if (p === '/api/health') {
           return json(res, 200, {

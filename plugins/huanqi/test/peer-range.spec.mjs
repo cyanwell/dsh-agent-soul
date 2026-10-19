@@ -24,6 +24,7 @@ const PUBLISHED = [
   '0.1.5-alpha.1', '0.1.5-alpha.2', '0.1.5-rc.1', '0.1.5-rc.2', '0.1.5-rc.3',
   '0.1.6-alpha.1', '0.1.6-alpha.2',
   '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1',
+  '0.2.1-rc2',
 ]
 
 /**
@@ -39,6 +40,23 @@ const PUBLISHED = [
  * own dependency still points at the newer line. Two copies of the branded
  * `MessageId` then produce a spurious "Property '[BRAND]' is missing" error that
  * looks like a plugin defect. Move every `@deepseek-ai` devDependency together.
+ *
+ * ## What "supported" is allowed to mean (2026-10-19)
+ *
+ * Normally every entry here is a line the **test suite** ran against, and the
+ * dev pin below has to be one of them. `0.2.1-rc2` is the one exception, and it
+ * is written down instead of hidden:
+ *
+ *   - the suite still runs on the 0.1.7 dev pins, so it is NOT evidence for 0.2.x
+ *   - what IS evidence: on 2026-10-19 the plugin was actually loaded by the
+ *     real DSH 0.2.1-rc2 desktop host — `apply()` entered with the profile
+ *     config parsed exactly (`maxContinuations:6 … silentReasoningChars:8000`),
+ *     recorded in `<DSH_HOME>/state/huanqi-boot.log`, and the plugin manager's
+ *     compatibility check went from "异常 / disabled" to "运行中"
+ *
+ * So the entry stands on runtime evidence, not on test evidence. If a future
+ * dsh line is added here, say which of the two it rests on — an entry with no
+ * stated basis is how the original ERESOLVE bug got shipped.
  */
 const SUPPORTED = [
   '0.1.2-rc.1',
@@ -46,6 +64,7 @@ const SUPPORTED = [
   '0.1.5-alpha.1', '0.1.5-alpha.2', '0.1.5-rc.1', '0.1.5-rc.2', '0.1.5-rc.3',
   '0.1.6-alpha.1', '0.1.6-alpha.2',
   '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1',
+  '0.2.1-rc2', // runtime-verified on the real desktop host, not by this suite
 ]
 
 /**

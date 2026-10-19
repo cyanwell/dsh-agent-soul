@@ -1,6 +1,6 @@
 {
-  "name": "dsh-agent-huanqi",
-  "description": "换气 (huanqi) — 思考退化治理器。四条判据覆盖四种「只想不做」：①流内早杀（思考够长、产出为零，当场截断）②流末判定（reasoning-only 连续停滞）③输出重复（同一句刷屏）④空回合（整个回合一个字节都没吐）。四条共用一个额度账本：判定命中就扣 1 分、续开一轮；额度耗尽熔断，塞一段能认出来的话请人介入。额度是体温计不是配额：靠正常对话慢慢攒，异常时下降，最低 1 点。",
+  "name": "dsh-huanqi",
+  "description": "换气 (huanqi) — 思考预算管理器。一轮把输出预算烧光、正文一个字没出来时，截断这一轮并再开一轮（最多 N 次）；接不动了就熔断，塞一段能认出来的话请人介入。额度是体温计不是配额：靠正常对话慢慢攒，异常时下降，最低 1 点。★ 延续额度 N 等参数在 profiles\\<profile>\\cordis.patch.yml 里调（搜 id: huanqi），改完重启生效。吸收 dsh-loop-guard 的重复检测与 dsh-reasoning-only-guard 的空消息保护。",
   "version": "1.0.0",
   "type": "module",
   "main": "lib/index.js",
@@ -17,10 +17,10 @@
   "files": [
     "lib/index.js",
     "lib/types/**/*.d.ts",
-    "src/**/*.ts",
     "tools/analyze-session.mjs",
     "cordis.patch.yml",
     "README.md",
+    "README_EN.md",
     "LICENSE"
   ],
   "license": "MIT",
@@ -30,6 +30,7 @@
     "deepseek-harness",
     "plugin",
     "huanqi",
+    "换气",
     "thinking-budget",
     "continuation",
     "circuit-breaker",
@@ -42,8 +43,8 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-agent": ">=0.1.2-rc.1 <0.1.3 || >=0.1.3-alpha.2 <0.1.4 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-alpha.1 <0.2.0 || >=0.1.7-alpha.1 <0.2.0",
-    "@deepseek-ai/dsh-llm": ">=0.1.2-rc.1 <0.1.3 || >=0.1.3-alpha.2 <0.1.4 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-alpha.1 <0.2.0 || >=0.1.7-alpha.1 <0.2.0"
+    "@deepseek-ai/dsh-agent": ">=0.1.2-rc.1 <0.1.3 || >=0.1.3-alpha.2 <0.1.4 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-alpha.1 <0.2.0 || >=0.1.7-alpha.1 <0.2.0 || >=0.2.1-rc2 <0.3.0",
+    "@deepseek-ai/dsh-llm": ">=0.1.2-rc.1 <0.1.3 || >=0.1.3-alpha.2 <0.1.4 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-alpha.1 <0.2.0 || >=0.1.7-alpha.1 <0.2.0 || >=0.2.1-rc2 <0.3.0"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1"
@@ -77,6 +78,5 @@
     "@deepseek-ai/dsh-llm": {
       "optional": false
     }
-  },
-  "author": "dsh-agent-organs contributors"
+  }
 }

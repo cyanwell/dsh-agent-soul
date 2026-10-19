@@ -638,7 +638,7 @@ export class CreditLedger {
                 ? Math.max(0, Math.min(Math.trunc(raw.credit), this.state.creditMax))
                 : undefined;
             if (credit === undefined) {
-                onWarn(`dsh-agent-huanqi: ledger at ${path} has no usable "credit"; starting from full`);
+                onWarn(`dsh-huanqi: ledger at ${path} has no usable "credit"; starting from full`);
                 return false;
             }
             this.state.credit = credit;
@@ -662,7 +662,7 @@ export class CreditLedger {
         }
         catch (error) {
             // ★ 绝不抛：账本坏掉不是让会话起不来的理由。
-            onWarn(`dsh-agent-huanqi: could not read the ledger at ${path}: ${String(error)}`);
+            onWarn(`dsh-huanqi: could not read the ledger at ${path}: ${String(error)}`);
             return false;
         }
     }
@@ -685,11 +685,11 @@ export class CreditLedger {
             writeFileSync(path, JSON.stringify(this.state, null, 2) + '\n', 'utf8');
         }
         catch (error) {
-            onWarn(`dsh-agent-huanqi: could not write the ledger at ${path}: ${String(error)}`);
+            onWarn(`dsh-huanqi: could not write the ledger at ${path}: ${String(error)}`);
         }
     }
     /**
-     * 账本的默认路径：`<DSH_HOME>/state/dsh-agent-huanqi.json`。
+     * 账本的默认路径：`<DSH_HOME>/state/dsh-huanqi.json`。
      *
      * 为什么要走环境变量而不是硬编码：`DSH_HOME` 是 DSH 自己给每个子进程的，
      * 换一台机器、换一次安装位置都自动跟着走。取不到才退回相对路径。
@@ -697,7 +697,7 @@ export class CreditLedger {
     static defaultPath() {
         const home = process.env.DSH_HOME;
         return home !== undefined && home !== ''
-            ? join(home, 'state', 'dsh-agent-huanqi.json')
+            ? join(home, 'state', 'dsh-huanqi.json')
             : join('.', 'dsh-huanqi.json');
     }
 }
@@ -1359,6 +1359,88 @@ function whatFor(lang, rule) {
  * agent is collected; detectors are scoped to one agent lifecycle.
  */
 export function apply(ctx, config) {
+    /**
+     * ★★ 启动探针（2026-10-19 加）：只要进了 apply() 就往 <DSH_HOME>/state/huanqi-boot.log 追加一行。
+     *
+     * 为什么需要它：换气哑了三次，每次查都是「文件在、bundles 里有、配置也对」，
+     * 但分不清两种完全不同的情况 ——
+     *   ① 插件压根没被加载（boot 文件不会出现）
+     *   ② 加载了、但判据一次没触发（boot 有，但 turn/end 的日志没有）
+     * 没有这个区别，就只能靠猜着改。
+     *
+     * ★ 不依赖任何判据、不依赖 session/event、不发消息 —— 纯粹的「我到了」记号。
+     * ★ 任何失败都吞掉：探针不许变成插件的故障点。
+     */
+    /** 状态目录：启动探针与检测层共用同一个落点。 */
+    const stateDir = (() => {
+        const home = process.env.DSH_HOME;
+        return home !== undefined && home !== '' ? join(home, 'state') : '.';
+    })();
+    /**
+     * 往 huanqi-boot.log 追加一行。
+     *
+     * ★ 用 read + write 而不是 appendFileSync —— 这个项目自带的 @types/node 太旧，
+     *   没有 appendFileSync 的类型声明（TS2305 实测过）。
+     * ★ 任何失败都吞掉：探针不许变成插件的故障点。
+     */
+    const bootLog = (text) => {
+        try {
+            mkdirSync(stateDir, { recursive: true });
+            const p = join(stateDir, 'huanqi-boot.log');
+            let prev = '';
+            try {
+                prev = readFileSync(p, 'utf8');
+            }
+            catch {
+                prev = '';
+            }
+            writeFileSync(p, prev + '[' + new Date().toISOString() + '] ' + text + '\n', 'utf8');
+        }
+        catch {
+            // 探针失败不许影响主流程
+        }
+    };
+    bootLog('apply() entered; config=' + JSON.stringify(config));
+    /**
+     * ★★ 换气检测层（2026-10-19 加，爀曦定）：每一轮结束写一条 JSONL 到
+     * `<DSH_HOME>/state/huanqi-turns.jsonl`，给回声哨兵面板读。
+     *
+     * ## 为什么需要它
+     *
+     * 判据④（空回合）的判断原本只写进 `ctx.logger.warn` —— 而 DSH 桌面端的 logger
+     * **不落盘**（state / storages / logs 三处都查过，没有 `[huanqi]` 的影子），
+     * 于是「换气到底有没有在看着这一轮」这件事，在机器上没有任何痕迹。
+     *
+     * 这一行的作用是把「不可视」变成「可视」：面板能直接列出最近每一轮的
+     * kind / 最后一条消息形状 / 有没有产出 / 判词 / 剩余额度。
+     *
+     * ## 为什么是 JSONL 而不是 JSON 数组
+     *
+     * 只追加、每行独立、坏一行不影响前面 —— 和《墨》同一个理由。
+     * 同时限制保留最近 2000 行，避免无限长。
+     * ★ 任何失败都吞掉：检测层不许影响主流程。
+     */
+    const turnsFile = join(stateDir, 'huanqi-turns.jsonl');
+    const recordTurn = (rec) => {
+        try {
+            mkdirSync(stateDir, { recursive: true });
+            let prev = '';
+            try {
+                prev = readFileSync(turnsFile, 'utf8');
+            }
+            catch {
+                prev = '';
+            }
+            const MAX_LINES = 2000;
+            const lines = prev === '' ? [] : prev.split('\n').filter((l) => l.trim() !== '');
+            lines.push(JSON.stringify(rec));
+            const kept = lines.length > MAX_LINES ? lines.slice(lines.length - MAX_LINES) : lines;
+            writeFileSync(turnsFile, kept.join('\n') + '\n', 'utf8');
+        }
+        catch {
+            // 检测层不许影响主流程
+        }
+    };
     const detectors = new WeakMap();
     /**
      * 换气账本。
@@ -1369,14 +1451,14 @@ export function apply(ctx, config) {
      */
     const ledger = new CreditLedger(config.maxContinuations);
     /**
-     * 账本路径：用户在设置里给了就用它，否则走 `<DSH_HOME>/state/dsh-agent-huanqi.json`。
+     * 账本路径：用户在设置里给了就用它，否则走 `<DSH_HOME>/state/dsh-huanqi.json`。
      * ★ 落盘的意义：不落盘的话重启一次就回满额，「靠正常对话攒额度」永远攒不满。
      */
     const ledgerPath = config.ledgerPath !== '' ? config.ledgerPath : CreditLedger.defaultPath();
     /** 记账出问题时唯一的出口 —— ★ 只报告，绝不抛（守卫不能自己变成故障）。 */
     const warnLedger = (msg) => { ctx.logger.warn(msg); };
     if (ledger.load(ledgerPath, warnLedger)) {
-        ctx.logger.info(`dsh-agent-huanqi: restored credit ${ledger.credit}/${ledger.creditMax} from ${ledgerPath}`);
+        ctx.logger.info(`dsh-huanqi: restored credit ${ledger.credit}/${ledger.creditMax} from ${ledgerPath}`);
     }
     function detectorFor(agent) {
         let detector = detectors.get(agent);
@@ -1605,6 +1687,10 @@ export function apply(ctx, config) {
          *   不是 OR 累积。turn/end 时看最后留下的那个值。
          */
         const lastMessageHadOutput = new Map();
+        /** sessionId → 最后一条 assistant 消息的形状（如 "text" / "reasoning" / "reasoning+tool-call"） */
+        const lastMessageShape = new Map();
+        /** sessionId → 本轮 turn/start 的时间戳（毫秒），用来算「卡了多久」 */
+        const turnStartedAt = new Map();
         ctx.on('session/event', ((session, event) => {
             const sid = session === undefined || session === null ? undefined : session.id;
             if (typeof sid !== 'string')
@@ -1612,6 +1698,8 @@ export function apply(ctx, config) {
             const type = event === undefined ? undefined : event.type;
             if (type === 'turn/start') {
                 lastMessageHadOutput.set(sid, false);
+                // ★ 诊断：记下本轮开始时间（用来算「卡了多久」）
+                turnStartedAt.set(sid, Date.now());
                 return;
             }
             if (type === 'assistant/message') {
@@ -1627,30 +1715,69 @@ export function apply(ctx, config) {
                     });
                     // ★ 覆盖，不是 OR —— 见上面那段注释
                     lastMessageHadOutput.set(sid, has);
+                    // ★ 诊断：记下最后一条消息里到底有什么（给排查用）
+                    lastMessageShape.set(sid, content
+                        .map((p) => (p !== null && typeof p === 'object' ? String(p.type) : '?'))
+                        .join('+') || '(空)');
                 }
                 return;
             }
             if (type !== 'turn/end')
                 return;
-            // 只认「正常结束」这两种；error / interrupted / max-tokens 归 auto-continue 管。
             const data = event === undefined ? undefined : event.data;
             const kind = data === undefined ? undefined : data.reason?.kind;
-            if (kind !== 'completed' && kind !== 'no-visible-output')
+            // ★★ 诊断（2026-10-19 第二次加，改成 warn 级必定可见）：
+            // 上一版的 debug 日志看不到，所以「停在思考里」那次查不出到底是哪种情况。
+            // 这一行在任何 kind 下都会打，能区分三种可能：
+            //   ① 压根没这行 → turn 没结束，卡在中间了（判据 ④ 管不到，得靠判据 ①）
+            //   ② 有这行但 kind 不是 completed → 判断被我筛掉了
+            //   ③ 有这行、kind=completed、最后一条=reasoning → 应该续却没续（代码 bug）
+            const lastHad = lastMessageHadOutput.get(sid) === true;
+            const shape = lastMessageShape.get(sid) ?? '(还没有 assistant 消息)';
+            const startedAt = turnStartedAt.get(sid);
+            const elapsed = startedAt === undefined ? -1 : Math.round((Date.now() - startedAt) / 1000);
+            // ★★ 先算判词，再落盘 —— 面板看到的必须是「当时真实的决定」，不是事后推测。
+            // 三种判词对应三种完全不同的病因，混在一起就失去了信息量：
+            //   skip:kind=…     → 根本没走到判据④（回合以别的方式结束）
+            //   skip:had-output → 走到了，但最后一轮其实有正文，不该续
+            //   continue:…      → 该续且续了（额度够）
+            //   circuit-break   → 该续但额度耗尽，熔断
+            const kindStr = kind === undefined ? '(none)' : String(kind);
+            const kindAccepted = kind === 'completed' || kind === 'no-visible-output';
+            let verdict;
+            if (!kindAccepted)
+                verdict = 'skip:kind=' + kindStr;
+            else if (lastHad)
+                verdict = 'skip:had-output';
+            else if (ledger.canContinue())
+                verdict = 'continue:credit=' + String(ledger.credit);
+            else
+                verdict = 'circuit-break:credit=0';
+            ctx.logger.warn('[huanqi] turn/end kind=' + kindStr +
+                ' 最后一条=[' + shape + ']' +
+                ' 有产出=' + lastHad +
+                ' 本轮时长=' + elapsed + 's' +
+                ' → ' + verdict);
+            recordTurn({
+                t: new Date().toISOString(),
+                sid,
+                kind: kindStr,
+                shape,
+                hadOutput: lastHad,
+                elapsedSec: elapsed,
+                credit: ledger.credit,
+                creditMax: ledger.creditMax,
+                verdict,
+            });
+            // 只认「正常结束」这两种；error / interrupted / max-tokens 归 auto-continue 管。
+            if (!kindAccepted)
                 return;
             // ★ 看的是**最后一条**消息有没有产出，不是「这一轮任何一次」。
-            // 前面调过工具、最后一步卡在思考里 —— 这恰恰是最常见的形状，必须接住。
-            const lastHad = lastMessageHadOutput.get(sid) === true;
-            // ★★ 诊断日志（2026-10-19 加）：出手和不出手都要留痕。
-            // 起因是那次「最后一步卡住」发生时查不到任何东西 —— 判据没动，也没说为什么。
-            try {
-                ctx.logger?.debug?.('[huanqi] turn/end kind=%s 最后一条有产出=%s → %s', kind, lastHad, lastHad ? '不续' : '准备续');
-            }
-            catch {
-                // 日志失败不许影响主流程
-            }
             if (lastHad)
                 return;
             lastMessageHadOutput.delete(sid);
+            lastMessageShape.delete(sid);
+            turnStartedAt.delete(sid);
             const agent = ctx.agents.get(sid);
             if (agent === undefined)
                 return;
@@ -1658,10 +1785,10 @@ export function apply(ctx, config) {
             if (ledger.canContinue()) {
                 const left = ledger.spendContinuation();
                 if (ledger.onContinuation({ window: config.anomalyWindow, now: Date.now() })) {
-                    ctx.logger.warn(`dsh-agent-huanqi: empty-turn continuation inside the anomaly window (${config.anomalyWindow} turns); credit penalised to ${ledger.credit}`);
+                    ctx.logger.warn(`dsh-huanqi: empty-turn continuation inside the anomaly window (${config.anomalyWindow} turns); credit penalised to ${ledger.credit}`);
                 }
                 ledger.save(ledgerPath, warnLedger);
-                ctx.logger.warn(`dsh-agent-huanqi: turn ended with no visible output; continuing (credit left ${left}/${ledger.creditMax})`);
+                ctx.logger.warn(`dsh-huanqi: turn ended with no visible output; continuing (credit left ${left}/${ledger.creditMax})`);
                 scheduleResume(agent, strings.continueNotice(left, ledger.creditMax, config.normalTurnThreshold), `huanqi: empty-turn continuation, credit ${left}/${ledger.creditMax}`);
                 if (left <= config.warnAtCredit) {
                     agent.inject(message(strings.creditWarning(left, ledger.creditMax, config.normalTurnThreshold), 'notice', `huanqi: credit low (${left}/${ledger.creditMax})`));
@@ -1670,7 +1797,7 @@ export function apply(ctx, config) {
             else {
                 ledger.noteCircuitBreak();
                 ledger.save(ledgerPath, warnLedger);
-                ctx.logger.warn('dsh-agent-huanqi: empty turn and continuation budget exhausted; circuit-breaking');
+                ctx.logger.warn('dsh-huanqi: empty turn and continuation budget exhausted; circuit-breaking');
                 agent.inject(message(strings.circuitBreakNotice(ledger.creditMax), 'notice', 'huanqi: circuit break (empty turn)'));
             }
         }));
@@ -1773,11 +1900,11 @@ export function apply(ctx, config) {
                         // 有 tool-call 块开着 → 不截断（理由同 `finishStream`：半个调用不能提交）。
                         // 记一笔就不再试，免得每个 delta 都刷一行。
                         silentCutBlocked = true;
-                        ctx.logger.warn('dsh-agent-huanqi: silent reasoning hit the cut threshold, but a non-text block is open; not truncating');
+                        ctx.logger.warn('dsh-huanqi: silent reasoning hit the cut threshold, but a non-text block is open; not truncating');
                     }
                     else {
                         silentCut = true;
-                        ctx.logger.warn(`dsh-agent-huanqi: cut a silent stream at ${reasoning.length} chars (no text, no tool call; threshold ${config.silentReasoningChars})`);
+                        ctx.logger.warn(`dsh-huanqi: cut a silent stream at ${reasoning.length} chars (no text, no tool call; threshold ${config.silentReasoningChars})`);
                         // 收尾块先发出去，再 `break` 出循环 —— 不在这里 `return`，
                         // 因为下面的换气段才是真正"续命"的地方，两条判据共用它。
                         for (const c of tail)
@@ -1790,7 +1917,7 @@ export function apply(ctx, config) {
             // produce output after its reasoning is progress, not a thinking loop.
             const reason = detector.observe({ hasOutput, reasoning });
             if (reason !== undefined)
-                ctx.logger.debug(`dsh-agent-huanqi: stalled call (${reason})`);
+                ctx.logger.debug(`dsh-huanqi: stalled call (${reason})`);
             // ── 换气层（huanqi）─────────────────────────────────────────────────
             //
             // 它只接管一条线：**「这一轮没有产出正文」** —— 思考把输出预算烧光了、
@@ -1819,7 +1946,7 @@ export function apply(ctx, config) {
                 const tail = silentCut ? [] : finishStream(openBlocks());
                 if (tail === null) {
                     // 有 tool-call 块开着 → 不截断（理由见 finishStream 的注释）。
-                    ctx.logger.warn('dsh-agent-huanqi: output budget spent on reasoning, but a non-text block is open; not truncating');
+                    ctx.logger.warn('dsh-huanqi: output budget spent on reasoning, but a non-text block is open; not truncating');
                 }
                 else {
                     detector.reset();
@@ -1830,12 +1957,12 @@ export function apply(ctx, config) {
                          * 说明"卡"不是偶然，是上下文在变脏 —— 除了这次延续本身扣的那一分，
                          * 再额外扣一分。它让额度不只在"我摔了"时降，也在"脚下越来越滑"时降。 */
                         if (ledger.onContinuation({ window: config.anomalyWindow, now: Date.now() })) {
-                            ctx.logger.warn(`dsh-agent-huanqi: continuation inside the anomaly window (${config.anomalyWindow} turns); credit penalised to ${ledger.credit}`);
+                            ctx.logger.warn(`dsh-huanqi: continuation inside the anomaly window (${config.anomalyWindow} turns); credit penalised to ${ledger.credit}`);
                         }
                         ledger.save(ledgerPath, warnLedger);
                         ctx.logger.warn(silentCut
-                            ? `dsh-agent-huanqi: silent stream cut mid-call; continuing (credit left ${left}/${ledger.creditMax})`
-                            : `dsh-agent-huanqi: output budget spent on reasoning; continuing (credit left ${left}/${ledger.creditMax})`);
+                            ? `dsh-huanqi: silent stream cut mid-call; continuing (credit left ${left}/${ledger.creditMax})`
+                            : `dsh-huanqi: output budget spent on reasoning; continuing (credit left ${left}/${ledger.creditMax})`);
                         // ★ 顺序要紧：先排续跑再 yield terminal（理由见 scheduleResume 的注释）。
                         // 文案分两种病：流内早杀是「光在想没动手」，流末是「预算烧光了」。
                         scheduleResume(agent, silentCut
@@ -1848,7 +1975,7 @@ export function apply(ctx, config) {
                     else {
                         ledger.noteCircuitBreak();
                         ledger.save(ledgerPath, warnLedger);
-                        ctx.logger.warn('dsh-agent-huanqi: continuation budget exhausted; circuit-breaking this thinking run');
+                        ctx.logger.warn('dsh-huanqi: continuation budget exhausted; circuit-breaking this thinking run');
                         // ★ 这条同时干两件事：告诉人该介入了，以及**让 assistant 消息不为空**
                         // （空消息会让整条会话从那一刻起永久不可用）。
                         agent.inject(message(strings.circuitBreakNotice(ledger.creditMax), 'notice', 'huanqi: circuit break'));
@@ -1880,7 +2007,7 @@ export function apply(ctx, config) {
                 ledger.noteOutput();
                 if (ledger.onNormalTurn(config.normalTurnThreshold)) {
                     ledger.save(ledgerPath, warnLedger);
-                    ctx.logger.debug(`dsh-agent-huanqi: credit restored to ${ledger.credit}/${ledger.creditMax}`);
+                    ctx.logger.debug(`dsh-huanqi: credit restored to ${ledger.credit}/${ledger.creditMax}`);
                 }
             }
             else {
@@ -1888,4 +2015,7 @@ export function apply(ctx, config) {
             }
         })();
     });
+    // ★ 启动探针的「走到底」记号：只有 entered 没有 done = apply 中途抛错了。
+    // 和 entered 配对，才能区分「加载了但注册失败」和「压根没加载」。
+    bootLog('apply() done');
 }
