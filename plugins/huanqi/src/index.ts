@@ -2163,7 +2163,11 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
    *   额度耗尽时和流内那条一样熔断 —— 并且**留一条可见的消息**，
    *   因为空消息会让会话从那一刻起永久不可用。
    */
-  if (config.emptyTurnContinue && config.maxContinuations > 0) {
+  // ★ 用 `!== false` 而不是真值判断：zod 的默认值只在「经过 schema 解析」时生效。
+  // 任何绕过解析的路径（测试夹具、配置注入、旧版本升级）拿到的都是 `undefined`，
+  // 而 `undefined` 在做真值判断时等于「关掉」—— 那条判据就会静默失效，没人知道。
+  // 默认开 = 只有显式写 false 才关。
+  if (config.emptyTurnContinue !== false && config.maxContinuations > 0) {
     /** sessionId → 这一轮到目前为止有没有出现 text / tool-call。 */
     const turnHasOutput = new Map<string, boolean>()
 
