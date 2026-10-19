@@ -347,6 +347,7 @@ window.__ModuleLoader__.load({
       const [motion, setMotion] = react.useState(readMotion);
       // ★ 换气检测层（2026-10-19）：换气每一轮结束写一条判词，这里只负责显示。
       const [hq, setHq] = react.useState(null);
+  const [showHq, setShowHq] = react.useState(false);
 
       react.useEffect(() => { ensureStyle(); }, []);
 
@@ -549,7 +550,20 @@ window.__ModuleLoader__.load({
                   h("span", { style: { flex: "0 0 132px" } }, "最后一条"),
                   h("span", { style: { flex: 1 } }, "判词")
                 ),
-                hq.turns.slice(0, 8).map((t, i) => {
+                hq.turns
+                  .filter(function (t, i) {
+                    // ★ 这一块的取舍：面板要看的是「有没有出事」，不是流水账。
+                    // 出事的（续命 / 熔断）永远全显；正常的（skip:*）折叠时只留最近 2 条，
+                    // 否则攒满就会把下面整片挤下去 —— 而它恰恰是最不需要天天看的部分。
+                    var hd = String(t.verdict || "").split(":")[0];
+                    if (hd === "continue" || hd === "circuit-break") return i < 6;
+                    var calmIdx = hq.turns.slice(0, i).filter(function (x) {
+                      var hx = String(x.verdict || "").split(":")[0];
+                      return hx !== "continue" && hx !== "circuit-break";
+                    }).length;
+                    return calmIdx < (showHq ? 60 : 2);
+                  })
+                  .map((t, i) => {
                   const head = String(t.verdict || "").split(":")[0];
                   const tone =
                     head === "continue" ? "#f0b429" :
@@ -571,7 +585,19 @@ window.__ModuleLoader__.load({
                       String(t.shape || "?")),
                     h("span", { style: { flex: 1 } }, String(t.verdict || "?"))
                   );
-                })
+                }),
+                hq.turns.length > 3
+                  ? h("div", {
+                      onClick: function () { setShowHq(!showHq); },
+                      style: {
+                        marginTop: 7, fontSize: 11, opacity: 0.6, cursor: "pointer",
+                        userSelect: "none", letterSpacing: 0.2,
+                      },
+                    },
+                      showHq
+                        ? "收起 —— 正常记录只留最近 2 轮"
+                        : "展开全部 " + hq.turns.length + " 轮（续命 / 熔断永远全显）")
+                  : null
               )
         ),
 
