@@ -10,7 +10,6 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
-    "./src/*": "./src/*",
     "./tools/*": "./tools/*",
     "./package.json": "./package.json"
   },

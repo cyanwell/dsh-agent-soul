@@ -184,7 +184,7 @@ Write-Host ''
 Write-Host '  After restart, in a conversation:'
 Write-Host '    agent_soul_plan' -ForegroundColor Cyan
 Write-Host ''
-Write-Host '  Parts live under <pkg>/plugins/ (14 of them).'
+Write-Host '  Parts live under <pkg>/plugins/ (13 packages + tools/ scripts; 14th part is dsh-mnemon, an external npm package).'
 Write-Host '  Health check:'
 Write-Host '    agent_soul_verify' -ForegroundColor Cyan
 Write-Host ''

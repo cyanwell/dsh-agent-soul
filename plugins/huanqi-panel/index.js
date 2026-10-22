@@ -19,7 +19,7 @@
 //   GET  /agent-huanqi/api/preview   只读地告诉你"改完会变成哪几行"，不落盘
 //   GET  /agent-huanqi/api/health    自检
 
-import { readFileSync, writeFileSync, existsSync, copyFileSync, statSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, copyFileSync, statSync, renameSync, openSync, fsyncSync, closeSync } from 'node:fs'
 
 export const name = 'dsh-agent-huanqi-panel'
 export const inject = ['webServer']
@@ -107,9 +107,12 @@ function render(field, value) {
   if (field.type === 'int') {
     const n = Number(value)
     if (!isFinite(n)) throw new Error(`${field.key} 不是数字：${value}`)
+    // ★ 不静默取整（N11，2026-10-22）。这几个字段都是「算字数 / 算轮数」的硬阈值，
+    //   输 3.7 存成 3 是一个没人看见的改动 —— 与其处理得像个小智能，不如直接说不行。
+    if (!Number.isInteger(n)) throw new Error(`${field.key} 只接受整数，你给的是 ${value}`)
     if (field.min != null && n < field.min) throw new Error(`${field.key} 不能小于 ${field.min}`)
     if (field.max != null && n > field.max) throw new Error(`${field.key} 不能大于 ${field.max}`)
-    return String(Math.trunc(n))
+    return String(n)
   }
   const s = String(value == null ? '' : value)
   return s === '' ? "''" : `'${s.replace(/'/g, "''")}'`
@@ -151,7 +154,13 @@ function applyValues(text, values) {
     }
     if (hit >= 0) {
       const old = lines[hit]
-      const next = `${childIndent}${field.key}: ${want}`
+      // ★ 只换 value 那一段，保留该行自己的行尾注释（N8，2026-10-22）。
+      //   原来是重新拼整行 —— 文件头注释保住了（这是它引以为傲的"绝不重新序列化"），
+      //   但被改的那一行的 `# 说明` 会跟着消失。改一行吃掉一行注释，说不过去。
+      const mm = old.match(/^(\s*)([A-Za-z_][A-Za-z0-9_]*):\s*(.*?)(\s+#.*)?$/)
+      const tail = mm && mm[4] ? mm[4] : ''
+      const indent = mm && mm[1] !== undefined ? mm[1] : childIndent
+      const next = `${indent}${field.key}: ${want}${tail}`
       if (old !== next) { lines[hit] = next; changes.push({ key: field.key, from: old.trim(), to: next.trim() }) }
     } else {
       lines.splice(insertAt, 0, `${childIndent}${field.key}: ${want}`)
@@ -280,7 +289,16 @@ export function apply(ctx) {
               // 写前留一份带时间戳的备份（这个文件承载着整套 profile 配置，不能只有一份）
               const stamp = new Date().toISOString().replace(/[:.]/g, '-')
               copyFileSync(f, `${f}.bak-huanqi-panel-${stamp}`)
-              writeFileSync(f, r.text, 'utf8')
+              // ★★ 原子写（N9，2026-10-22）：先写同目录的 .tmp，fsync 落盘，再 rename 顶替。
+              //   原来是 writeFileSync 直接覆盖 —— 进程在写的半路被杀（DSH 退出、断电、
+              //   杀软锁文件）就会留下半截 YAML，而 cordis.patch.yml 读不动 = DSH 起不来 =
+              //   sanitizeProfile 把 bundles 重置。那正是这个面板最不该造成的事：
+              //   它是为了让改参数变安全才存在的。
+              //   ★ 备份救不了这一下 —— YAML 坏掉时没人会想到去用那个 .bak-时间戳。
+              const tmp = `${f}.tmp-huanqi-panel-${stamp}`
+              writeFileSync(tmp, r.text, 'utf8')
+              try { const fd = openSync(tmp, 'r+'); fsyncSync(fd); closeSync(fd) } catch { /* fsync 失败不致命，rename 才是关键 */ }
+              renameSync(tmp, f)
               results.push({ profile: prof, ok: true, changes: r.changes, backup: `${f}.bak-huanqi-panel-${stamp}` })
             } catch (e) {
               results.push({ profile: prof, ok: false, message: '写盘失败：' + String((e && e.message) || e) })
