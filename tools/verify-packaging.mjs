@@ -275,7 +275,21 @@ check('README 有 2026-10-22 的更新记录', (readme.match(/### 2026-10-22/g) 
   if (fs.existsSync(tool)) {
     try {
       const out = execFileSync(process.execPath, [tool], { encoding: 'utf8', timeout: 90000 })
-      check('ps1 结构断言全部通过（AST，不是字符串包含）', /★ 全部通过/.test(out))
+      // ★ 三态（报告 v3 的 N3，2026-10-22）：通过 / 跳过 / 失败。
+      //   跳过 = 这台机器没有 PowerShell，那一项**没验**。
+      //   算它过关，但 detail 里写死「没验」，不许它冒充「验过了」。
+      const passed = /★ 全部通过/.test(out)
+      const skipped = /◆ 跳过/.test(out)
+      // ★ 跳过的状态要写进**断言名**里，不能只塞 detail。
+      //   因为 check 的 detail 只在这一条失败时才打印（见输出循环），
+      //   跳过时它会显示成一个干净的 OK —— 那正好是「冒充验过了」。
+      //   名字带着状态，读输出的人一眼就知道这一项没验。
+      check(
+        skipped && !passed
+          ? 'ps1 结构断言（AST）—— ◆ 跳过：本机没有 PowerShell，这一项没验'
+          : 'ps1 结构断言全部通过（AST，不是字符串包含）',
+        passed || skipped,
+      )
     } catch (e) {
       const tail = String((e && e.stdout) || '').trim().split('\n').slice(-4).join(' / ')
       check('ps1 结构断言全部通过（AST，不是字符串包含）', false, tail.slice(0, 160))

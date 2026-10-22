@@ -87,10 +87,49 @@ foreach ($a in $assigns) {
 } | ConvertTo-Json -Depth 6 -Compress
 `
 
+// ★ 先找一个能用的 PowerShell（报告 v3 的 N3，2026-10-22）。
+//   Windows 自带 powershell.exe；Linux / macOS 上有 PowerShell 7 的话叫 pwsh。
+//   两个都没有 —— 那不是「代码坏了」，是「这台机器没这个能力」。
+//   后者不该记一条失败，但也不能假装通过。所以单开一个「跳过」状态，
+//   并且**说明清楚跳过了什么、要装什么才能真验**。
+const PWSH = (() => {
+  for (const c of ['powershell.exe', 'pwsh']) {
+    try {
+      execFileSync(c, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.Major'], {
+        stdio: 'ignore',
+        timeout: 20000,
+        windowsHide: true,
+      })
+      return c
+    } catch { /* 试下一个 */ }
+  }
+  return null
+})()
+
+if (!PWSH || process.env.PS1_CHECK_FORCE_SKIP === '1') {
+  console.log('=== ps1 结构校验 ===')
+  console.log('  ◆ 跳过 —— 这台机器上没有可用的 PowerShell')
+  console.log('')
+  console.log('  为什么跳过而不是失败：')
+  console.log('    这个脚本要 PowerShell 的 AST 解析器才验得了「这句 Die 在不在 $rollbackOk 为真的分支里」。')
+  console.log('    没有它，验的不是「代码错了」，是「环境缺一样东西」—— 两件事不能混成一个红灯。')
+  console.log('')
+  console.log('  要真验这里，装一个就行：')
+  console.log('    Windows        —— 自带 powershell.exe，什么都不用做')
+  console.log('    Linux / macOS  —— 装 PowerShell 7，命令叫 pwsh')
+  console.log('')
+  console.log('  ★ 所以「全部通过」这个结论只在装了 PowerShell 的机器上成立。')
+  console.log('    在别的地方，这一项是「没验」，不是「验过了」。')
+  if (process.env.PS1_CHECK_FORCE_SKIP === '1') {
+    console.log('  （本次是 PS1_CHECK_FORCE_SKIP=1 强制跳过的，用来验这条分支本身）')
+  }
+  process.exit(0)
+}
+
 let data
 try {
   const out = execFileSync(
-    'powershell.exe',
+    PWSH,
     ['-NoProfile', '-NonInteractive', '-Command', probe],
     {
       encoding: 'utf8',
@@ -101,7 +140,8 @@ try {
   )
   data = JSON.parse(out.trim())
 } catch (e) {
-  console.error('PowerShell AST 解析失败: ' + String((e && e.message) || e))
+  // ★ 走到这里说明 PowerShell 在、但解析真失败了 —— 这是**真失败**，该红。
+  console.error('PowerShell AST 解析失败（用的是 ' + PWSH + '）: ' + String((e && e.message) || e))
   console.error(String((e && e.stderr) || '').slice(0, 800))
   process.exit(1)
 }
