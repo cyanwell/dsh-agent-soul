@@ -117,7 +117,16 @@ dsh: pnpm failed in profile directory <profile>
 
 **二、`compaction` 和 `pruner` 装完是死的 —— 它们没有 `dsh.bundle`。**
 
-14 个零件里 12 个有 `dsh.bundle`，只有这两个没有。装的时候 DSH 会明确警告：
+> ★★ **2026-10-22 已修，下面这段是历史记录。**
+> 现在 13 个零件包**全部**都有 `dsh.bundle`，这两个也补上了壳层
+> （`cordis.patch.yml` + 一个 `apply()` 去替换引擎）。
+> 实测：`plugins/compaction/package.json` 与 `plugins/pruner/package.json` 的
+> `dsh.bundle.patch` 都指向 `./cordis.patch.yml`，文件都在。
+> `node tools/verify-packaging.mjs` 会逐包核对 `main` / `client.js` / `bundle.patch`
+> 是否都被 `files` 清单覆盖（当前 13/13 通过）。
+> **所以「装了、退出码 0、但不会被加载」不再成立** —— 保留这段是为了说明当初为什么是那个形状。
+
+**当时**的情况：13 个零件包里 11 个有 `dsh.bundle`，这两个没有。装的时候 DSH 会明确警告：
 
 ```
 warning: dsh-agent-compaction declares no dsh.bundle —
@@ -139,7 +148,11 @@ installed as a plain dependency, not a profile layer
 
 **三、`plugins/compaction` 目录里连 `cordis.patch.yml` 都没有。**
 
-只有 `index.js` / `package.json` / `README.md` 三个文件。
+> ★★ **2026-10-22 已修，下面是历史记录。** 现在该目录有五个文件：
+> `HOW-TO-TAKEOVER.md` / `README.md` / `cordis.patch.yml` / `index.js` / `package.json`。
+> 当时确实**整个加载层缺了**；后来是连壳一起补的。
+
+**当时**只有 `index.js` / `package.json` / `README.md` 三个文件。
 对照 11 个有 bundle 的包，每个都带 `cordis.patch.yml`。**所以洞二不是「漏写字段」，是整个加载层缺了。**
 
 ---

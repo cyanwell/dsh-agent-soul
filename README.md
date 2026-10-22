@@ -178,7 +178,7 @@ dsh-agent-soul/
 │   ├── 04-manifest.json  装配清单（判据：这一类该满足什么，不绑实现）
 │   ├── 05-doctor.md      自检七问
 │   ├── 06-reference.md   参考：出处与沿革
-│   ├── 07-bundle.json    参考实现清单：14 个零件 + 三种依赖（depends/needs/reads）+ 安装方式
+│   ├── 07-bundle.json    参考实现清单：13 个零件包 + 三种依赖（depends/needs/reads）+ 安装方式
 │   ├── 08-踩坑实录.md    ★ 真踩过的坑：症状 / 怎么发现 / 后来证明错在哪
 │   ├── 09-dev-workflow.md ★ 隔离沙箱：新插件先在哪试，别直接上主力
 │   ├── 10-echo-anatomy.md  ★ ECHO 内部六层 L1–L6 的解剖
