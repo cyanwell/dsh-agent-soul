@@ -8,10 +8,25 @@
 # 只会得到 `patch: id is required for non-insert patches` 这一句 warning。
 #
 # 下面走 `insert`，把本包作为新的一层挂上去。
-# 它和内置的 `tool-result-pruner` 会同时存在，谁赢取决于 cordis 服务注册顺序 —— **还没验**。
 #
-# ★ 验法：跑一次工具结果裁剪，看被挖掉的那块**有没有替换成带 seq 的门牌**，
-#   而不是内置那句静态 marker。有 → 本包赢了；没有 → 见 README 的下一步。
+# ★★ 2026-10-22 补正（和 compaction 那条一模一样，已实测）：
+#   本包和内置的 `tool-result-pruner` **抢同一个服务名 `toolResultPruner`**，
+#   cordis 先到先得、后来的不生效。只把本包排到前面**不够** ——
+#   必须同时在 profile 的 cordis.patch.yml 里把内置的禁掉：
+#
+#     - id: tool-result-pruner
+#       disabled: true
+#
+#   ★ 少这一步的后果**和 compaction 不同**：compaction 那样会明确报
+#     service "compaction" has been registered；pruner 这边报的是
+#     service "toolResultPruner" has been registered —— 但工具结果裁剪**照样在跑**，
+#     只是那块被挖掉的内容**不带 seq 门牌**。也就是「静默地少了一半门牌」。
+#
+# ★ 验法（四条一起看，详见 ../compaction/HOW-TO-TAKEOVER.md）：
+#   ① 启动日志没有 service "toolResultPruner" has been registered
+#   ② 跑一次工具结果裁剪：被挖掉那块是**带 seq 的门牌**，不是内置那句静态 marker
+#   ③ 把上面的 disabled 去掉再跑一次，确认现象真的变回去（反向验证）
+#   ④ 门牌里的指针能被 memq 打开（判据在 compaction 那份文档里）
 - insert:
     - id: dsh-agent-pruner
       name: 'dsh-agent-pruner'

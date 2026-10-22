@@ -183,43 +183,84 @@ for (const name of bundles) {
     continue
   }
   const patchRel = p?.dsh?.bundle?.patch
-  if (!patchRel) {
+
+  // ★★ `dsh.bundle.patch` 可能是**字符串**，也可能是**数组**
+  //   （报告 P2-7：@deepseek-ai/dsh-web-app 就是 5 个文件）。
+  //
+  //   原来这里直接 join(dir, patchRel) —— 遇到数组抛：
+  //     TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string.
+  //     Received an instance of Array
+  //   后果不是「这项没验」，是**整个脚本崩掉**：任何 web profile 都跑不了后面所有检查。
+  //   而桌面端正是 web 形态 —— 等于这个工具在它最该有用的场合失效。
+  //
+  //   ★ 这也是我第二次栽在「字段的类型比我以为的宽」：上一次是 §8b 的
+  //   `dsh.profile.bundles` 写成对象被静默跳过。同一个形状的错误，
+  //   所以这次把它写成「一律先归一成数组」。
+  const patchList = Array.isArray(patchRel) ? patchRel : patchRel ? [patchRel] : []
+  if (patchList.length === 0) {
     // 不是错误：内置包（dsh-base 之类）本来就不带 patch
     console.log(`  · ${name}  没有 dsh.bundle.patch（正常，如果它是内置包或被别人 patch）`)
     continue
   }
-  const patchPath = join(dir, patchRel)
-  if (!(await exists(patchPath))) {
-    bad(name, `package.json 声明了 patch: ${patchRel}，但文件不存在`)
-    console.log(`  ✗ ${name}  patch 文件不存在: ${patchRel}`)
+
+  let missingOne = null
+  let badKeyword = null
+  let unknownShape = null
+  let nonInsertWithName = null
+  for (const rel of patchList) {
+    const patchPath = join(dir, rel)
+    if (!(await exists(patchPath))) {
+      missingOne = rel
+      break
+    }
+    const text = await readFile(patchPath, 'utf8')
+    const body = text
+      .split('\n')
+      .filter((l) => !/^\s*#/.test(l) && l.trim() !== '')
+      .join('\n')
+    // ★ 判据 ③：只有 insert 是合法形状；update/remove 之类根本不存在
+    if (/^\s*-\s*insert\s*:/m.test(body)) continue
+    if (/^\s*-\s*(update|remove|replace)\s*:/m.test(body)) {
+      badKeyword = rel
+      break
+    }
+    unknownShape = rel
+    // ★ 判据：非 insert 的 patch 里出现 name 会被一致性校验 skip。
+    //   （这段原来写在外层、而且在 pass 之后 —— 永远跑不到。搬进来才真的判得到。）
+    if (/name\s*:/.test(body)) nonInsertWithName = rel
+  }
+
+  const howMany = patchList.length > 1 ? `（共 ${patchList.length} 个 patch 文件）` : ''
+  if (missingOne) {
+    bad(name, `package.json 声明了 patch: ${missingOne}，但文件不存在`)
+    console.log(`  ✗ ${name}  patch 文件不存在: ${missingOne}`)
     continue
   }
-  const text = await readFile(patchPath, 'utf8')
-  const body = text
-    .split('\n')
-    .filter((l) => !/^\s*#/.test(l) && l.trim() !== '')
-    .join('\n')
-
-  // ★ 判据 ③：只有 insert 是合法形状；update/remove 之类根本不存在
-  if (/^\s*-\s*insert\s*:/m.test(body)) {
-    pass(name, 'patch 用 insert（合法形状）')
-    console.log(`  ✓ ${name}  patch = insert`)
-  } else if (/^\s*-\s*(update|remove|replace)\s*:/m.test(body)) {
+  if (badKeyword) {
     bad(
       name,
-      'patch 用了 update/remove/replace —— **这些关键字不存在**，会被当成 overrides 键，' +
-        '报 "id is required for non-insert patches"'
+      `patch ${badKeyword} 用了 update/remove/replace —— **这些关键字不存在**，` +
+        '会被当成 overrides 键，报 "id is required for non-insert patches"'
     )
-    console.log(`  ✗ ${name}  patch 用了不存在的关键字`)
-  } else {
-    caution(name, 'patch 形状认不出来（既不是 insert 也不是已知的错法）')
-    console.log(`  ? ${name}  patch 形状认不出来`)
+    console.log(`  ✗ ${name}  patch 用了不存在的关键字: ${badKeyword}`)
+    continue
   }
-
-  // ★ 判据：patch 里改 name 会被一致性校验拒绝
-  if (/name\s*:/.test(body) && !/^\s*-\s*insert\s*:/m.test(body)) {
-    caution(name, '非 insert 的 patch 里出现了 name —— 会被 name 一致性校验 skip')
+  if (unknownShape) {
+    // ★ 如果里面还改了 name，后果更具体：会被 name 一致性校验直接 skip
+    if (nonInsertWithName) {
+      caution(
+        name,
+        `patch ${nonInsertWithName} 既不是 insert、又改了 name —— 会被 name 一致性校验 skip`,
+      )
+      console.log(`  ? ${name}  非 insert 且改了 name: ${nonInsertWithName}`)
+    } else {
+      caution(name, `patch ${unknownShape} 形状认不出来（既不是 insert 也不是已知的错法）`)
+      console.log(`  ? ${name}  patch 形状认不出来: ${unknownShape}`)
+    }
+    continue
   }
+  pass(name, `patch 用 insert（合法形状${howMany}）`)
+  console.log(`  ✓ ${name}  patch = insert${howMany}`)
 }
 
 // ── ④ 源码 vs 副本 ────────────────────────────────────────────

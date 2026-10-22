@@ -285,6 +285,73 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-22（同日第二十四次）· 两条：一条会崩、一条只说了一半
+
+全面验证报告还有 7 条。这轮做掉两条。
+
+## P2-7 · `verify-live` 在 web profile 上直接崩
+
+报告说：`dsh.bundle.patch` 可能是**数组**（`@deepseek-ai/dsh-web-app` 有 5 个），
+而脚本只按字符串处理，`join(dir, patchRel)` 遇到数组就抛：
+
+```
+TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string.
+Received an instance of Array
+```
+
+★ 后果不是「这项没验」，是**整个脚本崩掉** —— 后面所有检查一条都跑不到。
+而桌面端正是 web 形态，**等于这个工具在它最该有用的场合失效**。
+
+改法：一律先归一成数组（`Array.isArray` → 包成单元素数组），再逐个文件判。
+顺手把一处**永远跑不到的死代码**搬进循环 —— 原来有个「非 insert 的 patch 里出现 name」
+的判据写在 `pass()` 之后、还判「不是 insert」，在 insert 分支里永远不成立。
+
+**复现 → 修 → 复测，全程真跑**：
+
+```
+改之前   TypeError [ERR_INVALID_ARG_TYPE] ... Received an instance of Array
+改之后   通过 1   需注意 0   失败 0
+        ✓ @deepseek-ai/dsh-web-app  patch = insert（共 5 个 patch 文件）
+```
+
+★ 本机 desktop profile 改前改后都是 `通过 61 / 需注意 2 / 失败 1` —— 一个数没动，说明没破坏原有路径。
+
+## P1-2 · pruner 也抢服务名，但计划只提示了 compaction
+
+报告实测：
+
+```
+dsh-agent-pruner: Error: service "toolResultPruner" has been registered at <ToolResultPruner>
+```
+
+而 `install.js` 的接管提示只提了 compaction。**后果比 compaction 那边更隐蔽**：
+工具结果裁剪**照样在跑**，只是被挖掉那块**不带 seq 门牌** —— 也就是「静默地少了一半门牌」。
+
+改了三处：
+
+1. 提示改成两个一起说，给出两个 `disabled` 的 yaml
+2. 判据从两条扩到**四条**（多一条 `toolResultPruner` 的启动日志、多一条实际裁剪的检查）
+3. `plugins/pruner/cordis.patch.yml` 里那句「谁赢取决于注册顺序 —— **还没验**」改成已验结论
+
+★ 这一段改了**四遍**才对，原因值得记下来：
+前三次都想用字符串锚点匹配，全失败在**同一个地方** —— 源码里那些 `service \"compaction\"`
+带反斜杠，而我在 python 里写 `\"` 被解释成了双引号，于是永远匹配不到。
+最后是 `od -c` 看清字节、改成**按行号倒序改**才对。
+
+★ 还有一处更该记：改完第一次真跑，**yaml 缩进是错的** ——
+两个 `- id` 连在一起、`disabled: true` 冒到后面还重复了一次。
+这段是给用户**直接粘贴**的，错了就是错的配置。**是「真跑一遍看渲染」抓住的，不是 node --check。**
+所以现在的输出是：
+
+```
+- id: compaction-basic
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+```
+
+**8 条里做完 3 条，剩 5 条。**
+
 ### 2026-10-22（同日第二十三次）· 换了个角度：装上了 ≠ 能用
 
 前面几轮验的是「装得上吗」，这一轮验的是**「14 个零件装完，每一个真能用吗」**。
