@@ -82,7 +82,19 @@ import { ToolResultPruner, PRUNE_MARKER } from '@deepseek-ai/dsh-compaction-tool
  *
  * 本包只负责【写指针】，不规定你用什么工具去【回取】。
  */
-const MEMQ = '<你的检索命令>'
+// ★★ 回取命令：**没配置就不给命令，只给指针**（2026-10-22 全面验证报告 P2-6）。
+//
+//   原来这里写死 '<你的检索命令>'，渲染出来是一条**不可执行的假命令**：
+//     > 回取：`<你的检索命令> open log:session-x#seq=123`
+//   而指针本身（log:...#seq=）是好的。
+//
+//   ★ 给一条假命令**比不给更坏**：读的人（人或 agent）会照着敲，敲不通之后
+//     可能反过来怀疑「这个门牌是坏的」—— 而那恰好是这套机制最要紧的东西。
+//   所以没配置时只说「用你自己的检索命令打开它」，不假装知道那是什么。
+//
+//   配置方式（任一即可）：SOUL_MEMQ / MEMQ
+//     例：SOUL_MEMQ='node /path/to/memq.mjs'
+const MEMQ = String(process.env.SOUL_MEMQ || process.env.MEMQ || '').trim()
 
 /**
  * 渲染一块带门牌的 marker。
@@ -92,8 +104,12 @@ const MEMQ = '<你的检索命令>'
 function markerFor(sid, seq) {
   const where = sid ? `（会话 ${sid}）` : ''
   const how = sid
-    ? `${MEMQ} open log:${sid}#seq=${seq}`
-    : `${MEMQ} open log:<会话号>#seq=${seq}`
+    ? MEMQ
+      ? `${MEMQ} open log:${sid}#seq=${seq}`
+      : `用你自己的检索命令打开：log:${sid}#seq=${seq}`
+    : MEMQ
+      ? `${MEMQ} open log:<会话号>#seq=${seq}`
+      : `用你自己的检索命令打开：log:<会话号>#seq=${seq}`
   return `\n\n[... 中间被裁${where} · 原文在 append-only 会话日志 seq ${seq}，取回：${how} ...]\n\n`
 }
 

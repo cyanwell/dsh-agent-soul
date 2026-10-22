@@ -103,7 +103,19 @@ const MARK = '> ⛬ 压缩索引（非原文）'
  *
  * 包只负责【写指针】，不规定你用什么工具去【回取】。
  */
-const MEMQ = '<你的检索命令>'
+// ★★ 回取命令：**没配置就不给命令，只给指针**（2026-10-22 全面验证报告 P2-6）。
+//
+//   原来这里写死 '<你的检索命令>'，渲染出来是一条**不可执行的假命令**：
+//     > 回取：`<你的检索命令> open log:session-x#seq=123`
+//   而指针本身（log:...#seq=）是好的。
+//
+//   ★ 给一条假命令**比不给更坏**：读的人（人或 agent）会照着敲，敲不通之后
+//     可能反过来怀疑「这个门牌是坏的」—— 而那恰好是这套机制最要紧的东西。
+//   所以没配置时只说「用你自己的检索命令打开它」，不假装知道那是什么。
+//
+//   配置方式（任一即可）：SOUL_MEMQ / MEMQ
+//     例：SOUL_MEMQ='node /path/to/memq.mjs'
+const MEMQ = String(process.env.SOUL_MEMQ || process.env.MEMQ || '').trim()
 
 /** 把 seq 范围渲染成一小段指针。取不到会话号时退化成没有门牌的一句。 */
 function pointerText(sid, start, end) {
@@ -113,7 +125,10 @@ function pointerText(sid, start, end) {
     //   一律 `log:<sid>#seq=<起>`（sid 自带 `session-` 前缀），可被 `memq open` 直接消费。
     return [
       `${MARK} · log:${sid}#seq=${start}（本段覆盖 ${span}）`,
-      `> 回取：\`${MEMQ} open log:${sid}#seq=${start}\``,
+      // ★ 有配置才给命令；没配置只给指针 + 说清怎么用（见上面 MEMQ 那段注释）
+      MEMQ
+        ? `> 回取：\`${MEMQ} open log:${sid}#seq=${start}\``
+        : `> 回取：用你自己的检索命令打开下面这个指针 —— \`log:${sid}#seq=${start}\``,
     ].join('\n')
   }
   return [
@@ -299,7 +314,9 @@ export default class YanqingCompaction extends BasicCompactionEngine {
         ? [
             `${MARK}　${sid ? `会话 ${sid}` : '本会话'}。`,
             `> ★ 本段 seq 范围未取到（手动压缩路径，复原后未通过往返校验，不猜）。`,
-            `> 原文仍在 append-only 会话日志；按关键词检索：\`${MEMQ} <关键词>\``,
+            MEMQ
+              ? `> 原文仍在 append-only 会话日志；按关键词检索：\`${MEMQ} <关键词>\``
+              : '> 原文仍在 append-only 会话日志；按关键词检索你自己那套（本插件不知道它叫什么）。',
           ].join('\n')
         : pointerText(sid, range.start, range.end)
 
