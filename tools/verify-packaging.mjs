@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process'
 
 // ★ 不从 cwd 起步（V4，2026-10-22）。
 //   原来写的是 `const ROOT = process.cwd()`，然后所有读取都用相对路径 ——
@@ -256,6 +257,26 @@ check('README 有 2026-10-22 的更新记录', (readme.match(/### 2026-10-22/g) 
     idxLoad >= 0 && idxScan >= 0 && idxLoad < idxScan,
     `loadPkgNames@${idxLoad} scan@${idxScan}`,
   )
+}
+
+// ── 9. ps1 的结构校验接进主自检（V1，2026-10-22）──
+//
+// ★ 这一条不是「检查某个字符串在不在」，而是**调子进程跑结构断言**：
+//   verify-ps1-logic.mjs 用 PowerShell 的 AST 解析 install-desktop.ps1，
+//   验的是「这句 Die 在不在 $rollbackOk 为真的分支里」这类**逻辑位置**。
+//   旧的字符串断言证明不了这个 —— N1（回滚失败却谎称已恢复）在旧代码里能全绿。
+{
+  const tool = path.join(PKG_ROOT, 'tools', 'verify-ps1-logic.mjs')
+  check('ps1 结构校验工具存在', fs.existsSync(tool))
+  if (fs.existsSync(tool)) {
+    try {
+      const out = execFileSync(process.execPath, [tool], { encoding: 'utf8', timeout: 90000 })
+      check('ps1 结构断言全部通过（AST，不是字符串包含）', /★ 全部通过/.test(out))
+    } catch (e) {
+      const tail = String((e && e.stdout) || '').trim().split('\n').slice(-4).join(' / ')
+      check('ps1 结构断言全部通过（AST，不是字符串包含）', false, tail.slice(0, 160))
+    }
+  }
 }
 
 // ── 输出 ────────────────────────────────────────
