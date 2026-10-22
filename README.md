@@ -178,7 +178,8 @@ dsh-agent-soul/
 │   ├── 04-manifest.json  装配清单（判据：这一类该满足什么，不绑实现）
 │   ├── 05-doctor.md      自检七问
 │   ├── 06-reference.md   参考：出处与沿革
-│   ├── 07-bundle.json    参考实现清单：13 个零件包 + 三种依赖（depends/needs/reads）+ 安装方式
+│   ├── 07-bundle.json    参考实现清单：14 个零件（13 个本仓库包 + 1 个外部件 dsh-mnemon）
+│   │                       + 三种依赖（depends/needs/reads）+ 安装方式
 │   ├── 08-踩坑实录.md    ★ 真踩过的坑：症状 / 怎么发现 / 后来证明错在哪
 │   ├── 09-dev-workflow.md ★ 隔离沙箱：新插件先在哪试，别直接上主力
 │   ├── 10-echo-anatomy.md  ★ ECHO 内部六层 L1–L6 的解剖
@@ -282,6 +283,83 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
+
+### 2026-10-22（同日第四次）· 第二轮审核的七条 + `dsh-mnemon` 从来没进过安装清单
+
+**这一轮有两件事，都不算"改对了"，只是"补上了"。**
+
+**一、第二轮外部审核：13 条里 2 条误报，7 条属实。**
+
+误报那两条我上一轮判错了方向，这轮按证据重新判：
+
+- 说「ORDER 缺 `dsh-mnemon`」—— 我上一轮当成误报，因为 `plugins/` 下没有这个目录。
+  这个理由是对的，结论是错的：`parts` 里不该放目录名，不代表 plan 可以不提它。见下面第二条。
+- 说「`install.js:132` 注释写 tools 是空目录」—— 那句的上下文是「这一段**原来**写的是…——
+  **那是编的**」，是在记录一个已经修掉的历史错误。审核方把"记录过去说错的话"读成了当前断言。
+
+属实的七条里，最重的是我自己上一轮埋的：
+
+**回滚失败却谎报"已恢复"**。`Rename-Item` 带 `-ErrorAction SilentlyContinue`，
+失败时不出声；而紧接着的 `Die` 打的是**固定字符串**「previous install restored」。
+让 `Move-Item` 失败的原因（文件被占用、权限、磁盘满）通常**同样会让 `Rename-Item` 失败**，
+于是用户被告知"放心重启"，然后撞上"包不在、bundles 里还有名字"。
+
+现在回滚结果要核实，失败分支直接写 DO NOT restart DSH yet 并把备份路径给出来。
+
+另外六条：改名失败抛裸异常（`$ErrorActionPreference='Stop'` 下不走 `Die`，残留 stage/zip）；
+`install.js` 还有**三处** `JSON.parse` 没去 BOM（其中 `assertProfile` 把 BOM 报成"不是合法 JSON"，
+用户会去查语法而不是编码）；`loadPkgNames` 只在 plan 分支调、scan 分支在它之前就 return，
+于是装好的 `dsh-huanqi` 在 scan 里永远认不出来；kit 超时 180 秒；kit script 接口允许 `../` 逃逸；
+两处死代码。文档侧还有 README 数字和 `SANDBOX-VERIFICATION.md:52` 的过时段落。
+
+**二、`dsh-mnemon` 从来没进过安装清单。这条是我上一轮判错的。**
+
+`soul/07-bundle.json` 里它是 `parts[13]`：
+
+```
+dir: 'dsh-mnemon'
+layer: 'I-echo'
+external: true
+required: true
+```
+
+**必备、ECHO 层、写着装法和判据**。而 `install.js` 生成 plan 时只沿 ORDER 走，
+ORDER 里从来没有它。所以新 agent 从这套东西里学不到 ECHO 还有记忆空间那一半。
+
+一个文件说必备，另一个文件说不在计划里，而人只看后者。
+
+修法：ORDER 的 step 1 加它；`PKG()` 认识外部件（包名就是目录名）；
+`installCommand()` 对外部件给 npm 的走法，不给 `file:<仓库>/plugins/dsh-mnemon`
+（那是 13 个本地包的位置，它不在那儿）。
+
+顺带发现 `isExternal()` 是死代码 —— 函数早就写好了，注释也明明白白解释这种情况，
+但 ORDER 里一个外部件都没有，所以它从写下那天起就没被调用过。
+
+**三、数字口径统一成一句话**
+
+```
+07-bundle.json 的 parts = 14 个零件
+                        = 13 个本仓库包（plugins/<dir>）
+                        + 1 个外部件（dsh-mnemon，在 npm 上）
+```
+
+之前「13 个零件包」「14 个插件目录」「14 个通用零件」混着用，读者得自己猜指的是哪个数。
+现在 README、INSTALL.md、plugins/清单.md 统一按上面这句写。
+
+**四、自检从 88 加到 90 条断言**
+
+新加两条，其中一条专门守这次的洞：
+
+> **`bundle` 里 `required` 的零件必须都在 `ORDER` 里。**
+
+这条如果早就在，`dsh-mnemon` 不会被漏掉两个月。
+
+另一条：`ORDER` 的总数必须等于「本仓库包数 + 外部件数」，且不许有既不是包也不是外部件的条目。
+
+**教训**：这一轮真正学到的是**误报要两边都验**。
+我上一轮看到「ORDER 缺 dsh-mnemon」，查了「plugins 下有没有 mnemon 目录」，
+得到"没有"，就判成误报 —— 但审核方说的是"plan 从不提示装它"，
+而这两件事的真假是独立的。**我的检查只回答了它没问的那个问题。**
 
 ### 2026-10-22（同日第三次）· 外部审核抓到的五条，四条属实
 
