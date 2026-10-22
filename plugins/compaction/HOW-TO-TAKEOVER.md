@@ -39,6 +39,36 @@ $pj.dsh.profile.bundles = @() + ($move | Where-Object { $cur -contains $_ }) + $
 
 ★ 写无 BOM：`Set-Content -Encoding UTF8` 在 PowerShell 5.1 里带 BOM，DSH 会 `JSON.parse` 失败。
 
+### ★★ 第二步：把内置的那个禁掉（**这一步不能省**）
+
+**只调顺序不够。** 2026-10-22 在干净沙箱里按上面做完、`--dump-config` 确认顺序也对，
+启动仍然报：
+
+```
+dsh: warning: 1 entry did not activate
+dsh-agent-compaction: Error: service "compaction" has been registered at <BasicCompactionEngine>
+```
+
+原因是 `compaction-basic` 仍然**在 bundles 里**、仍然会被加载，而注册是「先到先得」——
+排序只能保证谁先谁后，**不能保证后到的那个不注册**。所以要显式禁掉它。
+
+在 profile 的 `cordis.patch.yml` 里追加（没有这个文件就新建）：
+
+```yaml
+- id: compaction-basic
+  disabled: true
+- id: tool-result-pruner
+  disabled: true      # 用 pruner 的话同理
+```
+
+★ 这是 patch 的**非 insert** 形态：靠 `id` 找到已存在的条目，再覆盖它的字段。
+（`insert` 是新增，`id` + 字段是改已有的 —— 两者别混。）
+
+禁掉之后告警消失，运行时探针才读到下面那段。
+
+★ 为什么两步都要做：**排序解决「谁先注册」，禁用解决「后到的那个要不要注册」。**
+这是两件事，缺一样都不完整。
+
 重启后 `--dump-config` 应该看到：
 
 ```
@@ -50,7 +80,10 @@ $pj.dsh.profile.bundles = @() + ($move | Where-Object { $cur -contains $_ }) + $
 
 ★★ **DSH 尊重手写的 bundles 顺序**（2026-10-18 实测，`--dump-config` 原样保留）。
 
-★★★ **这条路已经验到底了** —— 不只是「顺序看着对」，是运行时的身份：
+★★★ **判据不是「顺序看着对」，是这两样同时成立**：
+
+1. 启动日志里**没有** `service "compaction" has been registered` 这条
+2. 探针读出下面的运行时身份：
 
 ```
 ctor:      YanqingCompaction
@@ -59,7 +92,16 @@ overrides: ["compactRegion", "summarize"]
 ownKeys:   [..., "__yqRange"]
 ```
 
-`BasicCompactionEngine` 在**继承链第二层**，不是两个实例并存。验法见下面「怎么验」。
+`BasicCompactionEngine` 在**继承链第二层**，不是两个实例并存 ——
+也就是说**构造的是我们的类**，内置的只是它的父类。
+
+★ 证据来源要说清（2026-10-22）：
+- 上面这段 `ctor` / `chain` 是**本机 2026-10-18** 在 demo profile 上跑出来的；
+- 「光排最前仍会报 registered」那一段是**外部验证在干净沙箱（Ubuntu + DSH 0.2.1-rc.2）**里实测的。
+
+两边结果一致，但**达成的条件不同**：本地那次没有记录「有没有报错」，
+所以不能据此反推「本地排最前就够了」。**两步都做在两种情形下都安全** ——
+内置的如果本来没注册，禁掉它没有副作用；如果注册了，禁掉它是必需的。
 
 ### 路 B · preset + isolate（要保留标准模式，只在某个 preset 里换）
 

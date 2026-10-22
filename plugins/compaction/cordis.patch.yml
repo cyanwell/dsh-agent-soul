@@ -57,6 +57,27 @@
 #
 # ── ★★★ 2026-10-18 结案：走 a)，而且走通了 ──────────────────
 #
+# ★★★★ 2026-10-22 补正：a) **单独不够**。
+#
+#   外部验证在干净沙箱（Ubuntu + DSH 0.2.1-rc.2）里按这条路做完、
+#   --dump-config 确认顺序也对，启动仍然报：
+#
+#     dsh-agent-compaction: Error: service "compaction" has been registered at <BasicCompactionEngine>
+#
+#   因为「排序」只决定谁先注册，**不决定后到的那个要不要注册**。
+#   还要在 profile 的 cordis.patch.yml 里显式禁掉内置的：
+#
+#     - id: compaction-basic
+#       disabled: true
+#
+#   禁掉之后告警才消失。判据是两条同时成立：
+#     ① 启动日志里没有 service "compaction" has been registered
+#     ② 探针读出 ctor: YanqingCompaction
+#
+#   ★ 本次结案（下面那段 ctor 证据）是本机 2026-10-18 在 demo profile 上的；
+#     「光排最前不够」那段来自 2026-10-22 的干净沙箱验证。两边结果一致、条件不同，
+#     所以把两步都写全 —— 内置本来没注册时禁掉它无害，注册了则是必需。
+#
 # 原写「三个方向，都还没做」。现在 a) 做了，**并且验到底了**：
 #
 #   · 手段：把 dsh-agent-compaction 排到 profile bundles 的**最前面**（dsh-base 之前）

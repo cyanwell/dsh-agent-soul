@@ -285,6 +285,77 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-22（同日第十七次）· compaction 接管要两步，不是一步
+
+外部验证报告 v3 的 R2。这条我之前**不敢动** —— 上一轮报告说「排最前失败」，
+而本机 `cordis.patch.yml` 里存着「排最前验通过」的 `ctor: YanqingCompaction`。
+两份证据矛盾，我复现不了它那个环境，就没改。
+
+这一版把完整链路给出来了，矛盾解开了。
+
+## 两份证据其实不矛盾
+
+报告的过程是：
+
+```
+① 排最前 → --dump-config 确认顺序对 → 启动仍报
+     dsh-agent-compaction: Error: service "compaction" has been registered at <BasicCompactionEngine>
+② 再加 disabled: true → 告警消失 → 探针读到 ctor: YanqingCompaction
+```
+
+**而本机那份 `ctor: YanqingCompaction` 是「结果」，没记「中间有没有报错」。**
+同一个结果，两种条件 —— 我上一轮把「结果对」当成了「这条路的方法对」。
+
+★ 这又是一个「拿结果反推方法」的错误，和 N2（我记得的模板大小）同型。
+
+## 机制上说清了
+
+**排序只决定「谁先注册」，不决定「后到的那个要不要注册」。**
+`compaction-basic` 仍然在 bundles 里、仍然会被加载，它照样去注册 —— 于是报重名。
+要它别注册，只能显式禁掉：
+
+```yaml
+- id: compaction-basic
+  disabled: true
+- id: tool-result-pruner
+  disabled: true      # 用 pruner 的话同理
+```
+
+## 改了三处
+
+| 文件 | 改了什么 |
+|---|---|
+| `plugins/compaction/HOW-TO-TAKEOVER.md` | 路 A 补「第二步：禁掉内置的」，并写清「只调顺序不够」为什么 |
+| `plugins/compaction/cordis.patch.yml` | 注释里那段「结案：走 a) 走通了」补上「单独不够」的更正 |
+| `install.js` | `plan` 的接管提示从「排最前」改成「两步，缺一不可」，判据从一条改成两条 |
+
+**判据也改了**：以前只有「探针读出 ctor 是 YanqingCompaction」，
+现在要两条同时成立 ——
+① 启动日志里**没有** `service "compaction" has been registered`
+② 探针读出 `ctor: YanqingCompaction`
+
+★ 只有第二条不够：**报着重名错误也可能读到我们的 ctor** ——
+构造成功 ≠ 注册成功。这一点是这份报告教会我的。
+
+## 这次是真跑过的
+
+`install.js` 是插件入口（只导出 `registerInstallTool(ctx)`），不是 CLI，
+`node --check` 只能验语法。所以造了个假 ctx 直接调它的 `execute`：
+
+```
+工具名: agent_soul_install ｜ handler: execute
+ok: true ｜ 总行数: 203
+✓ 说了「两步，缺一不可」   ✓ 给出了 disabled: true
+✓ 说清「只做①不行」        ✓ 判据是两条同时成立
+✓ 提到了干净沙箱实测        ✓ 指向 soul-probe
+```
+
+输出里那几行是真的，不是「我觉得写对了」。
+
+★ 另外标清了来源：`ctor` 那段是本机 2026-10-18 在 demo profile 上的，
+「光排最前仍会报 registered」那段是 2026-10-22 干净沙箱（Ubuntu + DSH 0.2.1-rc.2）的。
+**两份证据都要标出处**，否则下一个读的人会拿结果反推方法 —— 就像我这次一样。
+
 ### 2026-10-22（同日第十六次）· `verify-live` 的两个老毛病
 
 外部验证报告 v3 的 R5 与 N4。
