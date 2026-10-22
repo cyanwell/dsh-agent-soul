@@ -64,6 +64,17 @@ function describe(c) {
 
 export const name = 'soul-probe'
 
+// ★★ cordis 4 不允许没声明 inject 就 ctx.get()（报告 v3 R3 实测）：
+//      cannot get property "compaction" without inject
+//    不声明的后果不是「读不到」，是**整个探针跑不起来** —— 日志空白，
+//    而读日志的人会把空白读成「压缩没接管」。那是错的结论。
+//
+// ★ 声明之后多了一种判读，别忽略：
+//    服务不存在 → **整个探针不加载** → 日志里连 [register] 都没有
+//    服务存在但探针自身出错 → 有 [register]，没有 [result]
+//   以前这两种都长成「日志是空的」，现在能分开。
+export const inject = ['compaction']
+
 export function apply(ctx) {
   log('register', { note: 'soul-probe applied' })
 

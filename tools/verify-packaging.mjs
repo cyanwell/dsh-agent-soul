@@ -411,6 +411,25 @@ check('README 有 2026-10-22 的更新记录', (readme.match(/### 2026-10-22/g) 
     !planSrc.includes('match(/<[^<>') && !selfSrc.includes('match(/<['))
 }
 
+
+// ── 8f. 验证工具本身得能用、能分状态（报告 v3 的 R3 / R4，2026-10-22）──
+//
+// ★ R3：soul-probe 没声明 inject，cordis 4 就不许它 ctx.get('compaction') ——
+//   报的是 cannot get property "compaction" without inject。
+//   后果不是「读不到」，是**整个探针跑不起来**、日志空白，
+//   而读日志的人会把空白读成「压缩没接管」，得出相反结论。
+//   我们一直推荐的验法，本身是坏的。
+// ★ R4：diagnose 的 means 原来一条文案盖所有状态，
+//   于是 warn（还没开始用）被翻译成「链断了」（坏了）。
+{
+  const probe = fs.readFileSync('tools/soul-probe/index.js', 'utf8')
+  check('探针声明了 inject（否则整包跑不起来）',
+    /export const inject = \[.compaction.\]/.test(probe))
+  const diag = fs.readFileSync('kit/echo/diagnose.mjs', 'utf8')
+  check('diagnose 的 means 按 status 分支', diag.includes('meansBy') && diag.includes('meansBy[c.status]'))
+  check('warn 状态明说「还没开始用，不是坏了」', diag.includes('还没开始用，不是坏了'))
+}
+
 // ── 输出 ────────────────────────────────────────
 console.log('=== 自检结果 ===')
 for (const c of checks) {

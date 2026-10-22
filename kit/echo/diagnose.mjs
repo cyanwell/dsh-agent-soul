@@ -48,7 +48,14 @@ const REMEDY = {
     where: ['evidence.dir / evidence.problems', 'DSH 自己的 storages 目录'],
   },
   doorsign: {
-    means: '门牌回取链断了 —— 压缩发生了，但摘要里没有能回取原文的指针',
+    // ★ 报告 v3 R4：一条文案盖了三种状态，于是 warn（还没开始用）被翻译成
+    //   「链断了」（坏了）。这正是这套自检反复强调要分开的两件事。
+    meansBy: {
+      ok: '门牌回取链是通的 —— 最近一次压缩的摘要里带得回原文的指针',
+      warn: '这份日志里还没有压缩摘要 —— **还没开始用，不是坏了**。'
+        + '装上 compaction 并触发一次压缩，这里才会有东西可测。',
+      error: '门牌回取链断了 —— 压缩发生了，但摘要里没有能回取原文的指针',
+    },
     fix: [
       '确认压缩插件装的是带门牌的版本（dsh-agent-compaction，不是裸的 compaction-basic）',
       '或者：如果你的 agent 自己写摘要，检查它有没有在摘要第一行写 log:session-<id>#seq=<n>',
@@ -213,7 +220,9 @@ const findings = bad.map((c) => {
     label: c.label || c.id,
     status: c.status,
     says: c.detail || '',
-    means: r.means || '',
+    // ★ 先看 meansBy（按 status 分文案），再退回单条 means。
+    //   R4 的病根就是「一条文案盖所有状态」：warn 和 error 说的是两件事。
+    means: (r.meansBy && (r.meansBy[c.status] || r.meansBy.warn)) || r.means || '',
     where: files,
     fix: r.fix || [],
     lookAt: r.where || [],
