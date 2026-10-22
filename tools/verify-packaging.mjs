@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import os from 'node:os'
 
+// ★ 占位符判定的唯一真源（R1，2026-10-22）
+const { inspect: inspectPlaceholders } = await import('../kit/echo/placeholder.mjs')
+
 // ★ 不从 cwd 起步（V4，2026-10-22）。
 //   原来写的是 `const ROOT = process.cwd()`，然后所有读取都用相对路径 ——
 //   于是 `node tools/verify-packaging.mjs` 从仓库根跑没事，
@@ -381,6 +384,31 @@ check('README 有 2026-10-22 的更新记录', (readme.match(/### 2026-10-22/g) 
     'doctor 的 SELF 判据认 SELF.md 正文独有词',
     doctor.includes('四条硬线') || doctor.includes('## 我是谁'),
   )
+}
+
+
+// ── 8e. 占位符判定：HTML 注释不能混进来（R1 回归，2026-10-22）──
+//
+// ★ 这条治的病，是我自己造成的：为了让 30 多字的长占位符能被认出来，
+//   把正则从 {2,12} 放宽到 {2,80}，结果模板里三处「填法」注释
+//   （<!-- 填法：…… -->，有 < 有 >、中间没换行）被当成三个永远填不完的占位符，
+//   `plan` 卡在第 3 步，第 4 到 6 步不可达。
+//   **修一个「漏数」的 bug，换来一个「永远过不去」的 bug —— 后者更坏。**
+// ★ 现在判定收拢在 kit/echo/placeholder.mjs 一处，plan 和 self 都从那儿拿。
+//   这三条断言守的就是那个模块的行为。
+{
+  const tpl = fs.readFileSync('kit/templates/SELF.src.md', 'utf8')
+  const ins = await inspectPlaceholders(tpl)
+  check('占位符里不含 HTML 注释（R1 回归）', ins.fromComments.length === 0)
+  check('能认出 30+ 字的长占位符', ins.placeholders.some((x) => x.length > 20))
+  check('模板占位符恰为 3 个', ins.placeholders.length === 3)
+  // ★ 两处必须共用同一判定 —— 各写一套就是这次回归的来源
+  const planSrc = fs.readFileSync('kit/echo/plan.mjs', 'utf8')
+  const selfSrc = fs.readFileSync('kit/echo/self.mjs', 'utf8')
+  check('plan.mjs 用共享判定', planSrc.includes('findPlaceholders('))
+  check('self.mjs 用共享判定', selfSrc.includes('findPlaceholders('))
+  check('两处都不再自己写正则',
+    !planSrc.includes('match(/<[^<>') && !selfSrc.includes('match(/<['))
 }
 
 // ── 输出 ────────────────────────────────────────

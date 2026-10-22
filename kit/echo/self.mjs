@@ -20,6 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import * as CFG from "./echo-config.mjs";
+import { findPlaceholders } from "./placeholder.mjs";
 
 const HUB = CFG.HUB;
 const SRC = path.join(HUB, "SELF.src.md");
@@ -182,7 +183,7 @@ if (totalHits) console.log(`  ★ 注入前屏蔽了 ${totalHits} 处疑似凭�
 //   模板是有意带 <尖括号> 的：装配器**不会替你编内容**（编出来的话会被每轮读到），
 //   但它必须**告诉你还缺什么**，否则用户会顶着一页尖括号用下去，而且不知道下一步干嘛。
 //   ★ 只认「两个中文字以上」的占位符：`<词>` `<ISO>` 这类是命令参数，本来就该留着。
-const placeholders = [...new Set((skeleton.match(/<[\u4e00-\u9fa5]{2,12}>/g) || []))];
+const placeholders = findPlaceholders(skeleton);
 if (placeholders.length) {
   console.log("");
   console.log(`  ★ 还有 ${placeholders.length} 处占位符没填 —— 它们会被每轮读到：`);

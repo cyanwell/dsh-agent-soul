@@ -16,6 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import * as CFG from './echo-config.mjs';
+import { findPlaceholders } from './placeholder.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const JSON_OUT = process.argv.includes('--json');
@@ -33,7 +34,10 @@ function placeholders() {
   const selfSrc = CFG.SELF_SRC;
   if (!selfSrc || !exists(selfSrc)) return null;
   const t = fs.readFileSync(selfSrc.replace(/\//g, path.sep), 'utf8');
-  return [...new Set(t.match(/<[^<>\n]{2,80}>/g) || [])];
+  // ★ 不要在这里另写正则：占位符判定收拢在 placeholder.mjs 一处。
+  //   2026-10-22 那次回归就是因为两处各写一套 —— plan 把 HTML 注释吃成占位符，
+  //   self 用旧正则漏掉长占位符，两边都错、还错得不一样。
+  return findPlaceholders(t);
 }
 
 // ══ 步骤表：按依赖顺序，前面的没做完后面的没意义 ══
