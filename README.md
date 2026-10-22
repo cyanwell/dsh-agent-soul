@@ -285,6 +285,63 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-22（同日第二十六次）· 把作者这台机器写成了通用的
+
+全面验证报告 P1-3：`plugins/echo/index.js` 头两行是 ——
+
+```js
+const NODE = 'C:/Users/pc/.workbuddy/binaries/node/versions/22.22.2-3/node.exe'
+const HUB  = 'D:/AI/memory/hub'
+```
+
+换台机器装上，第一行就是个不存在的路径，`/api/status` 直接返回 `spawn ENOENT`。
+**面板「装上了但跑不起来」。**
+
+★ 这个错和上一轮那条假命令是同一类：**把我的环境写成了通用的**。
+区别只是它更吵（会报 ENOENT），而假命令是静默的。
+
+## 改法
+
+```js
+const NODE = process.env.ECHO_NODE || process.execPath
+const HUB  = process.env.ECHO_HUB  || path.join(DSH_HOME, 'hub')
+```
+
+★ NODE 用**跑这个进程的那个 node** —— 本来就在 node 里，没必要再猜一个路径。
+★ HUB 默认放 `$DSH_HOME/hub`，有自己中枢就设 `ECHO_HUB`。
+**不从 DSH_HOME 去「推」真中枢的位置 —— 推不出来。** 作者机器上一个在 `dsh/home`、
+一个在 `memory/hub`，压根不在同一棵树里。猜一个「看起来对」的相对路径，就是同一个错换个写法。
+
+## 写的时候又踩了同一个形状
+
+我第一版把 `HUB` 改成 `path.join(DSH_HOME, ...)`，**而 `DSH_HOME` 定义在下面十几行**。
+这不是运行时才发现的问题，是写的时候就该看见的 —— 但它和 install.js 那个 scan bug、
+和 verify-live 那个 `body` 作用域，**是同一个形状：注释、变量名、类型都对，只有先后顺序错。**
+这一轮我把它当成了同一个病来治：先把 `DSH_HOME` 整块移上去，再改常量，最后加了一段顺序自检。
+
+## 验证：四种环境各跑一次
+
+```
+（都没设）                   → node = execPath          hub = D:\AI\dsh\home\hub
+DSH_HOME=/tmp/fakehome      → node = execPath          hub = \tmp\fakehome\hub
+ECHO_HUB=/my/hub            → node = execPath          hub = /my/hub
+ECHO_NODE=/usr/bin/node     → node = /usr/bin/node      hub = D:\AI\dsh\home\hub
+```
+
+★ 验法同上一轮：**把源码里那几行原文抽出来交给子进程求值**，验的是文件里的真实代码。
+
+## 一个改法上的判断
+
+报告还提到「把 `kit/echo/*.mjs` 复制到 HUB」。
+我看了 `install.js` 的结构 —— 它**没有 `action: 'install'` 这个分支**，
+这个工具只出计划、不执行。所以「自动复制」在这里不成立。
+正确的位置是让**计划里说清这一步**，而不是工具偷偷替用户拷文件。**这一条留到下一轮和版本漂移检查一起做。**
+
+顺带改了 `plugins/清单.md` 那句和代码不符的：
+原来写「四个路径，或对应环境变量」，而代码实际只读了 `DSH_HOME` —— **文档比代码宽**。
+
+**8 条里做完 5 条（含部分），剩 3 条半。**
+
 ### 2026-10-22（同日第二十五次）· 门牌里那条回取命令，原来是假命令
 
 全面验证报告 P2-6：压缩摘要和裁剪结果里都会渲染一行「回取」，而它长这样 ——

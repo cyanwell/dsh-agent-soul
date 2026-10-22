@@ -25,8 +25,25 @@ export const name = 'dsh-yanqing-echo'
 // ★ 只声明真正用到的服务。多写一个不存在的服务名 → 一直等 → apply 永不执行（静默失效）。
 export const inject = ['webServer']
 
-const NODE = 'C:/Users/pc/.workbuddy/binaries/node/versions/22.22.2-3/node.exe'
-const HUB = 'D:/AI/memory/hub'
+// ★★★ 路径：全部可由环境变量覆盖，默认值来自 DSH_HOME（2026-10-22 全面验证报告 P1-3）。
+//
+//   ★ 顺序要紧：DSH_HOME 必须定义在 NODE/HUB **之前** —— 原来它在下面十几行，
+//   而 HUB 现在要用它。这和 install.js 那个 scan bug 是同一个形状：
+//   **注释、变量名、类型都对，只有先后顺序错**，读的时候眼睛会顺着往下走、不回头。
+//
+const DSH_HOME = process.env.DSH_HOME !== undefined && process.env.DSH_HOME !== ''
+  ? process.env.DSH_HOME
+  : 'D:/AI/dsh/home'
+
+// ★ NODE —— 用**跑这个进程的那个 node**。本来就在 node 里，没必要再猜一个路径。
+//   （原来写死作者机器上的 C:/Users/pc/.workbuddy/...，换台机器就 spawn ENOENT。）
+const NODE = process.env.ECHO_NODE || process.execPath
+// ★ HUB —— 默认 `$DSH_HOME/hub`，安装时会把 kit/echo/*.mjs 复制进去（见 install.js）。
+//   有自己的记忆中枢就设 ECHO_HUB 覆盖。
+//   ★ 为什么不从 DSH_HOME 推出真中枢的位置：**推不出来** —— 这两者没有固定关系
+//   （作者机器上一个在 dsh/home、一个在 memory/hub，压根不在同一棵树里）。
+//   猜一个「看起来对」的相对路径，就是同一个错换个写法。
+const HUB = process.env.ECHO_HUB || path.join(DSH_HOME, 'hub')
 const DOCTOR = path.join(HUB, 'echo-doctor.mjs')
 const MEMINDEX = path.join(HUB, 'memindex.mjs')
 const SELFMJS = path.join(HUB, 'self.mjs')
@@ -42,9 +59,6 @@ const CFG = path.join(HUB, 'echo-panel.json')
  *   · 换气是「守卫」，它越少依赖别人越好 —— 守卫不该为了被看见而引入 web 依赖
  *   · 落盘还有个额外好处：**进程重启、面板没开的时候，那段历史也还在**
  */
-const DSH_HOME = process.env.DSH_HOME !== undefined && process.env.DSH_HOME !== ''
-  ? process.env.DSH_HOME
-  : 'D:/AI/dsh/home'
 const HUANQI_STATE = path.join(DSH_HOME, 'state')
 const HUANQI_TURNS = path.join(HUANQI_STATE, 'huanqi-turns.jsonl')
 const HUANQI_LEDGER = path.join(HUANQI_STATE, 'dsh-huanqi.json')
