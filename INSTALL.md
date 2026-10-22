@@ -471,3 +471,48 @@ Get-ChildItem "$env:USERPROFILE\.dsh\sessions" -Recurse -Filter "*.jsonl" |
 
 ★ **顺序很重要**：先恢复文件，**再装/重装本插件**。
 反过来的话，一次失败的启动又会把刚恢复的东西再重置一遍。
+
+### 补记 2 · 桌面脚本的两条实测边界（2026-10-22）
+
+**① 直接 `& .\install-desktop.ps1` 会被执行策略拦住**
+
+实测原文：
+
+```
+& : 无法加载文件 ...\install-desktop.ps1，因为在此系统上禁止运行脚本。
+    + PSSecurityException
+    + FullyQualifiedErrorId : UnauthorizedAccess
+```
+
+脚本一行都没跑。`INSTALL.md` 上面写的是 `powershell -ExecutionPolicy Bypass -File .\install-desktop.ps1`，
+那是**能过的**；但如果你图省事直接 `&`，会以为是脚本坏了，其实是没跑起来。
+★ 判据：**看输出里有没有 `dsh-agent-soul - desktop install` 这行标题** —— 没有就是没跑，别去怀疑脚本逻辑。
+
+**② 现在改成「先拷到暂存目录、验过再换上」**
+
+以前的顺序是「建 `node_modules\dsh-agent-soul` → 往里面拷 → 自检」。
+自检失败时 `Die` 会退出，**但那个建了一半的目录留在原地** —— `package.json` 确实没被动（这点没问题），
+可是用户下次来看，会看到一个残缺的 `dsh-agent-soul` 目录，很难判断它到底是装好的还是坏的。
+
+现在：拷到 `%TEMP%\dsh-agent-soul-stage-<tag>` → 在**暂存目录上**自检 →
+缺任何一样就删掉暂存目录并退出，**profile 一个字节都不碰** → 全齐了才 `Move-Item` 到位。
+
+**失败路径的实测证据**（用一个假 profile + 一个不存在的分支，模拟下载 404）：
+
+```
+  ok   profile: ...\fake-profile-test
+  ok   node: ...\primary-runtime\dependencies\node\bin\node.exe
+  get  https://github.com/cyanwell/dsh-agent-soul/archive/refs/heads/definitely-no-such-branch.zip
+  FAIL download failed: 远程服务器返回错误: (404) 未找到。
+```
+
+事后核对：
+
+| 检查项 | 结果 |
+|---|---|
+| `package.json` 的 SHA256 | **没变** |
+| `node_modules/` | **没被创建** |
+| `bundles` 内容 | 还是原来的 `["keep-me"]` |
+
+★ 这条的意义：**「装不上」是可接受的结局，「装到一半」不是。**
+所以失败都发生在碰用户配置之前 —— 下载、解压、拷贝、自检，四道关全在改 `bundles` 之前。

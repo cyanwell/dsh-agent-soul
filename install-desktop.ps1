@@ -79,32 +79,47 @@ Ok 'downloaded'
 
 # 4. copy into node_modules
 $dest = Join-Path $Profile 'node_modules\dsh-agent-soul'
-New-Item -ItemType Directory -Force -Path $dest | Out-Null
+# ★ Stage the copy first, verify it, and only then swap it into place.
+#   Why: an earlier version created $dest up-front and copied into it, so a failed
+#   self-check left a half-populated dsh-agent-soul directory sitting in the user's
+#   node_modules. package.json was untouched (that part was fine), but a broken
+#   half-package is confusing to diagnose on the next run.
+#   Staging in the SAME parent keeps the final swap a same-volume rename.
+$stage = Join-Path $env:TEMP ("dsh-agent-soul-stage-" + $tag)
+Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
 $files = @('package.json','cordis.patch.yml','index.js','client.js','install.js','kit-bridge.mjs','probe-kit-tools.mjs','install-desktop.ps1','README.md','INSTALL.md')
 foreach ($f in $files) {
-  $s = Join-Path $srcRoot $f
-  if (Test-Path $s) { Copy-Item $s (Join-Path $dest $f) -Force }
+  $s1 = Join-Path $srcRoot $f
+  if (Test-Path $s1) { Copy-Item $s1 (Join-Path $stage $f) -Force }
 }
 foreach ($d in @('kit','soul','skeleton','tools','plugins')) {
-  $s = Join-Path $srcRoot $d
-  if (Test-Path $s) {
-    $t = Join-Path $dest $d
-    if (Test-Path $t) { Remove-Item $t -Recurse -Force }
-    Copy-Item $s $t -Recurse -Force
+  $s1 = Join-Path $srcRoot $d
+  if (Test-Path $s1) {
+    $t1 = Join-Path $stage $d
+    if (Test-Path $t1) { Remove-Item $t1 -Recurse -Force }
+    Copy-Item $s1 $t1 -Recurse -Force
   }
 }
-# 4b. hard self-check - a package missing client.js makes DSH fail to boot,
-#     which triggers sanitizeProfile and RESETS the user's bundles + patch layer.
-#     Better to fail here, loudly, before the user restarts.
+
+# 4b. hard self-check on the STAGED copy - a package missing client.js makes DSH
+#     fail to boot, which triggers sanitizeProfile and RESETS the user's bundles +
+#     patch layer. Better to fail here, loudly, before the user restarts.
 $mustHave = @('client.js','index.js','cordis.patch.yml','package.json','plugins')
 $missing = @()
 foreach ($m in $mustHave) {
-  if (-not (Test-Path (Join-Path $dest $m))) { $missing += $m }
+  if (-not (Test-Path (Join-Path $stage $m))) { $missing += $m }
 }
 if ($missing.Count -gt 0) {
-  Die ("copy incomplete, missing: " + ($missing -join ', ') + " - aborting BEFORE touching bundles, so nothing gets reset.")
+  Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+  Die ("copy incomplete, missing: " + ($missing -join ', ') + " - staged copy discarded, your profile was not touched at all.")
 }
-Ok 'files copied to node_modules\dsh-agent-soul (client.js verified)'
+
+# 4c. swap into place
+if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
+Move-Item $stage $dest
+Ok 'files copied to node_modules/dsh-agent-soul (client.js verified, staged then swapped)'
 
 # 5. backup + edit bundles
 $pkgPath = Join-Path $Profile 'package.json'
