@@ -145,12 +145,33 @@ for (const n of pluginNames) {
     .filter((d) => d.isDirectory())
     .map((d) => d.name)
     .filter((d) => fs.existsSync(path.join('plugins', d, 'package.json')))
+  // ORDER 里的条目有两类：本仓库 plugins/<dir>，以及外部件（07-bundle.json 里
+  // external: true 的）。外部件不是目录，但必须出现在 ORDER 里 ——
+  // 否则 plan 永远不提示装它（2026-10-22 就是这样漏掉了 I ECHO 的 dsh-mnemon）。
+  const bundleJson = JSON.parse(fs.readFileSync('soul/07-bundle.json', 'utf8'))
+  const allParts = Array.isArray(bundleJson.parts) ? bundleJson.parts : []
+  const externalDirs = allParts.filter((p) => p.external === true).map((p) => p.dir)
   const missing = pkgDirs.filter((d) => !listed.includes(d))
-  const extra = listed.filter((d) => !pkgDirs.includes(d))
-  check('install.js ORDER 覆盖全部包', missing.length === 0, '漏: ' + missing.join(','))
-  check('install.js ORDER 没有多余项', extra.length === 0, '多: ' + extra.join(','))
-  check('install.js ORDER 总数等于包数', listed.length === pkgDirs.length,
-    'ORDER=' + listed.length + ' pkgs=' + pkgDirs.length)
+  const unknown = listed.filter((d) => !pkgDirs.includes(d) && !externalDirs.includes(d))
+  check('install.js ORDER 覆盖全部本仓库包', missing.length === 0, '漏: ' + missing.join(','))
+  check('install.js ORDER 没有来历不明的条目', unknown.length === 0, '多: ' + unknown.join(','))
+  check('install.js ORDER 总数 = 包数 + 外部件数',
+    listed.length === pkgDirs.length + externalDirs.length,
+    'ORDER=' + listed.length + ' pkgs=' + pkgDirs.length + ' ext=' + externalDirs.length)
+
+  // ★ 必备零件必须都在 ORDER 里。这条是补 2026-10-22 那个洞的：
+  //   dsh-mnemon 在 07-bundle.json 里标着 required: true、layer I-echo，
+  //   却不在 ORDER 里 —— 参考清单说要装，plan 从不提起。
+  const requiredParts = allParts.filter((p) => p.required === true).map((p) => p.dir)
+  const reqMissing = requiredParts.filter((d) => !listed.includes(d))
+  check('bundle 里 required 的零件都在 ORDER 里', reqMissing.length === 0,
+    '漏: ' + reqMissing.join(','))
+
+  // ★ 外部件不能被当成 file: 路径安装 —— 那个目录在本仓库里不存在。
+  const installSrc = fs.readFileSync('install.js', 'utf8')
+  check('install.js 对外部件给的是包名不是 file: 路径',
+    installSrc.includes('EXTERNAL_DIRS.has(dir)'),
+    '需要 installCommand 里单独处理 external')
 }
 
 // ── 5d. install.js 的 PKG() 不能只靠前缀拼 ──

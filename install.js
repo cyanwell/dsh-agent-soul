@@ -97,7 +97,10 @@ const ORDER = [
     title: 'Ⅰ ECHO · 空间',
     kind: 'plugins',
     why: '上下文会满，满了要丢，丢了还要能找回来。',
-    parts: ['compaction', 'pruner', 'memory', 'echo', 'mnemon-probe'],
+    // ★ 第 6 个是外部件（dsh-mnemon），不在本仓库。它照样要进 ORDER ——
+    //   因为 plan 只沿着 ORDER 生成安装清单，不收录就等于永远不提示装。
+    //   它和 mnemon-probe 是两样东西：一个是引擎（别人的），一个是仪表（我们的）。
+    parts: ['compaction', 'pruner', 'memory', 'echo', 'mnemon-probe', 'dsh-mnemon'],
   },
   {
     step: 2,
@@ -158,7 +161,11 @@ async function readJsonNoBom(p) {
 }
 
 const PKG_NAMES = new Map()
-const PKG = (dir) => PKG_NAMES.get(dir) || 'dsh-agent-' + dir
+// ★ 外部件（external: true）的包名就是它自己的目录名，不加 dsh-agent- 前缀。
+//   以前这个机制写了却从没被用过 —— ORDER 里一个外部件都没有，于是它是死代码。
+const EXTERNAL_DIRS = new Set()
+const PKG = (dir) =>
+  EXTERNAL_DIRS.has(dir) ? dir : PKG_NAMES.get(dir) || 'dsh-agent-' + dir
 
 /** 扫描 plugins/ 下每个子包，把目录名 → 真实包名记下来。读不到就跳过（不是包）。 */
 async function loadPkgNames(pluginsDir) {
@@ -227,7 +234,23 @@ async function findPluginsDir() {
 /** 一条能直接粘进终端的安装命令。desktop 给手动两步，其它给 CLI。 */
 function installCommand(profile, dir, isDesktop, pluginsDir) {
   const pkg = PKG(dir)
-  // ★ 有真实路径就用真实路径；没有就写清占位符该填什么，别让它看起来像能直接跑
+  // ★ 外部件不在本仓库，不能给 file:<仓库>/plugins/<dir> —— 那个目录不存在。
+  if (EXTERNAL_DIRS.has(dir)) {
+    const pname = profile.split(/[\\/]/).pop()
+    const pj = join(profile, 'package.json')
+    if (isDesktop) {
+      return [
+        '外部件（别人的 npm 包，不是本仓库的）：',
+        '  # ① 把 "' + dir + '" 加进 ' + pj + ' 的 dependencies',
+        '  # ② 在 profile 目录下重装依赖（pnpm install / npm install）',
+        '  # ③ 往 dsh.profile.bundles 里加 "' + dir + '"',
+        '  # ④ 重启 DSH',
+        '  # ★ 判据不是"装上了"，是"有空间可用"：跑一次 mnemon_status，看有没有 active 的 space。',
+      ].join('\n')
+    }
+    return 'dsh plugin --profile ' + pname + ' add ' + dir
+  }
+  // ★ 有真实路径就用真实路径；没有就写清占位符该填什么，别让它看起来能直接跑
   const src = pluginsDir ? join(pluginsDir, dir) : `<soul 仓库>/plugins/${dir}`
   if (isDesktop) {
     return [
@@ -319,7 +342,10 @@ export function registerInstallTool(ctx) {
         } catch { /* 读不到就用兜底 */ }
         const bundleParts = new Map()
         if (bundle && Array.isArray(bundle.parts)) {
-          for (const p of bundle.parts) bundleParts.set(p.dir, p)
+          for (const p of bundle.parts) {
+            bundleParts.set(p.dir, p)
+            if (p.external === true) EXTERNAL_DIRS.add(p.dir)
+          }
         }
         const allDirs = bundleParts.size
           ? [...bundleParts.keys()]
