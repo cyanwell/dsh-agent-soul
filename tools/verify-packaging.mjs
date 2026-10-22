@@ -362,6 +362,27 @@ check('README 有 2026-10-22 的更新记录', (readme.match(/### 2026-10-22/g) 
   }
 }
 
+
+// ── 8d. doctor 的 SELF 判据不能用「工具描述里也会出现」的词（P1-7，2026-10-22）──
+//
+// ★ 这条治的病：判据原来是 `raw.includes("SELF.md")`，而
+//   `agent_soul_scaffold` 的工具描述里就写着 SELF 模板 / SELF.md ——
+//   也就是说**只要插件装上了**，日志里必然出现这个字符串，判据恒真。
+//   一个永远通过的自检比没有更坏：它会明确告诉你「装好了」。
+// ★ 修法是改认 SELF.md **正文里才有的**词（「四条硬线」「## 我是谁」），
+//   工具描述不会写这些。这条断言就守在这个边界上。
+{
+  const doctor = fs.readFileSync('kit/echo/echo-doctor.mjs', 'utf8')
+  check(
+    'doctor 的 SELF 判据不认裸 SELF.md（工具描述里也有这个串）',
+    !doctor.includes('raw.includes("SELF.md")'),
+  )
+  check(
+    'doctor 的 SELF 判据认 SELF.md 正文独有词',
+    doctor.includes('四条硬线') || doctor.includes('## 我是谁'),
+  )
+}
+
 // ── 输出 ────────────────────────────────────────
 console.log('=== 自检结果 ===')
 for (const c of checks) {

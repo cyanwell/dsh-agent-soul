@@ -415,8 +415,13 @@ function checkSelf(logs, deep) {
       try {
         const { events } = decodeCached(targetLog.file)
         const raw = events.map((e) => JSON.stringify(e.data || {})).join("\n")
+        // ★ P1-7（外部验证报告，2026-10-22）：原来这里认的是字符串 "SELF.md"。
+        //   可 agent_soul_scaffold 的工具描述里就写着 "SELF 模板"、"SELF.md" ——
+        //   也就是说**只要插件装上了**，日志里就必然出现这个字符串，判据恒为真。
+        //   一个永远通过的自检，比没有自检更坏：它会告诉你「装好了」。
+        //   改成认 SELF.md **正文里才有的**词 —— 工具描述不会写「四条硬线」。
         if (raw.includes("SELF.md 读不到")) injected = false
-        else if (raw.includes("自我层") || raw.includes("SELF.md")) injected = true
+        else if (raw.includes("四条硬线") || raw.includes("## 我是谁")) injected = true
       } catch { /* 解不出来就不下结论，别猜 */ }
     }
   }
