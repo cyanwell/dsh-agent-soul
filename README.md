@@ -283,6 +283,43 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-22（同日第二次）· 失败路径：装到一半的目录不该留下
+
+**改之前**：`install-desktop.ps1` 的顺序是「建 `node_modules\dsh-agent-soul` → 往里面拷 → 自检」。
+自检失败会 `Die` 退出，**但那个建了一半的目录留在原地**。
+
+`package.json` 确实没被动过（这点从第一版起就是对的），可是用户下次来看，
+会看到一个残缺的 `dsh-agent-soul` 目录 —— 它既不是"装好了"，也不是"没装过"，
+而最难诊断的正是这种中间态。
+
+**顺带发现的一个真坑**：直接 `& .\install-desktop.ps1` 会被执行策略拦住，
+报 `PSSecurityException` / `FullyQualifiedErrorId : UnauthorizedAccess`，**脚本一行都没跑**。
+文档里写的 `powershell -ExecutionPolicy Bypass -File ...` 是能过的，但没写"直接 & 会怎样"。
+判据补上了：**看输出里有没有 `dsh-agent-soul - desktop install` 这行标题** —— 没有就是没跑，
+别去怀疑脚本逻辑。这一条是我自己测失败路径时撞出来的，不是想出来的。
+
+**改法**：拷到 `%TEMP%\dsh-agent-soul-stage-<tag>` → 在**暂存目录上**自检 →
+缺任何一样就删暂存目录退出、**profile 一个字节都不碰** → 全齐了才 `Move-Item` 到位。
+暂存放 `%TEMP%` 是为了让最后那步是跨目录移动而不是跨盘拷贝。
+
+**怎么确认改对了**：假 profile + 一个不存在的 git ref（模拟下载 404）。
+
+```
+  ok   profile: ...ake-profile-test
+  ok   node: ...\primary-runtime\dependencies
+odein
+ode.exe
+  get  https://github.com/cyanwell/dsh-agent-soul/archive/refs/heads/definitely-no-such-branch.zip
+  FAIL download failed: 远程服务器返回错误: (404) 未找到。
+```
+
+事后核对三项：`package.json` 的 SHA256 **没变**、`node_modules/` **没被创建**、
+`bundles` 还是原来的 `["keep-me"]`。
+
+**教训**：**「装不上」是可接受的结局，「装到一半」不是。**
+所以四道关（下载、解压、拷贝、自检）全部排在改 `bundles` 之前 ——
+失败可以发生，但必须发生在碰用户配置之前。
+
 ### 2026-10-22 · `client.js` 没装进去 → 桌面端启动崩，连带重置用户配置
 
 **改之前**：`package.json` 没有 `files` 字段，`install-desktop.ps1` 的拷贝清单里也没有 `client.js`。
