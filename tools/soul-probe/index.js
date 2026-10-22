@@ -78,17 +78,74 @@ export const inject = ['compaction']
 export function apply(ctx) {
   log('register', { note: 'soul-probe applied' })
 
+  // ★ 会话还活着吗（报告 v4 观察项 1，2026-10-22）。
+  //
+  //   headless 在鉴权失败后**立即失活**，而我们的定时器还在跑。
+  //   失活之后 ctx.get 抛的是：
+  //     cannot get required service "compaction" in inactive context
+  //   以前它被 catch 记成 [error] —— 于是日志尾部两行 error，
+  //   **读的人会以为「压缩没了」**，而实际上只是会话结束了。
+  //
+  //   ★ 这和 R3 是同一类病：失败和「没验」长得一样。
+  //   所以这里记一条 skipped，把「为什么没验」写明白，
+  //   而不是让它掉进 error 里冒充一个真问题。
+  const alive = () => {
+    try {
+      const s = ctx.scope
+      // 拿不到 scope 信息时**当作还活着** —— 别因为判不出来就把自己废掉。
+      if (!s || typeof s.active !== 'boolean') return true
+      return s.active
+    } catch {
+      return true
+    }
+  }
+
   const probe = (when) => {
+    if (!alive()) {
+      log('skipped', {
+        when,
+        why: 'context inactive —— 会话已经结束，这次采样没有意义。**不是压缩没接管。**',
+      })
+      return
+    }
     try {
       let c = null
       let how = null
       if (typeof ctx.get === 'function') {
-        try { c = ctx.get('compaction'); how = 'ctx.get' } catch (e) { how = 'ctx.get threw: ' + e.message }
+        try {
+          c = ctx.get('compaction')
+          how = 'ctx.get'
+        } catch (e) {
+          const m = String((e && e.message) || e)
+          // ★ 内层也要判失活（这是测出来的第二层）：
+          //   以前这里把异常吞进 how 字符串，于是**整条被记成 result**，
+          //   result 里带着 "ctx.get threw: ...inactive..." —— 读起来像「读到了」。
+          if (/inactive/i.test(m)) {
+            log('skipped', {
+              when,
+              why: 'context inactive —— 会话已经结束，这次采样没有意义。**不是压缩没接管。**',
+              seen: m,
+            })
+            return
+          }
+          how = 'ctx.get threw: ' + m
+        }
       }
       if (!c && ctx.compaction) { c = ctx.compaction; how = 'ctx.compaction' }
       log('result', { when, how, ...describe(c) })
     } catch (e) {
-      log('error', { when, msg: String((e && e.message) || e) })
+      const msg = String((e && e.message) || e)
+      // ★ 即使 alive() 判出来了也保一道：错误文本里带 inactive 就不是真错。
+      //   （scope 字段在不同 cordis 版本里不一定有，别把判据押在一处。）
+      if (/inactive/i.test(msg)) {
+        log('skipped', {
+          when,
+          why: 'context inactive —— 会话已经结束，这次采样没有意义。**不是压缩没接管。**',
+          seen: msg,
+        })
+      } else {
+        log('error', { when, msg })
+      }
     }
   }
 
@@ -96,4 +153,9 @@ export function apply(ctx) {
   probe('immediate')
   setTimeout(() => probe('t+1200'), 1200)
   setTimeout(() => probe('t+5000'), 5000)
+
+  // ★ 判读口径（配合上面两个 skipped）：
+  //   [result]  → 有答案
+  //   [skipped] → 会话结束得太快，没来得及看。**这不是坏消息，是没有消息。**
+  //   [error]   → 会话还活着但读失败了。这个才是真问题。
 }

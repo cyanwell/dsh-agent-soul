@@ -1,4 +1,4 @@
-# install-desktop.ps1 - desktop one-command installer for dsh-agent-soul
+﻿# install-desktop.ps1 - desktop one-command installer for dsh-agent-soul
 #
 # Why this file exists:
 #   The desktop profile refuses `dsh plugin add` (DSH says:
@@ -184,6 +184,10 @@ Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host ''
 Write-Host '  ---------------------------------' -ForegroundColor Cyan
 Write-Host '  installed.' -ForegroundColor Green
+Write-Host ''
+Write-Host '  ★ 注意：本体的源就在 node_modules 里（file:node_modules/dsh-agent-soul）。' -ForegroundColor DarkGray
+Write-Host '    `rm -rf node_modules` 会把它一起删掉，之后 pnpm install 恢复不了。' -ForegroundColor DarkGray
+Write-Host '    真要重来，重跑一遍本脚本即可（它会重新拷一遍）。' -ForegroundColor DarkGray
 Write-Host ''
 Write-Host '  RESTART DSH - not a page refresh.' -ForegroundColor Yellow
 Write-Host ''
