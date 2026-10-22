@@ -4,6 +4,12 @@
   "description": "热记忆投影探针：每轮报告热记忆的【磁盘状态】（条数 / 字节 / 预算占比）。★ 它只报能测到的 —— 明说「实际注入几条」拿不到，不猜。",
   "type": "module",
   "main": "index.js",
+  "files": [
+    "README.md",
+    "cordis.patch.yml",
+    "index.js",
+    "package.json"
+  ],
   "exports": {
     ".": "./index.js",
     "./package.json": "./package.json"

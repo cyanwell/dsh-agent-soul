@@ -4,6 +4,13 @@
   "type": "module",
   "description": "启动画面插件：在设置面板里换启动动画、调淡入淡出与显示项。★ 它是个【播放器】—— 动画文件你自己放，它只负责播放与配置。",
   "main": "index.js",
+  "files": [
+    "README.md",
+    "client.js",
+    "cordis.patch.yml",
+    "index.js",
+    "package.json"
+  ],
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

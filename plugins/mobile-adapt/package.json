@@ -5,6 +5,13 @@
   "type": "module",
   "description": "手机端界面适配层：竖屏触摸设备上把 Web GUI 收成手机 App 形态，不影响 PC 端布局。★ 它的做法是【只加一条媒体查询下的覆盖】，不改原有 DOM 结构。",
   "main": "index.js",
+  "files": [
+    "README.md",
+    "client.js",
+    "cordis.patch.yml",
+    "index.js",
+    "package.json"
+  ],
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

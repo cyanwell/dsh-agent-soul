@@ -5,6 +5,13 @@
   "type": "module",
   "description": "给 DSH 内置的兜底压缩装上「门牌」：自动摘要前插入可回溯的指针，让兜底产出的 checkpoint 也能按记忆架构回取原文",
   "main": "index.js",
+  "files": [
+    "HOW-TO-TAKEOVER.md",
+    "README.md",
+    "cordis.patch.yml",
+    "index.js",
+    "package.json"
+  ],
   "exports": {
     ".": "./index.js",
     "./package.json": "./package.json"

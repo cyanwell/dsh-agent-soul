@@ -4,6 +4,16 @@
   "description": "回声面板（dsh-agent-echo）—— agent 记忆中枢的实时体检台：把「压缩 / 门牌 / 索引 / 自我层 / 心跳 / 账本 / 热记忆 / 版本漂移」这些状态摆在一个页面上。体检逻辑在 echo-doctor.mjs（命令行与面板共用同一份），本插件只做两件事：起一个只读路由、画一张表。",
   "type": "module",
   "main": "index.js",
+  "files": [
+    "README.md",
+    "client.js",
+    "cordis.patch.yml",
+    "echo-config.mjs",
+    "echo-doctor.mjs",
+    "echo.config.example.json",
+    "index.js",
+    "package.json"
+  ],
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
