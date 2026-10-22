@@ -231,7 +231,7 @@ for (const name of deps ? Object.keys(deps) : []) {
   const src = resolve(profile, spec.slice(5))
   const dst = await findBundleDir(name)
   if (!dst) {
-    bad(name, '依赖声明了 ' + spec + '，但往上找到 4 层都没找到副本')
+    bad(name, '依赖声明了 ' + spec + '，但所有搜索根里都没有副本')
     console.log(`  ✗ ${name}  副本缺失`)
     continue
   }
