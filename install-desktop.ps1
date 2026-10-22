@@ -80,12 +80,12 @@ Ok 'downloaded'
 # 4. copy into node_modules
 $dest = Join-Path $Profile 'node_modules\dsh-agent-soul'
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
-$files = @('package.json','cordis.patch.yml','index.js','install.js','kit-bridge.mjs','README.md','INSTALL.md')
+$files = @('package.json','cordis.patch.yml','index.js','client.js','install.js','kit-bridge.mjs','probe-kit-tools.mjs','install-desktop.ps1','README.md','INSTALL.md')
 foreach ($f in $files) {
   $s = Join-Path $srcRoot $f
   if (Test-Path $s) { Copy-Item $s (Join-Path $dest $f) -Force }
 }
-foreach ($d in @('kit','soul','skeleton','tools')) {
+foreach ($d in @('kit','soul','skeleton','tools','plugins')) {
   $s = Join-Path $srcRoot $d
   if (Test-Path $s) {
     $t = Join-Path $dest $d
@@ -93,7 +93,18 @@ foreach ($d in @('kit','soul','skeleton','tools')) {
     Copy-Item $s $t -Recurse -Force
   }
 }
-Ok 'files copied to node_modules\dsh-agent-soul'
+# 4b. hard self-check - a package missing client.js makes DSH fail to boot,
+#     which triggers sanitizeProfile and RESETS the user's bundles + patch layer.
+#     Better to fail here, loudly, before the user restarts.
+$mustHave = @('client.js','index.js','cordis.patch.yml','package.json','plugins')
+$missing = @()
+foreach ($m in $mustHave) {
+  if (-not (Test-Path (Join-Path $dest $m))) { $missing += $m }
+}
+if ($missing.Count -gt 0) {
+  Die ("copy incomplete, missing: " + ($missing -join ', ') + " - aborting BEFORE touching bundles, so nothing gets reset.")
+}
+Ok 'files copied to node_modules\dsh-agent-soul (client.js verified)'
 
 # 5. backup + edit bundles
 $pkgPath = Join-Path $Profile 'package.json'

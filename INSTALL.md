@@ -383,3 +383,42 @@ New-Item -ItemType Junction -Path "<profile>\node_modules\dsh-agent-soul" -Targe
 
 ★ 这一条真正想说的是：**「装上」和「在跑」是两件事**，而这一回的失败是**静默**的 ——
 不报错、不提示、界面看起来好好的。所以装完务必走一遍上面「装完怎么验」那两步。
+
+### 补记 · 两条安装路径是**两份独立的清单**（2026-10-22 第二个反馈）
+
+★ 这一条把上面那个坑说完整：**修 `package.json` 的 `files` 只管「`dsh plugin add file:`」那条路。**
+**桌面端走的是 `install-desktop.ps1`，它有自己的 `$files` / `$dirs` 数组，根本不看 `files`。**
+
+所以第一条修完之后，桌面路径仍然是坏的 —— 那位用户踩的正是这个：
+
+```
+host crash: client bundles not found; run 'pnpm run build' before launch:
+  package: dsh-agent-soul,
+  path: C:\Users\ws\.dsh\profiles\desktop\node_modules\dsh-agent-soul\client.js  (ENOENT)
+```
+
+原来的清单是：
+
+```powershell
+$files = @('package.json','cordis.patch.yml','index.js','install.js','kit-bridge.mjs','README.md','INSTALL.md')
+foreach ($d in @('kit','soul','skeleton','tools'))
+```
+
+`client.js` 不在里面。更糟的是 **`plugins/` 也不在里面** ——
+也就是说走桌面路径装出来的东西，不但会崩，连 14 个零件都一个没有。
+
+**已修**：`$files` 补 `client.js` / `probe-kit-tools.mjs` / `install-desktop.ps1`，
+`$dirs` 补 `plugins`。并且加了一步**硬自检**：
+
+```powershell
+$mustHave = @('client.js','index.js','cordis.patch.yml','package.json','plugins')
+# 任何一个不在 → Die，在碰 bundles 之前退出
+```
+
+★ 这一步的顺序很关键：**自检放在改 `bundles` 之前**。
+因为一旦 DSH 启动失败，`sanitizeProfile` 会把用户的 `bundles` 重置成只剩内置包、
+把 `cordis.patch.yml` 改名备份后清空 —— 那是**用户自己的其他插件跟着一起下线**。
+所以在动 `package.json` 之前就该失败，而不是装完等他重启才炸。
+
+**代价要讲明白**：装上这个东西失败一次，损失的不只是这个插件，**是你整个 profile 的 patch 配置和别人家的插件**。
+所以在桌面端安装前，**先备份 `package.json` 和 `cordis.patch.yml`** —— 脚本只备份了前者。
