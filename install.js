@@ -146,7 +146,32 @@ const ORDER = [
   },
 ]
 
-const PKG = (dir) => 'dsh-agent-' + dir
+// ★ 包名不能靠前缀拼。`huanqi` 的真实包名是 dsh-huanqi（没有 agent），
+//   拼出来的 dsh-agent-huanqi 既不是它、也不在 bundles 里 —— 于是 plan 会
+//   对着一个装好的包喊「缺」，而用户照着装会装出一个 DSH 认不出的目录名。
+//   所以这里从每个子包自己的 package.json 读 name，拼前缀只作为读不到时的兜底。
+const PKG_NAMES = new Map()
+const PKG = (dir) => PKG_NAMES.get(dir) || 'dsh-agent-' + dir
+
+/** 扫描 plugins/ 下每个子包，把目录名 → 真实包名记下来。读不到就跳过（不是包）。 */
+async function loadPkgNames(pluginsDir) {
+  if (!pluginsDir) return
+  let entries
+  try {
+    entries = await readdir(pluginsDir, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue
+    try {
+      const pj = JSON.parse(await readFile(join(pluginsDir, e.name, 'package.json'), 'utf8'))
+      if (pj && typeof pj.name === 'string' && pj.name) PKG_NAMES.set(e.name, pj.name)
+    } catch {
+      // tools/ 这种没有 package.json 的目录，跳过
+    }
+  }
+}
 
 /**
  * ★ 找到 plugins/ 到底在哪。
@@ -200,10 +225,14 @@ function installCommand(profile, dir, isDesktop, pluginsDir) {
   if (isDesktop) {
     return [
       '手动两步（桌面端不接受 CLI 安装）：',
-      '  # ① 复制四个文件进 profile',
+      '  # ① 复制**整个包目录**进 profile（不要挑文件）',
       `  #    源：${src}${pluginsDir ? '/' : '/'}`,
       `  #    目标：${join(profile, 'node_modules', pkg)}/`,
-      '  #    要的文件：package.json / cordis.patch.yml / index.js / client.js',
+      '  #    ★ 别只抄 package.json / cordis.patch.yml / index.js / client.js ——',
+      '  #      包与包长得不一样：echo 还要 echo-config.mjs 和 echo-doctor.mjs，',
+      '  #      memory / huanqi 的入口是 lib/index.js 不是根级 index.js，',
+      '  #      model-statusbar 还要 probe.ps1。挑文件的后果是 ERR_MODULE_NOT_FOUND，',
+      '  #      而那个报错发生在运行时，看起来完全不像"少拷了一个文件"。',
       '  # ② 往 ' + join(profile, 'package.json') + ' 的 dsh.profile.bundles 里加 "' + pkg + '"',
       '  #    ★ 用 JSON.parse / JSON.stringify 改，不要用手写',
       '  # ③ 重启 DSH（不是刷新页面）',
@@ -363,6 +392,7 @@ export function registerInstallTool(ctx) {
         // ★ 先找 plugins/ 在哪。找不到就明说，别让命令里留一个占位符假装能跑
         //   —— 那是实测踩过的坑：agent 会照着占位符去装，然后卡住。
         const pluginsInfo = await findPluginsDir()
+        await loadPkgNames(pluginsInfo.dir)
         const lines = []
         lines.push('装配顺序（按这个走，不要跳步）')
         lines.push('profile: ' + profile)

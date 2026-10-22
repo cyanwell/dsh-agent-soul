@@ -84,8 +84,9 @@ $dest = Join-Path $Profile 'node_modules\dsh-agent-soul'
 #   self-check left a half-populated dsh-agent-soul directory sitting in the user's
 #   node_modules. package.json was untouched (that part was fine), but a broken
 #   half-package is confusing to diagnose on the next run.
-#   Staging in the SAME parent keeps the final swap a same-volume rename.
-$stage = Join-Path $env:TEMP ("dsh-agent-soul-stage-" + $tag)
+#   Staging under the profile's own node_modules keeps the final swap a same-volume rename
+#   (staging in %TEMP% would turn Move-Item into copy+delete across volumes).
+$stage = Join-Path $Profile "node_modules\.dsh-agent-soul-stage-$tag"
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
@@ -106,7 +107,7 @@ foreach ($d in @('kit','soul','skeleton','tools','plugins')) {
 # 4b. hard self-check on the STAGED copy - a package missing client.js makes DSH
 #     fail to boot, which triggers sanitizeProfile and RESETS the user's bundles +
 #     patch layer. Better to fail here, loudly, before the user restarts.
-$mustHave = @('client.js','index.js','cordis.patch.yml','package.json','plugins')
+$mustHave = @('client.js','index.js','cordis.patch.yml','package.json','plugins','tools/add-bundle.js')
 $missing = @()
 foreach ($m in $mustHave) {
   if (-not (Test-Path (Join-Path $stage $m))) { $missing += $m }
@@ -116,9 +117,26 @@ if ($missing.Count -gt 0) {
   Die ("copy incomplete, missing: " + ($missing -join ', ') + " - staged copy discarded, your profile was not touched at all.")
 }
 
-# 4c. swap into place
-if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
-Move-Item $stage $dest
+# 4c. swap into place ---- rename-aside first, so a failed move can be undone.
+#     Never delete the live directory before the new one is actually in place:
+#     if Move-Item then failed, the user would be left with no package at all while
+#     dsh.profile.bundles still names it -> DSH startup failure -> sanitizeProfile.
+$backup = $null
+if (Test-Path $dest) {
+  $backup = Join-Path $Profile "node_modules\.dsh-agent-soul-old-$tag"
+  Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue
+  Rename-Item -Path $dest -NewName (Split-Path $backup -Leaf) -ErrorAction Stop
+}
+try {
+  Move-Item $stage $dest -ErrorAction Stop
+} catch {
+  if ($backup -and (Test-Path $backup) -and -not (Test-Path $dest)) {
+    Rename-Item -Path $backup -NewName (Split-Path $dest -Leaf) -ErrorAction SilentlyContinue
+  }
+  Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+  Die ("swap failed: " + $_.Exception.Message + " - previous install restored, nothing was left half-applied.")
+}
+if ($backup) { Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue }
 Ok 'files copied to node_modules/dsh-agent-soul (client.js verified, staged then swapped)'
 
 # 5. backup + edit bundles

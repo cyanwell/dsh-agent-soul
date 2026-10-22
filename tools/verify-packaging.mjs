@@ -100,6 +100,69 @@ for (const n of pluginNames) {
   if (miss.length === 0) pluginOk++
 }
 
+// ── 5b. 每个包的 cordis.patch.yml 里 name 必须等于 package.json 的 name ──
+//     ★ 2026-10-22 由外部审核揪出来的：huanqi 的包名是 dsh-huanqi，patch 里
+//     却写 dsh-agent-huanqi。patch 指向一个不存在的模块名，包照样装得上、
+//     进程照样活着，只是那一层永远不会被加载 —— 没有报错，是最难发现的一种坏。
+{
+  const dirs = fs
+    .readdirSync('plugins', { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .sort()
+  for (const d of dirs) {
+    const pjPath = path.join('plugins', d, 'package.json')
+    if (!fs.existsSync(pjPath)) continue
+    const pj = JSON.parse(fs.readFileSync(pjPath, 'utf8'))
+    const patchRel = pj.dsh && pj.dsh.bundle && pj.dsh.bundle.patch
+    if (!patchRel) continue
+    const patchPath = path.join('plugins', d, path.basename(patchRel))
+    if (!fs.existsSync(patchPath)) {
+      check('plugins/' + d + ' bundle.patch 文件存在', false, patchPath)
+      continue
+    }
+    const yml = fs.readFileSync(patchPath, 'utf8')
+    const line = yml.split('\n').find((l) => /^\s*name:\s*\S/.test(l)) || ''
+    const m = line.match(/^\s*name:\s*['"]?([^'"]+?)['"]?\s*$/)
+    const patchName = m ? m[1].trim() : ''
+    check(
+      'plugins/' + d + ' patch.name 等于包名',
+      patchName === pj.name,
+      'pkg=' + pj.name + ' patch=' + (patchName || '(缺)')
+    )
+  }
+}
+
+// ── 5c. install.js 的 ORDER 必须覆盖 plugins/ 下每个包，且不多不少 ──
+{
+  const src = fs.readFileSync('install.js', 'utf8')
+  const groups = [...src.matchAll(/parts:\s*\[([^\]]+)\]/g)].map((m) =>
+    m[1].split(',').map((x) => x.trim().replace(/^'|'$/g, '')).filter(Boolean)
+  )
+  const listed = groups.flat()
+  const pkgDirs = fs
+    .readdirSync('plugins', { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .filter((d) => fs.existsSync(path.join('plugins', d, 'package.json')))
+  const missing = pkgDirs.filter((d) => !listed.includes(d))
+  const extra = listed.filter((d) => !pkgDirs.includes(d))
+  check('install.js ORDER 覆盖全部包', missing.length === 0, '漏: ' + missing.join(','))
+  check('install.js ORDER 没有多余项', extra.length === 0, '多: ' + extra.join(','))
+  check('install.js ORDER 总数等于包数', listed.length === pkgDirs.length,
+    'ORDER=' + listed.length + ' pkgs=' + pkgDirs.length)
+}
+
+// ── 5d. install.js 的 PKG() 不能只靠前缀拼 ──
+{
+  const src = fs.readFileSync('install.js', 'utf8')
+  check(
+    'install.js 的 PKG 会读真实包名',
+    src.includes('loadPkgNames') && src.includes('PKG_NAMES.get(dir)'),
+    '硬编码前缀对 huanqi 会算错'
+  )
+}
+
 // ── 6. 文档里的关键条目 ──────────────────────────
 const install = fs.readFileSync('INSTALL.md', 'utf8')
 check('INSTALL.md 有恢复步骤', install.includes('如果已经中招了'))

@@ -283,6 +283,81 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-22（同日第三次）· 外部审核抓到的五条，四条属实
+
+**怎么来的**：这一轮修完之后，我把仓库交给另一家的模型独立审核（只读静态检查，
+不跑 DSH、不执行 ps1）。它交了 13 条，我看完自己复核了一遍 —— **没有全信，也没有全不信**。
+
+**结论先说：13 条里我确认了 5 条，全部修掉；其余 8 条是它自己标了「无法验证」的部分
+（没有 DSH 运行环境、不能执行 PowerShell），判断合理但不构成缺陷。**
+完整报告归档在 `docs/audit-2026-10-22-external.md`，原样保留，包括它没验证的部分。
+
+**①② `install-desktop.ps1` 先删后移，且暂存目录跨卷**（它标为最严重）
+
+我上一版把 `$stage` 放进了 `$env:TEMP`，并在注释里写「同一父目录保证最后是同卷改名」——
+**注释和代码矛盾，这是我看漏的**。`%TEMP%` 通常在 C:，而 profile 可能在 D:。
+更糟的是交换那一步写成了「先 `Remove-Item $dest`，再 `Move-Item $stage`」：
+中间一旦失败，用户就**没有任何包了，而 bundles 里还写着它的名字** → 启动失败 → sanitizeProfile。
+
+改成：暂存目录放到 profile 自己的 `node_modules/.dsh-agent-soul-stage-<tag>`（保证同卷），
+交换改成「先把旧目录 `Rename-Item` 备份 → 移入 → 成功才删备份；失败则改回来」。
+现在最坏结果是「和装之前一样」，不是「什么都没了」。
+
+**③ `$mustHave` 漏了 `tools/add-bundle.js`**
+
+自检只查 5 项，而脚本后面要靠 `tools/add-bundle.js` 去改 bundles。
+检查发生在 swap 之后 —— 也就是说这个文件缺失时，**文件已经换进去了才发现**。
+已加进 `$mustHave`，现在是在暂存副本上查，缺了就不 swap。
+
+**④ 手动复制指引写「复制四个文件」，对 3 个包是错的**
+
+`echo` 还要 `echo-config.mjs` / `echo-doctor.mjs`；`memory` 和 `huanqi` 的入口是 `lib/index.js`
+不是根级 `index.js`；`model-statusbar` 还要 `probe.ps1`。照着那行字做，会得到
+`ERR_MODULE_NOT_FOUND` —— 而那个报错看起来完全不像「少拷了一个文件」。
+改成「复制整个包目录，不要挑文件」，并把这几个包为什么不能挑写进注释。
+
+**⑤ `add-bundle.js` 不处理 BOM**
+
+`fs.readFileSync(..., 'utf8')` 不去 BOM。profile 的 `package.json` 若被记事本或
+PS 5.1 的 `Set-Content -Encoding UTF8` 存过（带 `﻿`），`JSON.parse` 直接抛，
+而 ps1 会把它报成「bundles edit failed」—— 用户完全看不出是 BOM。
+现在先 `.replace(/^﻿/, '')` 再 parse。
+
+**⑥ `huanqi` 的 patch name 与包名不一致（最隐蔽的一条）**
+
+`plugins/huanqi/package.json` 的 name 是 `dsh-huanqi`，
+但 `cordis.patch.yml` 里写的是 `dsh-agent-huanqi`。13 个包里只有这一个不同。
+
+**我用一手证据确认了后果**：去看本机真正在跑的 `profiles/desktop/node_modules/dsh-huanqi/cordis.patch.yml`，
+它写的是 `name: 'dsh-huanqi'`；`bundles` 里也叫 `dsh-huanqi`。
+**也就是说：本机能跑，是因为装的是那份对的；仓库里这份是错的，而对外发布出去的正是它。**
+
+**⑦ `install.js` 的 `PKG()` 硬编码前缀**
+
+`const PKG = (dir) => 'dsh-agent-' + dir` —— 对 `huanqi` 算出 `dsh-agent-huanqi`，
+而它真实的包名是 `dsh-huanqi`。三处依赖它：bundles 检查、install 命令、plan 的「已装」判断。
+所以 `agent_soul_plan` 会对一个**已经装好的 huanqi 喊「缺」**，而用户照着装会装出一个
+DSH 认不出的目录名。
+
+改成先从每个子包的 `package.json` 读真实 name 建映射，前缀拼接只作兜底。
+
+**怎么确认改对了**
+
+`tools/verify-packaging.mjs` 从 71 项加到 88 项，新加三组断言：
+- 每个包的 `cordis.patch.yml` 里 `name` 必须等于包名（13/13 通过）
+- `install.js` 的 `ORDER` 必须覆盖 `plugins/` 下每个包，且不多不少
+- `install.js` 的 `PKG` 必须读真实包名，不许只靠前缀拼
+
+跑出来 88/88。另外单独跑了一遍「新旧算法对 13 个包的输出对比」：
+只有 `huanqi` 变了（`dsh-agent-huanqi` → `dsh-huanqi`），其余 12 个一字不差。
+
+**教训**：这次真正有价值的不是「修了 5 条」，是**审核方指出的那个模式** ——
+> 「修复只覆盖了被报告过的那几个点，没有覆盖同类。」
+
+我上一轮修 `client.js`，修得很认真，但修的是**那一个文件**。
+同一个病根（手写清单 / 硬编码前缀 / 依赖未经校验的假设）在别处还有五处，我一处都没去数。
+**同一个错误出现两次，就不该再问「这次是哪里错了」，该问「还有多少地方是这么写的」。**
+
 ### 2026-10-22（同日第二次）· 失败路径：装到一半的目录不该留下
 
 **改之前**：`install-desktop.ps1` 的顺序是「建 `node_modules\dsh-agent-soul` → 往里面拷 → 自检」。
