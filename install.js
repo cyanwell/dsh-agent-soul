@@ -510,6 +510,28 @@ export function registerInstallTool(ctx) {
             lines.push('')
           }
         }
+        // ★★ echo 装完还有一件事：它的体检脚本不在包里，得复制到 HUB（2026-10-22 P1-3/P2-8）。
+        //
+        //   报告实测：全新安装后 HUB 里只有 SELF.src.md / state.json / index，
+        //   一个 .mjs 都没有 —— 于是 echo-doctor 扫到 0 个脚本，
+        //   版本漂移检查只能报「这项等于没检查」。**它诚实，但等于没用。**
+        //
+        //   这里只【说清楚】，不替用户拷文件：这个工具只出计划，不执行。
+        //   （试过找 action: 'install' 的分支，没有 —— 它压根不干这事。）
+        {
+          const echoWanted = bundles.some((b) => /echo/.test(b)) || allDirs.some((d) => d === 'echo')
+          if (echoWanted) {
+            lines.push('')
+            lines.push('  ★ echo 装完还有一件事：把体检脚本复制进 HUB。')
+            lines.push('     源：<本仓库>/kit/echo/*.mjs')
+            lines.push('     目标：DSH_HOME/hub/（与 echo 面板里的 HUB/HOME_DIR 一致）')
+            lines.push('    ★ 少了这一步：面板能开，但 /api/status 里 doctor 会报 spawn ENOENT；')
+            lines.push('      版本漂移检查会报「一个脚本都没扫到 —— 这项等于没检查」。')
+            lines.push('      两句都不是「出故障了」，是「还没配好」—— 但都会让面板看起来是坏的。')
+            lines.push('    ★ 有自己的记忆中枢就设 ECHO_HUB 指过去，脚本放那儿也行。')
+          }
+        }
+
         lines.push('合计还要装 ' + needInstall + ' 个。')
         if (isDesktop) {
           lines.push('')
