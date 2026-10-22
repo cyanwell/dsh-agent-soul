@@ -357,18 +357,26 @@ export function registerInstallTool(ctx) {
         // ★ 外部零件（external: true）不在本仓库，包名就是它自己（不加 dsh-agent- 前缀）
         const isExternal = (d) => bundleParts.get(d) && bundleParts.get(d).external === true
         const nameOf = (d) => (isExternal(d) ? d : PKG(d))
+        // ★★ 名字表必须在**算 installed / missing 之前**就加载好（2026-10-22 全面验证报告 P1）。
+        //
+        //   这段原来写在下面几十行之后 —— 注释明明写着「scan 也要知道真实包名，
+        //   否则 PKG('huanqi') 会算成 dsh-agent-huanqi」，**可加载放在了计算之后**。
+        //   于是 installed / missing 用的还是空表，装好的 dsh-huanqi 被算成缺失：
+        //   14 个装完仍然报 13/14，而装配计划会一直让人「再装一次 huanqi」——
+        //   新 agent 会在这上面打转。
+        //
+        //   ★ 光读代码看不出来：注释是对的、变量名也对，只有**顺序**错了。
+        //   所以这一处加了断言（见 tools/verify-packaging.mjs）。
+        if (!PKG_NAMES.size) {
+          const pi = await findPluginsDir()
+          await loadPkgNames(pi.dir)
+        }
+
         const installed = allDirs.filter((d) => names.has(nameOf(d)))
         const missing = allDirs.filter((d) => !names.has(nameOf(d)))
         // ★ 装进 node_modules 但没进 bundles 的，等于「文件在、没启用」——
         //   这是最常见的一种假绿，必须单独报出来。
         const notBundled = installed.filter((d) => bundles.length > 0 && !bundles.includes(nameOf(d)))
-
-        // ★ scan 也要知道真实包名，否则 PKG('huanqi') 会算成 dsh-agent-huanqi，
-        //   装好的 dsh-huanqi 认不出来 —— 用户会看到"缺一个"，装完再 scan 还是缺。
-        if (!PKG_NAMES.size) {
-          const pi = await findPluginsDir()
-          await loadPkgNames(pi.dir)
-        }
 
         if (action === 'scan' || action === 'verify') {
           const lines = []

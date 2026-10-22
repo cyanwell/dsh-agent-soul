@@ -283,6 +283,28 @@ check('README 有 2026-10-22 的更新记录', (readme.match(/### 2026-10-22/g) 
   )
 }
 
+// ── 8h. 名字表必须在算 installed 之前加载好（2026-10-22 全面验证 P1）──
+//
+// ★ 这一处最阴的地方：**注释是对的、变量名也是对的，只有顺序错了。**
+//   install.js 里原本写着「scan 也要知道真实包名，否则 PKG('huanqi')
+//   会算成 dsh-agent-huanqi」—— 可那段 loadPkgNames 放在了
+//   const installed = ... 之后几十行。于是算的时候名字表还是空的，
+//   装好的 dsh-huanqi 被算成缺失：14 个装完仍报 13/14。
+//
+//   ★ 后果不是「报错」，是**让装配计划一直叫人再装一次** ——
+//   按 plan 走的 agent 会在这上面打转。所以钉成断言。
+{
+  const src = fs.readFileSync(path.join(PKG_ROOT, 'install.js'), 'utf8')
+  const iLoad = src.indexOf('await loadPkgNames(')
+  const iInst = src.indexOf('const installed = allDirs.filter')
+  // 两处都得找到，否则断言本身是假的（找不到时 indexOf 返回 -1）
+  check(
+    'loadPkgNames 在 installed 之前调用（否则 huanqi 永远报缺）',
+    iLoad >= 0 && iInst >= 0 && iLoad < iInst,
+    `loadPkgNames@${iLoad} installed@${iInst}`,
+  )
+}
+
 // ── 9. ps1 的结构校验接进主自检（V1，2026-10-22）──
 //
 // ★ 这一条不是「检查某个字符串在不在」，而是**调子进程跑结构断言**：
