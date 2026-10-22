@@ -34,6 +34,7 @@
 
 import { readFile, access, readdir } from 'node:fs/promises'
 import { join, resolve, dirname } from 'node:path'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -80,6 +81,7 @@ async function exists(p) {
  * 这不是包缺失，是**我的判据漏了一层**。
  */
 async function findBundleDir(name) {
+  // ① profile 及其上 4 层 —— 局部安装和共享安装住这儿
   let dir = profile
   for (let i = 0; i < 4; i++) {
     const candidate = join(dir, 'node_modules', name)
@@ -87,6 +89,35 @@ async function findBundleDir(name) {
     const up = resolve(dir, '..')
     if (up === dir) break
     dir = up
+  }
+
+  // ② DSH 自己的安装目录 —— **全局安装时 shipped bundle 在这儿**。
+  //
+  // ★ 报告 v3 R5：`npm i -g @deepseek-ai/dsh` 之后，dsh-base / dsh-headless
+  //   不在 profile 上层，于是这里报「找不到」—— 而包明明在，是我的搜索范围
+  //   不包含它。**这条和 P1-13 是同一个坑的第二次**：上一次我加了「往上爬 4 层」
+  //   治共享安装，这一次是全局安装。两次都错在「只想到一种装法」。
+  const roots = []
+  try {
+    // 进程可执行文件 -> 安装根（Electron 打包时 execPath 就是 DSH 的 exe）
+    const exeDir = dirname(process.execPath)
+    roots.push(join(exeDir, 'node_modules'))
+    roots.push(join(exeDir, 'resources', 'app.asar', 'node_modules'))
+    roots.push(join(exeDir, 'resources', 'app.asar.unpacked', 'node_modules'))
+    // POSIX 全局前缀：<prefix>/bin/node -> <prefix>/lib/node_modules
+    roots.push(join(exeDir, '..', 'lib', 'node_modules'))
+  } catch { /* 推不出来就跳过，别把验证搞挂 */ }
+  try {
+    // 让 Node 自己解析一次：能解析到就说明它真的可加载
+    const req = createRequire(import.meta.url)
+    const pj = req.resolve('@deepseek-ai/dsh/package.json')
+    roots.push(join(dirname(pj), 'node_modules'))
+    roots.push(join(dirname(pj), '..', 'node_modules'))
+  } catch { /* 解析不到说明这条路不适用 */ }
+
+  for (const r of roots) {
+    const candidate = join(r, name)
+    if (await exists(candidate)) return candidate
   }
   return null
 }
@@ -240,6 +271,10 @@ console.log('')
 console.log('★ 这个脚本验不到、但可以另跑的：')
 console.log('   ① 兜底压缩用的是不是本包的类')
 console.log('      → 跑 tools/soul-probe（boot 后读 ctx.get("compaction")，看 ctor 是不是 YanqingCompaction）')
+console.log('         ★ 判读看日志里有没有 [register]（报告 v3 R3）：')
+console.log('           没有 [register] → compaction 服务不存在（探针声明了 inject，服务不在就不加载）')
+console.log('           有 [register] 没有 [result] → 探针自己出错，不是压缩没接管')
+console.log('           有 [result] → 看 ctor：Yanqing… 是接管了，Basic… 是没接管')
 console.log('      ★ 别再写成「跑一次压缩看门牌」—— 那要 88 万 token 才触发，空会话造不出来')
 console.log('   ② 客户端半的 UI 真渲染了没有 → 开浏览器看，不是看 Host 报 running')
 console.log('   ③ pruner 生效与否 → 只能靠一次真实裁剪：静态 marker = 内置赢，带 seq = 本包赢')

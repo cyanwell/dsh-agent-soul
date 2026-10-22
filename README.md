@@ -285,6 +285,51 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-22（同日第十六次）· `verify-live` 的两个老毛病
+
+外部验证报告 v3 的 R5 与 N4。
+
+## R5 · 只在 profile 里找，找不到全局装的那一批
+
+`findBundleDir()` 原来只往上爬 4 层找 `node_modules`。
+而 `npm i -g @deepseek-ai/dsh` 时，shipped bundle（`dsh-base`、`dsh-headless`）
+住在 **DSH 自己的安装目录**，够不着 —— 于是报「找不到」，而包明明在。
+
+**这条和 P1-13 是同一个坑的第二次。** 上一次我加了「往上爬 4 层」，
+治的是「共享安装住在 profile 上层」；这次是「全局安装住在 DSH 安装目录」。
+两次都错在同一件事：**我只想到一种装法。**
+
+现在按两条路找：profile 及其上层、DSH 安装目录（从 `process.execPath` 推，
+外加让 Node 自己 `resolve` 一次 `@deepseek-ai/dsh/package.json`）。
+
+★ 本机实测：`dsh-base` 和 `dsh-web-app` 从 ✗ 变 ✓。
+还剩一个 ✗ 是 `@deepseek-ai/dsh-experimental-agent-team-profile` ——
+查过了，它**写在 bundles 里但不在 dependencies、也不在 node_modules**，
+那是本机 profile 的配置问题，不是这个脚本的误报，**我没动**。
+
+## N4 · 推荐的验法本身不可用
+
+`verify-live` 结尾会推荐「跑 `tools/soul-probe`」，但没提它的前提。
+报告 R3 证明：不声明 `inject` 时它在 0.2.1-rc.2 上整个跑不起来，
+而日志空白会被读成「没接管」。探针已经修好了（见第十五次公告），推荐文案也得跟上。
+
+现在那三行把判读方式写全了：
+
+```
+没有 [register]            → compaction 服务不存在（探针声明了 inject，服务不在就不加载）
+有 [register] 没有 [result] → 探针自己出错，不是压缩没接管
+有 [result]                → 看 ctor：Yanqing… 是接管了，Basic… 是没接管
+```
+
+## 顺带一提：这一轮我又差点交出一个「语法过、跑不通」
+
+改完 R5 后 `node --check` 过了，但我在里面用了 `createRequire` 却没 import ——
+`--check` 只查语法，**不查「这个符号存不存在」**。
+真跑一次才发现（`node tools/verify-live.mjs` 不带参数，看它报不报 `ReferenceError`）。
+
+★ 这和 P0-1（`node --check` 过了但脚本是死的）是**同一个坑的第二次**。
+所以现在的规矩是：**改了要跑的东西，`--check` 之后必须再真跑一次。**
+
 ### 2026-10-22（同日第十五次）· 三处修正，都在「拿什么当证据」上
 
 外部验证报告 v3 的 R3、R4、N2。三件事看着不相干，其实是同一个毛病：
