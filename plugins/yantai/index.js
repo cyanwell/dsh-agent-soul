@@ -22,7 +22,12 @@ export const name = 'dsh-agent-yantai'
 export const inject = ['webServer']
 
 // ── 本机路径（换机器只改这一段）─────────────────────────────
-const SOUL = '<你的工作区>'
+// ★★ 原来是一个字面占位符 '<你的工作区>'（2026-10-22 P1-5）。
+//   清单.md 写着「至少一个数据源：YANTAI_LEDGER / YANTAI_MEMORY / YANTAI_QUERY；
+//   它默认不猜目录结构，配了才读」—— 代码却给了个假目录，**比不给更坏**：
+//   它会去读 '<你的工作区>' 这个字面路径，然后什么都读不到。
+// ★ 现在没配就是空串 —— 空串意味着「不猜」，各数据源自己判空。
+const SOUL = String(process.env.YANTAI_SOUL || '').trim()
 const LEDGER = join(SOUL, '02-ledger.jsonl')
 const PROJCACHE = '<DSH_HOME>\\storages\\session_projcache\\sessions'
 const MEMQ = '<你的记忆目录>\\hub\\memory-query.mjs'

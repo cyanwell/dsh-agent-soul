@@ -20,14 +20,23 @@
 //   GET  /agent-splash/api/health          自检（路由活着吗）
 
 import { readFileSync, writeFileSync, existsSync, statSync, createReadStream, readdirSync } from 'node:fs'
-import { join, extname, resolve, sep } from 'node:path'
+import { join, extname, resolve, sep, dirname } from 'node:path'
+import { homedir } from 'node:os'
 
 export const name = 'dsh-agent-splash'
 // webServer 是硬依赖（没有它就注册不了路由）
 export const inject = ['webServer']
 
-const CFG_PATH = '<你的工作区>/dsh/home/splash.json'
-const HOME_DIR = '<你的工作区>/dsh/home'
+// ★★ 路径全部改成「可覆盖 / 从 DSH_HOME 推」（2026-10-22 全面验证报告 P1-5）。
+//
+//   原来这里是**字面占位符**：'<你的工作区>/dsh/home/splash.json'。
+//   health 接口会原样返回它，cfgExists 永远是 false —— 界面能开，配置读写落在字面目录名上。
+//
+//   ★ 而 plugins/清单.md 里早就写着「配置文件路径 SPLASH_CONFIG；动画文件自己放（SPLASH_DIR）」。
+//   **文档承诺了，代码没实现** —— 这是真 bug，不是「本来就该用户填」。
+const DSH_HOME = String(process.env.DSH_HOME || '').trim() || homedir() + '/dsh/home'
+const HOME_DIR = String(process.env.SPLASH_DIR || '').trim() || DSH_HOME
+const CFG_PATH = String(process.env.SPLASH_CONFIG || '').trim() || join(HOME_DIR, 'splash.json')
 
 // 允许的动画扩展名 —— 不在里面的明确拒绝，不静默
 const VIDEO_EXT = ['.mp4', '.webm', '.mov', '.m4v']
@@ -36,15 +45,15 @@ const ALL_EXT = VIDEO_EXT.concat(IMAGE_EXT)
 
 // 允许预览/列出的根目录（文件代理只在这几个目录里找，避免变成任意文件读取）
 const ALLOW_DIRS = [
-  '<你的工作区>/dsh-desktop',
-  '<你的工作区>/dsh/home',
-  '<你的工作区>/soul',
+  join(dirname(HOME_DIR), 'dsh-desktop'),
+  HOME_DIR,
+  join(dirname(HOME_DIR), 'soul'),
   '<user>/WorkBuddy'
 ]
 
 const DEFAULTS = {
   enabled: true,
-  animation: '<你的工作区>/dsh-desktop/splash.mp4',
+  animation: join(dirname(HOME_DIR), 'dsh-desktop', 'splash.mp4'),
   type: 'auto',
   fadeInMs: 1000,
   fadeOutMs: 1000,

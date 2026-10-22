@@ -285,6 +285,62 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-22（同日第二十七次）· 三个面板的路径全是字面占位符
+
+全面验证报告 P1-5 和 P1-4：`splash` / `yantai` / `huanqi-panel` 里到处都是 `<你的工作区>`。
+界面能开，可 health 一返回，所有路径都不存在。
+
+## 判断：这不是「本来就该用户填」
+
+我先去看了 `plugins/清单.md` —— 里面明写着：
+
+- splash：`SPLASH_DIR` / `SPLASH_CONFIG`
+- yantai：`YANTAI_LEDGER` / `YANTAI_MEMORY` / `YANTAI_QUERY`，「它默认不猜目录结构，配了才读」
+- huanqi-panel：从 DSH_HOME 推导
+
+**文档承诺了环境变量，代码一个都没实现。** 所以是真 bug，不是占位符。
+
+## 改法
+
+```js
+// splash
+const DSH_HOME = process.env.DSH_HOME || homedir() + '/dsh/home'
+const HOME_DIR = process.env.SPLASH_DIR || DSH_HOME
+const CFG_PATH = process.env.SPLASH_CONFIG || join(HOME_DIR, 'splash.json')
+
+// yantai —— 没配就是空串，不假装知道
+const SOUL = String(process.env.YANTAI_SOUL || '').trim()
+
+// huanqi-panel —— PROFILES 扫目录，不再写死 desktop/web
+const PROFILES = (() => {
+  try { return readdirSync(join(HOME, 'profiles'), { withFileTypes: true })
+    .filter(e => e.isDirectory()).map(e => e.name).sort() }
+  catch { return ['desktop', 'web'] }
+})()
+```
+
+★ yantai 那个空串是有意的：**没配就说没配**，不要给一个看起来像目录的字面量 ——
+它会去读 `<你的工作区>` 这个字符串，然后什么都读不到，而报出来的错会指向一个假路径。
+
+## 写的时候差点又漏一件事
+
+改完 `node --check` 三个文件全过 —— 但 `homedir` / `dirname` / `readdirSync` **一个都没 import**。
+**`--check` 不检查未定义的标识符**，那是运行时才炸的 `ReferenceError`。
+（这条我已经写进工作区记录了，今天还是差点漏。）
+补完 import 才真跑：
+
+```
+（都没设）                   → homeDir = <home>/dsh/home   cfg = <home>/dsh/home/splash.json   soul = ""
+DSH_HOME=/tmp/h            → homeDir = /tmp/h            cfg = \tmp\h\splash.json            soul = ""
+SPLASH_CONFIG=/x/s.json    → cfg = /x/s.json
+```
+
+★ 旧占位符现在只剩**注释里**那几处 —— 那是讲历史的（「原来这里是字面占位符」），留着是对的。
+**判据还是同一条：它会被渲染出去吗。**
+
+**8 条里做完 7 条。剩 P1-3 的后半（`kit/echo/*.mjs` 复制说明）和 P2-8（版本漂移默认 warn），
+这两条是一件事，留到下一轮。**
+
 ### 2026-10-22（同日第二十六次）· 把作者这台机器写成了通用的
 
 全面验证报告 P1-3：`plugins/echo/index.js` 头两行是 ——

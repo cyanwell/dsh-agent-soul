@@ -19,13 +19,31 @@
 //   GET  /agent-huanqi/api/preview   只读地告诉你"改完会变成哪几行"，不落盘
 //   GET  /agent-huanqi/api/health    自检
 
-import { readFileSync, writeFileSync, existsSync, copyFileSync, statSync, renameSync, openSync, fsyncSync, closeSync } from 'node:fs'
+import { join } from 'node:path'
+import { homedir } from 'node:os'
+import { readFileSync, writeFileSync, existsSync, copyFileSync, statSync, renameSync, openSync, fsyncSync, closeSync, readdirSync } from 'node:fs'
 
 export const name = 'dsh-agent-huanqi-panel'
 export const inject = ['webServer']
 
-const HOME = '<你的 DSH_HOME>/dsh/home'
-const PROFILES = ['desktop', 'web']
+// ★★ 原来这两个都是写死的（2026-10-22 P1-5）：
+//   HOME 是字面占位符 '<你的 DSH_HOME>/dsh/home'（health 返回 ok，可所有路径都不存在），
+//   PROFILES 只认 desktop/web —— 用户建个 full profile 就改不了配置。
+//
+// 现在：HOME 从 DSH_HOME 推；PROFILES 扫 profiles/ 目录（建的时候扫，不是请求时扫）。
+const DSH_HOME = String(process.env.DSH_HOME || '').trim() || homedir() + '/dsh/home'
+const HOME = String(process.env.HUANQI_HOME || '').trim() || DSH_HOME
+const PROFILES = (() => {
+  try {
+    return readdirSync(join(HOME, 'profiles'), { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort()
+  } catch {
+    // 扫不到就退回两个常见的 —— 不要因为目录不存在就整个面板挂掉
+    return ['desktop', 'web']
+  }
+})()
 /** 换气的账本（ledgerPath 留空时走这里）。它在换气出手时被重写，是"实时额度"的唯一来源。 */
 const LEDGER = `${HOME}/state/dsh-huanqi.json`
 
