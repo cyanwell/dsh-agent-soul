@@ -422,3 +422,52 @@ $mustHave = @('client.js','index.js','cordis.patch.yml','package.json','plugins'
 
 **代价要讲明白**：装上这个东西失败一次，损失的不只是这个插件，**是你整个 profile 的 patch 配置和别人家的插件**。
 所以在桌面端安装前，**先备份 `package.json` 和 `cordis.patch.yml`** —— 脚本只备份了前者。
+
+---
+
+## 如果已经中招了 · 恢复步骤
+
+★ **先说结论：你的会话记录没丢。** 会话在 DSH home 的 `sessions/` 下（按工作区分子目录），
+`storages/` 也在那里。两处都**不在 profile 目录里**，`sanitizeProfile` 碰不到它们。
+被重置的是**加载谁**的名单（`bundles`）和**patch 了什么**的配置。
+
+**而且被改的文件基本都没删，只是改名了** —— 去 profile 目录翻 `.bak`：
+
+```powershell
+# 1. 找到 sanitize 留下的备份（按时间倒序，最上面那个就是出事前的那份）
+Get-ChildItem "$env:USERPROFILE\.dsh\profiles\desktop" -Filter "cordis.patch.yml.bak*" |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 5 Name, LastWriteTime, Length
+
+# 2. 确认那份备份里有你的原始配置（看行数和内容，不要盲拷）
+Get-Content "$env:USERPROFILE\.dsh\profiles\desktop\cordis.patch.yml.bak-<时间戳>" | Measure-Object -Line
+
+# 3. 恢复（先把当前这份也留个底，别覆盖掉唯一线索）
+Copy-Item "$env:USERPROFILE\.dsh\profiles\desktop\cordis.patch.yml" "cordis.patch.yml.broken-$(Get-Date -Format yyyyMMdd-HHmmss)"
+Copy-Item "$env:USERPROFILE\.dsh\profiles\desktop\cordis.patch.yml.bak-<时间戳>" "$env:USERPROFILE\.dsh\profiles\desktop\cordis.patch.yml" -Force
+```
+
+**`bundles` 同理** —— profile 的 `package.json` 旁边也有 `.bak`：
+
+```powershell
+Get-ChildItem "$env:USERPROFILE\.dsh\profiles\desktop" -Filter "package.json.bak*" |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 5
+```
+
+把那份 `package.json` 拷回来，`dsh.profile.bundles` 数组就回来了。
+★ **注意用 node 读那个文件确认 JSON 合法**，不要用 PowerShell 的 `ConvertFrom-Json` 看（它容忍 BOM，会给你假通过）：
+
+```powershell
+node -e "const p=require('fs');const j=JSON.parse(p.readFileSync(process.argv[1],'utf8'));console.log('bundles:', (j.dsh&&j.dsh.profile&&j.dsh.profile.bundles||[]).length)" "$env:USERPROFILE\.dsh\profiles\desktop\package.json"
+```
+
+**确认会话还在**：
+
+```powershell
+# 有没有丢，看文件数和最近修改时间就知道
+(Get-ChildItem "$env:USERPROFILE\.dsh\sessions" -Recurse -Filter "*.jsonl").Count
+Get-ChildItem "$env:USERPROFILE\.dsh\sessions" -Recurse -Filter "*.jsonl" |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 3 Name, LastWriteTime
+```
+
+★ **顺序很重要**：先恢复文件，**再装/重装本插件**。
+反过来的话，一次失败的启动又会把刚恢复的东西再重置一遍。
