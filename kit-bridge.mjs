@@ -17,7 +17,8 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve, parse } from 'node:path'
+import { homedir } from 'node:os'
 
 const execFileAsync = promisify(execFile)
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -79,11 +80,73 @@ export async function runKit(script, args = [], env = {}) {
 /** 把工具参数里的 soul/memory 变成 kit 认的环境变量。没传就不设，让 kit 自己推断。 */
 export function envFromArgs(args = {}) {
   const env = {}
-  if (args.soul) env.ECHO_SOUL = String(args.soul)
-  if (args.memory) env.ECHO_MEMORY = String(args.memory)
-  if (args.sessions) env.ECHO_SESSIONS = String(args.sessions)
-  if (args.runtime) env.ECHO_RUNTIME = String(args.runtime)
+  const seen = new Map()
+  for (const [key, envName] of [
+    ['soul', 'ECHO_SOUL'],
+    ['memory', 'ECHO_MEMORY'],
+    ['sessions', 'ECHO_SESSIONS'],
+    ['runtime', 'ECHO_RUNTIME'],
+  ]) {
+    if (!args[key]) continue
+    const abs = guardRoot(key, args[key])
+    const prev = seen.get(abs)
+    if (prev) {
+      throw new Error(
+        `roots.${key} 和 roots.${prev} 指向同一个目录（${abs}）—— 这两样不能是同一处，` +
+          `否则写档案会盖掉记忆。请分开传。`,
+      )
+    }
+    seen.set(abs, key)
+    env[envName] = abs
+  }
   return env
+}
+
+// ── roots 的边界校验（N6，2026-10-22）────────────────────────────────
+//
+// ★ 为什么这条必须有：
+//   `agent_soul_scaffold` 是**唯一一个会往用户目录里写东西**的入口
+//   （scaffold.mjs 里有 mkdirSync / writeFileSync，带 --apply 就真写）。
+//   在此之前 roots 是四个自由字符串，没有任何断言 —— 一段提示注入就能让 soul
+//   指向 C:\Windows 或别人的 Documents。写着"别乱写"的注释挡不住执行。
+//
+// ★ 但也不能太严：正常的 roots 就是 D:\AI\yanqing-soul 这种深度 2 的路径。
+//   所以只拦「一眼就知道写下去是灾难」的那几个，其余原样放行并规范化。
+
+const SYSTEM_DIRS = ['Windows', 'System32', 'Program Files', 'Program Files (x86)', 'ProgramData', '$Recycle.Bin']
+
+function guardRoot(kind, value) {
+  const raw = String(value).trim()
+  if (!raw) throw new Error(`roots.${kind} 是空的 —— 要么给一个目录，要么整个不传（让 kit 自己推断）。`)
+  if (raw.length > 512) throw new Error(`roots.${kind} 太长（${raw.length} 字符），不像一个目录。`)
+
+  const abs = resolve(raw) // 相对路径按当前工作目录解析
+  const { root } = parse(abs)
+
+  // ① 盘根：D:\ 这种。mkdirSync 不会炸，但那是在往盘根上撒文件。
+  if (abs === root) {
+    throw new Error(`roots.${kind} 指向了盘根（${abs}）—— 那不是书房，是整块盘。给一个具体目录。`)
+  }
+
+  // ② 系统目录及其子目录（任何盘都拦，不只 C —— 移到别的盘还是同一个名字）
+  const segs = abs.slice(root.length).split(/[\\/]+/).filter(Boolean)
+  const first = (segs[0] || '').toLowerCase()
+  if (SYSTEM_DIRS.some((b) => b.toLowerCase() === first)) {
+    throw new Error(
+      `roots.${kind} 指向系统目录（${abs}）—— 往这里写会伤到别人的机器。` +
+        `它应该是「书房 / 记忆中枢」那种你自己的目录。`,
+    )
+  }
+
+  // ③ 用户主目录本身（C:\Users\pc）—— 允许其下，不允许把整个 profile 当书房
+  const home = homedir()
+  if (abs.toLowerCase() === home.toLowerCase()) {
+    throw new Error(
+      `roots.${kind} 是用户主目录本身（${abs}）—— 请指到其中一个子目录，比如 ${join(abs, 'my-soul')}。`,
+    )
+  }
+
+  return abs
 }
 
 /** 把一段 JSON 输出解析出来；解析不了就给 null，绝不抛。 */

@@ -1,5 +1,16 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+// ★ 不从 cwd 起步（V4，2026-10-22）。
+//   原来写的是 `const ROOT = process.cwd()`，然后所有读取都用相对路径 ——
+//   于是 `node tools/verify-packaging.mjs` 从仓库根跑没事，
+//   从别的地方跑（或子目录里）就 ENOENT，而脚本没有「我在对的目录吗」的自检，
+//   用户会以为是「包坏了」。
+//   现在自己 chdir 到脚本的上一级，跟从哪调用无关。
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+const PKG_ROOT = path.join(HERE, '..')
+process.chdir(PKG_ROOT)
 
 const ROOT = process.cwd()
 const SEP = path.sep
@@ -192,6 +203,60 @@ check('INSTALL.md 记录了 staged 拷贝', install.includes('暂存目录'))
 
 const readme = fs.readFileSync('README.md', 'utf8')
 check('README 有 2026-10-22 的更新记录', (readme.match(/### 2026-10-22/g) || []).length >= 2)
+
+// ── 7. 子包的 exports 通配符必须落在 files 白名单里（V2，2026-10-22）──
+//
+// ★ 这条治的病：`exports["./src/*"]` 指向一个不在 `files` 里的目录 ——
+//   源仓库里能跑，**`npm pack` 之后就是死链**，运行时才 404。
+//   以前自检只看 main/client/patch 三个字段，exports 一个字没查。
+{
+  const plugDir = 'plugins'
+  for (const e of fs.readdirSync(plugDir, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue
+    const pj = path.join(plugDir, e.name, 'package.json')
+    if (!fs.existsSync(pj)) continue
+    let sub
+    try {
+      sub = JSON.parse(fs.readFileSync(pj, 'utf8').replace(/^\uFEFF/, ''))
+    } catch {
+      check('子包 package.json 可解析: ' + e.name, false)
+      continue
+    }
+    const exportsMap = sub.exports && typeof sub.exports === 'object' ? sub.exports : {}
+    const files = Array.isArray(sub.files) ? sub.files : []
+    for (const [key, val] of Object.entries(exportsMap)) {
+      if (!key.includes('*')) continue
+      const target = typeof val === 'string' ? val : val && (val.default || val.import)
+      if (typeof target !== 'string' || !target.includes('*')) continue
+      // 取通配符之前的目录前缀，例如 "./src/*" -> "src"
+      const prefix = target.replace(/^\.\//, '').split('*')[0].replace(/\/+$/, '')
+      if (!prefix) continue
+      const covered = files.some((f) => f === prefix || f === prefix + '/' || f.startsWith(prefix + '/'))
+      check(
+        `子包 exports 通配符落在 files 里: ${e.name} → ${key}`,
+        covered,
+        `前缀 "${prefix}" 不在 files 里，打包后是死链`,
+      )
+    }
+  }
+}
+
+// ── 8. plan 和 scan 走同一条包名解析路径（V3，2026-10-22）──
+//
+// ★ 这条是 N4 的判据：`loadPkgNames()` 当时只在 plan 分支调，
+//   scan 分支在它之前就 return 了 —— 于是装好的 dsh-huanqi 在 scan 里永远认不出来
+//   （PKG('huanqi') 退化成 dsh-agent-huanqi）。补丁式修复最容易犯的错就是
+//   「改了 plan 忘了 scan」，所以拿行号顺序把它钉住。
+{
+  const src = fs.readFileSync('install.js', 'utf8')
+  const idxLoad = src.search(/\bloadPkgNames\s*\(/)
+  const idxScan = src.search(/action\s*===\s*'scan'/)
+  check(
+    'loadPkgNames 在 scan 分支之前就被调用',
+    idxLoad >= 0 && idxScan >= 0 && idxLoad < idxScan,
+    `loadPkgNames@${idxLoad} scan@${idxScan}`,
+  )
+}
 
 // ── 输出 ────────────────────────────────────────
 console.log('=== 自检结果 ===')
