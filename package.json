@@ -4,6 +4,23 @@
   "description": "An architecture for an agent's own soul — and a driver that builds it. Six layers of memory (ECHO), an eleven-directory soul layout, and a homeostasis layer (VITAL). Its tools do the next step instead of handing you a questionnaire.",
   "type": "module",
   "main": "index.js",
+  "files": [
+    "index.js",
+    "client.js",
+    "install.js",
+    "cordis.patch.yml",
+    "kit-bridge.mjs",
+    "probe-kit-tools.mjs",
+    "install-desktop.ps1",
+    "README.md",
+    "INSTALL.md",
+    "LICENSE",
+    "soul/",
+    "skeleton/",
+    "kit/",
+    "plugins/",
+    "tools/"
+  ],
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

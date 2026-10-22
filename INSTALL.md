@@ -336,3 +336,50 @@ agent-soul/
 
 ★ 想先知道「这套东西是怎么被真装一遍、又撞了哪些洞才长成现在这样的」，
 读 [`SANDBOX-VERIFICATION.md`](SANDBOX-VERIFICATION.md)。它比本文诚实。
+
+---
+
+## 坑 6 · 装完 `client.js` 不在（整个 DSH 会「裸奔」）
+
+★ 这一条是**真实用户反馈**（2026-10-22，第一个装这个插件的人踩的）。
+
+**症状**：装完之后 DSH 看起来正常、进程也在跑，但 guard / 桌宠 / session switch 全都没加载。
+crash 日志里 `intercom` 的 `failed to import` 排在很次要的位置，真正的原因是
+`modules (required)` 因为 **soul 的 `client.js` 缺失**而 compose 失败 → 整个启动崩 →
+`sanitizeProfile` 自动恢复 → **bundles 被重置** + patch 被备份。恢复完 DSH 是活的，
+但你已经不在那套架构里了。
+
+**为什么缺**：本包的 `package.json` 原先没有 `files` 字段。pnpm 在某些 node-linker 模式下
+只搬白名单里的东西，没写就只搬了 `main` 和 `exports` 直接指向的那几个 —— `client.js`
+不是 `main`，于是掉了。
+
+**已经修了**（2026-10-22）：`package.json` 加了 `files`，显式列出
+`index.js / client.js / install.js / cordis.patch.yml / kit-bridge.mjs / probe-kit-tools.mjs /
+install-desktop.ps1 / README.md / INSTALL.md / LICENSE / soul/ / skeleton/ / kit/ / plugins/ / tools/`。
+**如果你是那个用户，重新拉一次仓库、重装即可。**
+
+**怎么自查（三秒）**：
+
+```bash
+# 装到 profile 之后，这个文件必须存在
+ls <profile>/node_modules/dsh-agent-soul/client.js
+```
+
+不存在 → 就是这一条。手动补：
+
+```bash
+cp <仓库>/client.js <profile>/node_modules/dsh-agent-soul/
+```
+
+**更稳的做法**：把实体目录换成指向源的 junction / 符号链接（前提是确认那块是纯拷贝、没有运行时写入）：
+
+```powershell
+# Windows，先删掉那个副本目录，再建 junction
+Remove-Item "<profile>\node_modules\dsh-agent-soul" -Recurse -Force
+New-Item -ItemType Junction -Path "<profile>\node_modules\dsh-agent-soul" -Target "<仓库路径>"
+```
+
+这样源里有什么，装的就是什么，不会再漏。
+
+★ 这一条真正想说的是：**「装上」和「在跑」是两件事**，而这一回的失败是**静默**的 ——
+不报错、不提示、界面看起来好好的。所以装完务必走一遍上面「装完怎么验」那两步。
