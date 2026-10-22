@@ -283,6 +283,65 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-22 · `client.js` 没装进去 → 桌面端启动崩，连带重置用户配置
+
+**改之前**：`package.json` 没有 `files` 字段，`install-desktop.ps1` 的拷贝清单里也没有 `client.js`。
+
+pnpm 在某些 node-linker 模式下只搬白名单里的文件，没写白名单就只搬 `main` 和 `exports` 直接指向的那几个。
+`client.js` 不是 `main`，于是掉了 —— **而它掉了不是「少个界面」，是整个启动失败。**
+
+**怎么发现的**：两位装插件的人先后撞上，第二位把整条链写清楚了。
+
+`dsh` 启动时报：
+
+```
+dsh: startup failed: 1 required plugin did not activate
+Failed plugins (1):
+  modules (required)
+    AggregateError: client-modules: 1 client package failed to compose:
+      client bundles not found; run `pnpm run build` before launch:
+        - package: dsh-agent-soul
+          path: C:/Users/<你>/.dsh/profiles/desktop/node_modules/dsh-agent-soul/client.js
+```
+
+真正的伤害在后面：启动失败会触发宿主的 `sanitizeProfile` 原生恢复 ——
+`bundles` 被重置成只剩内置包（**用户自己的其他插件全部下线**），
+`cordis.patch.yml` 被 rename 备份后写成模板（**patch 配置全丢**）。
+
+**复现与验证**（用 `dsh --from-default-profile` 建两个一次性 profile，测完即删）：
+
+| 场景 | 结果 |
+|---|---|
+| `web` 模板 + 有 `client.js` | 正常起服务，打印 `dsh web: http://127.0.0.1:...` |
+| `web` 模板 + 删掉 `client.js` | **上面那段 startup failed，一字不差** |
+| `headless` 模板 + 删掉 `client.js` | **照常跑出结果** —— headless 不加载 client bundle |
+
+★ 这条边界很重要：**只有带 UI 的 profile（web / desktop）会崩，headless 不会。**
+所以「删了 client.js 测一下」如果拿 headless 测，会得出「没事」的假结论。
+
+另外在干净沙箱里正常安装后 `--dump-config`，`dsh-agent-soul` 出现在 375 行配置树尾部，
+真跑一次任务时 `agent_soul_*` 八个工具全部注册 —— 这才算「装上了并且在跑」。
+
+**改法**：
+
+- `package.json` 加 `files` 白名单（15 项，`client.js` / `plugins/` 等全列进去）
+- `install-desktop.ps1` 的 `$files` 补 `client.js`，`$dirs` 补 `plugins`，
+  并加一步**在改 `bundles` 之前**的硬自检 —— 缺 `client.js` / `index.js` / `cordis.patch.yml` /
+  `package.json` / `plugins` 任何一样就退出，什么都不碰。**宁可这次没装上，也不能装到一半把人家环境搞坏。**
+- `plugins/` 下 7 个原本没有 `files` 的子包补上（最危险的是 `echo`：它带 `echo-config.mjs` 和
+  `echo-doctor.mjs`，两个都既不是 `main` 也不在 `exports` 里，会静默消失）
+
+**怎么确认改对了**：真 pnpm 安装后逐项确认 `client.js` 存在、`plugins/` 有 16 项、
+`--dump-config` 里有 `dsh-agent-soul`、实跑时 8 个工具注册。四样全部通过。
+
+**教训**：手写的拷贝清单，写一次就会漏一次 —— 而且这回是**两份清单各漏各的**：
+先修了 `package.json` 的 `files`，以为修完了，其实只覆盖了 `dsh plugin add file:` 那条路；
+桌面端走的是 `install-desktop.ps1`，它根本不看 `files`。
+**「改完一处」不等于「全都改完了」，得把同一件事的每条路径都数一遍。**
+
+★ 最稳的做法是 junction（装出来的目录直接指向源，源里有什么就装什么），但它要求开发者模式许可，
+不能当默认路径推给所有人，所以写在 `INSTALL.md` 里作为「更稳的做法」。
+
 ### 2026-10-19（同日第四次）· 换气判词那一块差点变成流水账
 
 **改之前**：`hq.turns.slice(0, 8)` —— 固定显示最近 8 条判词。
