@@ -1,21 +1,43 @@
 const fs = require("fs")
 
-// 把 name 加进 <profile>/package.json 的 dsh.profile.bundles。
+// 把 name 加进 <profile>/package.json 的 dsh.profile.bundles；
+// 可选地同时登记进 dependencies。
 //
-// ★ 这个脚本会被 install.js / install-desktop.ps1 / 用户手工命令同时调用（N10，2026-10-22）。
-//   原来是「读 → 改 → 整文件覆盖写」—— 两个进程撞在一起时，
-//   后写的会把前一次的 bundles.push 整个盖掉，**静默丢一个插件**。
-//   症状是「装上了但没启用」，没有任何报错，很难查。
+// 用法：
+//   node add-bundle.cjs <profile>/package.json <包名>
+//   node add-bundle.cjs <profile>/package.json <包名> <depValue>
 //
-// ★ 修法两层：
+// ★ 第三个参数是 2026-10-22 加的（外部验证报告 v3 的 N1）。不传就只写 bundles，
+//   保持旧行为；传了就顺手把 dependencies[name] 也写上。
+//
+// ★★★ 为什么必须一起写（N1 的病根）
+//
+//   桌面脚本是「把文件拷进 node_modules → 再把名字加进 bundles」，
+//   它**不写 dependencies**。而装配计划的下一步就是 `dsh plugin add` 装零件，
+//   pnpm 在那一轮会把「没写进 dependencies 的 node_modules 子目录」当作 extraneous 清掉。
+//   于是出现这个非常难查的序列：
+//
+//     ① 装本体 → 启动正常、客户端半加载 → 看起来成了
+//     ② 装下一个零件（dsh plugin add）→ pnpm 顺手删掉本体
+//     ③ 再启动 → dsh: skipping profile bundle "dsh-agent-soul": cannot resolve profile bundle
+//
+//   **装完就被剪掉，而且要等到下次启动才发现。**
+//   报告的原话是「桌面（Electron）是否同路径未实测，但风险相同」——
+//   机制上一样，所以按一样处理。
+//
+// ★ 为什么 depValue 由调用方给、不在这里猜：
+//   `file:` 后面的路径该怎么写，取决于包实际被拷到哪。写死了换一种安装方式就错。
+//   调用方（install-desktop.ps1）知道路径，让它说；这个脚本只负责写进去。
+//
+// ★ 保留原有的并发保护（N10，2026-10-22）：
 //   ① 乐观锁：写前重读一次，比对 size + mtime，变了就重来（最多 3 次）。
 //   ② 原子写：先写 .tmp，再 rename 顶替。rename 在同一卷上是原子的，
 //      所以读的一方要么看到旧的、要么看到新的，不会看到半截 JSON。
 //   不做锁文件 —— 进程崩溃会留下残留锁，那比丢一次更新更难收拾。
 
-const [pkgPath, name] = process.argv.slice(2)
+const [pkgPath, name, depValue] = process.argv.slice(2)
 if (!pkgPath || !name) {
-  console.error("用法: node add-bundle.cjs <profile>/package.json <包名>")
+  console.error("用法: node add-bundle.cjs <profile>/package.json <包名> [depValue]")
   process.exit(2)
 }
 
@@ -41,12 +63,24 @@ for (let attempt = 1; attempt <= 3 && !done; attempt++) {
   j.dsh.profile = j.dsh.profile || {}
   const b = (j.dsh.profile.bundles = j.dsh.profile.bundles || [])
 
-  if (b.includes(name)) {
+  const inBundles = b.includes(name)
+
+  // dependencies 这边单独算 —— 两者可能一个有一个没有（旧版脚本留下的就是这个状态）。
+  let needDep = false
+  if (depValue) {
+    j.dependencies = j.dependencies || {}
+    needDep = j.dependencies[name] !== depValue
+  }
+
+  if (inBundles && !needDep) {
+    // ★ 用 already 这个词，因为 install-desktop.ps1 靠它匹配来决定说「跳过」还是「已加」。
     console.log("already")
     done = true
     break
   }
-  b.push(name)
+
+  if (!inBundles) b.push(name)
+  if (depValue) j.dependencies[name] = depValue
 
   // 乐观锁：从「读」到「写」之间要是有人动过这个文件，就重来。
   if (sig() !== before) {
@@ -67,6 +101,11 @@ for (let attempt = 1; attempt <= 3 && !done; attempt++) {
     try { fs.unlinkSync(tmp) } catch { /* 清不掉就算了，别盖住真正的错 */ }
     throw e
   }
-  console.log("added")
+
+  // ★ 输出说清到底改了哪一样 —— 「added」这个词太笼统，
+  //   而 bundles 与 dependencies 是两件事，混在一起说会让人以为都好了。
+  if (!inBundles && needDep) console.log("added")
+  else if (!inBundles) console.log("added")
+  else console.log("added-deps") // bundles 本来就有，只补了 dependencies
   done = true
 }

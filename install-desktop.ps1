@@ -163,13 +163,19 @@ Ok "backed up: $(Split-Path $bak -Leaf)"
 
 $addJs = Join-Path $dest 'tools\add-bundle.cjs'
 if (-not (Test-Path $addJs)) { Die "add-bundle.cjs missing at $addJs" }
-$out = & $node $addJs $pkgPath 'dsh-agent-soul' 2>&1
+# ★ 第三个参数是 dependencies 的值（报告 v3 的 N1）。
+#   不传的话只写 bundles —— 而装配计划的下一步是 dsh plugin add 装零件，
+#   pnpm 会把「没写进 dependencies 的 node_modules 子目录」当 extraneous 清掉，
+#   于是**装完就被剪掉**，再启动报 cannot resolve profile bundle。
+#   file: 指向它在 node_modules 里的实际位置（相对 profile）。
+$out = & $node $addJs $pkgPath 'dsh-agent-soul' 'file:node_modules/dsh-agent-soul' 2>&1
 if ($LASTEXITCODE -ne 0) {
   Copy-Item $bak $pkgPath -Force
   Die "bundles edit failed, restored from backup: $out"
 }
-if ("$out" -match 'already') { Warn 'dsh-agent-soul already in bundles (skipped)' }
-else { Ok 'added to dsh.profile.bundles' }
+if ("$out" -match 'already') { Warn 'dsh-agent-soul already in bundles + dependencies (skipped)' }
+elseif ("$out" -match 'added-deps') { Ok 'dependencies backfilled (bundles already had it)' }
+else { Ok 'added to dsh.profile.bundles + dependencies' }
 
 # 6. cleanup
 Remove-Item $zip -Force -ErrorAction SilentlyContinue

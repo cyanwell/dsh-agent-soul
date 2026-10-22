@@ -285,6 +285,76 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-22（同日第十八次）· 桌面装完**就被剪掉**，而且要等下次启动才知道
+
+外部验证报告 v3 的 N1。
+
+## 那个序列
+
+```
+① 桌面脚本装本体 → 拷进 node_modules → 名字加进 dsh.profile.bundles → 启动正常 → 看起来成了
+② 按装配计划装下一个零件（dsh plugin add）
+③ pnpm 在那一轮把「没写进 dependencies 的 node_modules 子目录」当 extraneous 清掉
+④ 再启动 → dsh: skipping profile bundle "dsh-agent-soul": cannot resolve profile bundle
+```
+
+**本体在 ③ 就没了，但要到 ④ 才发现。** 而 ① 那一刻一切正常 ——
+这时候最容易做的事是「装好了，接着装下一个」，正好踩进去。
+
+## 差在哪一行
+
+`install-desktop.ps1` 是「拷文件 + 加名字」，它**不写 `dependencies`**。
+而 `dsh plugin add` 走 pnpm，pnpm 判断一个 `node_modules` 子目录算不算 extraneous，
+看的是 `package.json` 里有没有它的声明 —— 不看谁拷的。
+
+所以修法不是「别用 pnpm」，是**把声明补上**。
+
+## 改在 `add-bundle.cjs` 里，改一处两个用途
+
+那个脚本 `install.js`、`install-desktop.ps1`、手工命令三处都在调。
+它原来只写 `bundles`。现在接受一个**可选**的第三个参数：
+
+```
+node add-bundle.cjs <profile>/package.json <包名>
+node add-bundle.cjs <profile>/package.json <包名> <depValue>
+```
+
+不传就只写 bundles（旧行为不变）；传了就顺手写 `dependencies[name]`。
+桌面脚本现在传 `file:node_modules/dsh-agent-soul` —— 指向它在 `node_modules` 里的实际位置。
+
+★ **路径不在脚本里猜**：`file:` 后面该写什么取决于包被拷到哪，
+换一种安装方式写死了就错。调用方知道路径，让它说；这个脚本只负责写进去。
+
+★ **两种情形分开算**：`bundles` 和 `dependencies` 可能一个有一个没有 ——
+旧版脚本留下的就是这个状态（bundles 有、dependencies 没有）。
+所以判据不是「名字在不在 bundles 里」，而是两样分别查。输出也分开说：
+`added` / `added-deps`（只补了依赖）/ `already`。
+
+## 实测四种行为
+
+造临时 profile 跑真脚本：
+
+```
+① 不传 depValue: added
+   bundles: ["dsh-agent-soul"] | dependencies: null
+② 传了 depValue: added-deps
+   dependencies: {"dsh-agent-soul":"file:node_modules/dsh-agent-soul"}
+③ 再跑一次: already                    ← 幂等
+④ 空 profile 一次到位: added
+   bundles: ["dsh-agent-soul"] | dependencies: {"dsh-agent-soul":"file:..."}
+```
+
+★ ② 那一行是最要紧的：**旧版装过的机器再跑一次，会把缺的 dependencies 补上**，
+不用先卸再装。
+
+## 一句提醒
+
+报告对这条的原话是「桌面（Electron）是否同路径未实测，但风险相同」。
+我按「机制上一样」处理了 —— 因为判断 extraneous 的是 pnpm，不是宿主类型。
+**但严格说这是推理，不是我在这台机器上复现过的** —— 所以我把它写在这里，不写成「已实测」。
+真正要验它，得走一遍：装本体 → 装一个零件 → 重启 → 看本体还在不在。
+这条我记在待办里，等有人真踩过或者真验过再改口径。
+
 ### 2026-10-22（同日第十七次）· compaction 接管要两步，不是一步
 
 外部验证报告 v3 的 R2。这条我之前**不敢动** —— 上一轮报告说「排最前失败」，
