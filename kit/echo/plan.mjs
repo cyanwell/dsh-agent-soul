@@ -33,7 +33,7 @@ function placeholders() {
   const selfSrc = CFG.SELF_SRC;
   if (!selfSrc || !exists(selfSrc)) return null;
   const t = fs.readFileSync(selfSrc.replace(/\//g, path.sep), 'utf8');
-  return [...new Set(t.match(/<[\u4e00-\u9fa5]{2,12}>/g) || [])];
+  return [...new Set(t.match(/<[^<>\n]{2,80}>/g) || [])];
 }
 
 // ══ 步骤表：按依赖顺序，前面的没做完后面的没意义 ══
@@ -47,6 +47,9 @@ const STEPS = [
       '设两个环境变量，或写一个 echo.config.json：',
       `    ECHO_SOUL=${CFG.SOUL || '<你的书房>'}`,
       `    ECHO_MEMORY=${CFG.MEM || '<你的记忆中枢>'}`,
+      '  ★ 这两个目录**必须已经存在** —— 第 2 步的 scaffold 会往里铺东西，但它不负责造父目录。',
+      `      mkdir -p "${CFG.SOUL || '<你的书房>'}" "${CFG.MEM || '<你的记忆中枢>'}"`,
+      '  （Windows: New-Item -ItemType Directory -Force）',
       `  然后重跑本命令，确认这一条变成 ✓。`,
     ],
     failDetail: () => CFG.checkConfig({ allowMissingSessions: true }).problems,

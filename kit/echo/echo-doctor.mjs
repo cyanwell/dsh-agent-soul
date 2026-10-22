@@ -526,7 +526,10 @@ function checkHotMemory() {
   }
   const worst = items.filter((i) => i.pct !== null).sort((a, b) => b.pct - a.pct)[0];
   let status = "ok";
-  if (worst && worst.pct >= 90) status = "warn";
+  // ★ 文件不存在（bytes === null）不是"健康"，是"还没建" —— 降 warn。
+  //   以前这里直接跳过，于是两项都没建时 worst 是 undefined，status 停在 ok。
+  if (items.some((i) => i.bytes === null)) status = "warn";
+  else if (worst && worst.pct >= 90) status = "warn";
   return {
     id: "hot", label: "L1 热记忆", status,
     detail: items.map((i) => `${i.name} ${i.bytes ?? "?"}B${i.pct !== null ? `（${i.pct}%）` : ""}`).join("　｜　"),
@@ -580,8 +583,10 @@ function checkIdentity() {
   const staleNote = stateSid && leadSid && !stateSid.includes(lastLead.by)
     ? `state.json 里记的还是 ${stateSid}，与当前 lead 署名（${leadSid}）不一致 —— 只是 mark 没跟上，不影响判据`
     : null;
+  // ★ 一条 lead 都没有 = 还没建立署名人，不是"判据通过"。降 warn。
+  const identityStatus = leads.length === 0 ? "warn" : "ok";
   return {
-    id: "identity", label: "身份判据（换容器/换届）", status: "ok",
+    id: "identity", label: "身份判据（换容器/换届）", status: identityStatus,
     detail: `《墨》里 ${leads.length} 代 lead，最后一条署名 ${leadSid || "?"} —— 判据只认《墨》，与容器/工作区无关`,
     evidence: { leadCount: leads.length, lastLeadBy: leadSid, lastLeadAt: lastLead?.t || null, stateSession: stateSid, staleNote },
   };

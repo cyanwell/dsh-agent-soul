@@ -324,6 +324,44 @@ check('README 有 2026-10-22 的更新记录', (readme.match(/### 2026-10-22/g) 
   }
 }
 
+
+// ── 8c. 版本范围里的预发布标识符必须带点（P0-4，2026-10-22 外部验证）──
+//
+// ★ 这条治的病：huanqi 写着 `>=0.2.1-rc2 <0.3.0`，而 DSH 是 0.2.1-rc.2。
+//   semver 里 `rc2` 和 `rc.2` 是**两个不同的预发布标识符**：
+//   `rc.2` 拆成 ["rc","2"]，`rc2` 是单个 ["rc2"]，逐段比时 "rc2" > "rc"（前缀更长的更大）。
+//   所以 satisfies("0.2.1-rc.2", ">=0.2.1-rc2 <0.3.0") === false —— 换气因此装不上。
+// ★ 用真 semver 库验，不靠肉眼：
+{
+  let semverLib = null
+  const candidates = [
+    'semver',
+    'D:/AI/dsh/home/profiles/desktop/node_modules/semver',
+  ]
+  for (const c of candidates) {
+    try { semverLib = require(c); break } catch { /* 换下一个 */ }
+  }
+
+  for (const e of fs.readdirSync('plugins', { withFileTypes: true })) {
+    if (!e.isDirectory()) continue
+    const pj = path.join('plugins', e.name, 'package.json')
+    if (!fs.existsSync(pj)) continue
+    const sub = JSON.parse(fs.readFileSync(pj, 'utf8').replace(/^﻿/, ''))
+    const peers = sub.peerDependencies || {}
+    for (const [dep, range] of Object.entries(peers)) {
+      // 找 -rcN 形式（rc 后面直接跟数字，没有点）
+      const bad = range.match(/-rcd/)
+      check(`子包 peer 范围没用 -rcN 写法: ${e.name} → ${dep}`, !bad, bad ? '发现 ' + bad[0] : '')
+      if (semverLib && bad) {
+        // 真验一遍：当前 DSH 版本落不落得进去
+        const cur = '0.2.1-rc.2'
+        const ok = semverLib.satisfies(cur, range)
+        check(`  └ ${e.name} 的 ${dep} 能接受 ${cur}`, ok, range)
+      }
+    }
+  }
+}
+
 // ── 输出 ────────────────────────────────────────
 console.log('=== 自检结果 ===')
 for (const c of checks) {
