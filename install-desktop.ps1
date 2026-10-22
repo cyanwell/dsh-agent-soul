@@ -107,7 +107,7 @@ foreach ($d in @('kit','soul','skeleton','tools','plugins')) {
 # 4b. hard self-check on the STAGED copy - a package missing client.js makes DSH
 #     fail to boot, which triggers sanitizeProfile and RESETS the user's bundles +
 #     patch layer. Better to fail here, loudly, before the user restarts.
-$mustHave = @('client.js','index.js','cordis.patch.yml','package.json','plugins','tools/add-bundle.js')
+$mustHave = @('client.js','index.js','cordis.patch.yml','package.json','plugins','tools/add-bundle.cjs')
 $missing = @()
 foreach ($m in $mustHave) {
   if (-not (Test-Path (Join-Path $stage $m))) { $missing += $m }
@@ -161,8 +161,8 @@ $bak = "$pkgPath.bak-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
 Copy-Item $pkgPath $bak -Force
 Ok "backed up: $(Split-Path $bak -Leaf)"
 
-$addJs = Join-Path $dest 'tools\add-bundle.js'
-if (-not (Test-Path $addJs)) { Die "add-bundle.js missing at $addJs" }
+$addJs = Join-Path $dest 'tools\add-bundle.cjs'
+if (-not (Test-Path $addJs)) { Die "add-bundle.cjs missing at $addJs" }
 $out = & $node $addJs $pkgPath 'dsh-agent-soul' 2>&1
 if ($LASTEXITCODE -ne 0) {
   Copy-Item $bak $pkgPath -Force

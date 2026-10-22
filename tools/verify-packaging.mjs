@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
+import os from 'node:os'
 
 // ★ 不从 cwd 起步（V4，2026-10-22）。
 //   原来写的是 `const ROOT = process.cwd()`，然后所有读取都用相对路径 ——
@@ -78,7 +79,7 @@ check('ps1 与 package.json 都覆盖 plugins', psDirs.includes('plugins') && pk
 
 // ── 4. ps1 的关键防护 ────────────────────────────
 check('ps1 有暂存目录（stage）', ps1.includes('dsh-agent-soul-stage-'))
-check('ps1 自检在改 bundles 之前', ps1.indexOf('$mustHave') > 0 && ps1.indexOf('$mustHave') < ps1.indexOf('add-bundle.js'))
+check('ps1 自检在改 bundles 之前', ps1.indexOf('$mustHave') > 0 && ps1.indexOf('$mustHave') < ps1.indexOf('add-bundle.cjs'))
 check('ps1 失败时删暂存目录', ps1.includes('Remove-Item $stage'))
 check('ps1 用 Move-Item 换到位', ps1.includes('Move-Item $stage $dest'))
 check('ps1 自检包含 client.js', ps1.includes("'client.js'"))
@@ -276,6 +277,50 @@ check('README 有 2026-10-22 的更新记录', (readme.match(/### 2026-10-22/g) 
       const tail = String((e && e.stdout) || '').trim().split('\n').slice(-4).join(' / ')
       check('ps1 结构断言全部通过（AST，不是字符串包含）', false, tail.slice(0, 160))
     }
+  }
+}
+
+// ── 8b. add-bundle 必须是 .cjs，而且必须真能跑（P0-1，2026-10-22 外部验证）──
+//
+// ★ 这条治的病，今天真实发生过：
+//   `package.json` 里有 `"type": "module"`，所以 `tools/add-bundle.js` 会被
+//   Node 当成 ESM —— 而它的第一行是 `require("fs")`，于是：
+//       ReferenceError: require is not defined in ES module scope
+//   install-desktop.ps1 的第 5 步拿这个脚本去登记 bundles，它必然失败，
+//   脚本于是回滚 package.json 并 Die —— **文件拷过去了，插件不加载**。
+//
+// ★ 为什么以前没发现：我改这个文件之后跑的是 `node --check`。
+//   那只检查语法，**不看模块系统**，所以它给了绿灯。假绿。
+//
+// ★ 所以这条断言**真的跑一遍**，跑在一个临时 package.json 上，看结果文件变了没有。
+{
+  const cjs = path.join('tools', 'add-bundle.cjs')
+  const js = path.join('tools', 'add-bundle.js')
+  check('add-bundle 用的是 .cjs 后缀', fs.existsSync(cjs))
+  check('旧的 add-bundle.js 已不存在（type=module 下会被当 ESM）', !fs.existsSync(js))
+
+  const pkgType = JSON.parse(fs.readFileSync('package.json', 'utf8').replace(/^\uFEFF/, '')).type
+  check('package.json 的 type 是 module（这条断言的前提）', pkgType === 'module', 'type=' + pkgType)
+
+  if (fs.existsSync(cjs)) {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ab-probe-'))
+    const probe = path.join(tmp, 'package.json')
+    fs.writeFileSync(probe, JSON.stringify({ name: 'probe', dsh: { profile: { bundles: ['a'] } } }), 'utf8')
+    let ran = false
+    let out = ''
+    try {
+      out = execFileSync(process.execPath, [cjs, probe, 'b'], { encoding: 'utf8', timeout: 30000 })
+      ran = true
+    } catch (e) {
+      out = String((e && (e.stderr || e.message)) || e).slice(0, 160)
+    }
+    let landed = false
+    try {
+      const after = JSON.parse(fs.readFileSync(probe, 'utf8').replace(/^\uFEFF/, ''))
+      landed = (after.dsh.profile.bundles || []).includes('b')
+    } catch { /* 读不回来就是没成 */ }
+    fs.rmSync(tmp, { recursive: true, force: true })
+    check('add-bundle 真能跑（不是只在 node --check 下通过）', ran && landed, out || '没写进去')
   }
 }
 

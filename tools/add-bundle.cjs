@@ -15,7 +15,7 @@ const fs = require("fs")
 
 const [pkgPath, name] = process.argv.slice(2)
 if (!pkgPath || !name) {
-  console.error("用法: node add-bundle.js <profile>/package.json <包名>")
+  console.error("用法: node add-bundle.cjs <profile>/package.json <包名>")
   process.exit(2)
 }
 

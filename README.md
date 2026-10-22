@@ -284,6 +284,53 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-22（同日第八次）· 外部验证报告的 P0-1：`add-bundle.js` 在 ESM 包里是死的
+
+有人拿云端沙箱从零装了一遍，出了一份 16 条的验证报告。最要命的是这一条：
+
+> `tools/add-bundle.js` 是 CJS（`require("fs")`），但 `package.json` 有 `"type": "module"`。
+> 桌面一键脚本在第 5 步拿它去登记 bundles，它必然抛
+> `ReferenceError: require is not defined in ES module scope`，
+> 脚本于是回滚 `package.json` 并 `Die` —— **文件拷过去了，插件不加载**。
+
+本机实测确认，而且**结果文件一个字节都没变**：
+
+```
+type = "module"
+ReferenceError: require is not defined in ES module scope
+结果: {"name":"probe","dsh":{"profile":{"bundles":["a"]}}}   ← 没加上 b
+```
+
+**这条比报告里写的更难看的地方在于**：我 2026-10-22 那天刚改过这个文件（加乐观锁、原子写），
+改完跑的是 `node --check tools/add-bundle.js`，它通过了 —— 我因此以为没问题。
+`--check` 只检查语法，**不看模块系统**。假绿。同一个形状的错误今天已经出现过三次。
+
+**修法**：改名 `tools/add-bundle.cjs`（Node 对 `.cjs` 一律按 CommonJS 处理，与 `type` 无关），
+并把 `install-desktop.ps1` 里两处引用（`$mustHave` 与 `$addJs`）一起改过去。
+
+**加了 4 条断言，其中一条真的跑**（`tools/verify-packaging.mjs`）：
+
+- `add-bundle` 用的是 `.cjs` 后缀
+- 旧的 `add-bundle.js` 已不存在
+- `package.json` 的 `type` 是 `module`（这条断言的前提，前提没了就该重新看这段）
+- **`add-bundle` 真能跑**：在临时目录造一个 `package.json`，跑一遍，断言 `bundles` 里真的多了那一项
+
+自检从 94 条加到 **98 条**。
+
+**报告里其余 15 条的处理情况**（基线是 2026-10-19 的 HEAD，中间已经推过 14 个 commit）：
+
+| 报告编号 | 现状 |
+|---|---|
+| P0-2 `$files` 漏 `client.js` | **已修**（`$files` 里已有） |
+| P0-3 `$dirs` 漏 `plugins/` | **已修**（`foreach ($d in @(...'plugins'))`） |
+| P0-5 huanqi 的 patch name | **已修**（`cordis.patch.yml` 里是 `dsh-huanqi`） |
+| P0-4 huanqi 版本范围 `rc2` vs `rc.2` | 待核 |
+| P0-6 compaction 不接管压缩 | 待核 |
+| P1-7 ~ P1-13、P2-14 ~ P2-16 | 待核 |
+
+★ 表中「已修」是 2026-10-22 当天改的，报告作者看到的是旧代码 —— 不是他终于挖出旧 bug，
+是他验证的基线早于这些修复。**但这不减轻 P0-1 的分量**：那条在今天仍然是坏的。
+
 ### 2026-10-22（同日第七次）· 行为断言：用 AST 证 ps1 的逻辑位置，不再靠字符串
 
 第三轮最后欠的一条（V1）。审核方的批评是准的：
