@@ -469,6 +469,22 @@ export function registerInstallTool(ctx) {
             }
           }
           lines.push('')
+          // ★ P0-6（外部验证报告，2026-10-22）：第 1 步里有 compaction，而它
+          //   「装上了」和「接管了」是两件事 —— 默认安装后它会和内置的
+          //   compaction-basic 抢同一个服务名，先到先得、后来的不生效，
+          //   而 doctor 只会报一句 warn（压缩机制 start 0），看不出这个区别。
+          //   报告的原话是「门牌机制——整套架构的核心——装完等于没有」。
+          //   这里不替用户改配置，但必须把「还差哪一步」说出来。
+          if (s.step === 1) {
+            lines.push('  ★ 注意：这一步里的 dsh-agent-compaction 装上了 **不等于** 接管了压缩。')
+            lines.push('    它和内置的 compaction-basic 抢同一个服务名，而 cordis 是「先到先得」。')
+            lines.push('    默认装完，doctor 只会报 warn（压缩机制 start 0）—— 看不出「装了但没接管」。')
+            lines.push('    接管办法见 plugins/compaction/HOW-TO-TAKEOVER.md：')
+            lines.push('      路 A —— 把它排到 profile bundles 的最前面（dsh-base 之前）')
+            lines.push('      路 B —— preset + isolate: { compaction: true }（realm 隔离）')
+            lines.push('    装完必须验，别靠肉眼：tools/probe-service-order.mjs 回答「现在是谁在管」。')
+            lines.push('')
+          }
         }
         lines.push('合计还要装 ' + needInstall + ' 个。')
         if (isDesktop) {

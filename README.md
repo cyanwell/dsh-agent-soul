@@ -285,6 +285,30 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-22（同日第十二次）· 装上 ≠ 接管：`install` 现在会把这一句说出来
+
+外部验证报告 P0-6。`dsh-agent-compaction` 装进 profile 之后，启动时报：
+
+```
+dsh-agent-compaction: Error: service "compaction" has been registered at <BasicCompactionEngine>
+```
+
+根因是 cordis 的服务注册**先到先得**：`@deepseek-ai/dsh-base` 里带着 compaction-basic，排在前面，`dsh-agent-compaction` 后注册就抢不到那个名字。
+而真正能生效的是 realm 隔离（`isolate: { compaction: true }`），默认安装路径不会写这段。
+
+**后果比报错更难发现**：`doctor` 只会报一句 `warn「压缩机制 start 0」`，
+看不出「装了但没接管」—— 而门牌机制是整套架构的核心，等于装完没生效。
+
+★ **这次我没有改服务注册**。那要动 realm 隔离或 bundles 顺序，风险远大于收益，
+而且`plugins/compaction/cordis.patch.yml` 里已经记着「路 A 在真 profile 上验通过」的运行时证据 ——
+报告在云端沙箱里走路 A 仍然失败，两边结论不一致，我没法在本地复现它那个环境。
+**在弄清差异之前动它，是拿一个已验证过的东西去赌一个没验过的猜测。**
+
+改的是另一头：`agent_soul_install` 在第 1 步的输出里补了一段明确警告 ——
+装上了不等于接管了、会抢服务名、doctor 那句 warn 是什么意思、两条路在哪、装完用哪个探针验。
+
+★ 这一条和 P1-7 是同一个方向：**工具得把「还差哪一步」说出来，而不是让人以为完事了。**
+
 ### 2026-10-22（同日第十一次）· 一条永远通过的自检：SELF 判据认的是工具描述
 
 外部验证报告 P1-7。`agent_soul_doctor` 的深度检查里，「推送层 SELF 有没有真的注入」
