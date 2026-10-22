@@ -49,7 +49,10 @@
 
 ### 洞二 · `declares no dsh.bundle`
 
-13 个零件里 11 个有 `dsh.bundle`，只有 `compaction` 和 `pruner` 没有
+> ★★ **2026-10-22 已修**：13 个零件包现在全部有 `dsh.bundle`，`compaction` 和 `pruner` 也补上了。
+> 下面这段是当时的记录。
+
+当时：13 个零件里 11 个有 `dsh.bundle`，只有 `compaction` 和 `pruner` 没有
 → **装了但不加载**，静默。
 
 ★ 根因不是疏漏，是**形状不同**：这两个是「class 替代实现」，不是 cordis 插件。

@@ -32,6 +32,11 @@ const KIT = join(HERE, 'kit', 'echo')
  * @returns {Promise<{ok:boolean, code:number|string, stdout:string, stderr:string}>}
  */
 export async function runKit(script, args = [], env = {}) {
+  // ★ script 目前全是硬编码字面量，但接口本身不该允许 ../ 逃逸：
+  //   一旦将来把它做成外部参数，这里就会变成任意脚本执行。
+  if (script.includes('..') || /[\\/]/.test(script)) {
+    throw new Error('kit script must be a bare filename without path separators: ' + script)
+  }
   const p = join(KIT, script)
   if (!existsSync(p)) {
     return {
@@ -53,7 +58,7 @@ export async function runKit(script, args = [], env = {}) {
 
   try {
     const { stdout, stderr } = await execFileAsync(process.execPath, [p, ...args], {
-      timeout: 180000,
+      timeout: 30000,
       maxBuffer: 64 * 1024 * 1024,
       env: cleanEnv,
       encoding: 'utf8',

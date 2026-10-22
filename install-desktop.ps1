@@ -125,16 +125,32 @@ $backup = $null
 if (Test-Path $dest) {
   $backup = Join-Path $Profile "node_modules\.dsh-agent-soul-old-$tag"
   Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue
-  Rename-Item -Path $dest -NewName (Split-Path $backup -Leaf) -ErrorAction Stop
+  Rename-Item -Path $dest -NewName (Split-Path $backup -Leaf) -ErrorAction SilentlyContinue
+  if (Test-Path $dest) {
+    Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+    Die ("cannot move the current package aside - DSH is probably still running. Quit DSH completely and run this again. Your existing package is untouched.")
+  }
 }
+$swapped = $false
 try {
   Move-Item $stage $dest -ErrorAction Stop
+  $swapped = $true
 } catch {
-  if ($backup -and (Test-Path $backup) -and -not (Test-Path $dest)) {
+  $swapErr = $_.Exception.Message
+}
+if (-not $swapped) {
+  $rollbackOk = $false
+  if ($backup -and (Test-Path $backup)) {
     Rename-Item -Path $backup -NewName (Split-Path $dest -Leaf) -ErrorAction SilentlyContinue
+    $rollbackOk = Test-Path $dest
+  } else {
+    $rollbackOk = $true
   }
   Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
-  Die ("swap failed: " + $_.Exception.Message + " - previous install restored, nothing was left half-applied.")
+  if ($rollbackOk) {
+    Die ("swap failed: " + $swapErr + " - previous install restored, your profile is unchanged.")
+  }
+  Die ("swap failed: " + $swapErr + " - AND rollback failed. DO NOT restart DSH yet. Your previous copy is at: " + $backup + " - move it back to " + $dest + " first.")
 }
 if ($backup) { Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue }
 Ok 'files copied to node_modules/dsh-agent-soul (client.js verified, staged then swapped)'

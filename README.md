@@ -192,7 +192,7 @@ dsh-agent-soul/
 │   └── 04-doctor.md      体检表
 ├── plugins/              ★ 零件 —— 「装什么」
 │   ├── 清单.md           按层组织：管什么 / 缺了会怎样 / 判据 / 验它活了 / 必选 / 前置
-│   ├── compaction … 14 个插件目录
+│   ├── compaction … 13 个插件目录 + tools/
 │   └── tools/            gateway / ledger / self（脚本，不是包）
 ├── tools/
 │   └── init.mjs          ★ 装配器：问 8 个问题，生成填了一半的骨架
@@ -254,7 +254,7 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ### C. 只要判据，不要模板
 
-读 `soul/` 那十份。它们是**问法**，不是答案。
+读 `soul/` 那十几份。它们是**问法**，不是答案。
 
 ★ 三条路之后都指向同一件事：**先把 `soul/00-authority.md`（或你生成的那份）填完。**
 不先定权威源，装什么都双重记账。
@@ -263,7 +263,7 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 改
 
-`soul/` 下的十份文件就是全部内容。改完**刷新即可生效，不用重启**（工具每次请求重新读盘）。
+`soul/` 下的那批文件就是全部内容。改完**刷新即可生效，不用重启**（工具每次请求重新读盘）。
 
 `skeleton/` 下的五份是**另一回事**，别混：`soul/` 是判据（回答"该有什么"），
 `skeleton/` 是模板（回答"长什么样"）。`skeleton/` 不参与任何工具，纯供人抄走。

@@ -45,7 +45,7 @@ async function installedPackages(profile) {
   let bundles = []
   try {
     const raw = await readFile(join(profile, 'package.json'), 'utf8')
-    const pj = JSON.parse(raw)
+    const pj = JSON.parse(raw.replace(/^﻿/, ''))
     bundles = pj?.dsh?.profile?.bundles ?? []
   } catch {}
   return { names, bundles }
@@ -70,7 +70,7 @@ async function assertProfile(profile) {
   }
   let pj
   try {
-    pj = JSON.parse(await readFile(join(profile, 'package.json'), 'utf8'))
+    pj = await readJsonNoBom(join(profile, 'package.json'))
   } catch (e) {
     throw new Error('profile 的 package.json 读不了或不是合法 JSON：' + String(e && e.message ? e.message : e))
   }
@@ -150,6 +150,13 @@ const ORDER = [
 //   拼出来的 dsh-agent-huanqi 既不是它、也不在 bundles 里 —— 于是 plan 会
 //   对着一个装好的包喊「缺」，而用户照着装会装出一个 DSH 认不出的目录名。
 //   所以这里从每个子包自己的 package.json 读 name，拼前缀只作为读不到时的兜底。
+/** 读 JSON 并去掉 BOM。记事本 / PS 5.1 的 Set-Content -Encoding UTF8 会写 U+FEFF，
+ *  而 JSON.parse 不认它 —— 用户会看到"不是合法 JSON"，去查语法而不是编码。 */
+async function readJsonNoBom(p) {
+  const raw = await readFile(p, 'utf8')
+  return JSON.parse(raw.replace(/^﻿/, ''))
+}
+
 const PKG_NAMES = new Map()
 const PKG = (dir) => PKG_NAMES.get(dir) || 'dsh-agent-' + dir
 
@@ -165,7 +172,7 @@ async function loadPkgNames(pluginsDir) {
   for (const e of entries) {
     if (!e.isDirectory()) continue
     try {
-      const pj = JSON.parse(await readFile(join(pluginsDir, e.name, 'package.json'), 'utf8'))
+      const pj = await readJsonNoBom(join(pluginsDir, e.name, 'package.json'))
       if (pj && typeof pj.name === 'string' && pj.name) PKG_NAMES.set(e.name, pj.name)
     } catch {
       // tools/ 这种没有 package.json 的目录，跳过
@@ -226,7 +233,7 @@ function installCommand(profile, dir, isDesktop, pluginsDir) {
     return [
       '手动两步（桌面端不接受 CLI 安装）：',
       '  # ① 复制**整个包目录**进 profile（不要挑文件）',
-      `  #    源：${src}${pluginsDir ? '/' : '/'}`,
+      `  #    源：${src}/`,
       `  #    目标：${join(profile, 'node_modules', pkg)}/`,
       '  #    ★ 别只抄 package.json / cordis.patch.yml / index.js / client.js ——',
       '  #      包与包长得不一样：echo 还要 echo-config.mjs 和 echo-doctor.mjs，',
@@ -308,7 +315,7 @@ export function registerInstallTool(ctx) {
         //   现在以 bundle 为唯一真相；读不到才退回硬编码。
         let bundle = null
         try {
-          bundle = JSON.parse(await readFile(join(HERE, 'soul', '07-bundle.json'), 'utf8'))
+          bundle = await readJsonNoBom(join(HERE, 'soul', '07-bundle.json'))
         } catch { /* 读不到就用兜底 */ }
         const bundleParts = new Map()
         if (bundle && Array.isArray(bundle.parts)) {
@@ -329,6 +336,13 @@ export function registerInstallTool(ctx) {
         // ★ 装进 node_modules 但没进 bundles 的，等于「文件在、没启用」——
         //   这是最常见的一种假绿，必须单独报出来。
         const notBundled = installed.filter((d) => bundles.length > 0 && !bundles.includes(nameOf(d)))
+
+        // ★ scan 也要知道真实包名，否则 PKG('huanqi') 会算成 dsh-agent-huanqi，
+        //   装好的 dsh-huanqi 认不出来 —— 用户会看到"缺一个"，装完再 scan 还是缺。
+        if (!PKG_NAMES.size) {
+          const pi = await findPluginsDir()
+          await loadPkgNames(pi.dir)
+        }
 
         if (action === 'scan' || action === 'verify') {
           const lines = []
@@ -415,7 +429,7 @@ export function registerInstallTool(ctx) {
         for (const s of ORDER) {
           lines.push('── 第 ' + s.step + ' 步 · ' + s.title + ' ──')
           lines.push('  为什么：' + s.why)
-          if (s.kind === 'human' || s.kind === 'tools' || s.kind === 'slot') {
+          if (s.kind === 'human' || s.kind === 'slot') {
             lines.push('  ' + s.how)
           } else {
             for (const d of s.parts) {
