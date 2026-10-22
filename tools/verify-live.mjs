@@ -33,7 +33,7 @@
  */
 
 import { readFile, access, readdir } from 'node:fs/promises'
-import { join, resolve, dirname } from 'node:path'
+import { join, resolve, dirname, delimiter } from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
@@ -106,6 +106,10 @@ async function findBundleDir(name) {
     roots.push(join(exeDir, 'resources', 'app.asar.unpacked', 'node_modules'))
     // POSIX 全局前缀：<prefix>/bin/node -> <prefix>/lib/node_modules
     roots.push(join(exeDir, '..', 'lib', 'node_modules'))
+    // ★★ 再嵌一层（报告 v4 补的第 3 次同类错）：npm 全局装时
+    //   shipped bundle 在 <prefix>/lib/node_modules/@deepseek-ai/dsh/node_modules/ 里。
+    //   上面那条只到 lib/node_modules，下面只有 dsh 一个包，**还差一层**。
+    roots.push(join(exeDir, '..', 'lib', 'node_modules', '@deepseek-ai', 'dsh', 'node_modules'))
   } catch { /* 推不出来就跳过，别把验证搞挂 */ }
   try {
     // 让 Node 自己解析一次：能解析到就说明它真的可加载
@@ -115,10 +119,32 @@ async function findBundleDir(name) {
     roots.push(join(dirname(pj), '..', 'node_modules'))
   } catch { /* 解析不到说明这条路不适用 */ }
 
+  // ★ 允许外部补根（本机测特殊布局用；也给了给特殊安装兜底的口子）。
+  //   POSIX 用 : 分隔，Windows 用 ; —— 两种都认。
+  // ★ 用 path.delimiter，不要手写 /[;:]/ —— Windows 路径里本身就有冒号，
+  //   写成 /[;:]/ 会把 C:\...\ 切成 'C' 和 '\...'，根全废。
+  //   （这个 bug 是我自己刚踩的，测的时候才发现。）
+  for (const r of String(process.env.DSH_LIVE_EXTRA_ROOTS || '').split(delimiter)) {
+    if (r.trim()) roots.push(r.trim())
+  }
+
+  const tried = []
   for (const r of roots) {
     const candidate = join(r, name)
+    tried.push(candidate)
     if (await exists(candidate)) return candidate
+    // ★★ 同一个包里**还嵌着一层 node_modules** 的情形（npm 全局装的常见形状）。
+    //   不写死某一个包名 —— 把 root 下的一层包目录都探一遍，但要限个数，
+    //   别把一个有几百个包的 node_modules 整个遍历。
+    for (const inner of ['@deepseek-ai/dsh', 'dsh', '@deepseek-ai/dsh-cli']) {
+      const nested = join(r, inner, 'node_modules', name)
+      tried.push(nested)
+      if (await exists(nested)) return nested
+    }
   }
+  // ★ 找不到时把**试过的路径**留着，让调用方能原样打出来。
+  //   报告是要靠这个来指方向的 —— 只写「都没有」，读的人不知道我找过哪。
+  findBundleDir.lastTried = tried
   return null
 }
 
@@ -143,8 +169,9 @@ console.log('── ② 每个 bundle 的 patch 状态 ' + '─'.repeat(30))
 for (const name of bundles) {
   const dir = await findBundleDir(name)
   if (!dir) {
-    bad(name, '在 bundles 里，但往上找到 4 层都没找到这个目录')
-    console.log(`  ✗ ${name}  找不到（profile 及其上 4 层 node_modules 都没有）`)
+    bad(name, '在 bundles 里，但所有搜索根里都没有这个目录')
+    console.log(`  ✗ ${name}  找不到。试过这些位置：`)
+    for (const t of findBundleDir.lastTried || []) console.log('      ' + t)
     continue
   }
   let p

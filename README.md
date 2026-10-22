@@ -285,6 +285,83 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-22（同日第二十次）· 同一个坑，第三次
+
+外部验证报告 v4 的唯一残留：`verify-live` 仍把 `dsh-base` / `dsh-headless` 报成「找不到」。
+我上一轮（第十六次公告）刚修过这条，还以为修好了。
+
+## 差在最后一层
+
+报告把实际路径给出来了：
+
+```
+/root/.nvm/versions/node/v22.23.4/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-base
+```
+
+而我上一轮加的根 `.../lib/node_modules` **确实命中了** —— 但那下面只有 `@deepseek-ai/dsh` 一个包，
+shipped bundle 在**这个包自己的 `node_modules/` 里**，还差一层。
+
+## 这是同一个坑的第三次，得说清楚
+
+| 次 | 我以为的装法 | 实际 |
+|---|---|---|
+| P1-13 | 包和 profile 平级 | 共享安装住在 profile **上层** |
+| R5 第一次 | 全局装 = 住在 DSH **安装目录** | 对，但我只推到 `lib/node_modules` |
+| R5 第二次 | 就到 `lib/node_modules` | **那个包里还嵌着一层 `node_modules`** |
+
+三次都错在同一句话上：**我记住了一个路径形状，就以为所有安装都长这样。**
+第一次修完加了一条路径，第二次修完又加了一条 —— **每次都在补形状，没在补方法**。
+
+## 所以这次不只加路径
+
+三件事一起做：
+
+1. 从 `process.execPath` 直接推出嵌层（`<prefix>/lib/node_modules/@deepseek-ai/dsh/node_modules`）
+2. **通用嵌层探测**：对每个搜索根，再试 `<root>/<包名>/node_modules/<name>` ——
+   不写死某一个包，但也限个数，不遍历整个 `node_modules`
+3. ★ **「找不到」的报错改成列出所有试过的路径**
+
+第三条最要紧。前两次报告都是靠读代码猜我漏了哪一层；现在它自己列出来：
+
+```
+✗ @deepseek-ai/dsh-base  找不到。试过这些位置：
+    C:\...\node_modules\@deepseek-ai\dsh-base
+    C:\...\lib\node_modules\@deepseek-ai\dsh-base
+    C:\...\lib\node_modules\@deepseek-ai\dsh\node_modules\@deepseek-ai\dsh-base
+    ...
+```
+
+**下次（如果还有下次）不用猜了。**
+
+## 用假 nvm 布局真测过
+
+我在 Windows 上，造不出真的 nvm 目录，所以：
+- 复刻报告给的真实形状到一个临时目录
+- 加 `DSH_LIVE_EXTRA_ROOTS` 环境变量（`path.delimiter` 分隔）把那个根塞进去
+- 跑真脚本
+
+结果：
+
+```
+补根之前:  通过 0 需注意 0 失败 1
+补根之后:  通过 0 需注意 0 失败 0
+           · @deepseek-ai/dsh-base  没有 dsh.bundle.patch（正常，如果它是内置包）
+```
+
+「没有 patch」是**找到之后**的判断，不是「找不到」—— 所以嵌层探测真的生效了。
+那个环境变量留着，以后测特殊布局用得上。
+
+## 顺带：我自己又踩了一个路分隔符
+
+第一版我写 `split(/[;:]/)` —— 想着「POSIX 用冒号、Windows 用分号，两种都认」。
+但 **Windows 路径本身就是 `C:\...`**，冒号在盘符后面，于是被切成 `C` 和 `\...\`。
+测试第一次跑出来只试了 1 个位置，才发现。
+
+改成 `path.delimiter`。这就是它存在的理由。
+
+★ 这个错和上面那三次是**同一个形状**：我以为我知道路径长什么样。
+区别是小得多 —— 它被测试抓住了，而那三次是被外部验证抓住的。
+
 ### 2026-10-22（同日第十九次）· 「115/115」这句话有个前提
 
 外部验证报告 v3 的 N3。
