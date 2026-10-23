@@ -1,4 +1,4 @@
-// dsh-agent-huanqi-panel · 宿主半
+// dsh-yanqing-huanqi-panel · 宿主半
 //
 // 干什么：把换气插件（dsh-huanqi）的参数搬到 DSH 设置面板里，并且显示实时延续额度。
 //
@@ -13,17 +13,17 @@
 //   只替换「某一行值的等号右边」或在块尾插入一行，其余字节原样保留。
 //   （这个思路抄自 dsh-huanqi 自带的 set-quota.mjs，但做成了通用键值。）
 //
-// 路由（都挂在 /agent-huanqi 前缀下）：
-//   GET  /agent-huanqi/api/state     读：当前配置 + 实时额度账本 + 文件路径
-//   POST /agent-huanqi/api/config    写：{ profile: "desktop"|"web", values: {键: 值} }
-//   GET  /agent-huanqi/api/preview   只读地告诉你"改完会变成哪几行"，不落盘
-//   GET  /agent-huanqi/api/health    自检
+// 路由（都挂在 /yanqing-huanqi 前缀下）：
+//   GET  /yanqing-huanqi/api/state     读：当前配置 + 实时额度账本 + 文件路径
+//   POST /yanqing-huanqi/api/config    写：{ profile: "desktop"|"web", values: {键: 值} }
+//   GET  /yanqing-huanqi/api/preview   只读地告诉你"改完会变成哪几行"，不落盘
+//   GET  /yanqing-huanqi/api/health    自检
 
 import { join, isAbsolute, resolve as resolvePath } from 'node:path'
 import { homedir } from 'node:os'
 import { readFileSync, writeFileSync, existsSync, copyFileSync, statSync, renameSync, openSync, fsyncSync, closeSync, readdirSync } from 'node:fs'
 
-export const name = 'dsh-agent-huanqi-panel'
+export const name = 'dsh-yanqing-huanqi-panel'
 export const inject = ['webServer']
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -175,6 +175,20 @@ const FIELDS = [
   { key: 'anomalyWindow', type: 'int', min: 3, max: 50, def: 10, label: '异常判定窗口', hint: '出正文后多少轮内又卡住，算一次异常（额度 −1）' },
   { key: 'warnAtCredit', type: 'int', min: 1, max: 10, def: 2, label: '剩几点开始提示', hint: '额度降到这个数时换气会在提示里带上警告' },
   { key: 'silentReasoningChars', type: 'int', min: 0, max: 100000, def: 8000, label: '流内早杀阈值（字）', hint: '推理写到这么多字、正文与工具仍为零，就地截断。★ 太小会误杀正常的长推理（3000 曾误杀 7.9%）' },
+  {
+    // ★ 2026-10-23 加。三档语义见 dsh-huanqi 的 Config 注释。
+    //   `strict` 是默认值 —— 等于「和主会话同样的保护」，不改变任何现有行为。
+    key: 'subagentPolicy',
+    type: 'enum',
+    def: 'strict',
+    label: '子 agent 严格程度',
+    hint: '子 agent（含 Agent Teams 成员）适用哪一档换气判据。strict = 与主会话同保护（默认）；relaxed = 只保留流内早杀；exempt = 完全豁免。改完需重启 DSH。',
+    options: [
+      { value: 'strict', label: '全局应用（最严格）' },
+      { value: 'relaxed', label: '子 agent 放宽（保留流内早杀）' },
+      { value: 'exempt', label: '子 agent 完全豁免' },
+    ],
+  },
   { key: 'ledgerPath', type: 'str', def: '', label: '账本路径', hint: '留空 = <DSH_HOME>/state/dsh-huanqi.json' }
 ]
 
@@ -252,6 +266,16 @@ function render(field, value) {
     if (field.min != null && n < field.min) throw new Error(`${field.key} 不能小于 ${field.min}`)
     if (field.max != null && n > field.max) throw new Error(`${field.key} 不能大于 ${field.max}`)
     return String(n)
+  }
+  // ★ enum：只接受 options 里列出的值。白名单校验放在服务端 —— 面板是 `<select>`，
+  //   但接口也能被直接 POST，所以不能只靠前端。
+  if (field.type === 'enum') {
+    const s = String(value == null ? '' : value)
+    const opts = (field.options || []).map((o) => o.value)
+    if (!opts.includes(s)) {
+      throw new Error(`${field.key} 只能是 ${opts.join(' / ')} 之一，你给的是「${s}」`)
+    }
+    return `'${s.replace(/'/g, "''")}'`
   }
   const s = String(value == null ? '' : value)
   return s === '' ? "''" : `'${s.replace(/'/g, "''")}'`
@@ -349,14 +373,14 @@ function hotPatchLive() {
 export function apply(ctx) {
   ctx.webServer.register({
     kind: 'prefix',
-    path: '/agent-huanqi',
+    path: '/yanqing-huanqi',
     handler: async (req, res) => {
       cors(res)
       if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end() }
 
       let url
       try { url = new URL(req.url, 'http://127.0.0.1') } catch { return json(res, 400, { ok: false, message: 'URL 不合法' }) }
-      const p = url.pathname.replace(/^\/agent-huanqi/, '') || '/'
+      const p = url.pathname.replace(/^\/yanqing-huanqi/, '') || '/'
 
       try {
         if (p === '/api/health') {
@@ -493,7 +517,7 @@ export function apply(ctx) {
     }
   })
 
-  ctx.logger?.info?.('[dsh-agent-huanqi-panel] 路由已挂：/agent-huanqi/api/{health,state,preview,config}')
+  ctx.logger?.info?.('[dsh-yanqing-huanqi-panel] 路由已挂：/yanqing-huanqi/api/{health,state,preview,config}')
 }
 
 // ★ 把三个纯函数导出，**为了能在不重启 DSH 的情况下直接对它们做自检**：

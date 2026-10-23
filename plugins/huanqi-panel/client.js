@@ -1,15 +1,15 @@
-// dsh-agent-huanqi-panel · 客户端半（设置面板里的「换气」那一页）
+// dsh-yanqing-huanqi-panel · 客户端半（设置面板里的「换气」那一页）
 //
 // ★ 挂载点的三件事（都踩过，别再改回去）：
 //   1. `exports.inject = ["slots"]` **必须写** —— 少了它：Host 照报 running，浏览器里一行不跑、零报错。
 //   2. 槽位名是 `settings.section`。
 //   3. 侧栏标题字段是 **`label`，而且是函数**（写 `title` 会让那一项显示成空白，能点但没名字）。
 //
-// 数据从宿主半来：GET /agent-huanqi/api/state（配置 + 实时额度账本）
-//                POST /agent-huanqi/api/config（写，走字节级 YAML 编辑）
+// 数据从宿主半来：GET /yanqing-huanqi/api/state（配置 + 实时额度账本）
+//                POST /yanqing-huanqi/api/config（写，走字节级 YAML 编辑）
 
 window.__ModuleLoader__.load({
-  id: "dsh-agent-huanqi-panel",
+  id: "dsh-yanqing-huanqi-panel",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
@@ -26,7 +26,7 @@ window.__ModuleLoader__.load({
     //   正确做法：用同源相对路径，让**页面自己的 origin** 决定后端地址。
     //   （本页是 DSH 设置面板，由后端同一个 webServer 提供，所以同源一定对。）
     //   如果以后真出现非同源的桌面壳，必须由宿主注入地址，不能由客户端猜。
-    var API = "/agent-huanqi/api";
+    var API = "/yanqing-huanqi/api";
 
     var S = {
       wrap: { padding: "4px 2px 20px", fontSize: "13px", lineHeight: 1.65 },
@@ -62,7 +62,11 @@ window.__ModuleLoader__.load({
           var vals = {};
           (d.fields || []).forEach(function (f) {
             var raw = d.profiles && d.profiles.desktop && d.profiles.desktop.values ? d.profiles.desktop.values[f.key] : undefined;
-            vals[f.key] = raw === undefined || raw === "" ? (f.type === "int" ? Number(f.def) : "") : (f.type === "int" ? Number(raw) : String(raw));
+            // ★ enum 的 def 是字符串（如 'strict'），留空时也要显示默认档，
+            //   不能像 str 那样显示空 —— 否则用户看不出现在是哪一档。
+            vals[f.key] = raw === undefined || raw === ""
+              ? (f.type === "int" ? Number(f.def) : String(f.def == null ? "" : f.def))
+              : (f.type === "int" ? Number(raw) : String(raw));
           });
           setForm(vals);
         }).catch(function (e) {
@@ -174,6 +178,13 @@ window.__ModuleLoader__.load({
                       type: "number", style: S.num, min: f.min, max: f.max, value: form[f.key],
                       onChange: function (e) { var v = {}; v[f.key] = e.target.value; setForm(Object.assign({}, form, v)); }
                     })
+                : f.type === "enum"
+                  ? h("select", {
+                      style: S.path, value: form[f.key] == null ? f.def : form[f.key],
+                      onChange: function (e) { var v = {}; v[f.key] = e.target.value; setForm(Object.assign({}, form, v)); }
+                    }, (f.options || []).map(function (o) {
+                      return h("option", { key: o.value, value: o.value }, o.label);
+                    }))
                   : h("input", {
                       style: S.path, value: form[f.key] == null ? "" : form[f.key], placeholder: "（留空 = 用默认）",
                       onChange: function (e) { var v = {}; v[f.key] = e.target.value; setForm(Object.assign({}, form, v)); }
