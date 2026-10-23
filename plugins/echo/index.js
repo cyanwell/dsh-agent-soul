@@ -41,15 +41,86 @@ export const inject = ['webServer']
 const DSH_HOME = (process.env.DSH_HOME || process.env.ECHO_DSH_HOME || '').trim()
   || path.join(os.homedir(), '.dsh')
 
-// ★ NODE —— 用**跑这个进程的那个 node**。本来就在 node 里，没必要再猜一个路径。
-//   （原来写死作者机器上的 C:/Users/pc/.workbuddy/...，换台机器就 spawn ENOENT。）
-const NODE = process.env.ECHO_NODE || process.execPath
-// ★ HUB —— 默认 `$DSH_HOME/hub`，安装时会把 kit/echo/*.mjs 复制进去（见 install.js）。
-//   有自己的记忆中枢就设 ECHO_HUB 覆盖。
-//   ★ 为什么不从 DSH_HOME 推出真中枢的位置：**推不出来** —— 这两者没有固定关系
-//   （作者机器上一个在 dsh/home、一个在 memory/hub，压根不在同一棵树里）。
-//   猜一个「看起来对」的相对路径，就是同一个错换个写法。
-const HUB = process.env.ECHO_HUB || path.join(DSH_HOME, 'hub')
+/**
+ * ★★ NODE —— 2026-10-23 实机验收 E1：**Electron 里 `process.execPath` 不是 node。**
+ *
+ * 桌面端跑插件时 `process.execPath` 是 `DeepSeek Harness.exe`。拿它去 spawn
+ * `echo-doctor.mjs`，**不会报错** —— 只会永远收到空 stdout。面板上看到的症状是
+ * 「体检一项都不出」，而不是「子进程起不来」，所以查起来会往错的方向走。
+ *
+ * 判据：`process.versions.electron` 存在 ⇒ 我们在 Electron 里，execPath 是宿主 exe。
+ * 那时先按已知布局试 DSH 自带的 node，再退到一次**限深度**的浅扫描。
+ * 实在找不到就返回 execPath（保留旧行为）—— **让 spawn 报 ENOENT 也比静默空好**。
+ */
+function resolveNode() {
+  const override = (process.env.ECHO_NODE || '').trim()
+  if (override !== '') return override
+  if (process.versions.electron === undefined) return process.execPath
+
+  const root = path.dirname(process.execPath)
+  // 已知布局（实机验收报告 E1 给出的路径形状），先直接试，省掉一次扫描
+  const guesses = [
+    path.join(root, 'resources', 'runtime', 'primary-runtime', 'dependencies', 'node', 'bin', 'node.exe'),
+    path.join(root, 'resources', 'runtime', 'bin', 'node.exe'),
+  ]
+  for (const g of guesses) {
+    try { if (fs.statSync(g).isFile()) return g } catch { /* 没有就下一个 */ }
+  }
+
+  // 布局变了就浅扫一次：只走 resources 下面，深度 <= 6，跳过明显的非运行时目录
+  const found = []
+  const walk = (dir, depth) => {
+    if (depth > 6 || found.length > 0) return
+    let entries
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+    for (const e of entries) {
+      const full = path.join(dir, e.name)
+      if (e.isFile() && /^node(\.exe)?$/i.test(e.name)) { found.push(full); return }
+      if (e.isDirectory() && !/^(node_modules|cache|Cache|logs|GPUCache)$/i.test(e.name)) walk(full, depth + 1)
+    }
+  }
+  walk(path.join(root, 'resources'), 0)
+  return found.length > 0 ? found[0] : process.execPath
+}
+
+/**
+ * ★★ HUB —— 2026-10-23 实机验收 E2：`$DSH_HOME/hub` 在别人机器上不存在。
+ *
+ * 安装时 `kit/echo/*.mjs` 被复制进「记忆中枢/hub」，而那和 DSH_HOME **没有固定关系**
+ * （作者机器上一个在 `dsh/home`、一个在 `memory/hub`，压根不在同一棵树里）。
+ * 原来直接拼 `$DSH_HOME/hub`，于是 doctor 路径指向空气：spawn 报 ENOENT、
+ * 版本漂移报「一个脚本都没扫到」——**两个症状都是「空」，不是「错」**。
+ *
+ * 现在的判据反过来：**不猜目录，先确认 `echo-doctor.mjs` 真的在那儿。**
+ * 候选依次是 ECHO_HUB、$DSH_HOME/hub、~/.dsh/hub，以及 echo.config.json 里的 memory/hub。
+ */
+function resolveHub() {
+  const cands = []
+  const push = (v) => {
+    const s = (v === undefined || v === null) ? '' : String(v).trim()
+    if (s !== '' && !cands.includes(s)) cands.push(s)
+  }
+  push(process.env.ECHO_HUB)
+  push(path.join(DSH_HOME, 'hub'))
+  push(path.join(os.homedir(), '.dsh', 'hub'))
+  // echo.config.json —— 和 echo-config.mjs 共用同一个约定（放在 hub 目录里）
+  for (const c of cands.slice()) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(path.join(c, 'echo.config.json'), 'utf8'))
+      if (cfg.memory) push(path.join(String(cfg.memory), 'hub'))
+    } catch { /* 没配就是没配 */ }
+  }
+  for (const c of cands) {
+    try { if (fs.statSync(path.join(c, 'echo-doctor.mjs')).isFile()) return c } catch { /* 下一个 */ }
+  }
+  // 全都不在：保留旧行为（让上层的 spawn 去报可见的错误），启动日志会把它喊出来
+  return cands[0] || path.join(DSH_HOME, 'hub')
+}
+
+// ★ NODE —— 见 resolveNode()（Electron 下不能直接用 execPath）
+const NODE = resolveNode()
+// ★ HUB —— 见 resolveHub()（先确认 echo-doctor.mjs 存在，不猜目录）
+const HUB = resolveHub()
 const DOCTOR = path.join(HUB, 'echo-doctor.mjs')
 const MEMINDEX = path.join(HUB, 'memindex.mjs')
 const SELFMJS = path.join(HUB, 'self.mjs')

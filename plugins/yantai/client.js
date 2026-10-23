@@ -595,9 +595,13 @@ window.__ModuleLoader__.load({
           tail + (n.lastPingMs != null ? " · " + n.lastPingMs + " ms" : "") +
           (n.pings ? " · 共 " + n.pings + " 次" : ""))));
 
+      // ★ E10：原来这里也写死了 18766。地址/端口现在完全由宿主半的配置决定，
+      //   文案只说「检查你配的那个地址」，不替使用者假设端口。
       if (!n.reachable && n.lastError) {
         rows.push(h("div", { key: "err", style: Object.assign({}, S.hint, { color: "#e06060" }) },
-          n.lastError + " —— 检查手机服务在跑、以及 adb forward 18766"));
+          n.lastError + (n.origin && n.configured
+            ? " —— 检查手机服务在跑、adb forward 是否把 " + n.origin + " 转到了手机上"
+            : "（未配置 YANTAI_NODE_ORIGIN，这一格不探测）" )));
       }
 
       if (n.reachable && st) {

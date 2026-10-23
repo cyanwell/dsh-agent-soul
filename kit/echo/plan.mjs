@@ -23,9 +23,23 @@ const JSON_OUT = process.argv.includes('--json');
 const NODE = process.execPath;
 const p = (f) => path.join(HERE, f);
 
-/** ★ 2026-10-23：输出给用户照抄的命令必须自带配置，否则在 kit/ 目录里跑会误报「还没配好」。 */
+/**
+ * ★ 2026-10-23：输出给用户照抄的命令必须自带配置，否则在 kit/ 目录里跑会误报「还没配好」。
+ *
+ * ★★ 同一天补的第二个坑（C4 的同族）：**不能写字面 `node`。**
+ *   第一个用户的机器 PATH 里根本没有 node —— DSH 自带一个，它在
+ *   `<安装根>/resources/runtime/.../node.exe`，路径里还带空格。
+ *   （★ 这里不能写通配双星号 + 斜杠，会把上面这段块注释提前闭合 —— 2026-10-23 踩过。）
+ *   照抄 `node xxx.mjs` 只会得到「不是内部或外部命令」。
+ *   所以用**跑这个脚本的那个解释器**（`process.execPath`），带空格时加引号。
+ *   ★ 这条和 echo 后端 `resolveNode()` 是同一个病的两面：一个在进程里 spawn，
+ *   一个在文档里让人手敲 —— 后者更容易被忽略，因为它不会报错，只会让人失败。
+ */
 function doctorCmd() {
-  const parts = [`node ${p('echo-doctor.mjs')}`];
+  const cli = /\s/.test(NODE) ? `"${NODE}"` : NODE;
+  const script = p('echo-doctor.mjs');
+  const quotedScript = /\s/.test(script) ? `"${script}"` : script;
+  const parts = [`${cli} ${quotedScript}`];
   if (CFG.SOUL) parts.push(`--soul "${CFG.SOUL}"`);
   if (CFG.MEM) parts.push(`--memory "${CFG.MEM}"`);
   if (CFG.SESSIONS) parts.push(`--sessions "${CFG.SESSIONS}"`);
@@ -136,7 +150,16 @@ const STEPS = [
     id: 'doctor',
     title: '做一次体检',
     check: () => {
-      const r = spawnSync(NODE, [p('echo-doctor.mjs'), '--json'], {
+      // ★ 2026-10-23：这里原来只传 ['--json']，靠继承环境变量。
+      //   在 agent 工具里跑没问题（工具已经把 ECHO_* 注入了），
+      //   但**用户在自己 shell 里跑**时，若他只配了 echo.config.json、而这个文件不在
+      //   kit/ 目录旁边，doctor 就会报「没有配置 SOUL」→ 这里误判成「第 6 步没做完」。
+      //   判据：让子进程拿到的参数和 doctorCmd() 教用户敲的那条**完全一致**。
+      const args = [p('echo-doctor.mjs'), '--json'];
+      if (CFG.SOUL) args.push('--soul', CFG.SOUL);
+      if (CFG.MEM) args.push('--memory', CFG.MEM);
+      if (CFG.SESSIONS) args.push('--sessions', CFG.SESSIONS);
+      const r = spawnSync(NODE, args, {
         encoding: 'utf8', timeout: 120000,
       });
       if (r.status === 0) return true;

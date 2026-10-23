@@ -23,7 +23,7 @@
 
 import { spawn, execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, openSync, closeSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join, dirname, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const name = 'dsh-agent-model-statusbar'
@@ -31,21 +31,67 @@ export const inject = ['tools', 'webServer']
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PROBE_PS1 = join(HERE, 'probe.ps1')
-const PROBE_FALLBACK = '<插件目录>'
 
-// ★★ 默认指向 0.38（并列安装那份）。
-//   理由：0.38 能跑全部旧线（z-image / WAN i2v / WAN flf2v / IPAdapter / ControlNet 的节点
-//   都实测过在），而 0.36 跑不了 Qwen-Image 2.1（它的 VAE 会被当成 WanVAE 套、size mismatch）。
-//   ⇒ 留 0.36 的价值只在「万一 0.38 出了没测出来的毛病能一键退回去」—— 它是退路，不是入口。
-//   ★ 退回去的办法：把这一行改回 '<ComfyUI 目录>'，然后重启 DSH。
-//   ★ 为什么换目录不丢东西：两个目录用 junction 共享 models / custom_nodes / output /
-//     input / user / temp，所以模型、插件、产物都还在原处，只是「跑哪份代码」变了。
-const COMFY_DIR = '<ComfyUI 目录>'
-const COMFY_PY = '<ComfyUI 的 python>'
-const COMFY_PORT = 8188
-const BASE = `http://127.0.0.1:${COMFY_PORT}`
-const LOG_DIR = '<ComfyUI 日志目录>'
-const STATE_FILE = './statusbar-state.json'
+// ── 可配项（README 的「可配项」是契约，这里必须真的读它们）────────────────
+// ★★ 2026-10-23 修：这一段原来是 5 个占位符（`<ComfyUI 目录>` 之类），且全文件零
+//   `process.env` —— README 承诺的 STATUSBAR_STATE / COMFYUI_HOST / COMFYUI_DIR 一个都没兑现。
+//   后果：换台机器「拉起」永远报找不到 python；改了端口仍探 8188，状态永远「未知」。
+const ENV = (k) => String(process.env[k] || '').trim()
+// 相对路径锚在插件自身目录（HERE），不锚 cwd —— 宿主进程的 cwd 是安装目录，
+// 跟着它写文件会让同一份状态在「不同启动方式」下落进不同目录。
+const resolveHere = (p) => (p ? (isAbsolute(p) ? p : join(HERE, p)) : '')
+
+// 状态文件：① STATUSBAR_STATE（README 承诺项）→ ② 插件目录下的 statusbar-state.json。
+// 候选理由：这是**插件自己的**运行状态（静息倒计时），不属于使用者的数据，默认就该待在插件目录。
+const STATE_FILE = resolveHere(ENV('STATUSBAR_STATE')) || join(HERE, 'statusbar-state.json')
+
+// 本地模型服务地址：① COMFYUI_HOST（README 承诺项）→ ② 127.0.0.1:8188。
+// 候选理由：② 是 ComfyUI 自己的默认监听地址/端口，不是某台机器的值 —— 没改端口的人换机器仍然对。
+// 接受三种写法：`host`、`host:port`、`http://host:port`（README 示例是 host:port 形态）。
+function parseComfyHost(raw) {
+  const s = String(raw || '').trim().replace(/\/+$/, '')
+  if (!s) return { host: '127.0.0.1', port: 8188, base: 'http://127.0.0.1:8188', raw: '' }
+  try {
+    const u = new URL(/^https?:\/\//i.test(s) ? s : 'http://' + s)
+    const port = Number(u.port || (u.protocol === 'https:' ? 443 : 8188)) || 8188
+    const host = u.hostname || '127.0.0.1'
+    return { host, port, base: `${u.protocol}//${host}:${port}`, raw: s }
+  } catch {
+    // 解析不了就退回默认值，但把原值留在 raw/bad 里（调用方可以看出来「你配的没被采用」）
+    return { host: '127.0.0.1', port: 8188, base: 'http://127.0.0.1:8188', raw: s, bad: true }
+  }
+}
+const COMFY_EP = parseComfyHost(ENV('COMFYUI_HOST'))
+const COMFY_HOST = COMFY_EP.host
+const COMFY_PORT = COMFY_EP.port
+const BASE = COMFY_EP.base
+
+// ComfyUI 安装目录：① COMFYUI_DIR（README 承诺项）→ ② 空（不猜）。
+// 候选理由：**没有第二个合理候选** —— 它可能装在任何一个盘的任何一层目录；
+// 猜一个等于把某台机器又搬回来。没配时「拉起」会明确告诉你怎么配。
+const COMFY_DIR = ENV('COMFYUI_DIR')
+
+// ComfyUI 用的 python：① COMFYUI_PY（额外口子，便携版 / 虚拟环境用得上）
+//   → ② 安装目录下的三种常见布局（官方便携包 python_embeded、venv、.venv）。
+// 一个都找不到 → 空串，「拉起」明确返回「请设 COMFYUI_PY」，不去撞一个不存在的路径。
+function firstExistingFile(cands) {
+  for (const c of cands) { if (c && existsSync(c)) return c }
+  return ''
+}
+const COMFY_PY = ENV('COMFYUI_PY') || firstExistingFile([
+  COMFY_DIR ? join(COMFY_DIR, 'python_embeded', 'python.exe') : '',
+  COMFY_DIR ? join(COMFY_DIR, '.venv', 'Scripts', 'python.exe') : '',
+  COMFY_DIR ? join(COMFY_DIR, 'venv', 'Scripts', 'python.exe') : '',
+])
+
+// 日志目录：① COMFYUI_LOG_DIR → ② <COMFYUI_DIR>\logs → ③ <插件目录>\logs。
+// 候选理由：日志是这个插件拉起的进程的产物，② 让日志和 ComfyUI 放在一起便于对照；
+// ③ 是「没配安装目录」时唯一仍然合法、且一定可写的位置。
+const LOG_DIR = ENV('COMFYUI_LOG_DIR')
+  || (COMFY_DIR ? join(COMFY_DIR, 'logs') : join(HERE, 'logs'))
+
+// 探测脚本：包内自带；要换自己那份就设 STATUSBAR_PROBE（不猜别的路径）。
+const PROBE_FILE = ENV('STATUSBAR_PROBE') || PROBE_PS1
 const ROUTE = '/model-statusbar'
 
 // ── 空闲自动静息（0-11 加，判据与理由见下面 idleAutoTick）──────
@@ -68,11 +114,18 @@ let probeCache = { at: 0, data: null, error: null }
 
 function runProbeRaw(timeoutMs = 30000) {
   return new Promise((resolve) => {
-    const file = existsSync(PROBE_PS1) ? PROBE_PS1 : PROBE_FALLBACK
-    if (!existsSync(file)) return resolve({ ok: false, error: `找不到 probe.ps1：${PROBE_PS1}` })
+    const file = PROBE_FILE
+    if (!existsSync(file)) {
+      return resolve({
+        ok: false,
+        error: `找不到探测脚本：${file} —— 设 STATUSBAR_PROBE 指向你自己的 probe.ps1`
+          + '（默认用包内那份）',
+      })
+    }
     execFile(
       'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file, '-Json'],
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', file, '-Json',
+        '-ApiBase', BASE, '-ModelsDir', COMFY_DIR || ''],
       { timeout: timeoutMs, windowsHide: true, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8' },
       (err, stdout, stderr) => {
         const text = String(stdout || '')
@@ -272,9 +325,18 @@ async function doStart() {
     probeCache = { at: 0, data: null }
     return { ok: true, action: 'start', already: true, message: 'ComfyUI 已经在跑' }
   }
-  if (!existsSync(COMFY_PY)) return { ok: false, action: 'start', message: `找不到 python：${COMFY_PY}` }
+  if (!COMFY_DIR) {
+    return { ok: false, action: 'start',
+      message: '未配置 ComfyUI 安装目录：请设 COMFYUI_DIR=<含 main.py 的目录>，改完重启 DSH' }
+  }
+  if (!COMFY_PY) {
+    return { ok: false, action: 'start',
+      message: '未配置 python：请设 COMFYUI_PY=<python.exe 完整路径>'
+        + '（官方便携版通常是 <COMFYUI_DIR>/python_embeded/python.exe），改完重启 DSH' }
+  }
+  if (!existsSync(COMFY_PY)) return { ok: false, action: 'start', message: `找不到 python：${COMFY_PY}（检查 COMFYUI_PY 是否指对）` }
   if (!existsSync(join(COMFY_DIR, 'main.py'))) {
-    return { ok: false, action: 'start', message: `找不到 main.py：${COMFY_DIR}` }
+    return { ok: false, action: 'start', message: `找不到 main.py：${COMFY_DIR}（检查 COMFYUI_DIR 是否指对）` }
   }
 
   mkdirSync(LOG_DIR, { recursive: true })
@@ -617,7 +679,8 @@ export function apply(ctx) {
     kind: 'prefix',
     path: ROUTE,
     handler: async (req, res) => {
-      const url = new URL(req.url, `http://127.0.0.1:${COMFY_PORT}`)
+      // 这里只是解析本插件的请求路径，和 ComfyUI 地址无关 —— 别拿 COMFY_PORT 当 URL 基
+      const url = new URL(req.url, 'http://127.0.0.1')
       const p = url.pathname.replace(/^\/model-statusbar/, '') || '/'
       try {
         // 状态栏开局只要这一个请求

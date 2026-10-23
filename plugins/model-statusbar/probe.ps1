@@ -1,24 +1,32 @@
-# probe.ps1 - local model status probe (read-only, no side effects)
+﻿# probe.ps1 - local model status probe (read-only, no side effects)
 # ★ Output is ASCII-only on purpose: this machine's powershell.exe is 5.1 and reads
 #   .ps1 as GBK unless the file has a BOM. English output sidesteps the whole trap.
 # Usage: powershell -NoProfile -File probe.ps1 [-Json]
-param([switch]$Json)
+param([switch]$Json, [string]$ApiBase = 'http://127.0.0.1:8188', [string]$ModelsDir = '')
+
+# ★ 2026-10-23: address/port/models dir come from the caller (index.js reads
+#   COMFYUI_HOST / COMFYUI_DIR). Nothing machine-specific is hardcoded here.
+$apiBase = $ApiBase.TrimEnd('/')
+try { $ep = [System.Uri]$apiBase } catch { $ep = [System.Uri]'http://127.0.0.1:8188' }
+$apiHost = $ep.Host
+$apiPort = $ep.Port
+$mdlRoot = if ($ModelsDir) { Join-Path $ModelsDir 'models' } else { '' }
 
 $out = [ordered]@{}
 
 $proc = Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*comfyui*' }
-$api  = & curl.exe -s --max-time 2 "http://127.0.0.1:8188/system_stats" 2>$null
+$api  = & curl.exe -s --max-time 2 "$apiBase/system_stats" 2>$null
 $out.comfyui = [ordered]@{
   running  = [bool]$proc
   pids     = @($proc | ForEach-Object { $_.Id })
   memMB    = [int](($proc | Measure-Object WorkingSet64 -Sum).Sum / 1MB)
   apiUp    = [bool]$api
-  endpoint = 'http://127.0.0.1:8188'
+  endpoint = $apiBase
 }
 
-$ck = "<ComfyUI 目录>\models\checkpoints"
+$ck = if ($mdlRoot) { Join-Path $mdlRoot 'checkpoints' } else { '' }
 $out.checkpoints = @()
-if (Test-Path $ck) {
+if ($ck -and (Test-Path $ck)) {
   $out.checkpoints = @(Get-ChildItem $ck -File | Where-Object { $_.Length -gt 0 } |
     Sort-Object Length -Descending |
     ForEach-Object { [ordered]@{ name = $_.Name; gb = [math]::Round($_.Length/1GB, 2) } })
@@ -31,7 +39,7 @@ if (Test-Path $ck) {
 # ★ Patterns are deliberately exact: text_encoders also holds
 #   Qwen3VL-8B-Instruct-Q4_K_M.gguf, which must NOT be counted (a GGUF text
 #   encoder is known-bad for this pipeline).
-$mdl = "<ComfyUI 目录>\models"
+$mdl = $mdlRoot
 $bundleDefs = @(
   [ordered]@{
     name  = 'Qwen-Image 2.1 Turbo'
@@ -43,6 +51,7 @@ $bundleDefs = @(
   }
 )
 $out.bundles = @()
+if ($mdlRoot) {
 foreach ($b in $bundleDefs) {
   $found = @(); $sum = 0.0
   foreach ($p in $b.parts) {
@@ -60,6 +69,7 @@ foreach ($b in $bundleDefs) {
     $out.bundles += [ordered]@{ name = $b.name; gb = [math]::Round($sum, 2); parts = $found }
   }
 }
+}
 
 # ★ 0-11 fixed: the unquoted '--query-gpu=a,b,c' form is fragile under
 #   PowerShell 5.1 -- the commas can be read as an array separator, splitting the
@@ -72,8 +82,9 @@ if ($g) {
 } else { $out.gpu = $null }
 
 $out.ports = @()
-foreach ($p in @(@{n='comfyui';p=8188}, @{n='qq-gw';p=3001}, @{n='qq-gw-alt';p=3100})) {
-  $t = Test-NetConnection -ComputerName 127.0.0.1 -Port $p.p -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+# comfyui 用配置里的 host/port；qq 那两个是固定的本机端口，保持原样。
+foreach ($p in @(@{n='comfyui';p=$apiPort;h=$apiHost}, @{n='qq-gw';p=3001;h='127.0.0.1'}, @{n='qq-gw-alt';p=3100;h='127.0.0.1'})) {
+  $t = Test-NetConnection -ComputerName $p.h -Port $p.p -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
   $out.ports += [ordered]@{ name = $p.n; port = $p.p; up = [bool]$t }
 }
 

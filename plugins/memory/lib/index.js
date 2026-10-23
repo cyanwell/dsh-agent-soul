@@ -21,13 +21,37 @@
 //   ③ **超预算要写在正文里，不许静默截断。** 截断了模型的视野里是看不出来的。
 
 import fs from 'node:fs';
+import { dirname, isAbsolute, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
+// 可配项优先读环境变量（README 的 config: 是主通道，环境变量是同义的第二通道，
+// 方便容器/CI 里不改 profile 也能用）。
+const ENV = (k) => String(process.env[k] || '').trim();
+
+// 相对路径不再锚 cwd —— 宿主进程的 cwd 是安装目录，跟着它会让同一份配置漂到不同文件。
+// 两类文件分开处理（理由不同）：
+//   · selfPath 是**使用者写的**清单：相对路径锚 DSH_HOME（每用户稳定的数据目录），没设才退 HERE；
+//   · statePath 是**插件自己的**状态：相对路径锚 HERE（插件目录），不跟着家目录/cwd 漂。
+const isAbs = (p) => isAbsolute(p) || /^[A-Za-z]:[\\/]/.test(p);
+const anchorUser = (p) => (p ? (isAbs(p) ? p : join(ENV('DSH_HOME') || HERE, p)) : '');
+const anchorHere = (p) => (p ? (isAbs(p) ? p : join(HERE, p)) : '');
 
 export const name = 'dsh-agent-memory';
 
-/** 默认值 —— 都可以在 cordis.patch.yml 的 config: 里覆盖。 */
+/**
+ * 默认值 —— 都可以在 cordis.patch.yml 的 config: 里覆盖；
+ * 也可以不写 config、改用环境变量 MEMORY_SELF / MEMORY_STATE（同名优先级更低）。
+ *
+ * ★ 2026-10-23 修：这两个原来默认 './SELF.md' / './state.json' —— 相对 cwd。
+ *   cwd 是宿主进程的启动目录（安装目录），于是「换了启动方式，自我层就静默读到空」。
+ *   selfPath 没有合理默认（它必须指向**使用者**写的那份清单），所以默认是空串 +
+ *   一句可执行的提示；statePath 是插件自己的状态，默认锚在插件目录。
+ */
 export const DEFAULTS = {
-  selfPath: './SELF.md',
-  statePath: './state.json',
+  selfPath: '',
+  statePath: 'state.json',
   /** 排在 SUBAGENT_DELEGATION(120) 之后。 */
   order: 130,
   /** 每个回合都注入自我层。设 false 则只注入时钟。 */
@@ -104,6 +128,10 @@ export function apply(ctx, config) {
   const cfg = { ...DEFAULTS, ...(config || {}) };
   if (cfg.enabled === false) return;
 
+  // 配置 > 环境变量 > 默认值；相对路径分别锚 DSH_HOME / HERE（见上面 anchorUser / anchorHere 的注释）
+  cfg.selfPath = anchorUser(String(cfg.selfPath || ENV('MEMORY_SELF') || '').trim());
+  cfg.statePath = anchorHere(String(cfg.statePath || ENV('MEMORY_STATE') || 'state.json').trim());
+
   const readSelf = reader(cfg.selfPath);
   let readState = null;
   try {
@@ -145,7 +173,14 @@ export function apply(ctx, config) {
           if (sid) self = self.replace(/- 本容器：`[^`]*`/, '- 本容器：`' + sid + '`');
         } catch { /* 覆盖失败就用原样，不影响注入 */ }
         if (!self) {
-          lines.push('【自我层】★ SELF.md 读不到（' + cfg.selfPath + '）—— 跑 `node <你的记忆库目录>/self.mjs` 重新装配。');
+          // ★ 不静默空：说清是「没配」还是「配了读不到」，以及下一步做什么
+          if (!cfg.selfPath) {
+            lines.push('【自我层】★ 未配置 selfPath —— 请在 cordis.patch.yml 的 config.selfPath 指向你的 SELF.md'
+              + '（或设环境变量 MEMORY_SELF=<SELF.md 完整路径>），改完重启 DSH。');
+          } else {
+            lines.push('【自我层】★ SELF.md 读不到（' + cfg.selfPath + '）—— 检查该文件是否存在，'
+              + '或跑 `node <你的记忆库目录>/self.mjs` 重新装配。');
+          }
         } else {
           const bytes = Buffer.byteLength(self, 'utf8');
           if (bytes > cfg.maxBytes) {

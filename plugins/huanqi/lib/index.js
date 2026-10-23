@@ -1301,8 +1301,14 @@ const EN = {
         + `so it was cut and a new turn started. Continuation credit left: ${credit}/${max} `
         + `(it grows back one point every ${threshold} normal turns). `
         + 'Carry on with the task you were working on; do not restate this reasoning.',
-    circuitBreakNotice: (max) => `[huanqi] Thinking circuit-broken: ${max} continuations in a row produced no text, `
-        + 'so no further turn will be started. Save your progress and compact the context manually.',
+    circuitBreakNotice: (max) => `[huanqi] Continuation credit exhausted: ${max} continuations in a row produced no text, `
+        + 'so no further turn will be started. Do exactly these three things and nothing else: '
+        + '(1) save your progress to durable storage — a ledger entry or a file — stating where you got to, '
+        + 'what comes next, and where you are stuck; '
+        + '(2) add an index entry pointing back at it (`log:session-<id>#seq=<n>`; if you cannot get an exact '
+        + 'seq, write search keywords — never guess, a wrong pointer is worse than none); '
+        + '(3) stop and tell the user the context needs a manual compaction. '
+        + 'Do not start new work and do not keep exploring.',
     creditWarning: (credit, max, threshold) => `[huanqi] Continuation credit is down to ${credit}/${max}: the context may have gone dirty. `
         + `Consider compacting it manually; normal turns restore credit every ${threshold} turns.`,
     silentCutNotice: (chars, credit, max) => `[huanqi] This turn reasoned for ${chars} characters without producing any text or tool call, `
@@ -1335,8 +1341,20 @@ const ZH = {
     continueNotice: (credit, max, threshold) => `〔换气〕本轮思考用尽了输出预算、正文没能产生，已截断这一轮并开新一轮。`
         + `延续额度剩 ${credit}/${max}（每 ${threshold} 个正常轮涨回一点）。`
         + '继续完成你原本的任务，不要复述这段思考。',
-    circuitBreakNotice: (max) => `〔换气〕本场思考已熔断：连续 ${max} 次延续都没有产出正文，不再开新一轮。`
-        + '请对砚青说「保存当前进度，做好手动压缩」，然后开一条新会话继续。',
+    /* ★ 2026-10-23（爀曦定，砚青落）：熔断后的动作从「转达一句话」改成「自己去做」。
+     *
+     * 病因：原来这条只说「请对砚青说『保存当前进度』」——那是**要求它转达**，不是要求它落盘。
+     * 而熔断恰恰发生在「它已经连续 N 轮只顾着推演、不肯动手」的时刻，
+     * 这时候再给它一句「去跟人说一声」，等于让一个已经空转的循环再说一句空话。
+     *
+     * 现在写明三件事，且写明「别的都不要做」——因为熔断后的额度已经是 0，
+     * 任何新任务都只会再烧一次、再断一次。落盘是唯一还能产生价值的方向。 */
+    circuitBreakNotice: (max) => `〔换气〕延续额度已耗尽、思考已熔断（连续 ${max} 次都没产出正文），本轮不再自动续跑。`
+        + '现在只做三件事，别的一概不做：'
+        + '① 把当前进度落盘 —— 写一条《墨》或落一个文件，写清「做到哪、下一步是什么、卡在哪」；'
+        + '② 在账本里加一条索引，带能回取的指针（`log:session-<会话id>#seq=<n>`；'
+        + '拿不到精确 seq 就写检索词，**不许猜** —— 错的门牌比没有更坏）；'
+        + '③ 落完就停，告诉爀曦「需要手动压缩」。不要再开新任务、不要再探索。',
     creditWarning: (credit, max, threshold) => `〔换气〕延续额度只剩 ${credit}/${max}：上下文可能已经变脏。`
         + `建议手动压缩上下文；正常对话每满 ${threshold} 轮会涨回一点。`,
     silentCutNotice: (chars, credit, max) => `〔换气〕本轮思考写了 ${chars} 字，正文和工具调用都还没产生，已在流中截断。`
@@ -1443,6 +1461,17 @@ export function apply(ctx, config) {
     };
     const detectors = new WeakMap();
     /**
+     * 已经收到过「落盘指令」的 agent。
+     *
+     * ★ 2026-10-23（砚青落）：为什么需要它 —— 熔断后 `steer` 会把会话推进下一轮，
+     * 而那一轮的延续额度**仍然是 0**。如果它又没产出，就会再走一次熔断、再 steer 一次，
+     * 变成**无限循环**（每轮都烧一次钱，却永远不让人介入）。
+     *
+     * 所以：每条 agent 的一生只收到一次落盘指令。第二次熔断起就不再推它 ——
+     * 那时候能做的确实只剩「停下来等人手动压缩」。
+     */
+    const landPrompted = new WeakSet();
+    /**
      * 换气账本。
      *
      * ★ **全局一份，跨会话共享**（爀曦 2026-10-10 定：「分会话管理会很麻烦」）。
@@ -1468,7 +1497,39 @@ export function apply(ctx, config) {
         }
         return detector;
     }
+    /**
+     * Is this a delegated (sub-)agent rather than a root conversation?
+     *
+     * ★ 2026-10-23（爀曦指出，砚青落）—— **子 agent 不参与换气判定。**
+     *
+     * 病因（2026-10-22 夜实测）：子 agent 正在干活时被反复「误杀」。
+     * 换气判的是「这一轮没出正文」，而子 agent 的「没出正文」**通常只是它还在读文件、
+     * 跑工具、或等一个长命令** —— 那不是循环，是工作。主会话和子 agent 在同一把尺子下，
+     * 被误判的那一方永远是子 agent，因为它本来就更少「说话」、更多「做事」。
+     *
+     * 判据用 DSH 自己的分类，不猜：
+     *   `session.meta.origin === 'subagent'`（官方 coarse classification），
+     *   或 `session.meta.delegationDepth > 0`（递归深度，子 agent 至少是 1）。
+     *
+     * ★★ **拿不到 session 时不拦。** 这是有意的方向：宁可漏拦一个子 agent
+     *   （它照旧会被后面的流内/流末保护兜住），也不能因为读不到元数据
+     *   就把主会话这层保险悄悄关掉 —— 那是「保险失效还说自己在值班」。
+     */
+    function isSubagent(agent) {
+        const meta = agent?.session?.meta;
+        if (meta === undefined || meta === null)
+            return false;
+        if (meta.origin === 'subagent')
+            return true;
+        const depth = meta.delegationDepth;
+        return typeof depth === 'number' && depth > 0;
+    }
     function react(agent, reason) {
+        // ★ 子 agent 跳过整条换气反应链（warn / steer / cancel 三档都不碰）。
+        if (isSubagent(agent)) {
+            ctx.logger.info('dsh-huanqi: skip — subagent sessions are exempt from the loop guard');
+            return;
+        }
         const s = stringsFor(readLanguage(ctx));
         switch (config.escalate) {
             case 'warn':
@@ -1799,6 +1860,14 @@ export function apply(ctx, config) {
                 ledger.save(ledgerPath, warnLedger);
                 ctx.logger.warn('dsh-huanqi: empty turn and continuation budget exhausted; circuit-breaking');
                 agent.inject(message(strings.circuitBreakNotice(ledger.creditMax), 'notice', 'huanqi: circuit break (empty turn)'));
+                /* ★ 2026-10-23（砚青落）：inject 只是让人**看见**；要它真的去落盘，必须 steer ——
+                 * steer 是一条真正的用户消息，会进下一轮被模型读到并执行。
+                 * ★ 守卫只用一次（landPrompted）：熔断后额度是 0，若它又被推进一轮却仍无产出，
+                 * 会再次熔断、再次 steer —— 那就是无限循环。第二次起只留给 inject，等人来。 */
+                if (!landPrompted.has(agent)) {
+                    landPrompted.add(agent);
+                    agent.steer(message(strings.circuitBreakNotice(ledger.creditMax), 'notice', 'huanqi: land your state, then ask the user to compact'));
+                }
             }
         }));
     }
@@ -1979,6 +2048,11 @@ export function apply(ctx, config) {
                         // ★ 这条同时干两件事：告诉人该介入了，以及**让 assistant 消息不为空**
                         // （空消息会让整条会话从那一刻起永久不可用）。
                         agent.inject(message(strings.circuitBreakNotice(ledger.creditMax), 'notice', 'huanqi: circuit break'));
+                        /* ★ 2026-10-23：同上 —— inject 给人看，steer 让它去做，且只发一次。 */
+                        if (!landPrompted.has(agent)) {
+                            landPrompted.add(agent);
+                            agent.steer(message(strings.circuitBreakNotice(ledger.creditMax), 'notice', 'huanqi: land your state, then ask the user to compact'));
+                        }
                     }
                     for (const c of tail)
                         yield c;

@@ -19,33 +19,154 @@
 //   GET  /agent-huanqi/api/preview   只读地告诉你"改完会变成哪几行"，不落盘
 //   GET  /agent-huanqi/api/health    自检
 
-import { join } from 'node:path'
+import { join, isAbsolute, resolve as resolvePath } from 'node:path'
 import { homedir } from 'node:os'
 import { readFileSync, writeFileSync, existsSync, copyFileSync, statSync, renameSync, openSync, fsyncSync, closeSync, readdirSync } from 'node:fs'
 
 export const name = 'dsh-agent-huanqi-panel'
 export const inject = ['webServer']
 
-// ★★ 原来这两个都是写死的（2026-10-22 P1-5）：
-//   HOME 是字面占位符 '<你的 DSH_HOME>/dsh/home'（health 返回 ok，可所有路径都不存在），
-//   PROFILES 只认 desktop/web —— 用户建个 full profile 就改不了配置。
+// ═══════════════════════════════════════════════════════════════════════════
+// DSH 家目录定位 —— 2026-10-23 实机报告 E3 / E4
 //
-// 现在：HOME 从 DSH_HOME 推；PROFILES 扫 profiles/ 目录（建的时候扫，不是请求时扫）。
-const DSH_HOME = String(process.env.DSH_HOME || '').trim() || homedir() + '/dsh/home'
-const HOME = String(process.env.HUANQI_HOME || '').trim() || DSH_HOME
-const PROFILES = (() => {
+// 病灶：默认写成了 `homedir() + '/dsh/home'`。Windows 下 `~` 是 <用户目录>，
+// 于是默认值落在 `<用户目录>/dsh/home` —— 桌面端根本没有这个目录（桌面端是 `~/.dsh`）。
+// 作者机器上设了 DSH_HOME 用户环境变量，这条默认分支永远走不到，所以它一直活着；
+// 换台机器（尤其 DSH_HOME 没设）立刻表现为「面板里全是空的，但不报错」。
+//
+// 候选顺序，每一处都写清「为什么是这个候选」：
+//   ① DSH_HOME        —— DSH 自己用的变量；显式给的一律采信（哪怕暂不存在，也如实报告）
+//   ② HUANQI_HOME     —— 本插件专用覆盖（在没有 DSH 的机器上单独验面板用）
+//   ③ <home>/.dsh     —— DSH 未设 DSH_HOME 时的标准位置（E3：桌面端就是这里）
+//   ④ <home>/dsh/home —— 早期安装器的旧布局；只在它真的存在时采用（E3 的旧默认值）
+//
+// 全都不存在时**不静默**：照旧返回 ③（最可能的标准位置），并带一句可执行的下一步。
+// 这句话会出现在 /api/health 和设置页上 —— 「找不到」必须能被人看见。
+// ═══════════════════════════════════════════════════════════════════════════
+function isDir(p) {
+  try { return !!p && existsSync(p) && statSync(p).isDirectory() } catch { return false }
+}
+
+function resolveDshHome(env = process.env, userHome = homedir()) {
+  const tried = []
+  const add = (path, source, required) => tried.push({ path, source, required: !!required, exists: isDir(path) })
+  const envHome = String(env.DSH_HOME || '').trim()
+  const ownHome = String(env.HUANQI_HOME || '').trim()
+
+  // ① / ②：显式设置优先，而且**只信它** —— 设错了要报错，不能悄悄换一个目录继续跑
+  if (envHome) add(envHome, 'DSH_HOME 环境变量（DSH 自己用的那个）', true)
+  if (ownHome) add(ownHome, 'HUANQI_HOME 环境变量（本插件专用覆盖）', true)
+
+  // ③ / ④：只有没设 DSH_HOME 时才需要猜 —— 这正是报告 E3 的场景
+  if (!envHome) {
+    add(join(userHome, '.dsh'), 'DSH 未设 DSH_HOME 时的标准位置（报告 E3：桌面端就是这里）')
+    add(join(userHome, 'dsh', 'home'), '早期安装器的旧布局；只在真的存在时采用（报告 E3 的旧默认值）')
+  }
+
+  for (const c of tried) {
+    if (c.exists) return { home: c.path, source: c.source, tried, exists: true, hint: null }
+  }
+  const explicit = tried.find((c) => c.required)
+  if (explicit) {
+    return {
+      home: explicit.path, source: explicit.source, tried, exists: false,
+      hint: explicit.source + ' 指向的目录不存在：' + explicit.path + '。下一步：把环境变量改成你机器上真实的 DSH 家目录，再重启 DSH。'
+    }
+  }
+  const fallback = tried[0]
+  return {
+    home: fallback.path, source: fallback.source, tried, exists: false,
+    hint: '找不到 DSH 家目录（试过：' + tried.map((t) => t.path).join('；') + '）。'
+      + '下一步：设 DSH_HOME 环境变量指向你的 DSH 家目录（DSH 用它，本面板也读它），然后重启 DSH；'
+      + '或在 profile 的 cordis.patch.yml 里给本插件配 home。'
+  }
+}
+
+const HOME_RES = resolveDshHome()
+const HOME = HOME_RES.home
+
+const PROFILES_RES = (() => {
   try {
-    return readdirSync(join(HOME, 'profiles'), { withFileTypes: true })
-      .filter((e) => e.isDirectory())
+    const list = readdirSync(join(HOME, 'profiles'), { withFileTypes: true })
+      // node_modules 不是 profile（pnpm 会把依赖放在 profiles/ 下），隐藏目录也不是。
+      // 不排除的话面板会列出一个叫 node_modules 的假 profile —— 正好是「不报错但里面是空的」那一类。
+      .filter((e) => e.isDirectory() && e.name !== 'node_modules' && !e.name.startsWith('.'))
       .map((e) => e.name)
       .sort()
+    return { list, hint: null }
   } catch {
-    // 扫不到就退回两个常见的 —— 不要因为目录不存在就整个面板挂掉
-    return ['desktop', 'web']
+    // 扫不到就退回两个常见的 —— 不要因为目录不存在就整个面板挂掉。
+    // 但要把「为什么是猜的」说出来，别让界面以为它扫过了。
+    return { list: ['desktop', 'web'], hint: '扫描不到 ' + join(HOME, 'profiles') + '，先按 desktop / web 两个常用 profile 显示；请确认 DSH_HOME 是否正确。' }
   }
 })()
-/** 换气的账本（ledgerPath 留空时走这里）。它在换气出手时被重写，是"实时额度"的唯一来源。 */
-const LEDGER = `${HOME}/state/dsh-huanqi.json`
+const PROFILES = PROFILES_RES.list
+
+/**
+ * 换气的账本路径 —— 2026-10-23 实机报告 E4。
+ *
+ * 原来面板自己拼 `<HOME>/state/dsh-huanqi.json`，而 HOME 又来自那个错的默认值，
+ * 于是作者机器上恰好对上，别人机器上是 `C:\Users\<用户>\dsh\home\state\dsh-huanqi.json`（不存在）。
+ * 正确做法是**跟着换气自己走**：它把实际路径写在 desktop profile 的 `- id: huanqi` → config.ledgerPath；
+ * 没写时才回落到它自己的默认 `<DSH_HOME>/state/dsh-huanqi.json`。
+ */
+function expandHomeish(p, userHome) {
+  const s = String(p == null ? '' : p).trim()
+  if (!s) return ''
+  if (s === '~') return userHome
+  if (s.startsWith('~/') || s.startsWith('~\\')) return join(userHome, s.slice(2))
+  // 相对路径按 DSH 家目录解析 —— 与 dsh-huanqi 内部 join(home, ...) 的口径一致
+  return isAbsolute(s) ? s : resolvePath(userHome, s)
+}
+
+function readHuanqiConfigValue(key) {
+  try {
+    const f = cfgPath('desktop')
+    if (!existsSync(f)) return ''
+    const r = readValues(readFileSync(f, 'utf8'))
+    let v = r.found ? String(r.values[key] || '').trim() : ''
+    // 面板的 readValues 是「按行取值」，不替人解析 YAML 引号；这里补一步去引号，
+    // 否则 `ledgerPath: 'D:/x/y.json'` 会被当成带单引号的路径（文件永远找不到）。
+    if (v.length > 1 && ((v[0] === "'" && v[v.length - 1] === "'") || (v[0] === '"' && v[v.length - 1] === '"'))) {
+      v = v.slice(1, -1).replace(/''/g, "'")
+    }
+    return v
+  } catch { return '' }
+}
+
+function resolveLedger(userHome) {
+  // 面板专用覆盖（README 里写的 PANEL_LEDGER；文档承诺过，代码必须实现）
+  const envLedger = expandHomeish(process.env.PANEL_LEDGER, userHome)
+  // ★ E4 的核心：账本位置**跟着换气自己走** —— 它写在 desktop profile 的
+  //   `- id: huanqi` → config.ledgerPath。这条配置即使指向的文件还没生成，也以它为准
+  //   （换气第一次出手时才会创建它）；不能因为「文件不存在」就退回一个别的路径。
+  const profilePath = expandHomeish(readHuanqiConfigValue('ledgerPath'), userHome)
+  // 两处都没配时才回落到换气自己的默认值（它的 lib/index.js 就是 <DSH_HOME>/state/dsh-huanqi.json）
+  const fallback = join(userHome, 'state', 'dsh-huanqi.json')
+
+  const chosen = envLedger || profilePath || fallback
+  const source = envLedger
+    ? 'PANEL_LEDGER 环境变量（本面板专用覆盖）'
+    : profilePath
+      ? 'desktop profile 的 huanqi.ledgerPath（换气真正在写的位置）'
+      : '换气默认位置 <DSH_HOME>/state/dsh-huanqi.json（报告 E4 的回落）'
+  const tried = [
+    { path: envLedger || '(未设)', source: 'PANEL_LEDGER 环境变量', exists: !!envLedger && existsSync(envLedger) },
+    { path: profilePath || '(未配)', source: 'desktop profile 的 huanqi.ledgerPath', exists: !!profilePath && existsSync(profilePath) },
+    { path: fallback, source: '换气默认位置', exists: existsSync(fallback) }
+  ]
+  const exists = existsSync(chosen)
+  return {
+    path: chosen, source, tried, exists,
+    hint: exists ? null : '账本还不存在：可能换气还没出过手（正常）；也可能它在别处 —— '
+      + '在设置页把「账本路径」填成实际文件，或设 PANEL_LEDGER 环境变量。已尝试：'
+      + tried.filter((t) => t.path !== '(未设)' && t.path !== '(未配)').map((t) => t.path).join('；')
+  }
+}
+
+const LEDGER_RES = resolveLedger(HOME)
+/** 换气的账本（按上面的顺序解析）。它在换气出手时被重写，是"实时额度"的唯一来源。 */
+const LEDGER = LEDGER_RES.path
 
 /** 面板里暴露的参数：类型 + 取值范围 + 中文说明。范围抄自 dsh-huanqi 的 Config（zod schema）。 */
 const FIELDS = [
@@ -73,7 +194,7 @@ function cors(res) {
   res.setHeader('Access-Control-Allow-Headers', 'content-type')
 }
 
-function cfgPath(profile) { return `${HOME}/profiles/${profile}/cordis.patch.yml` }
+function cfgPath(profile) { return join(HOME, 'profiles', profile, 'cordis.patch.yml') }
 
 /**
  * 找到 `- id: huanqi` 那一节，返回它在文本里的行号范围与 config 块的缩进。
@@ -191,7 +312,7 @@ function applyValues(text, values) {
 
 function readLedger() {
   try {
-    if (!existsSync(LEDGER)) return { exists: false, path: LEDGER }
+    if (!existsSync(LEDGER)) return { exists: false, path: LEDGER, source: LEDGER_RES.source, hint: LEDGER_RES.hint }
     const s = JSON.parse(readFileSync(LEDGER, 'utf8'))
     const credit = Number(s.credit), max = Number(s.creditMax)
     return {
@@ -243,7 +364,11 @@ export function apply(ctx) {
             ok: true,
             files: PROFILES.map((x) => ({ profile: x, path: cfgPath(x), exists: existsSync(cfgPath(x)) })),
             fields: FIELDS.map((f) => f.key),
-            ledger: LEDGER
+            ledger: LEDGER,
+            // ★ E3/E4 的诊断：路径是怎么定下来的、试过哪些、找不到时下一步做什么。
+            home: { path: HOME, source: HOME_RES.source, exists: HOME_RES.exists, tried: HOME_RES.tried, hint: HOME_RES.hint },
+            profiles: { list: PROFILES, hint: PROFILES_RES.hint },
+            ledgerInfo: { path: LEDGER, source: LEDGER_RES.source, exists: LEDGER_RES.exists, tried: LEDGER_RES.tried, hint: LEDGER_RES.hint }
           })
         }
 
@@ -256,7 +381,11 @@ export function apply(ctx) {
             const r = readValues(text)
             per[prof] = { exists: true, path: f, found: r.found, hasConfig: r.hasConfig, values: r.values, bytes: Buffer.byteLength(text, 'utf8') }
           }
-          return json(res, 200, { ok: true, fields: FIELDS, profiles: per, ledger: readLedger() })
+          return json(res, 200, {
+            ok: true, fields: FIELDS, profiles: per, ledger: readLedger(),
+            home: { path: HOME, source: HOME_RES.source, exists: HOME_RES.exists, hint: HOME_RES.hint },
+            profilesInfo: { list: PROFILES, hint: PROFILES_RES.hint }
+          })
         }
 
         if (p === '/api/preview') {
@@ -371,4 +500,4 @@ export function apply(ctx) {
 //   locate/readValues/applyValues 都是「文本进、文本出」的纯函数，
 //   于是可以拿 profile 文件的真实副本反复试（包括"改了再改回去必须字节相同"这种断言），
 //   而不用碰运行中的那一份。这是这个插件最要紧的一条不变量，必须可测。
-export { locate, readValues, applyValues, FIELDS, LEDGER, cfgPath }
+export { locate, readValues, applyValues, FIELDS, LEDGER, cfgPath, resolveDshHome, resolveLedger }

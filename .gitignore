@@ -7,4 +7,19 @@ Thumbs.db
 # 本机调试产物：插件开发时临时放在包根目录的东西
 _gen.py
 _probe*.mjs
-selftest.mjs
+# ★ 2026-10-23 删掉了这里的 `selftest.mjs` —— 它原来是无前缀的全局匹配，
+#   把三个包**正式的自检脚本**一起忽略了：
+#   plugins/{model-statusbar,riji,yantai}/selftest.mjs
+#   而那三个 package.json 的 files 里都列着 selftest.mjs，
+#   于是从 git 打出来的包会**缺自检脚本**，本机却测不出来（本机有文件）。
+#   和「作者机器上永远走不到的兜底」是同一个形状：错误只在别人那里显形。
+#   以后若要忽略临时探针，请写成带路径的形式（如 `/probe.mjs`），不要用裸文件名。
+
+# ★ 运行数据（2026-10-23 加）
+# 这类文件是「这台机器扫出来的结果」，里面带着本机的应用名和绝对路径。它不是缺陷，
+# 但**不该进仓库** —— 提交上去等于替别人预装了一份别人的应用清单。
+# 仓库里只留 apps.example.json 这种「形状示例」，真实数据由每个人在本机第一次打开时自己生成。
+# 判据：同一个文件名，带 .example 的是模板、不带的是运行数据。
+plugins/yantai/apps/apps.json
+plugins/yantai/apps/icons/
+plugins/yantai/apps/usage.json

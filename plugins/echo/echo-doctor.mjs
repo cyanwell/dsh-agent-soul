@@ -163,6 +163,28 @@ function listLogs() {
 
 // ──────────────────── 快层：不解日志，毫秒级 ────────────────────
 
+/**
+ * ★★★ 2026-10-23 修 C3 的下半截：**报错报了，但下一步给错了；而且这句话有两份。**
+ *   上一轮已经把「MEM 传深一层」从静默降级改成明确报错（见 echo-config.mjs），
+ *   可这里原来无论什么配置问题，结尾都写「先跑一次 agent_soul_scaffold」。
+ *   于是用户在 `--memory .../memory/hub` 撞墙时，会照着这句话去重跑 scaffold ——
+ *   而 scaffold 修不了「参数传错一层」，他修的是一个不存在的问题（实机报告 C3 的同一形状）。
+ *   ★ 更要紧的是：**同一句话原来在 checkConfigState() 和 runDoctor() 的提前返回里各写一份**
+ *     —— 改了一处、另一处还是旧的（本次实测就抓到了）。这正是这批 bug 的统一形状。
+ *     所以收成一个函数：**下一步建议只有一份来源**。
+ *   ★ 判据：配置问题的下一步分两类 ——
+ *     ① 目录/文件真的没有 → scaffold 有用；② 参数形状不对 → 只能改参数，不能重跑。
+ */
+function configAdvice(problems) {
+  const shape = problems.filter((p) => p.includes("传深了一层") || p.includes("下面没有 hub/"));
+  return {
+    pathShapeWrong: shape.length > 0,
+    text: shape.length
+      ? " —— 这不是「没装」，是**路径参数给错了**：按下面的提示改 --soul/--memory 或 echo.config.json，重跑 scaffold 不会修好它"
+      : " —— 先跑一次 agent_soul_scaffold，它会把目录建出来",
+  };
+}
+
 /** ★ 配置本身有没有到位 —— 这一项必须排在最前面。
  *  因为「装完了但还没配」是每个新人的第一步，那时候其余各项全是「读不到」，
  *  光看那些看不出根因。这一项直接说：先去跑 scaffold。 */
@@ -175,10 +197,11 @@ function checkConfigState() {
       evidence: CFG.describe(),
     }
   }
+  const advice = configAdvice(r.problems);
   return {
     id: "config", label: "配置（三个根）", status: "error",
-    detail: "还没配好：" + r.problems.join("；") + " —— 先跑一次 agent_soul_scaffold，它会把目录建出来",
-    evidence: { problems: r.problems, hints: r.hints },
+    detail: "还没配好：" + r.problems.join("；") + advice.text,
+    evidence: { problems: r.problems, hints: r.hints, pathShapeWrong: advice.pathShapeWrong },
   }
 }
 
@@ -260,8 +283,15 @@ function checkClock() {
   let status = "ok";
   const notes = [];
   if (selfAgeH === null) {
+    // ★★★ 2026-10-23 修实机报告 R1 的观测面那一半：**「字段缺失」和「字段过期」要分开说。**
+    //   这两种状态的下一步完全不同：
+    //     · 缺字段  = 装配器这一层**还没启用 / 还没跑过**（新装、或推插件没装上）
+    //     · 有过期  = 它**跑过，但停了**（这才是真异常）
+    //   原来两句话都说「self.mjs 还没在修好的版本上跑过」，把「没启用」说成了「版本不对」，
+    //   于是新用户会去查一段根本不存在的历史。★ 状态仍是 warn：没时钟确实要看一眼。
     status = "warn";
-    notes.push("没有 lastSelfAt —— self.mjs 还没在修好的版本上跑过（这一步由 self.mjs 每次装配写）");
+    notes.push("state.json 里没有 lastSelfAt —— 装配器（self.mjs）还没在这一层跑过：要么推送层没装，要么装上之后一次都没装配");
+    notes.push("  （字段存在但很久没更新 = 真停更；字段整个没有 = 未启用。两者不是一个病）");
   } else if (selfAgeH > 26) {
     status = "warn";
     notes.push(`lastSelfAt 已 ${round1(selfAgeH)} 小时没更新 —— self.mjs 可能没在跑`);
@@ -438,7 +468,15 @@ function checkDoorSign(logs, deep) {
   const want = Number(m[1]);
   const hit = events.find((e) => e.seq === want);
   const sr = last.data?.shadowedRange;
-  const srMatch = sr && Number(sr.start) === want;
+  // ★★ 2026-10-23（C2 的收尾）：**「没有可核对的东西」不等于「核对不上」。**
+  //   原判据 `srMatch = sr && ...` 在 sr 为空时得到 falsy，于是走 warn，
+  //   提示「但与 shadowedRange 不符」—— 摘要根本没带 shadowedRange 也叫「不符」，
+  //   又是一条永远响的警报（C2 的假阳性换个位置）。现在分三档：
+  //     没有 shadowedRange → ok（只说明无法交叉核对）；有且一致 → ok；有但不一致 → warn。
+  const srState = !sr ? "absent" : (Number(sr.start) === want ? "match" : "mismatch");
+  const srNote = srState === "match" ? "，且与 shadowedRange 一致"
+    : srState === "mismatch" ? `，但与 shadowedRange（start=${sr.start}）不符`
+    : "（摘要没带 shadowedRange，无法交叉核对 —— 这不是错）";
   if (!hit) {
     return {
       id: "doorsign", label: "门牌回取（实测）", status: "error",
@@ -447,11 +485,11 @@ function checkDoorSign(logs, deep) {
     };
   }
   return {
-    id: "doorsign", label: "门牌回取（实测）", status: srMatch ? "ok" : "warn",
-    detail: `门牌 seq=${want} 真取到了（${hit.type}）${srMatch ? "，且与 shadowedRange 一致" : "，但与 shadowedRange 不符"}`,
+    id: "doorsign", label: "门牌回取（实测）", status: srState === "mismatch" ? "warn" : "ok",
+    detail: `门牌 seq=${want} 真取到了（${hit.type}）${srNote}`,
     evidence: {
       summarySeq: last.seq, time: iso(last.time), want, gotType: hit.type,
-      shadowedRange: sr || null, rangeMatches: !!srMatch,
+      shadowedRange: sr || null, rangeState: srState, rangeMatches: srState === "match",
       summaryCount: summaries.length, events: events.length, frames, failed,
     },
     deep: true,
@@ -932,13 +970,15 @@ export function runDoctor(opts = {}) {
   //   ★ 体检器必须是最后崩的那个 —— 它崩了，就没人能告诉人哪里坏了。
   const cfg = CFG.checkConfig({ allowMissingSessions: true });
   if (!cfg.ok) {
+    // ★ 下一步建议走 configAdvice() —— 和 checkConfigState 同一份（C3；别在这里再抄一句）
+    const advice = configAdvice(cfg.problems);
     return {
       at: iso(Date.now()), mode: deep ? "deep" : "fast", overall: "error",
       counts: { error: 1, warn: 0, ok: 0, pending: 0 }, ms: Date.now() - t0,
       checks: [{
         id: "config", label: "配置（三个根）", status: "error",
-        detail: "还没配好：" + cfg.problems.join("；") + " —— 先跑一次 agent_soul_scaffold，它会把目录建出来",
-        evidence: { problems: cfg.problems, hints: cfg.hints, describe: CFG.describe() },
+        detail: "还没配好：" + cfg.problems.join("；") + advice.text,
+        evidence: { problems: cfg.problems, hints: cfg.hints, pathShapeWrong: advice.pathShapeWrong, describe: CFG.describe() },
       }],
     };
   }

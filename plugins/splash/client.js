@@ -12,8 +12,9 @@
 //   GET  /agent-splash/api/files     列候选动画
 //   GET  /agent-splash/api/preview?p= 预览（代理本地文件，支持 Range）
 //
-// ★ 预览为什么不能直接 <video src="file:///D:/...">：设置页在 http://127.0.0.1:19387 下，
+// ★ 预览为什么不能直接 <video src="file:///...">：设置页是 http 页面，
 //   浏览器不允许它读 file:// —— 所以走宿主半代理。这也是"改完就能看效果、不用重启"的关键。
+//   ★ 那个 http 页面的端口由 DSH 每次启动决定（报告 E8），**这里不许写死**。
 
 window.__ModuleLoader__.load({
   id: "dsh-agent-splash",
@@ -27,11 +28,13 @@ window.__ModuleLoader__.load({
     var useState = react.useState;
     var useEffect = react.useEffect;
 
-    // 后端在同一个 origin 上（桌面端就是 http://127.0.0.1:19387）
-    var BASE = (typeof location !== "undefined" && location.origin && location.origin.indexOf("http") === 0)
-      ? location.origin
-      : "http://127.0.0.1:19387";
-    var API = BASE + "/agent-splash/api";
+    // ★★★ 2026-10-23 实机报告 E8：**不要在浏览器半写死后端端口。**
+    //   DSH 的 web 端口每次启动都可能变（实测 64895 → 65070 → 54041 → 57045 → 51971），
+    //   写死任何一个数字，换台机器/重启一次就连不上 —— 而界面只会显示「载入中」，不报错。
+    //   正确做法：用同源相对路径，让**页面自己的 origin** 决定后端地址。
+    //   （本页是 DSH 设置面板，由后端同一个 webServer 提供，所以同源一定对。）
+    //   preview 也走同一个 API 前缀 —— 视频地址不能另拼 origin。
+    var API = "/agent-splash/api";
 
     function fmtBytes(n) {
       if (!n && n !== 0) return "";
@@ -63,6 +66,7 @@ window.__ModuleLoader__.load({
 
     function Panel() {
       var [cfg, setCfg] = useState(null);
+      var [cfgPath, setCfgPath] = useState("");
       var [files, setFiles] = useState([]);
       var [msg, setMsg] = useState(null);
       var [busy, setBusy] = useState(false);
@@ -71,19 +75,22 @@ window.__ModuleLoader__.load({
       var [newName, setNewName] = useState("");
 
       function get(path) {
-        return fetch(BASE + path, { cache: "no-store" }).then(function (r) { return r.json(); });
+        return fetch(path, { cache: "no-store" }).then(function (r) { return r.json(); });
       }
 
       function load() {
         setBusy(true);
-        return get("/agent-splash/api/config").then(function (c) {
+        return get(API + "/config").then(function (c) {
           if (!c.ok && c.message) setMsg({ bad: true, text: "读配置失败：" + c.message });
+          else if (c.warning) setMsg({ bad: true, text: "⚠ " + c.warning });
+          else if (c.bootstrapped) setMsg({ text: "首次打开：已按默认值创建配置文件（" + c.path + "），保存就写在这里。" });
+          setCfgPath(c.path || "");
           setCfg(c.config);
           setPresets(Array.isArray(c.config && c.config._预设) ? c.config._预设 : []);
         }).catch(function (e) {
           setMsg({ bad: true, text: "读不到配置（后端路由没起来？）：" + e.message });
         }).then(function () {
-          return get("/agent-splash/api/files").then(function (f) { if (f.ok) setFiles(f.files); }).catch(function () {});
+          return get(API + "/files").then(function (f) { if (f.ok) setFiles(f.files); }).catch(function () {});
         }).then(function () { setBusy(false); });
       }
       useEffect(function () { load(); }, []);
@@ -339,7 +346,9 @@ window.__ModuleLoader__.load({
         ),
 
         h("div", { style: { marginTop: "16px", fontSize: "11.5px", opacity: 0.55 } },
-          "配置在 <你的工作区>/dsh/home/splash.json · 动画文件放在 " + (files.length ? "允许的目录" : "<你的工作区>/dsh-desktop") + " 里即可被这里找到"
+          "配置在 " + (cfgPath || "（路径由宿主半返回）") + " · 动画文件放在 "
+          + (files.length ? "上面列出的允许目录" : "DSH 家目录或其同级 dsh-desktop 目录（找不到时设 SPLASH_DIR 指过去）")
+          + " 里即可被这里找到"
         )
       );
     }

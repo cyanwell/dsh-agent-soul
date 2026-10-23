@@ -49,17 +49,77 @@ if (-not $Profile -or -not (Test-Path (Join-Path $Profile 'package.json'))) {
 Ok "profile: $Profile"
 
 # 2. locate node (shipped with DSH)
+# ★★ 2026-10-23 实机报告 C4：原来的探测**只认** `%LOCALAPPDATA%\Programs\DeepSeek Harness`
+#    和 PATH。用户把 DSH 装在别的盘（如 E:\dsh）、PATH 里又没有 node，
+#    于是脚本在第二步直接 Die —— 而 node 其实就在 DSH 安装目录里，完全可以自己找到。
+#    ★ 判据：**「DSH 自带 node」这件事不依赖安装位置**，所以不能写死一个目录去猜。
+#    现在按「越确定越先试」的顺序：
+#      ① DSH_NODE 环境变量（用户显式指定，永远优先）
+#      ② 从 profile 往上推 DSH 安装根，再试两种已知布局（Electron 运行时自带的 node）
+#      ③ 常见安装位置（含原来那个 LOCALAPPDATA\Programs）
+#      ④ PATH
+#    ★ 全都找不到时，报错必须给**可执行的下一步**（怎么设 DSH_NODE / 怎么找 node.exe），
+#      不能只喊一句 not found —— 那正是报告里「照着提示也走不下去」的那一半。
 $node = $null
-$dd = Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness'
-if (Test-Path $dd) {
-  $f = Get-ChildItem $dd -Recurse -Filter 'node.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($f) { $node = $f.FullName }
+$tried = @()
+
+# ① 显式指定
+if ($env:DSH_NODE) {
+  $tried += "DSH_NODE=$($env:DSH_NODE)"
+  if (Test-Path $env:DSH_NODE) { $node = (Resolve-Path $env:DSH_NODE).Path }
 }
+
+# ② 从 profile 往上找 DSH 安装根（profile 通常在 <DSH_ROOT>\home\profiles\desktop）
+if (-not $node) {
+  $roots = @()
+  $cur = $Profile
+  for ($i = 0; $i -lt 4 -and $cur; $i++) { $roots += $cur; $cur = Split-Path $cur -Parent }
+  foreach ($r in $roots) {
+    foreach ($c in @(
+      (Join-Path $r 'resources\runtime\primary-runtime\dependencies\node\bin\node.exe'),
+      (Join-Path $r 'resources\runtime\bin\node.exe')
+    )) {
+      $tried += $c
+      if (Test-Path $c) { $node = $c; break }
+    }
+    if ($node) { break }
+  }
+}
+
+# ③ 常见安装位置（保留旧行为，但不再只认这一处）
+if (-not $node) {
+  $known = @(
+    (Join-Path $env:LOCALAPPDATA 'Programs\DeepSeek Harness'),
+    (Join-Path $env:LOCALAPPDATA 'DeepSeek Harness'),
+    (Join-Path $env:ProgramFiles 'DeepSeek Harness'),
+    (Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) 'DeepSeek Harness')
+  )
+  foreach ($dd in $known) {
+    if (-not $dd -or -not (Test-Path $dd)) { continue }
+    $tried += $dd
+    $f = Get-ChildItem $dd -Recurse -Filter 'node.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($f) { $node = $f.FullName; break }
+  }
+}
+
+# ④ PATH
 if (-not $node) {
   $c = Get-Command node -ErrorAction SilentlyContinue
-  if ($c) { $node = $c.Source }
+  if ($c) { $node = $c.Source } else { $tried += 'PATH 里的 node' }
 }
-if (-not $node) { Die 'node.exe not found. DSH ships one - search under the DSH install dir.' }
+
+if (-not $node) {
+  Write-Host '  FAIL node.exe not found. Tried:' -ForegroundColor Red
+  foreach ($t in $tried) { Write-Host "         - $t" }
+  Write-Host ''
+  Write-Host '  Next step (pick one):' -ForegroundColor Yellow
+  Write-Host '    1) point DSH_NODE at the node.exe that ships with DSH, then rerun:'
+  Write-Host '         $env:DSH_NODE = ''<DSH install>\resources\runtime\primary-runtime\dependencies\node\bin\node.exe'''
+  Write-Host '    2) or install Node.js and check that `node -v` works in a NEW shell'
+  Write-Host '    3) if DSH lives somewhere unusual, locate its node.exe:'
+  Write-Host '         Get-ChildItem ''<DSH install>'' -Recurse -Filter node.exe'
+  exit 1
+}
 Ok "node: $node"
 
 # 3. download

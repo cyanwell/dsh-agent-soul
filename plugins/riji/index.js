@@ -13,12 +13,42 @@
 //   GET /api/doc?name=x.md    → 某一篇的原文（markdown 原文，渲染交给浏览器半）
 
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname, isAbsolute } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { homedir } from 'node:os'
 
 export const name = 'dsh-agent-riji'
 export const inject = ['webServer']
 
-const DIARY_DIR = process.env.RIJI_DIR || join(process.cwd(), 'diary')
+const HERE = dirname(fileURLToPath(import.meta.url))
+const ENV = (k) => String(process.env[k] || '').trim()
+
+// ── 日记目录（可配，且不跟着 cwd 漂）────────────────────────────────
+// ★★ 2026-10-23 修：原来默认 `join(process.cwd(), 'diary')` —— DSH 进程的 cwd 是安装目录，
+//   那底下没有 diary/，于是 /api/list 静默返回 []，界面写「还没有日记。」
+//   **装上、界面在、里面空的** —— 这正是要治的那个形状。
+// 候选顺序与理由：
+//   ① RIJI_DIR（README 承诺项）：给了就用；相对路径锚在 DSH_HOME（稳定），不是 cwd。
+//   ② <DSH_HOME>/diary：DSH 家目录下的固定位置，换启动方式也不漂。
+//   ③ <用户主目录>/diary：没设 DSH_HOME 时的最后兜底（每个用户都有主目录）。
+//   ① 配了但目录不存在也照用（不替使用者换目录），只是会明确报「这个目录不存在」。
+const DSH_HOME = ENV('DSH_HOME')
+function firstExistingDir(cands) {
+  for (const c of cands) { if (c && existsSync(c)) return c }
+  return ''
+}
+const RIJI_RAW = ENV('RIJI_DIR')
+const DIARY_CANDIDATES = [
+  RIJI_RAW ? (isAbsolute(RIJI_RAW) ? RIJI_RAW : join(DSH_HOME || homedir(), RIJI_RAW)) : '',
+  DSH_HOME ? join(DSH_HOME, 'diary') : '',
+  join(homedir(), 'diary'),
+].filter(Boolean)
+const DIARY_DIR = RIJI_RAW
+  ? DIARY_CANDIDATES[0]
+  : (firstExistingDir(DIARY_CANDIDATES) || DIARY_CANDIDATES[0])
+// 未配置/不存在时给界面的一句可执行提示（不静默空）
+const DIARY_HINT = '未配置日记目录：请设 RIJI_DIR=<放 *.md 日记的目录>'
+  + '（或把日记放进 ' + (DSH_HOME ? join(DSH_HOME, 'diary') : join(homedir(), 'diary')) + '），改完重启 DSH'
 
 function json(res, status, obj) {
   const body = JSON.stringify(obj)
@@ -94,6 +124,10 @@ export function apply(ctx) {
 
       try {
         if (p === '/api/list') {
+          // ★ 不静默空：目录不在时把「缺什么、怎么配」直接交给界面（client.js 会显示 message）
+          if (!existsSync(DIARY_DIR)) {
+            return json(res, 200, { ok: false, dir: DIARY_DIR, count: 0, docs: [], message: DIARY_HINT })
+          }
           const docs = listDiary()
           return json(res, 200, { ok: true, dir: DIARY_DIR, count: docs.length, docs })
         }

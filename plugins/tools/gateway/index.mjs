@@ -8,8 +8,9 @@
 //   全量扫一遍工作区可能要几秒到几十秒，而**查询必须快**。
 //   读和建分开 —— 建的时候慢一次，查的时候一直快。
 //
-// 配置（都有默认值）：
-//   SOUL_HOME   工作区目录（默认：脚本上一级的 soul/）      LEDGER  账本文件
+// 配置（★ 前两个没有默认值 —— 见下面的报错）：
+//   SOUL_HOME   工作区目录（必配，或用 LEDGER 直接指账本）
+//   LEDGER      账本文件（默认 <SOUL_HOME>/02-墨.jsonl）
 //   INDEX_FILE  索引输出（默认：同级 index.json）
 
 import fs from 'node:fs';
@@ -17,9 +18,18 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SOUL = process.env.SOUL_HOME || path.join(HERE, '..', '..', 'soul');
-const LEDGER = process.env.LEDGER || path.join(SOUL, 'ledger.jsonl');
-const OUT = process.env.INDEX_FILE || path.join(HERE, 'index.json');
+const ENV = (k) => String(process.env[k] || '').trim();
+
+// ★★ 2026-10-23 修：原来默认 `HERE/../../soul` —— 在仓库布局下是 plugins/soul（不存在），
+//   于是索引里 0 条，**它不报错、只是空**。工作区在哪只有使用者知道，猜不得。
+//   候选：① SOUL_HOME（显式）；② 没配 SOUL_HOME 但配了 LEDGER 时仍可只建账本那一层；
+//   ③ 两个都没配 → 明确报错并说清该指哪（见下面的 SOUL_MISSING）。
+const SOUL = ENV('SOUL_HOME');
+const LEDGER = ENV('LEDGER') || (SOUL ? path.join(SOUL, '02-墨.jsonl') : '');
+const OUT = ENV('INDEX_FILE') || path.join(HERE, 'index.json');
+const SOUL_MISSING = '未配置工作区：请设 SOUL_HOME=<你的工作区根目录>'
+  + '（放 *.md 与账本的地方；账本默认取 <SOUL_HOME>/02-墨.jsonl），'
+  + '或直接设 LEDGER=<账本文件完整路径>。';
 
 /** 一行一行读账本；坏行跳过（账本是追加的，最后一行可能是半行） */
 function readLedger() {
@@ -43,6 +53,22 @@ function walk(dir) {
     else if (e.name.endsWith('.md')) out.push(p);
   }
   return out;
+}
+
+// ★ 未配置就明确报错并给下一步，不产出「0 条的假索引」
+if (!SOUL && !LEDGER) {
+  console.error('✗ ' + SOUL_MISSING);
+  process.exit(1);
+}
+if (SOUL && !fs.existsSync(SOUL)) {
+  console.error('✗ SOUL_HOME 指向的目录不存在：' + SOUL);
+  console.error('  ★ 检查 SOUL_HOME 是否指对（它应该是你放 *.md 与账本的那个根目录）。');
+  process.exit(1);
+}
+if (LEDGER && !fs.existsSync(LEDGER)) {
+  console.error('✗ 账本文件不存在：' + LEDGER);
+  console.error('  ★ 设 LEDGER=<账本完整路径>，或设 SOUL_HOME 让账本默认取 <SOUL_HOME>/02-墨.jsonl。');
+  process.exit(1);
 }
 
 const records = [];

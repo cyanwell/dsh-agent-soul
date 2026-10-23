@@ -15,24 +15,90 @@
 // ★ 宿主半只在 DSH 进程启动时加载一次 —— 改完必须重启 DSH 才生效。
 
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname, basename } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { homedir, hostname } from 'node:os'
 import { spawn, execFileSync } from 'node:child_process'
 
 export const name = 'dsh-agent-yantai'
 export const inject = ['webServer']
 
-// ── 本机路径（换机器只改这一段）─────────────────────────────
-// ★★ 原来是一个字面占位符 '<你的工作区>'（2026-10-22 P1-5）。
-//   清单.md 写着「至少一个数据源：YANTAI_LEDGER / YANTAI_MEMORY / YANTAI_QUERY；
-//   它默认不猜目录结构，配了才读」—— 代码却给了个假目录，**比不给更坏**：
-//   它会去读 '<你的工作区>' 这个字面路径，然后什么都读不到。
-// ★ 现在没配就是空串 —— 空串意味着「不猜」，各数据源自己判空。
-const SOUL = String(process.env.YANTAI_SOUL || '').trim()
-const LEDGER = join(SOUL, '02-ledger.jsonl')
-const PROJCACHE = '<DSH_HOME>\\storages\\session_projcache\\sessions'
-const MEMQ = '<你的记忆目录>\\hub\\memory-query.mjs'
-const MO = '<你的记忆目录>\\tools\\ledger.mjs'
-const NODE = '<user>\\.workbuddy\\binaries\\node\\versions\\22.22.2-3\\node.exe'
+// ── 本机配置：全部来自环境变量 / 本机探测，不含任何人的机器实值 ──────────
+// ★★ E9/E10 修的就是这一段。原来这里写死了 5 条绝对路径（作者机器的盘符、用户名、
+//   Node 版本号全进来了）。换一台机器，插件**照样加载成功、界面也在**，只是每一格是空的 ——
+//   「静默变空」比报错更难查，这是这批 bug 的共同形状。
+//
+// ★ 规则（三选一，按顺序，每一处回退都在下面写明为什么是这个候选）：
+//   ① 使用者显式配的环境变量（README 的「可配项」）
+//   ② 本机一定能探测到的东西（当前进程、插件自己所在目录、系统 API）
+//   ③ 都没有 → 这一格显示「未配置 + 怎么配」，**绝不退回某个人的路径去猜**
+const ENV = (k) => String(process.env[k] || '').trim()
+const HERE = dirname(fileURLToPath(import.meta.url))   // 插件自己所在目录，换机器自动跟着走
+
+// 数据源 · 工作区（账本所在的那个根）
+// 候选理由：① YANTAI_SOUL 是本插件自己的约定名，装了就知道要配它；
+//   ② 不拿 HERE 的上级去猜 —— 插件装在 profile 的 node_modules 里，上级不是使用者的工作区；
+//   ③ 没配 = 空串 = 「不猜」，下面每一格各自报未配置。
+const SOUL = ENV('YANTAI_SOUL')
+
+// 数据源 · 账本（只追加的 jsonl）
+// 候选理由：① YANTAI_LEDGER 直接给完整文件路径，README 已列为可配项，最精确；
+//   ② 只配了 SOUL 时取 02-墨.jsonl —— 这是账本的真名。
+//      （历史沿革：早先代码里误写成 02-ledger.jsonl，于是「最近的账本」永远是空的，见 E9 报告。）
+//   ③ 都没配 → 空串，readLedger 明确报「未配置」。
+const LEDGER = ENV('YANTAI_LEDGER') || (SOUL ? join(SOUL, '02-墨.jsonl') : '')
+
+// DSH 家目录（水位要读的投影缓存就在它下面）
+// 候选理由：① DSH_HOME —— DSH 自己的家目录变量，显式配置最可靠，优先；
+//   ② ~/.dsh/home —— DSH 的每用户默认位置（没设 DSH_HOME 的机器通常在这里）；
+//   ③ ~/.dsh —— 老版本 / 手工安装常见的扁平布局。
+//   取第一个真实存在的目录；一个都不在 → 空串，readWater 明说「请设 DSH_HOME」。
+function firstExistingDir(cands) {
+  for (const c of cands) { if (c && existsSync(c)) return c }
+  return ''
+}
+const DSH_HOME = firstExistingDir([ENV('DSH_HOME'), join(homedir(), '.dsh', 'home'), join(homedir(), '.dsh')])
+const PROJCACHE = DSH_HOME ? join(DSH_HOME, 'storages', 'session_projcache', 'sessions') : ''
+
+// 记忆工具（搜全库 / 取原文 / 看主导）—— 这是使用者自己的工作区工具，不是插件自带的，
+// 所以只能靠配置；找不到就空着，门牌命令里显示「请设 …」，不拼假路径。
+// 候选理由：① YANTAI_MEMORY —— 记忆目录（README 可配项），按两种常见布局探脚本：
+//      hub/memq.mjs、memq.mjs（检索）；tools/mo.mjs、tools/ledger.mjs（账本 CLI）；
+//   ② YANTAI_QUERY —— 检索脚本完整路径，直接覆盖 ① 探出来的检索脚本；
+//   ③ YANTAI_MO —— 账本 CLI 完整路径（同样的显式覆盖思路）；
+//   ④ 一个都找不到 → 空串。
+function firstExistingFile(cands) {
+  for (const c of cands) { if (c && existsSync(c)) return c }
+  return ''
+}
+const MEMORY_DIR = ENV('YANTAI_MEMORY')
+const MEMQ = ENV('YANTAI_QUERY') || firstExistingFile([
+  MEMORY_DIR ? join(MEMORY_DIR, 'hub', 'memq.mjs') : '',
+  MEMORY_DIR ? join(MEMORY_DIR, 'memq.mjs') : '',
+  MEMORY_DIR ? join(MEMORY_DIR, 'hub', 'memory-query.mjs') : '',
+])
+const MO = firstExistingFile([
+  ENV('YANTAI_MO'),
+  MEMORY_DIR ? join(MEMORY_DIR, 'tools', 'mo.mjs') : '',
+  MEMORY_DIR ? join(MEMORY_DIR, 'tools', 'ledger.mjs') : '',
+])
+
+// Node 可执行文件（只用来拼「几扇门」里可复制的命令，不在这里 fork）
+// 候选理由：① YANTAI_NODE —— 显式指定，最优先（版本管理器 / 便携节点用得上）；
+//   ② process.execPath —— 当前跑 DSH 的这个 Node 进程自己，一定是个能用的 Node；
+//      只在 basename 真是 node(.exe) 时采用（DSH 桌面端可能是 Electron，那时 execPath 是 app 的 exe，跳过）；
+//   ③ 字面量 'node' —— 交给使用者机器的 PATH。不在 PATH 时复制出来的命令会明确报
+//      「不是内部或外部命令」，而不是悄悄指向别人的绝对路径。
+const NODE = ENV('YANTAI_NODE')
+  || (/^node(\.exe)?$/i.test(basename(process.execPath || '')) ? process.execPath : '')
+  || 'node'
+
+// 机器名（hello 里带的桌面标识）：用系统报的，不写死。
+// 候选理由：① YANTAI_HOST —— 主机名含中文/怪字符时使用者可以覆盖它；
+//   ② os.hostname() —— 系统自己报的名字，换机器自动正确；
+//   ③ 'pc' —— 只是给 hello 一个可用标识，不含任何人的信息。
+const HOST_NAME = ENV('YANTAI_HOST') || hostname() || 'pc'
+
 
 // ── 算力节点（手机）·  使用者要的那一格 ────────────────────
 // 他的原话：「做一个进程，专门用来检查手机算力节点是否在线……可以看到它的状态，
@@ -47,7 +113,11 @@ const NODE = '<user>\\.workbuddy\\binaries\\node\\versions\\22.22.2-3\\node.exe'
 //    （契约 §1 唯一的免鉴权写操作，理由是不让 PC 侧工具持有口令）。
 //    只有要看温度/内存/唤醒时才需要令牌 —— 那时使用者在砚台里输一次，**只存在这个进程的内存里**，
 //    不落盘、不进任何留底。DSH 一重启就要重连一次，这是故意的。
-const NODE_ORIGIN = 'http://127.0.0.1:18766'   // = adb forward tcp:18766 → 手机 8766
+// ★★ E10：手机地址是本机网络位置，**必须来自配置**。原来这里写死了作者的
+//   http://127.0.0.1:18766 —— 别人机器上那个端口没有东西在听，界面只会显示「连不上」，
+//   没人知道其实是没配。现在没配 = configured:false，界面直接说「未配置 + 怎么配」。
+// ★ 没有回退候选：猜一个端口等于把作者的机器又搬回来。
+const NODE_ORIGIN = ENV('YANTAI_NODE_ORIGIN').replace(/\/+$/, '')
 const NODE_PROBE_MS = 15000                    // 探测间隔（纯 HTTP，不花 token）
 const NODE_STALE_MS = 45000                     // 与手机端 link_timeout_s 对齐
 
@@ -55,6 +125,7 @@ let nodeToken = null            // ★ 只活在这个进程的内存里
 let nodeProbeTimer = null
 const nodeState = {
   origin: NODE_ORIGIN,
+  configured: !!NODE_ORIGIN,    // ★ E10：没配地址就不假装在探
   reachable: false,             // 手机服务在不在
   loggedIn: false,              // 有没有令牌
   lastPingAt: 0,                // 上一次探测的时刻（ms）
@@ -84,6 +155,11 @@ function json(res, code, obj) {
 // ── 账本：只追加的账本，整读之后按行 parse ──────────────────
 function readLedger(limit) {
   try {
+    if (!LEDGER) {
+      return { ok: false, rows: [], open: [], total: 0,
+        message: '未配置账本：请设 YANTAI_LEDGER = 账本文件完整路径，'
+          + '或设 YANTAI_SOUL = 工作区根目录（账本取 <它>/02-墨.jsonl）' }
+    }
     if (!existsSync(LEDGER)) {
       return { ok: false, message: '账本不在：' + LEDGER, rows: [], open: [], total: 0 }
     }
@@ -120,7 +196,14 @@ function readLedger(limit) {
 //   （与 dsh-token-meter 同式；它是派生字段，不落盘，所以这里自己算）
 function readWater() {
   try {
-    if (!existsSync(PROJCACHE)) return { ok: false, message: '投影缓存不在：' + PROJCACHE }
+    if (!PROJCACHE) {
+      return { ok: false, message: '未配置 DSH 家目录：请设环境变量 DSH_HOME 指向你的 DSH 家目录'
+        + '（默认候选 ~/.dsh/home、~/.dsh 都没探到）' }
+    }
+    if (!existsSync(PROJCACHE)) {
+      return { ok: false, message: '投影缓存不在：' + PROJCACHE
+        + '（若你的 DSH_HOME 在别处，请设环境变量 DSH_HOME）' }
+    }
     const files = readdirSync(PROJCACHE).filter((f) => f.endsWith('.json'))
     if (!files.length) return { ok: false, message: '投影缓存是空的' }
     let newest = null
@@ -160,6 +243,8 @@ function readWater() {
 // ── 算力节点：干活的三个函数 ─────────────────────────────────
 // 一律走 fetch（Node 22 自带），不引任何依赖。
 async function nodeHttp(path, { method = 'GET', body, ms = 6000 } = {}) {
+  // 没配地址就别发请求 —— 否则报出来的是「连不上某个陌生端口」，误导排查方向
+  if (!NODE_ORIGIN) throw new Error('未配置手机地址（YANTAI_NODE_ORIGIN）')
   const headers = { 'content-type': 'application/json' }
   if (nodeToken) headers.authorization = 'Bearer ' + nodeToken
   const r = await fetch(NODE_ORIGIN + path, {
@@ -178,10 +263,17 @@ async function nodeHttp(path, { method = 'GET', body, ms = 6000 } = {}) {
 // 这正是当初把 hello 做成免鉴权的原因。
 async function nodeProbe() {
   const t0 = Date.now()
+  if (!NODE_ORIGIN) {
+    nodeState.reachable = false
+    nodeState.loggedIn = false
+    nodeState.lastError = '未配置：请设环境变量 YANTAI_NODE_ORIGIN = 手机服务经 adb forward 后的本机地址'
+      + '（例 http://127.0.0.1:8766），改完重启 DSH'
+    return nodeState
+  }
   try {
     const h = await nodeHttp('/api/link/hello', {
       method: 'POST',
-      body: { client: 'pc', host: '<机器名>-desktop', version: '1.0' },
+      body: { client: 'pc', host: HOST_NAME + '-desktop', version: '1.0' },
     })
     nodeState.pings++
     nodeState.lastPingAt = Date.now()
@@ -252,6 +344,8 @@ async function nodeWake(id) {
 
 function nodeStartProbe() {
   nodeProbe()
+  // 没配手机地址就不开循环：每 15 s 打一个不存在的端口，只是白烧 CPU 和日志
+  if (!NODE_ORIGIN) return
   nodeProbeTimer = setInterval(() => { nodeProbe() }, NODE_PROBE_MS)
   if (nodeProbeTimer.unref) nodeProbeTimer.unref()   // 别让它吊住进程退出
 }
@@ -277,7 +371,7 @@ const ABILITIES = [
   { emoji: '🖥️', name: 'ComfyUI', what: '本机出图引擎的开关与状态', state: 'live',
     how: 'comfyui_control(start / stop / status)' },
   { emoji: '📓', name: '记忆', what: '几扇门：搜全库 / 取一手原文 / 看时间线', state: 'live',
-    how: 'memory-query.mjs now | <词> | open <指针> | timeline' },
+    how: (MEMQ ? basename(MEMQ) : '（未配置 YANTAI_QUERY）') + ' now | <词> | open <指针> | timeline' },
   { emoji: '🧩', name: '技能', what: 'Office 三件套、材料总览、CAD 对 BOM、打包规范…', state: 'live',
     how: 'skill（清单随会话注入）' },
   { emoji: '🎯', name: '看板', what: '任务看板：建卡、派活、定时', state: 'live',
@@ -289,14 +383,19 @@ const ABILITIES = [
   { emoji: '🐧', name: 'QQ', what: '群里的那个我（SnowLuma OneBot 网关）', state: 'need',
     how: '网关 3001 / 3100；插件 dsh-clawbot' },
   { emoji: '🔗', name: '算力节点', what: '手机那个节点：在不在线、多热、剩多少内存、一键唤醒', state: 'live',
-    how: 'adb forward 18766 → 手机 8766（心跳不花 token）' },
+    how: NODE_ORIGIN ? 'HTTP 心跳 ' + NODE_ORIGIN + '（不花 token）'
+      : '未配置：请设 YANTAI_NODE_ORIGIN（心跳照常显示，只读状态）' },
   { emoji: '🎬', name: '视频', what: '你提过；本机还没接 —— 要的话我们一起挑模型', state: 'todo',
     how: '（空着等我们填）' },
 ]
 
 // ── 速达：扫出来的程序清单 ──────────────────────────────────
 // 由同目录的 scan-apps.ps1 生成（那个脚本是纯 ASCII、写 JSON 不带 BOM —— 见它的头部说明）。
-const APPS_DIR = '.\\apps'
+// ★ E10：原来写的是相对当前工作目录的 `'\\apps'` —— 而 DSH 进程的 cwd 通常是安装目录，
+//   不是插件目录，于是清单永远读不到（界面空白，也不报错）。
+// 候选理由：① YANTAI_APPS_DIR —— 给「清单放在别处」的人留的口子；
+//   ② 默认锚在插件自己的目录（HERE/apps），换机器自动跟着走，和 README 里 apps/ 的约定一致。
+const APPS_DIR = ENV('YANTAI_APPS_DIR') || join(HERE, 'apps')
 const APPS_JSON = join(APPS_DIR, 'apps.json')
 const ICON_DIR = join(APPS_DIR, 'icons')
 
@@ -442,17 +541,22 @@ function readBody(req) {
   })
 }
 
+// ★ 门牌命令：路径没配时给的是「请设 …」，不是一条看着像真的假命令
+const NODE_Q = '"' + NODE + '"'
+const MEMQ_Q = MEMQ || '<请设 YANTAI_QUERY = 检索脚本完整路径>'
+const MO_Q = MO || '<请设 YANTAI_MO = 账本 CLI 完整路径>'
+
 const GATES = [
   { id: 'now', label: '现在', hint: '时钟 / 距上轮 / 当前主导 / 未结',
-    cmd: '"' + NODE + '" ' + MEMQ + ' now' },
+    cmd: NODE_Q + ' ' + MEMQ_Q + ' now' },
   { id: 'find', label: '搜一件事', hint: '一扇门搜全库，只回指针 + 逐字片段',
-    cmd: '"' + NODE + '" ' + MEMQ + ' <关键词>' },
+    cmd: NODE_Q + ' ' + MEMQ_Q + ' <关键词>' },
   { id: 'open', label: '从门牌取原文', hint: 'log:session-…#seq=N → 一手原文',
-    cmd: '"' + NODE + '" ' + MEMQ + ' open <指针>' },
+    cmd: NODE_Q + ' ' + MEMQ_Q + ' open <指针>' },
   { id: 'timeline', label: '时间线', hint: '某个时刻之后发生了什么',
-    cmd: '"' + NODE + '" ' + MEMQ + ' timeline --since <ISO>' },
+    cmd: NODE_Q + ' ' + MEMQ_Q + ' timeline --since <ISO>' },
   { id: 'lead', label: '谁是主导', hint: '账本里最后一条 lead 的署名者',
-    cmd: '"' + NODE + '" ' + MO + ' list --type lead --limit 3' },
+    cmd: NODE_Q + ' ' + MO_Q + ' list --type lead --limit 3' },
 ]
 
 // ── 插件主体 ────────────────────────────────────────────────
@@ -478,7 +582,11 @@ export function apply(ctx) {
             apps: readApps(),
             desk: readDesk(),
             node: nodeState,
-            paths: { soul: SOUL, ledger: LEDGER, projcache: PROJCACHE },
+            paths: {
+              soul: SOUL, ledger: LEDGER, projcache: PROJCACHE, dshHome: DSH_HOME,
+              memoryDir: MEMORY_DIR, memq: MEMQ, mo: MO, node: NODE,
+              appsDir: APPS_DIR, nodeOrigin: NODE_ORIGIN, host: HOST_NAME,
+            },
           })
         }
         // 速达三件事：清单 / 图标 / 启动

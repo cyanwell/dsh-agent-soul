@@ -199,7 +199,7 @@ window.__ModuleLoader__.load({
         return h("div", { style: S.dock, "data-dsh-agent-model-statusbar": "1" },
           h("div", {
             style: S.pill,
-            title: "本地模型（ComfyUI :8188）—— 点一下展开控制按钮",
+            title: "本地模型（ComfyUI）—— 点一下展开控制按钮",
             onClick: function () { setOpened(true); },
           },
             dot(meta.color, phase === "running"),
@@ -223,7 +223,8 @@ window.__ModuleLoader__.load({
               }, "▾"))),
 
           h("div", { style: S.line },
-            h("span", { style: S.dim }, "ComfyUI :8188"),
+            h("span", { style: S.dim },
+              "ComfyUI" + (data && data.comfyui && data.comfyui.port ? " :" + data.comfyui.port : "")),
             data
               ? (apiUp
                 ? h("span", { style: { color: "#3ec46d" } }, "接口通")

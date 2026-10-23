@@ -20,9 +20,13 @@ window.__ModuleLoader__.load({
     var useState = react.useState;
     var useEffect = react.useEffect;
 
-    var BASE = (typeof location !== "undefined" && location.origin && location.origin.indexOf("http") === 0)
-      ? location.origin : "http://127.0.0.1:19387";
-    var API = BASE + "/agent-huanqi/api";
+    // ★★★ 2026-10-23 实机报告 E8：**不要在浏览器半写死后端端口。**
+    //   DSH 的 web 端口每次启动都可能变（实测 64895 → 65070 → 54041 → 57045 → 51971），
+    //   写死任何一个数字，换台机器/重启一次就连不上 —— 而界面只会显示「载入中」，不报错。
+    //   正确做法：用同源相对路径，让**页面自己的 origin** 决定后端地址。
+    //   （本页是 DSH 设置面板，由后端同一个 webServer 提供，所以同源一定对。）
+    //   如果以后真出现非同源的桌面壳，必须由宿主注入地址，不能由客户端猜。
+    var API = "/agent-huanqi/api";
 
     var S = {
       wrap: { padding: "4px 2px 20px", fontSize: "13px", lineHeight: 1.65 },
@@ -115,10 +119,15 @@ window.__ModuleLoader__.load({
       var pct = led.ratio == null ? 0 : Math.max(0, Math.min(1, led.ratio)) * 100;
       var ledColor = pct > 60 ? "#3fa66a" : (pct > 25 ? "#d9a441" : "#d9534f");
       var dp = state.profiles && state.profiles.desktop ? state.profiles.desktop : {};
+      // ★ E3/E4：宿主半会带回「路径是怎么定下来的 / 找不到时下一步做什么」。
+      //   「这一项是空的」必须能解释成一句话，而不是让人对着空面板猜。
+      var homeInfo = state.home || {};
+      var hintText = homeInfo.hint || (state.profilesInfo && state.profilesInfo.hint) || "";
 
       return h("div", { style: S.wrap },
 
         msg ? h("div", { style: { marginBottom: "12px", color: msg.bad ? S.bad.color : S.ok.color } }, msg.text) : null,
+        hintText ? h("div", { style: { marginBottom: "12px", color: S.bad.color, fontSize: "12px" } }, "⚠ " + hintText) : null,
 
         // ---------- 实时额度 ----------
         h("div", { style: S.card },
@@ -147,7 +156,10 @@ window.__ModuleLoader__.load({
               h("span", { style: { opacity: 0.55, fontSize: "11.5px" } }, "写账本文件；装了热重载补丁就不必重启")
             ),
             h("div", { style: S.note }, "账本：" + led.path + "（换气每次出手都会重写它，所以这里是实时的）")
-          ) : h("div", { style: S.note }, "账本文件还不存在（" + (led.path || "?") + "）—— 换气还没出过手。")
+          ) : h("div", { style: S.note },
+            "账本文件还不存在（" + (led.path || "?") + "）—— 换气还没出过手（正常），或者它在别处。"
+            + (led.hint ? "　" + led.hint : "")
+          )
         ),
 
         // ---------- 参数 ----------

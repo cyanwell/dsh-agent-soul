@@ -63,10 +63,27 @@ dsh plugin --profile <name> add <path-to-this-package>
 
 ### 可配项
 
+全部走环境变量，**包里不含任何人的本机路径**。没配的那一格会在界面上明说
+「未配置 + 怎么配」，不会静默显示成空白，也不会退回某台作者机器的路径去猜。
+
 ```bash
-YANTAI_LEDGER     账本文件路径
-YANTAI_MEMORY     记忆目录
-YANTAI_QUERY      检索脚本路径
+# 数据源（至少配一个，否则它只是一块空面板）
+YANTAI_SOUL         工作区根目录（账本默认取 <它>/02-墨.jsonl）
+YANTAI_LEDGER       账本文件完整路径（优先于从 YANTAI_SOUL 推导）
+YANTAI_MEMORY       记忆目录（按 hub/memq.mjs、tools/mo.mjs 等常见布局探脚本）
+YANTAI_QUERY        检索脚本完整路径（覆盖 YANTAI_MEMORY 探出来的那个）
+YANTAI_MO           账本 CLI 完整路径
+
+# 本机环境
+DSH_HOME            DSH 家目录（水位读 <它>/storages/session_projcache/sessions；
+                    没设则依次探 ~/.dsh/home、~/.dsh）
+YANTAI_APPS_DIR     速达清单目录（默认用插件自带的 apps/，换机器自动跟着走）
+YANTAI_NODE         Node 可执行文件（默认用当前进程的 node，其次 PATH 里的 node）
+YANTAI_HOST         机器名（默认 os.hostname()）
+
+# 算力节点（手机）
+YANTAI_NODE_ORIGIN  手机服务经 adb forward 后的本机地址，例 http://127.0.0.1:8766
+                    没配 = 「未配置」：不探测、不假设端口
 ```
 
 **★ 至少配一个数据源，否则它只是一块空面板。** 它默认不去猜你的目录结构。

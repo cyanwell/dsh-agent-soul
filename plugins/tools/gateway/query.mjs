@@ -19,15 +19,27 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SOUL = process.env.SOUL_HOME || path.join(HERE, '..', '..', 'soul');
-const INDEX = process.env.INDEX_FILE || path.join(HERE, 'index.json');
-const LEDGER = process.env.LEDGER || path.join(SOUL, 'ledger.jsonl');
+const ENV = (k) => String(process.env[k] || '').trim();
+
+// ★★ 2026-10-23 修（与 index.mjs 同一处形状）：原来默认 HERE/../../soul，在仓库布局下不存在，
+//   于是 index.mjs 建出 0 条、query 自然什么都搜不到。工作区只能靠配置。
+// 候选：① SOUL_HOME（显式）；② 只配 LEDGER 时仍可回账本那一层；③ 都没有 → 明确报错。
+const SOUL = ENV('SOUL_HOME');
+const INDEX = ENV('INDEX_FILE') || path.join(HERE, 'index.json');
+const LEDGER = ENV('LEDGER') || (SOUL ? path.join(SOUL, '02-墨.jsonl') : '');
+const SOUL_MISSING = '未配置工作区：请设 SOUL_HOME=<你的工作区根目录>'
+  + '（账本默认取 <SOUL_HOME>/02-墨.jsonl），或直接设 LEDGER=<账本文件完整路径>。';
 
 const clip = (s, n) => (s.length > n ? s.slice(0, n) + '…' : s);
 const argv = process.argv.slice(2);
 const cmd = argv[0];
 
 function load() {
+  if (!SOUL && !LEDGER) {
+    console.error('✗ ' + SOUL_MISSING);
+    console.error('  ★ 这是配置缺失，不是「没搜到」——先配好再跑 node index.mjs。');
+    process.exit(1);
+  }
   if (!fs.existsSync(INDEX)) {
     console.error('✗ 还没有索引。先跑：node index.mjs');
     console.error('  ★ 检索不到东西时，它必须说清「缺什么」，而不是回空。');

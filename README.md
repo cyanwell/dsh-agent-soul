@@ -2548,6 +2548,88 @@ if (type === 'turn/end') {
 
 **验证**：新增 `test/empty-turn.spec.mjs`（11 例），全量 **196/196 全过**。
 
+### 2026-10-23（同日第八次）· 实机验收：五处「两边各自都对，拼起来是错的」
+
+第一个用户的实机验收报告（2026-10-23）挑出五条。它们的形状是同一种：
+**体检器和安装引导各说各的** —— 于是体检永远报警，或者照着引导做立刻撞墙。
+
+| 编号 | 改之前 | 改成了什么 |
+|---|---|---|
+| **C1** | `agent_soul_plan` 第 6 步给的体检命令是裸的 `node echo-doctor.mjs`，不带三个根 → 用户照抄会报「还没配好：没有配置 SOUL…」 | 命令带上 `--soul/--memory/--sessions`（`echo-config.mjs` 的 argv 支持 + `kit/echo/plan.mjs` 的 `doctorCmd()`）；doctor 自己也能接这三个参数 |
+| **C2** | 门牌判据用**子串匹配** —— 摘要**正文里提到**门牌格式（比如这个会话本身在排查门牌）就被判成「有门牌」 | 改成**结构判据**：第 0 块必须以门牌标记开头（`⛬` 或直接 `log:session-…#seq=`）且是短行；正文提到门牌字样不再参与判定 |
+| **C3** | `memory` 参数**多传一层目录**（`.../memory/hub`）时静默降级：报「索引还没建过」，而少传一层报「装好了」——两个结论相反 | 明确报错：「MEM 传深了一层：你给的是 …/hub」，并给出改成上级的写法。**下一步不再让人重跑 scaffold** —— 参数错用 scaffold 修不好。★ 而且这句话原来在 `checkConfigState()` 和 `runDoctor()` 的提前返回里**各写一份**，改一处漏一处（本次实测抓到）；现在收成一个 `configAdvice()`，下一步建议只有一份来源 |
+| **C4** | `install-desktop.ps1` 只在 `%LOCALAPPDATA%\Programs` 下找 node，PATH 里没有就 `Die`；DSH 装在别的盘时脚本第二步就退出 | 多候选：`DSH_NODE` → 从 profile 上推 DSH 安装根再试两种已知布局 → 常见安装位置 → PATH。全找不到时**列出试过哪些路径 + 三条可执行的下一步**（含怎么设 `DSH_NODE`） |
+| **R1** | 仓库版 `self.mjs` 只读 `state.json`、**不写** `lastSelfAt`，而 doctor 的 L0 时钟读它 → 体检永远报「没有 lastSelfAt」 | 让 `self.mjs` 写它（**那是装配器的责任，观测面不该替它圆**）；而且 **state.json 不存在/坏了也要写**（否则新装第一次装配不留痕迹，又变回「没人写」）。doctor 同时把「字段缺失 = 未启用」和「字段过期 = 真异常」分开说 |
+
+## 怎么验的（每条都跑了，不只看代码）
+
+- **C2 正反两面**都造了夹具（临时目录 + `zstdCompressSync` 日志）：
+  正文提到门牌 → `error`；真实格式 `> ⛬ 压缩索引… #seq=10` → `ok`，且**真取回** seq=10 并与 `shadowedRange` 对上
+- **C3**：`--memory .../memory/hub` → `error`（含「传深了一层」+ 改正写法 + **明确说「重跑 scaffold 不会修好它」**，`pathShapeWrong=true`）；`--memory .../memory` → `ok`
+- **C4**：PowerShell 解析零错；三种路径实跑 —— ① `DSH_NODE` 显式指定 ② 自动找到 DSH 自带 node ③ 全都找不到时打印下一步（exit 1 是预期的）
+- **R1**：在一份**没有 state.json** 的临时目录里跑仓库版 `self.mjs` → 第一次装配就写出 `lastSelfAt`，第二次 `selfRuns` 从 1 → 2；HUB 版实跑同样写（`selfRuns` 4 → 5）
+- 三份 `echo-doctor.mjs` 改完 **md5 一致**（`e677adf592187369fecfff75f3357c43`），`install-kit.mjs --check` 报「全部一致」，`.kit-origin.json` 已刷新（`echo-doctor.mjs` 59257 B）
+- 改后体检实跑（deep，`DSH_HOME` 指向真实 home）：**0 错 / 4 警 / 11 好**，其中
+  `✓ L0 时钟（state.json）  self.mjs 最近一次装配 0 小时前` —— R1 那条不再是 `!`
+
+## 还留着的（这次没做）
+
+`门牌回取` / `压缩机制` 两项取的是**最新一份日志**。一个刚开、还没压缩过的会话会让这两项报
+「这份日志里还没有压缩摘要」——**那是「没有数据」，不是「坏了」**。
+判据该改成「在所有日志里找最近一条带摘要的」，或者把这两项在「最新日志无摘要」时降成 info。
+这次没动：它不属于 C1–C4/R1，且改了会动到深检的取样逻辑。
+
+### 2026-10-23（同日第九次）· 路径不再假定「作者机器」
+
+上一条修的是**口径对不上**。这一条修的是同一个病的另一半：**路径假定**。
+
+十项缺陷（用户报告 E1–E10）+ 我们自己复审又挖出的九项，共同形状是一句话：
+
+> **代码在作者机器上是对的，换台机器就静默变空。**
+> 不报错、不崩溃 —— 插件加载成功、界面在、路由在，只是里面没有数据。
+
+作者机器上有特殊条件盖住了它们（环境变量恰好有值、目录恰好存在），
+换机器才露出来。**所以症状永远伪装成「这一项空的」，不是「这个插件坏了」。**
+
+| 编号 | 改之前 | 改成了什么 |
+|---|---|---|
+| **E1** | echo 用 `process.execPath` 起子进程。Electron 里那是 `DeepSeek Harness.exe`，不是 node → spawn 拿空 stdout、**不报错** | `resolveNode()`：`process.versions.electron` 存在就先按已知布局找 DSH 自带 node，再限深度浅扫；**找不到返回 execPath，让 spawn 报可见的 ENOENT**（可见的错好过静默的空） |
+| **E2** | echo 的 `HUB = $DSH_HOME/hub`，而中枢和 DSH_HOME **没有固定关系** | `resolveHub()`：判据反过来 —— **先确认 `echo-doctor.mjs` 真的在那儿**；候选 `ECHO_HUB` → `$DSH_HOME/hub` → `~/.dsh/hub` → `echo.config.json` 的 `memory/hub` |
+| **E3/E4** | huanqi-panel 的 `DSH_HOME` 默认成 `~/dsh/home`；账本路径写死 | `resolveDshHome()`（`DSH_HOME` → 插件覆盖 → `~/.dsh` → `~/dsh/home` **存在才用**）；账本改为 `PANEL_LEDGER` → profile 的 `huanqi.ledgerPath` → `<DSH_HOME>/state/…` |
+| **E5/E6/E7** | splash 配置路径写死；首次打开没数据 | 配置路径三级候选；会话目录从家目录**派生**；首次打开自动 `mkdir` 并落盘默认配置 |
+| **E8** | 面板的**浏览器半**把后端端口写死 `19387`（DSH 端口每次启动都变） | 改**同源相对路径** `/agent-…/api`，让页面自己的 origin 决定；splash 默认 `port: 0`；桌面启动器 `splash-inject.js` 的两处 `19387` 也改成 0 |
+| **E9/E10** | yantai 五处写死路径、账本名误写 `02-ledger`、机器名/`.\apps`/手机地址写死 | 全部环境自适应；账本改回真名 `02-墨.jsonl`；机器名用 `os.hostname()`；apps 锚插件自身目录；手机地址未配时**明说「未配置 + 怎么配」** |
+| **复审新增①** | `model-statusbar` **全文件零 `process.env`**，而 README 白纸黑字承诺三个变量可配 → 拉起永远找不到 python、改端口仍探 8188、状态文件按 cwd 写 | README 承诺的三个全部兑现（另补三个口子）；「拉起」没配时明确报「请设 COMFYUI_DIR / COMFYUI_PY」 |
+| **复审新增②** | `riji` 的 `DIARY_DIR = RIJI_DIR \|\| cwd/diary` → 用户机 cwd 下没这个目录 → `/api/list` 返 `[]` → 界面永远「还没有日记」 | 三级候选 + 目录不在时 `ok:false` 带说明。**这是「装上了、界面在、里面空的」的教科书样本** |
+| **复审新增③** | `memory` 的 `selfPath/statePath` 相对 cwd | `MEMORY_SELF` / `MEMORY_STATE` + 锚插件目录 |
+| **复审新增④** | `tools/gateway` 默认 `HERE/../../soul` 在仓库布局下解析到不存在的目录 → 索引 0 条 | `SOUL_HOME` 必配；未配置 / 目录不存在 / 账本不存在 → **明确提示并 exit 1**，不再产出假索引 |
+
+**顺带清掉的两个真坑（都不是「别人机器才会坏」，是本机就会坏）：**
+
+- `.gitignore` 里有 `selftest.mjs` 这条**无前缀全局匹配**，把 `model-statusbar` / `riji` / `yantai` 三个包**正式的自检脚本**一起忽略了 —— 而三个 `package.json` 的 `files` 里都列着它。**从 git 打出来的包会缺自检脚本，本机却测不出来。** 和「作者机器上永远走不到的兜底」是同一个形状。
+- `kit/echo/plan.mjs` 输出的体检命令是字面 `node xxx.mjs`。第一个用户**PATH 里没有 node** —— 照抄只会得到「不是内部或外部命令」。改用 `process.execPath`（带空格时加引号）。★ 这条和 E1 是同一个病的两面：一个在进程里 spawn，一个在文档里让人手敲；**后者更容易被忽略，因为它不报错，只让人失败。**
+
+## 怎么验的
+
+新增 `D:\AI\dsh-tools\verify-lossless-paths.mjs`，把「不许出现的形状」写成断言：
+
+```
+硬禁止（代码）: 0  ->  ✓ 通过      改前 21 条（代码里 6–8 条）
+同源漂移      : 0  ->  ✓ 一致
+软警告        : 14 ->  人工判断（空 catch 是防御性写法；注释里的历史引用可留）
+```
+
+它同时纠了我自己一个错判据：原来要求「仓库版与本机版**整文件字节相等**」——
+而两份本来就是**同一套代码的两个命名空间形态**（`dsh-agent-*` / `dsh-yanqing-*`），
+字节相等是不可能的。错判据的后果不是误报那么简单：**它会对正确的两份喊漂移，于是真的漂移混在里面也看不出来。**
+现在改成「命名空间归一后相等」。
+
+## 还留着的
+
+- `plugins/huanqi` 在 `DSH_HOME` 为空时把账本 / `huanqi-turns.jsonl` / 启动日志落到**进程 cwd**，cwd 不可写时只 `logger.warn`（桌面端不落盘）→ 额度静默重置。这是第三方项目的设计，**这次没动**。
+- `plugins/echo/index.js` 的换气读端读 `<DSH_HOME>/state`，而写端在 cwd → 两边可能分叉。同上，属于换气那一侧。
+- `dsh-yanqing-line/scripts/anchor.mjs` 读 `COMFY_HOST` 而文档写的是 `COMFYUI_HOST`，名实不符。本机版专用，不分发，没动。
+
 ### 2026-10-17 · 再扫一遍旧口径
 
 文档里还留着「四个工具」「12 份知识文件」这类过期数字。第二轮扩到

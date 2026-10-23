@@ -116,12 +116,39 @@ if (openItems.length) {
 // 最近状态
 try {
   const st = JSON.parse(fs.readFileSync(STATE, "utf8"));
-  if (st.lastNote) live.push(`- 上次记下的状态（${st.lastTurnAt}）：${clip(st.lastNote, 110)}`);
+  if (st.lastNote) live.push(`- 上次手写的状态（${st.lastTurnAt}）：${clip(st.lastNote, 110)}`);
   if (st.lastTurnAt) {
     const gap = Math.round((now - new Date(st.lastTurnAt)) / 60000);
-    live.push(`- 距上次记下的回合：${gap} 分钟`);
+    // ★ 2026-10-23：这一行原来写「距上次记下的回合」，极易被读成「系统停了这么久」。
+    //   它不是时钟 —— 时钟是上面那行「装配时刻」，每轮都刷新。
+    live.push(`- 最后一条手写状态距今：${gap} 分钟（★ 这不是时钟；系统时钟 = 上方装配时刻）`);
   }
 } catch {}
+
+// ★★★ 2026-10-23 修复实机报告 R1：**L0 时钟要由「有人在写」变成真的有人在写。**
+//   病灶：`echo-doctor.mjs` 的 L0 时钟那一项读 `state.json` 的 `lastSelfAt`，
+//   而当时的 `self.mjs` **只读不写**它 —— 于是体检永远报「没有 lastSelfAt」。
+//   两边各自都对（体检该报缺失；装配器不碰状态文件也算克制），**拼起来就是永远报警**。
+//   ★ 为什么修在 self.mjs 而不是去放宽 doctor 的判据：
+//     ① 这个字段的语义是「装配器最后一次跑的时间」，**写它本来就是装配器的责任**；
+//     ② doctor 是观测面，它不该为了「没人写」而假装没事 —— 那样真停更时也看不出来
+//        （《ECHO 权威口径》坑 2：没人写的状态文件等于没有状态）。
+//   ★ 必须放在**读失败也能写**的位置：state.json 不存在/坏了（新装、被删）时，
+//     原来的 try-catch 会整段跳过，于是第一次装配反而不留痕迹 —— 那又变回「没人写」。
+try {
+  let st = {};
+  try { st = JSON.parse(fs.readFileSync(STATE, "utf8")) || {} } catch { /* 不存在或坏了：从空状态重建 */ }
+  // 本地时间，和 lastTurnAt / lastNoteAt 同一口径（不能用 toISOString，那是 UTC）
+  const p2 = (n) => String(n).padStart(2, "0");
+  st.lastSelfAt = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())}`
+    + `T${p2(now.getHours())}:${p2(now.getMinutes())}:${p2(now.getSeconds())}`;
+  // session = 「这份状态属于谁」。DSH_SESSION_ID 本身已带 session- 前缀（实测），
+  // 再拼一次会得到 session-session-…；校验失败就不写，别污染状态文件。
+  const sid = process.env.DSH_SESSION_ID;
+  if (sid && /^session-[0-9a-f-]{8,}$/i.test(sid)) st.session = sid;
+  st.selfRuns = (Number(st.selfRuns) || 0) + 1;
+  fs.writeFileSync(STATE, JSON.stringify(st, null, 2), "utf8");
+} catch { /* 写不进去不算致命：SELF.md 本身仍然要装配出来 */ }
 
 // 索引新鲜度
 try {
