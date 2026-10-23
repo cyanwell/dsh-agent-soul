@@ -1614,30 +1614,51 @@ export function apply(ctx, config) {
     /**
      * 这个会话是不是子 agent（含 Agent Teams 成员）？
      *
-     * 三条判据，任一命中即认定：
-     *   ① 入参 `meta.parentSession`（`session/event` 的 session 上就带着，最可靠）
-     *   ② `ctx.agents.get(sid)?.session.meta.parentSession`（`llm/stream` 那条路）
-     *   ③ 投影缓存 `record.rows.subagent.val.identity` 非空（前两条都拿不到时）
+     * 四条判据，任一命中即认定：
+     *   ① `session.header.parentSession` ← **★★ 实测才是真位置**
+     *   ② `session.meta.parentSession`（若某版本放 meta）
+     *   ③ `ctx.agents.get(sid)?.session.header / meta`
+     *   ④ 投影缓存 `record.rows.subagent.val.identity` 非空（兜底）
      *
-     * ★★ 2026-10-23 三次踩坑的总结：前两版都读 `meta.origin` / `meta.delegationDepth`，
-     *   而这两个字段**在这个 DSH 版本里不存在**。真字段是 `parentSession`
-     *   （见 `dsh-session/lib/index.js:1398`、`dsh-subagent/lib/index.js:2073`）。
-     *   **「读出来是 undefined」不等于「不是子 agent」** —— 这个错我犯了两次。
+     * ★★★ 2026-10-23 23:05 实测（探针 `5961cb4f` 一条真子 agent 的 turn/end）：
+     *   `diag` = `policy=strict, hasParent=false, hasMeta=false, agentFound=true`
+     *   `sessionKeys` = `log, surfaceManager, **header**, inheritedEventCount, …`
+     *   → **`session.meta` 根本不存在；`parentSession` 在 `session.header` 里。**
+     *
+     * ★★ 四次踩坑的完整链条（每次都以为「找到了」）：
+     *   1. 读 `ctx.agents.get(sid)?.session.meta` → 拿到 agent，但 meta 是 undefined
+     *   2. 改用 `meta.origin`              → 字段名错
+     *   3. 改用 `meta.parentSession`       → 对象对了，但 meta 不是容器
+     *   4. 改用 `session.header.parentSession` → ✅
+     *   **每次都不是逻辑错，是「我以为它在那儿」。**
+     *   判据：**拿到 undefined 时，先把 key 全 dump 出来，别猜路径。**
      */
-    function isSubagentSession(sid, meta) {
+    function isSubagentSession(sid, meta, header) {
         if (sid === undefined || sid === '')
             return false;
         const cached = subagentCache.get(sid);
         if (cached !== undefined)
             return cached;
         let result = false;
-        // ① 入参 meta（最可靠）
-        const m1 = meta;
-        if (typeof m1?.parentSession === 'string' && m1.parentSession.length > 0)
+        const hasParent = (o) => {
+            if (o === undefined || o === null || typeof o !== 'object')
+                return false;
+            const p = o.parentSession;
+            return typeof p === 'string' && p.length > 0;
+        };
+        const looksSubagent = (o) => {
+            if (o === undefined || o === null || typeof o !== 'object')
+                return false;
+            const m = o;
+            if (m.origin === 'subagent')
+                return true;
+            return typeof m.delegationDepth === 'number' && m.delegationDepth > 0;
+        };
+        // ① header（实测真字段）
+        if (hasParent(header))
             result = true;
-        else if (m1?.origin === 'subagent')
-            result = true;
-        else if (typeof m1?.delegationDepth === 'number' && m1.delegationDepth > 0)
+        // ② meta
+        else if (hasParent(meta) || looksSubagent(meta))
             result = true;
         // ② ctx.agents
         if (!result) {
@@ -1657,32 +1678,32 @@ export function apply(ctx, config) {
         return result;
     }
     /** 循环检测链（warn / steer / cancel）要不要跳过？ → strict 才不跳。 */
-    function skipLoopGuard(sid, meta) {
+    function skipLoopGuard(sid, meta, header) {
         if (config.subagentPolicy === 'strict')
             return false;
-        return isSubagentSession(sid, meta);
+        return isSubagentSession(sid, meta, header);
     }
     /** 流内早杀要不要跳过？ → 只有 exempt 跳，relaxed 保留。 */
-    function skipStreamCut(sid, meta) {
+    function skipStreamCut(sid, meta, header) {
         if (config.subagentPolicy !== 'exempt')
             return false;
-        return isSubagentSession(sid, meta);
+        return isSubagentSession(sid, meta, header);
     }
     /** 空回合续/熔断要不要跳过？ → strict 之外都跳。 */
-    function skipEmptyTurn(sid, meta) {
+    function skipEmptyTurn(sid, meta, header) {
         if (config.subagentPolicy === 'strict')
             return false;
-        return isSubagentSession(sid, meta);
+        return isSubagentSession(sid, meta, header);
     }
     /** 判词里那一段后缀，用来区分是哪个档位放过的。 */
     function policySuffix() {
         return config.subagentPolicy === 'strict' ? '' : ':' + config.subagentPolicy;
     }
-    function react(agent, reason, sid) {
+    function react(agent, reason, sid, header) {
         // ★ 循环检测链（warn / steer / cancel）—— `subagentPolicy` 不是 strict 时，
         //   子 agent 整条跳过。判词里也能看出来（`skipLoopGuard` 只影响循环检测，
         //   流内早杀另有开关 `skipStreamCut`）。
-        if (skipLoopGuard(sid)) {
+        if (skipLoopGuard(sid, undefined, header)) {
             ctx.logger.info(`dsh-huanqi: skip loop-guard — subagent (policy=${config.subagentPolicy})`);
             return;
         }
@@ -1970,28 +1991,33 @@ export function apply(ctx, config) {
              */
             const verdictAgent = ctx.agents.get(sid);
             const eventSessionMeta = session?.meta;
+            /* ★★★ 2026-10-23 23:05 实测（探针 `5961cb4f`）：
+             *   `session.meta` **不存在**，`parentSession` 在 **`session.header`** 里。
+             *   `sessionKeys` 明确列出了 `header`。
+             *   这就是前四版全都失败的真正原因 —— 一直在 `meta` 下找，而那个对象是 undefined。 */
+            const eventSessionHeader = session?.header;
             /* ★★ 2026-10-23 三档落地：`skipEmptyTurn` 在 `strict` 档恒为 false ——
              *   也就是说 strict 的行为**和以前完全一样**，不会让谁突然失去保护。
              *   `relaxed` / `exempt` 档才对子 agent 跳过「空回合续/熔断」。
              *
-             *   判定本身在 `isSubagentSession(sid, meta)`，三路：
-             *     ① `session/event` 入参的 `meta.parentSession`（最可靠）
-             *     ② `ctx.agents.get(sid)` 的 `session.meta.parentSession`
-             *     ③ 投影缓存 `record.rows.subagent.val.identity`（带 sid 缓存，只读一次）
+             *   判定本身在 `isSubagentSession(sid, meta, header)`，四路：
+             *     ① `session.header.parentSession` ← 实测真字段
+             *     ② `session.meta.parentSession` / origin / delegationDepth
+             *     ③ `ctx.agents.get(sid)?.session.header / meta`
+             *     ④ 投影缓存 `record.rows.subagent.val.identity`（带 sid 缓存，只读一次）
              */
-            const subagentExempt = skipEmptyTurn(sid, eventSessionMeta);
-            /* ★ 诊断（2026-10-23 第四版）：读数全部写进 `huanqi-turns.jsonl`。
+            const subagentExempt = skipEmptyTurn(sid, eventSessionMeta, eventSessionHeader);
+            /* ★ 诊断（2026-10-23 第五版）：读数全部写进 `huanqi-turns.jsonl`。
              *
-             * 前三版的教训都在这几个字段里：
-             *   · v1 只查 `ctx.agents` —— 拿不到，`exempt` 恒 false；
-             *   · v2 补了 `session.meta`，但 `isSubagent` 读的 `origin/delegationDepth`
-             *     在这版 DSH 里根本不存在 → 还是 false；
-             *   · v3 才发现真字段是 `parentSession`（`dsh-session:1398`）。
-             *   → 前两版我都把「读不到」当成了「不成立」，两次写成「已修复」。
+             * 前四版的教训：
+             *   v1 `ctx.agents.get(sid)?.session.meta` → agent 拿到了，但 meta 是 undefined
+             *   v2 `meta.origin` / `delegationDepth`    → 字段名错
+             *   v3 `meta.parentSession`                 → 对象对了，meta 不是容器
+             *   v4 加 `session.meta` 兜底               → 同上
+             *   v5 `session.header.parentSession`       → ✅
+             *   **每次都不是逻辑错，是「我以为它在那儿」。**
              *
-             * 现在把 `hasParent` 单独列出来：**它是判定的真正依据**。
-             * `hasParent=false` 且 `agentFound=false` 且会话确实有 `subagent.identity`
-             * ⇒ 说明三路全断，要换判据，而不是再猜。
+             * `hasParent` 现在同时看 header 和 meta，`headerKeys` 把 header 的键打出来。
              */
             const diag = {
                 policy: config.subagentPolicy,
@@ -2000,7 +2026,12 @@ export function apply(ctx, config) {
                 metaKeys: eventSessionMeta === undefined || eventSessionMeta === null
                     ? null
                     : Object.keys(eventSessionMeta),
-                hasParent: typeof eventSessionMeta?.parentSession === 'string',
+                hasHeader: eventSessionHeader !== undefined && eventSessionHeader !== null,
+                headerKeys: eventSessionHeader === undefined || eventSessionHeader === null
+                    ? null
+                    : Object.keys(eventSessionHeader),
+                hasParent: typeof eventSessionHeader?.parentSession === 'string'
+                    || typeof eventSessionMeta?.parentSession === 'string',
                 agentFound: verdictAgent !== undefined,
                 exempt: subagentExempt,
             };
@@ -2120,7 +2151,10 @@ export function apply(ctx, config) {
              * 在流开头算一次并缓存（`skipStreamCut` 内部又有 sid 缓存），别放进每帧的 delta 分支。
              * `relaxed` 档**保留**早杀：2026-10-23 实测，它那次恰恰把一个正在推演的
              * 子 agent 推向了「写盘」，是有用的。 */
-            const subagentStreamExempt = skipStreamCut(options.sessionId);
+            /* ★ header 从 agent 上取（`options` 只有 sessionId）。
+             * 2026-10-23 23:05 实测：真字段在 `session.header.parentSession`，不在 `meta`。 */
+            const cutHeader = agent.session?.header;
+            const subagentStreamExempt = skipStreamCut(options.sessionId, undefined, cutHeader);
             // 流内早杀是否已经掐过这一轮。掐过之后流末那条判据就不必再判 ——
             // 病是同一种（只有思考、没有产出），处理也走同一段换气代码。
             let silentCut = false;
@@ -2294,8 +2328,11 @@ export function apply(ctx, config) {
                 }
             }
             const fire = detector.takeFire();
-            if (fire !== undefined)
-                react(agent, fire, options.sessionId);
+            if (fire !== undefined) {
+                // ★ header 从 agent 上取 —— `options` 只有 sessionId，没有 header。
+                const liveHeader = agent.session?.header;
+                react(agent, fire, options.sessionId, liveHeader);
+            }
             /* ── 换气：正常轮的回血 ──────────────────────────────────────────────
              * ★ 这是额度**唯一会涨**的地方。没有它，这支体温计只能单向下降 ——
              * 那不是体温计，那是倒计时。
