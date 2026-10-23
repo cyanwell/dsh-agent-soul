@@ -486,6 +486,78 @@ function checkCompaction(logs, deep) {
 }
 
 /**
+ * ★ 深度项：门牌可回取 —— 摘要上那个指针，真的能打开吗。
+ *
+ * 起因（2026-10-23）：压缩在跑、摘要带门牌、seq 也对，但 `memq open` 崩在
+ *   `Buffer.concat(chunks)` 上（解压后超过 Node 的字符串上限 0x1fffffe8）。
+ *   **门牌是对的，门后面堵着。**
+ *
+ * ★ 判据不是「索引能建」也不是「摘要带门牌」—— 那两样当时都是好的，全都显示正常。
+ *   判据是：**拿那个指针真的能打开**。
+ *
+ * ★ 为什么不在这项里真去 open 一次：本会话日志 217 MB，open 一次 30 秒，
+ *   面板不能等。所以用**静态判据** —— 看解日志的那几个脚本有没有保护。
+ *   两种形状是对的：
+ *     ① 逐帧 + carry（memindex / memq）：全量解，内存里永远不出现巨串
+ *     ② 尾部限定 + 总量封顶（本体检器自己的 decodeCached）：只要末端事件
+ *   裸的 `Buffer.concat(全部).toString()` 什么都不防 → 日志一大必抛。
+ *
+ * ★ 本质上这是「同一个病有几份实现」的检测器：那天 memindex 修好了、memq 没修，
+ *   而所有指标都显示正常 —— 因为**测的地方不是病灶出现的地方**。
+ */
+function checkAnchor(logs, deep) {
+  const files = [];
+  let es;
+  try { es = fs.readdirSync(HUB) } catch {
+    return { id: "anchor", label: "门牌可回取", status: "info", detail: "读不到 HUB 目录", evidence: {}, deep: true };
+  }
+  for (const n of es) {
+    if (!/\.mjs$/.test(n)) continue;
+    if (/_probe|\.bak|^_/.test(n)) continue;   // 坏样本/探针是故意留的
+    let s;
+    try { s = fs.readFileSync(path.join(HUB, n), "utf8") } catch { continue }
+    if (!/zstdDecompressSync/.test(s)) continue;
+    // ★ 必须有 Buffer.concat( 才算危险形状。
+    //   2026-10-23 第一版判据只认 zstdDecompressSync，立刻误报了 session-store.mjs ——
+    //   它只是在**注释里**提到了这个函数名，真实现是逐帧返回 {lines, frames, failed}。
+    //   判据要落在「会不会拼出巨串」上，不是「提没提过这个 API」。
+    if (!/Buffer\.concat\(/.test(s)) continue;
+    const guarded = /carry/.test(s) || /MAX_TOTAL|MAX_LINE/.test(s);
+    files.push({ name: n, guarded });
+  }
+  if (!files.length) {
+    return { id: "anchor", label: "门牌可回取", status: "info", detail: "没扫到解日志的脚本", evidence: {}, deep: true };
+  }
+  const bad = files.filter((f) => !f.guarded).map((f) => f.name);
+  const okList = files.filter((f) => f.guarded).map((f) => f.name);
+  if (bad.length) {
+    return {
+      id: "anchor", label: "门牌可回取", status: "warn",
+      detail: `${bad.join(" / ")} 解大日志会抛 ERR_STRING_TOO_LONG —— 门牌指向的原文打不开`,
+      evidence: { bad, ok: okList, how: "要么逐帧+carry，要么加总量封顶" },
+      deep: true,
+    };
+  }
+  let lastSeq = null;
+  if (deep) {
+    const target = logs.find((l) => l.bytes > 0);
+    if (target) {
+      try {
+        const { events } = decodeCached(target.file);
+        const sum = [...events].reverse().find((e) => e.type === "compaction/summary");
+        if (sum && sum.seq !== undefined) lastSeq = String(sum.seq);
+      } catch { /* 解不开就是别的项的问题 */ }
+    }
+  }
+  return {
+    id: "anchor", label: "门牌可回取", status: "ok",
+    detail: `${files.length} 个解日志的脚本都有保护（${okList.join(" / ")}）${lastSeq ? `；最近门牌 seq=${lastSeq}` : ""}`,
+    evidence: { ok: okList, lastSeq },
+    deep: true,
+  };
+}
+
+/**
  * ★ 深度项：换气（思考预算）—— 稳态的时间维。
  * 为什么需要它：换气的判定参数（相似度 0.8 / 连续 3 次 / 上限 4 次 / 推理门槛 2048 字符）
  * 一次调好之后**没有任何反馈回路** —— 断过几次、有没有误伤，此前无人知道。
@@ -586,23 +658,44 @@ function checkSelf(logs, deep) {
   //    只查「文件存在」的话，这一项永远 ✓，而推送层其实一点没吃到。
   //    所以深检要从**真实注入过的日志**里找证据 —— 这是唯一的硬判据。
   let injected = null // null = 快检，没验
-  let injectInfo = null // 深检时记下证据长什么样，好让报错能指到具体位置
+  let injectInfo = null // 深检时记下「证据长什么样」，好让报错能指到具体位置
   if (deep) {
     const targetLog = logs.find((l) => l.bytes > 0)
     if (targetLog) {
       try {
         const { events } = decodeCached(targetLog.file)
-        // ★★★ 2026-10-23 定稿判据（这个文件此前落后两个版本，本轮补齐）：
-        //   ① 认字符串 "SELF.md" → 只要插件装上、工具描述里就有这个字，判据恒真（假绿）
-        //   ② 认日志里出现「四条硬线」→ 日志里既记录系统事件、也记录**人对系统的讨论**；
-        //      实测同一状态间隔 97 秒，只因读了一次 echo-doctor 源码，就从 ✓ 变成 ✗，
-        //      而且会自锁死（报错文本进日志 → 下轮又读到 → 永远修不好）
-        //   ★ 正确形状：注入的证据只能从**注入通道**里取，不能从整个日志里取。
-        //   真实结构（本机实测）：
+        // ★ P1-7（外部验证报告，2026-10-22）：原来这里认的是字符串 "SELF.md"。
+        //   可 agent_soul_scaffold 的工具描述里就写着 "SELF 模板"、"SELF.md" ——
+        //   也就是说**只要插件装上了**，日志里就必然出现这个字符串，判据恒为真。
+        //   一个永远通过的自检，比没有自检更坏：它会告诉你「装好了」。
+        //   改成认 SELF.md **正文里才有的**词 —— 工具描述不会写「四条硬线」。
+        //
+        // ★★★ 2026-10-23 再修（实机报告 D1）：上面这版还有第二个假阳性 ——
+        //   它把整个日志拼成一个大字符串再 includes，于是**早期那一次**
+        //   「SELF.md 读不到」会永远压住后面成功的注入。
+        //   实测：用户把路径修好之后 SELF 每轮都注入（GUI 里看得到），
+        //   体检却一直报「读不到」—— 抓的是几小时前的旧错误。
+        //   改成**按事件顺序扫、后出现者优先**：最后一次说什么就信什么。
+        //
+        // ★★★ 2026-10-23 三修（本轮实测，决定性证据）：上面那版**仍然是错的** ——
+        //   「后出现者优先」找证据用的还是**内容字符串**，而日志里既记录系统事件、
+        //   也记录**人对系统的讨论**。本机实测，同一状态、间隔 97 秒，
+        //   中间只做了一件事：读 echo-doctor 源码 ——
+        //     14:08:35  ✓「最近的注入里读到了」
+        //     14:10:12  ✗「最近一轮注入时读不到」
+        //   因为那段源码里同时含这两个字串，那次 tool/call 就被记成了 bad。
+        //   更坏的是**自锁死**：这条检查一旦报错，错误文本本身就进了日志，
+        //   下一轮读日志又看见它 → 永远报错，路径修好了也不会消失。
+        //
+        //   ★ 正确形状：**注入的证据只能从注入通道里取，不能从整个日志里取。**
+        //   真实结构（本机 seq=115626 实测，推送插件注入的那条）：
         //     type=user/message
         //     data.source = { kind:"runtime-context", form:"snapshot",
-        //                     sections:[ {name:"yanqing:self", text:"【此刻】…\n\n# SELF · 定长自我层…"}, … ] }
-        //   回归测试：同目录 test-self-check.mjs（6 场景，双向抗污染）
+        //                     sections:[ {name:"dsh-image-gen:canvas", …},
+        //                                {name:"yanqing:self", text:"【此刻】…\n\n# SELF · 定长自我层…"},
+        //                                {name:"yanqing:door-sign", …}, … ] }
+        //   所以判据 = 最后一条 runtime-context 快照里，有没有一节真装着 SELF 正文。
+        //   这一改同时也是**把「人说的话」彻底排除在证据之外** —— 它们根本不在 sections 里。
         const SELF_MARK = /#\s*SELF\s*[·・\-—]|##\s*我是谁|四条硬线/;
         let lastSnap = null;
         for (const e of events) {
@@ -613,6 +706,8 @@ function checkSelf(logs, deep) {
         }
         if (lastSnap) {
           const strs = lastSnap.sections.filter((s) => s && typeof s.text === "string");
+          // ① 先按节名认（推送插件注册的 context 名，本机是 yanqing:self）；
+          // ② 认不到再按正文标记认 —— 节名可改，正文骨架不会改。
           const hit =
             strs.find((s) => /self/i.test(String(s.name || "")) && s.text.length > 200) ||
             strs.find((s) => SELF_MARK.test(s.text));
@@ -629,21 +724,23 @@ function checkSelf(logs, deep) {
     }
   }
   if (injected === false) {
-    // ★★★ 2026-10-23 四修：这里**不许报 error** —— 「日志里没有」不等于「没注入」。
+    // ★★★ 2026-10-23 四修：这里**不许报 error** —— 因为「日志里没有」不等于「没注入」。
+    //
     //   两条推送通道，只有一条落日志：
-    //     ① runtime-context 快照的 sections[] —— 落日志（本机 dsh-yanqing-memory 走这条）
-    //     ② ctx.systemPrompt.context()        —— **不落日志**
-    //        （本插件仓库自带的 plugins/memory 就是走这条：name: 'agent:self'）
-    //   实测：会话日志里 system/message 0 条、request/header 只有 provider/model/tools、
-    //   40 种事件类型里没有任何 systemPrompt 正文。
-    //   所以「没找到 SELF 节」有两种可能，判据只能**证有不证无**：
-    //   找到就是确定注入了；找不到只能说「看不到」。报 error 会制造假红 ——
-    //   让人去修一个不存在的故障（就是那份实机报告里 C1/C3 的形状）。
+    //     ① runtime-context 快照的 sections[]  —— 落日志（本机 dsh-yanqing-memory 走这条）
+    //     ② ctx.systemPrompt.context()          —— **不落日志**
+    //        （agent-soul 自带的 plugins/memory 就是走这条：name: 'agent:self'）
+    //   实测依据：本会话日志里 system/message 0 条、request/header 只有
+    //   provider/model/tools、40 种事件类型里没有任何 systemPrompt 正文。
+    //
+    //   所以「没找到 SELF 节」有两种可能：真没注入，或走了 systemPrompt 通道。
+    //   判据只能**证有不证无** —— 找到就是确定注入了；找不到只能说「看不到」。
+    //   ★ 报 error 的代价是假红：会让人去修一个不存在的故障（就是小深那台 C1/C3 的形状）。
     const names = injectInfo?.sections?.length ? injectInfo.sections.join(" / ") : "（空）";
     return {
       id: "self", label: "推送层 SELF", status: "warn",
       detail: `SELF.md 在磁盘上（${st.size} B），但最近一轮 runtime context 快照（seq=${injectInfo?.seq ?? "?"}）里没有 SELF 正文 —— 那一轮注入了这些节：${names}。`
-        + `★ 这不一定是故障：如果推送插件走的是 ctx.systemPrompt.context()（本仓库的 dsh-agent-memory 就是这样），它不进日志，体检看不到。`
+        + `★ 这不一定是故障：如果推送插件走的是 ctx.systemPrompt.context()（agent-soul 自带的 dsh-agent-memory 就是这样），它不进日志，体检看不到。`
         + `自己确认一条就够：GUI 里这一轮 agent 到底读不读得到 SELF。读得到 → 虚警；读不到 → 查推送插件的 selfPath / maxBytes。`,
       evidence: { bytes: st.size, path: SELF_MD, injected: false, snapshot: injectInfo },
     }
@@ -749,7 +846,10 @@ function checkHotMemory() {
   }
   const worst = items.filter((i) => i.pct !== null).sort((a, b) => b.pct - a.pct)[0];
   let status = "ok";
-  if (worst && worst.pct >= 90) status = "warn";
+  // ★ 文件不存在（bytes === null）不是"健康"，是"还没建" —— 降 warn。
+  //   以前这里直接跳过，于是两项都没建时 worst 是 undefined，status 停在 ok。
+  if (items.some((i) => i.bytes === null)) status = "warn";
+  else if (worst && worst.pct >= 90) status = "warn";
   return {
     id: "hot", label: "L1 热记忆", status,
     detail: items.map((i) => `${i.name} ${i.bytes ?? "?"}B${i.pct !== null ? `（${i.pct}%）` : ""}`).join("　｜　"),
@@ -803,8 +903,10 @@ function checkIdentity() {
   const staleNote = stateSid && leadSid && !stateSid.includes(lastLead.by)
     ? `state.json 里记的还是 ${stateSid}，与当前 lead 署名（${leadSid}）不一致 —— 只是 mark 没跟上，不影响判据`
     : null;
+  // ★ 一条 lead 都没有 = 还没建立署名人，不是"判据通过"。降 warn。
+  const identityStatus = leads.length === 0 ? "warn" : "ok";
   return {
-    id: "identity", label: "身份判据（换容器/换届）", status: "ok",
+    id: "identity", label: "身份判据（换容器/换届）", status: identityStatus,
     detail: `《墨》里 ${leads.length} 代 lead，最后一条署名 ${leadSid || "?"} —— 判据只认《墨》，与容器/工作区无关`,
     evidence: { leadCount: leads.length, lastLeadBy: leadSid, lastLeadAt: lastLead?.t || null, stateSession: stateSid, staleNote },
   };
@@ -857,6 +959,7 @@ export function runDoctor(opts = {}) {
     checkIdentity(),
     checkHuanqi(logs, deep),
     checkDeploy(),
+    checkAnchor(logs, deep),
   ];
   const order = { error: 0, warn: 1, ok: 2, info: 3 };
   // 总判只看有结论的项 —— info（待深检）不拉低总判，否则快检永远是"未完成"

@@ -486,6 +486,78 @@ function checkCompaction(logs, deep) {
 }
 
 /**
+ * ★ 深度项：门牌可回取 —— 摘要上那个指针，真的能打开吗。
+ *
+ * 起因（2026-10-23）：压缩在跑、摘要带门牌、seq 也对，但 `memq open` 崩在
+ *   `Buffer.concat(chunks)` 上（解压后超过 Node 的字符串上限 0x1fffffe8）。
+ *   **门牌是对的，门后面堵着。**
+ *
+ * ★ 判据不是「索引能建」也不是「摘要带门牌」—— 那两样当时都是好的，全都显示正常。
+ *   判据是：**拿那个指针真的能打开**。
+ *
+ * ★ 为什么不在这项里真去 open 一次：本会话日志 217 MB，open 一次 30 秒，
+ *   面板不能等。所以用**静态判据** —— 看解日志的那几个脚本有没有保护。
+ *   两种形状是对的：
+ *     ① 逐帧 + carry（memindex / memq）：全量解，内存里永远不出现巨串
+ *     ② 尾部限定 + 总量封顶（本体检器自己的 decodeCached）：只要末端事件
+ *   裸的 `Buffer.concat(全部).toString()` 什么都不防 → 日志一大必抛。
+ *
+ * ★ 本质上这是「同一个病有几份实现」的检测器：那天 memindex 修好了、memq 没修，
+ *   而所有指标都显示正常 —— 因为**测的地方不是病灶出现的地方**。
+ */
+function checkAnchor(logs, deep) {
+  const files = [];
+  let es;
+  try { es = fs.readdirSync(HUB) } catch {
+    return { id: "anchor", label: "门牌可回取", status: "info", detail: "读不到 HUB 目录", evidence: {}, deep: true };
+  }
+  for (const n of es) {
+    if (!/\.mjs$/.test(n)) continue;
+    if (/_probe|\.bak|^_/.test(n)) continue;   // 坏样本/探针是故意留的
+    let s;
+    try { s = fs.readFileSync(path.join(HUB, n), "utf8") } catch { continue }
+    if (!/zstdDecompressSync/.test(s)) continue;
+    // ★ 必须有 Buffer.concat( 才算危险形状。
+    //   2026-10-23 第一版判据只认 zstdDecompressSync，立刻误报了 session-store.mjs ——
+    //   它只是在**注释里**提到了这个函数名，真实现是逐帧返回 {lines, frames, failed}。
+    //   判据要落在「会不会拼出巨串」上，不是「提没提过这个 API」。
+    if (!/Buffer\.concat\(/.test(s)) continue;
+    const guarded = /carry/.test(s) || /MAX_TOTAL|MAX_LINE/.test(s);
+    files.push({ name: n, guarded });
+  }
+  if (!files.length) {
+    return { id: "anchor", label: "门牌可回取", status: "info", detail: "没扫到解日志的脚本", evidence: {}, deep: true };
+  }
+  const bad = files.filter((f) => !f.guarded).map((f) => f.name);
+  const okList = files.filter((f) => f.guarded).map((f) => f.name);
+  if (bad.length) {
+    return {
+      id: "anchor", label: "门牌可回取", status: "warn",
+      detail: `${bad.join(" / ")} 解大日志会抛 ERR_STRING_TOO_LONG —— 门牌指向的原文打不开`,
+      evidence: { bad, ok: okList, how: "要么逐帧+carry，要么加总量封顶" },
+      deep: true,
+    };
+  }
+  let lastSeq = null;
+  if (deep) {
+    const target = logs.find((l) => l.bytes > 0);
+    if (target) {
+      try {
+        const { events } = decodeCached(target.file);
+        const sum = [...events].reverse().find((e) => e.type === "compaction/summary");
+        if (sum && sum.seq !== undefined) lastSeq = String(sum.seq);
+      } catch { /* 解不开就是别的项的问题 */ }
+    }
+  }
+  return {
+    id: "anchor", label: "门牌可回取", status: "ok",
+    detail: `${files.length} 个解日志的脚本都有保护（${okList.join(" / ")}）${lastSeq ? `；最近门牌 seq=${lastSeq}` : ""}`,
+    evidence: { ok: okList, lastSeq },
+    deep: true,
+  };
+}
+
+/**
  * ★ 深度项：换气（思考预算）—— 稳态的时间维。
  * 为什么需要它：换气的判定参数（相似度 0.8 / 连续 3 次 / 上限 4 次 / 推理门槛 2048 字符）
  * 一次调好之后**没有任何反馈回路** —— 断过几次、有没有误伤，此前无人知道。
@@ -887,6 +959,7 @@ export function runDoctor(opts = {}) {
     checkIdentity(),
     checkHuanqi(logs, deep),
     checkDeploy(),
+    checkAnchor(logs, deep),
   ];
   const order = { error: 0, warn: 1, ok: 2, info: 3 };
   // 总判只看有结论的项 —— info（待深检）不拉低总判，否则快检永远是"未完成"
