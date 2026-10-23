@@ -69,14 +69,34 @@ function decodeZstd(p) {
     frames.push(buf.subarray(s, e));
     s = buf.indexOf(MAGIC, e);
   }
-  const chunks = [];
-  for (const f of frames) { try { chunks.push(zlib.zstdDecompressSync(f)); } catch {} }
+  // ★★ 2026-10-23 修复：原来把全部帧 concat 成一个巨串再 toString。
+  //   会话日志压缩后可以到 200+ MB，解压后超过 Node 的字符串上限（0x1fffffe8 ≈ 512 MB），
+  //   抛 ERR_STRING_TOO_LONG。两个表现，都很像别的问题：
+  //     建索引 → 报「解码失败 N 条」，看上去像个别坏帧；
+  //     memq open → 直接崩，于是**门牌打不开**（门牌本身是对的，门后面堵着）。
+  //   改成【逐帧解码 → 逐帧按行切 → carry 跨帧续行】，内存里永远不出现完整巨串。
+  //   ★ carry 不能省：一行 JSON 可能跨帧，直接逐帧 split 会截断那一行、静默丢记录。
+  //   ★ 索引和 open 是两份实现，**一处修了另一处没修**过（2026-10-23 当天踩到）。
   const recs = [];
-  for (const line of Buffer.concat(chunks).toString("utf8").split("\n")) {
+  const MAX_LINE = 8 * 1024 * 1024;   // 单行上限 8 MB：超长行对检索没价值，丢掉
+  let carry = "";
+  const take = (line) => {
+    if (line.length > MAX_LINE) return;
     const t = line.trim();
-    if (!t) continue;
-    try { recs.push(JSON.parse(t)); } catch {}
+    if (!t) return;
+    try { recs.push(JSON.parse(t)); } catch { /* 非 JSON 行 */ }
+  };
+  for (const f of frames) {
+    let out;
+    try { out = zlib.zstdDecompressSync(f); } catch { continue; }
+    let str;
+    try { str = out.toString("utf8"); } catch { continue; }
+    const parts = (carry + str).split("\n");
+    carry = parts.pop() || "";
+    for (const line of parts) take(line);
+    if (carry.length > MAX_LINE) carry = "";
   }
+  if (carry) take(carry);
   return { recs, frames: frames.length };
 }
 

@@ -581,6 +581,55 @@ const S = 'file:///D:/AI/dsh-tools/dsh-agent-soul/install.js'
 （剩 6 行"生效但已兜底"：测试固件 1 + 探针夹具 4 + 降级链 1）
 ```
 
+### 2026-10-23（同日第六次）· 「压缩在跑」和「门牌打不开」是两件事
+
+被问了一句「压缩机制修改之后，是否可以保证运转」，去查，查出两个真 bug。
+
+## 先说好消息（实测，不是推断）
+
+解本会话日志（217 MB / 57076 帧 / 解码失败 0）统计：
+
+```
+compaction/start 229   summary 227   end 229   prune 231   ratio 0.99
+最近 3 次摘要的第一行全是门牌：
+> ⛬ 压缩索引（非原文） · log:session-1099f531-...#seq=116559（本段覆盖 116559–116816）
+```
+
+三个 seq 段（114870 / 115485 / 116559）正好是当天亲身经历的三次压缩。**压缩在跑、在写门牌、seq 是真的。**
+
+## 坏消息：门牌打不开
+
+真去 `memq open` 一次，崩了：
+
+```
+Error: Cannot create a string longer than 0x1fffffe8 characters
+    at decodeZstd (memq.mjs:429)
+```
+
+**和今天上午修的是同一个病、同一个函数名 —— 但那是两份实现，只修了 `memindex.mjs` 那一份。**
+`memq.mjs` 里还留着 `Buffer.concat(chunks).toString("utf8")`：217 MB 的日志解压后超过
+Node 的字符串上限（0x1fffffe8 ≈ 512 MB）。
+
+★ 这个形状值得记住：**索引修好之后 build 报「解码失败 0」，一切看起来正常；
+压缩插件也照常写门牌、摘要第一行 seq 也对。门牌是对的，门后面堵着。**
+判据不是「索引能建」也不是「摘要带门牌」，而是**「拿那个指针真的能打开」**。
+
+修法照搬 memindex 的逐帧解码（含 `carry` 跨帧续行 —— 一行 JSON 可能跨帧，
+直接逐帧 split 会截断、静默丢记录）。修完实测：
+
+```
+[一手原文] session.v4.jsonl.zstd
+  seq=116559  2026-10-23T14:29:21  type=user/message
+（29.9 秒解完 217 MB，内容正确）
+```
+
+## 顺带：仓库那两份也是旧版
+
+`kit/echo/memq.mjs` 和 `kit/echo/memindex.mjs` 都还是 `Buffer.concat` 那版 ——
+今天上午只修了中枢里跑的那份。**别人装了这套 kit、日志一大，会撞同一个错误**，
+而「能装进任何人的 DSH」正是这件事的目标。两份都换掉了，语法验过。
+
+
 
 
 
