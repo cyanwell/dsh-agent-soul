@@ -2660,6 +2660,66 @@ String(t.t || "").slice(11, 19)   // 字符串切片，取 ISO 里的 HH:MM:SS
 （它原来断言 3000，**而且断言消息里还写着「3000 是本会话实测的折中」这个已被推翻的旧结论**）、
 README 的示例配置。测试 203/203 全过。
 
+### 2026-10-23（同日第十一次）· 子 agent 豁免只做了半条路
+
+**这次不是查出来的，是打出来的。** 爀曦说：「把视频交给子 agent，顺带就可以验证换气还杀不杀它们了。」
+
+于是四个子 agent 同时开工（动效 / S3 / S4 / S5 四块互不重叠的活）。
+**四个全被熔断**，一个都没干完。
+
+## 根因：豁免写在了一条路上，判定写在另一条路上
+
+`isSubagent()` 的判断只出现在 `react()` 里 —— 那是挂在 **`llm/stream`** 上的反应链
+（warn / steer / cancel 三档）。**但空回合这条判据挂在 `session/event` 上，走的是另一条路**：
+
+```
+llm/stream  → react()      → isSubagent 早退 ✓
+session/event → turn/end   → 没有任何子 agent 检查 ✗
+```
+
+于是 `turn/end` 那条路：
+
+1. 照记判词 `continue:credit=N` —— 面板上看着像「换气要续一个子 agent」
+2. 更要紧的是，后面**真的会 `scheduleResume()`** —— 把一个正在读文件、跑长命令的子 agent 推走
+
+`scheduleResume` 本身只检查 `whenIdle` / `followup` 是不是函数，**不看对象是谁**。
+
+**现场证据**（2026-10-23 20:18，四个子 agent 正在跑时）：
+
+```
+sid=8b372be3-…  verdict=continue:credit=2     ← 子 agent 被判「该续」
+sid=955c6893-…  verdict=continue:credit=4     ← 同上
+```
+
+## 修法：两道都要有
+
+```ts
+const verdictAgent = ctx.agents.get(sid as never) as GuardableAgent | undefined
+const subagentExempt = verdictAgent !== undefined && isSubagent(verdictAgent)
+
+// ① 判词如实 —— 面板是给人看的
+if (subagentExempt) verdict = 'skip:subagent'
+
+// ② 真正出手的地方也拦一道（scheduleResume / steer 都在下面）
+if (subagentExempt) return
+```
+
+★ **只改判词不改行为＝假装修好了；只改行为不改判词＝面板继续撒谎。两道缺一不可。**
+★ 拿不到 agent / 拿不到元数据时**不拦** —— 与 `isSubagent` 同一条方向：
+宁可漏拦一个子 agent，也不能读不到元数据就把主会话这层保险悄悄关掉。
+
+测试 203/203 全过。**但改完要重启 DSH 才生效** —— 被打断的那四个，是在旧代码上跑的。
+
+## 一个意外的正面结论
+
+**熔断后那三件事（落盘 / 加索引 / 停下来喊人）是真的有效的。**
+
+四个子 agent 被强行收口时：**项目文件零修改、零半成品**，每个都留了自包含的交接
+（`30-状态\交接-motion-shell-v5动效音效.md`、`30-状态\进度-S3回声段-2026-10-23.md`），
+并在《墨》里各写了一条 shelved 索引 —— 而且都写了「无 seq，不猜」，没编门牌。
+
+**被一个安全装置打断时，损失的是时间，不是工作。这就是它该有的样子。**
+
 ## 还留着的
 
 - `plugins/huanqi` 在 `DSH_HOME` 为空时曾把账本 / `huanqi-turns.jsonl` / 启动日志落到**进程 cwd** ——
