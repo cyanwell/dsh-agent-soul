@@ -249,7 +249,23 @@ function readValues(text) {
     if (!m) continue
     if (m[1].length <= (cfg >= 0 ? cfgIndent : loc.idIndent)) continue
     let raw = m[3]
-    if (raw === '' || raw === "''" || raw === '""') raw = ''
+    // ★★★ 2026-10-23 修（换气面板下拉框「选了又跳回去」的真正原因）：
+    //   YAML 里的字符串值是 `subagentPolicy: 'relaxed'`，按行取值会把**引号一起带出来**，
+    //   于是 `raw = "'relaxed'"`。
+    //     · 文本框看着没毛病（显示成 `'relaxed'`，但没人细看）；
+    //     · `<select value="'relaxed'">` 却**匹配不上** value 为 `relaxed` 的 option，
+    //       浏览器静默回落到第一项 —— 看起来就是「保存后又跳回 strict」。
+    //   原来只特判了空串 `''`，带引号的非空串没剥。
+    //   注：`readHuanqiConfigValue()` 早就单独补过这一步（本文件 128-132 行），
+    //   但那是给账本路径打的补丁；放在源头，所有消费方都受益，且对它是幂等的。
+    if (raw === "''" || raw === '""') raw = ''
+    else if (
+      raw.length > 1
+      && ((raw[0] === "'" && raw[raw.length - 1] === "'") || (raw[0] === '"' && raw[raw.length - 1] === '"'))
+    ) {
+      // YAML 单引号里转义单引号是写两遍 `''`，剥完要还原成一个
+      raw = raw.slice(1, -1).replace(/''/g, "'")
+    }
     values[m[2]] = raw
   }
   return { found: true, hasConfig: cfg >= 0, values }

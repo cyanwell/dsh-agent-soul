@@ -66,6 +66,29 @@
 **默认 `strict` 是刻意的**：等于现在的行为，不会让谁突然失去保护；放宽要主动选。
 `relaxed` 保留流内早杀也有依据 —— 2026-10-23 实测，那条早杀通知恰好把一个正在空推演的子 agent 推向了写盘。
 
+#### ★ 已知坑：YAML 引号会让下拉框「选了又跳回去」（2026-10-23 修）
+
+当天第一次加上这个下拉框，爀曦选了「子 agent 放宽」→ 保存 → **又跳回「全局应用」**。
+
+**写入一直是对的**：`cordis.patch.yml` 里确实多了 `subagentPolicy: 'relaxed'`（第 470 行）。
+
+**错在读回来**：`readValues()` 是「按行取值」，它把 YAML 的引号**一起带出来了** ——
+`raw = "'relaxed'"`。文本框看不出问题，但 `<select value="'relaxed'">` 匹配不上
+value 为 `relaxed` 的 option，**浏览器静默回落到第一项**。
+
+原来只特判了空串 `''`，带引号的非空串没剥。修在 `readValues()` 源头（对
+`readHuanqiConfigValue()` 里原有的补丁是幂等的）。
+
+**回归检查**：
+
+```
+node verify-panel-read.mjs
+```
+
+它用**真的** `cordis.patch.yml` 跑一遍真 `readValues()`，逐个字段断言
+enum 的读回值能在 `options` 里找到。这条命令是这次事故留下的唯一防线 ——
+**下次加任何 `type: 'enum'` 的字段，先跑它。**
+
 ## ★ 只改 desktop，web 默认不动
 
 爀曦 2026-10-12 23:25 定：**web 那份 profile 是备用通道** ——
