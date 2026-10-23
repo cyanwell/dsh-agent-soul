@@ -284,6 +284,96 @@ function checkClock() {
   };
 }
 
+/**
+ * ★ 部署一致性 —— 2026-10-23 加的第 14 项。
+ *
+ * 为什么要有这一项：同一个体检器曾存在**三份副本**（HUB 里真正跑的 / 仓库 kit / 仓库 plugins），
+ * 各缺一半 —— HUB 里有 L0 时钟检查而仓库没有，仓库里有新的 SELF 判据而 HUB 没有。
+ * 而**十项里没有任何一项会报**：三份看起来都「是那套东西」。
+ *
+ * 现在 `install-kit.mjs` 装的时候会写下 `.kit-origin.json`（来源目录 + 版本 + 每个文件大小），
+ * 这一项读它去比。判据分三种，别混：
+ *   ① 有记录、源仓库在 → 逐文件比大小，不一致就是真的旧了
+ *   ② 有记录、源仓库不在（换机器了/只装了包）→ 只能确认「记过的那几个文件都在」
+ *   ③ 没有记录 → **不知道它从哪来**，只能报「我没法判断」，不能报错
+ */
+function checkDeploy() {
+  const ORIGIN = path.join(HUB, ".kit-origin.json");
+  const L = "部署一致性（脚本 vs 仓库）";
+  let origin = null;
+  try { origin = JSON.parse(fs.readFileSync(ORIGIN, "utf8")) } catch { /* 按「没有」处理 */ }
+  if (!origin || typeof origin !== "object") {
+    return {
+      id: "deploy", label: L, status: "warn",
+      detail: "HUB 里没有 .kit-origin.json —— 不知道这套脚本从哪来，也就没法判断它是不是旧了。用 kit/echo/install-kit.mjs 装一次就会记下",
+      evidence: { origin: ORIGIN },
+    };
+  }
+
+  const files = (origin.files && typeof origin.files === "object") ? origin.files : {};
+  const names = Object.keys(files);
+  const missing = [];
+  const differ = [];
+  for (const n of names) {
+    let st = null;
+    try { st = fs.statSync(path.join(HUB, n)) } catch { /* 缺 */ }
+    if (!st) { missing.push(n); continue }
+    if (st.size !== files[n]) differ.push(`${n}（HUB ${st.size} B / 记录 ${files[n]} B）`);
+  }
+
+  const kitDir = String(origin.kitDir || "");
+  let kitThere = false;
+  if (kitDir) { try { kitThere = fs.statSync(kitDir).isDirectory() } catch { /* 不在 */ } }
+  const kitDrift = [];
+  if (kitThere) {
+    for (const n of names) {
+      let src = null;
+      try { src = fs.statSync(path.join(kitDir, n)) } catch { kitDrift.push(`${n}（源里已没有）`); continue }
+      let hubSize = null;
+      try { hubSize = fs.statSync(path.join(HUB, n)).size } catch { continue }
+      if (hubSize !== src.size) kitDrift.push(`${n}（源 ${src.size} B / HUB ${hubSize} B）`);
+    }
+  }
+
+  const ev = {
+    kitDir: kitDir || null, version: origin.version || null, copiedAt: origin.copiedAt || null,
+    recorded: names.length, missing, differ, kitDrift, sourcePresent: kitThere,
+  };
+  if (missing.length) {
+    return {
+      id: "deploy", label: L, status: "error",
+      detail: `装的时候记了 ${names.length} 个脚本，HUB 里缺 ${missing.length} 个：${missing.slice(0, 4).join("、")} —— 这套是残的，重跑 install-kit.mjs`,
+      evidence: ev,
+    };
+  }
+  if (kitDrift.length) {
+    return {
+      id: "deploy", label: L, status: "warn",
+      detail: `仓库那边的脚本已经变了 ${kitDrift.length} 个：${kitDrift.slice(0, 3).join("；")} —— HUB 里跑的还是旧的，重跑 install-kit.mjs`,
+      evidence: ev,
+    };
+  }
+  if (differ.length) {
+    return {
+      id: "deploy", label: L, status: "warn",
+      detail: `HUB 里有 ${differ.length} 个文件和安装记录对不上（可能被手改过）：${differ.slice(0, 3).join("；")}`,
+      evidence: ev,
+    };
+  }
+  if (!kitThere) {
+    return {
+      id: "deploy", label: L, status: "ok",
+      detail: `${names.length} 个脚本齐全（源仓库不在这台机器上，只核对了完整性）；${String(origin.copiedAt || "?").slice(0, 16)} 装的`,
+      evidence: ev,
+    };
+  }
+  return {
+    id: "deploy", label: L, status: "ok",
+    detail: `${names.length} 个脚本与源目录一致（仓库版本 ${origin.version || "未知"}，${String(origin.copiedAt || "?").slice(0, 16)} 装的）`,
+    evidence: ev,
+  };
+}
+
 /** ★ 深度项：门牌实测。deep=false 时返回 info，由调用方补上次深检结果。 */
 function checkDoorSign(logs, deep) {
   const target = logs.find((l) => l.bytes > 0);
@@ -796,6 +886,7 @@ export function runDoctor(opts = {}) {
     checkVersionDrift(),
     checkIdentity(),
     checkHuanqi(logs, deep),
+    checkDeploy(),
   ];
   const order = { error: 0, warn: 1, ok: 2, info: 3 };
   // 总判只看有结论的项 —— info（待深检）不拉低总判，否则快检永远是"未完成"
