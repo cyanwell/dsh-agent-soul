@@ -1,4 +1,4 @@
-﻿# install-desktop.ps1 - desktop one-command installer for dsh-agent-soul
+# install-desktop.ps1 - desktop one-command installer for dsh-agent-soul
 #
 # Why this file exists:
 #   The desktop profile refuses `dsh plugin add` (DSH says:
@@ -38,7 +38,6 @@ if (-not $Profile) {
   $cands = @()
   if ($env:DSH_HOME) { $cands += (Join-Path $env:DSH_HOME 'profiles\desktop') }
   $cands += (Join-Path $env:USERPROFILE '.dsh\profiles\desktop')
-  $cands += 'D:\AI\dsh\home\profiles\desktop'
   $cands += (Join-Path $env:APPDATA 'dsh\profiles\desktop')
   foreach ($c in $cands) {
     if (Test-Path (Join-Path $c 'package.json')) { $Profile = $c; break }

@@ -27,11 +27,14 @@ if (missing.length) {
 }
 
 // ★ 参数用 journey 那间已经搭好的书房 —— 这样验的是「真跑通」而不是「报错也对」
+//   ★ 2026-10-23：这四个默认值是**本机夹具**（作者机器上的那套 journey 沙箱），
+//   换台机器跑会读不到。所以四个都能用环境变量覆盖 —— 别人要验，
+//   设 PROBE_SOUL / PROBE_MEMORY / PROBE_SESSIONS / PROBE_RUNTIME 指到自己那套。
 const ROOTS = {
-  soul: String.raw`D:\AI\dsh-slots\logs\journey\soul`,
-  memory: String.raw`D:\AI\dsh-slots\logs\journey\memory`,
-  sessions: String.raw`D:\AI\dsh-slots\logs\journey\sessions`,
-  runtime: String.raw`D:\AI\dsh-slots\logs\journey\memory\runtime`,
+  soul: process.env.PROBE_SOUL || String.raw`D:\AI\dsh-slots\logs\journey\soul`,
+  memory: process.env.PROBE_MEMORY || String.raw`D:\AI\dsh-slots\logs\journey\memory`,
+  sessions: process.env.PROBE_SESSIONS || String.raw`D:\AI\dsh-slots\logs\journey\sessions`,
+  runtime: process.env.PROBE_RUNTIME || String.raw`D:\AI\dsh-slots\logs\journey\memory\runtime`,
 }
 
 function head(s, n = 14) {

@@ -107,7 +107,13 @@ ownKeys:   [..., "__yqRange"]
 
 适用于：一个 profile 里有多个 preset，只想让其中一个换成你的实现。
 
-**本机主环境用的就是这条**（`D:\AI\dsh\home\.agent-presets\yanqing\agent.cordis.yml`）：
+**本机验证过这条**（作者机器写在 profile 的 `cordis.patch.yml` 里）：
+
+> ★ **路径按你自己的 profile 走，别照抄。**
+> 旧版 DSH 还有一个 `.agent-presets\<名字>\agent.cordis.yml` 的位置 ——
+> **那个目录官方已经不再读取了**（原话：Nothing reads that directory any more）。
+> 写到那里会**静默不生效**：文件在、YAML 也对、就是没人读。
+> 现在写在 `<profile>/cordis.patch.yml`。
 
 ```yaml
 - id: compaction

@@ -9,8 +9,19 @@
 //   留着它，下次改 PKG/nameOf 相关逻辑可以立刻复验。
 //
 // 用法: node tools/scan-probe.mjs <profile 绝对路径>
-const S = 'file:///D:/AI/dsh-tools/dsh-agent-soul/install.js'
-const PROFILE = process.argv[2] || 'D:/AI/dsh/home/profiles/desktop'
+//   profile 不给时按 $DSH_HOME/profiles/desktop → ~/.dsh/profiles/desktop 的顺序找
+import path from 'node:path'
+import os from 'node:os'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+
+// ★ 仓库根从脚本自身位置推，不要写死（2026-10-23 全库扫出来的：原来这行是
+//   `file:///D:/AI/dsh-tools/dsh-agent-soul/install.js`，换个人 clone 到别处就直接 import 失败 ——
+//   而这个脚本的存在意义正是「换个环境也能立刻复验那个 scan bug」）。
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const S = pathToFileURL(path.join(REPO, 'install.js')).href
+const DSH_HOME = (process.env.DSH_HOME || process.env.ECHO_DSH_HOME || '').trim()
+  || path.join(os.homedir(), '.dsh')
+const PROFILE = process.argv[2] || path.join(DSH_HOME, 'profiles', 'desktop')
 
 const { registerInstallTool } = await import(S)
 let tool = null

@@ -31,9 +31,15 @@ export const inject = ['webServer']
 //   而 HUB 现在要用它。这和 install.js 那个 scan bug 是同一个形状：
 //   **注释、变量名、类型都对，只有先后顺序错**，读的时候眼睛会顺着往下走、不回头。
 //
-const DSH_HOME = process.env.DSH_HOME !== undefined && process.env.DSH_HOME !== ''
-  ? process.env.DSH_HOME
-  : 'D:/AI/dsh/home'
+//   ★★ 兜底不能写作者机器（2026-10-23 全库扫出来的）：原来这里是 `: 'D:/AI/dsh/home'`。
+//   作者机器上 DSH_HOME 设在 User 环境变量里，所以这一行**从来没被执行过** ——
+//   它只在**别人的机器**上生效，而那里这个目录根本不存在：
+//   HUB 会跟着推成 `不存在的地方/hub`，doctor 报 spawn ENOENT、版本漂移报「一个脚本都没扫到」。
+//   ★ 用一个「作者机器上永远走不到、别人机器上一定走错」的常量当兜底，比没有兜底更坏 ——
+//   因为本机测不出来。
+//   DSH 的标准位置是 `~/.dsh`（本机实测 `C:\Users\pc\.dsh` 也存在），所以兜底用它。
+const DSH_HOME = (process.env.DSH_HOME || process.env.ECHO_DSH_HOME || '').trim()
+  || path.join(os.homedir(), '.dsh')
 
 // ★ NODE —— 用**跑这个进程的那个 node**。本来就在 node 里，没必要再猜一个路径。
 //   （原来写死作者机器上的 C:/Users/pc/.workbuddy/...，换台机器就 spawn ENOENT。）

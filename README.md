@@ -504,6 +504,84 @@ node kit/echo/install-kit.mjs --check  # 只比对，不写
 那是**另一件事**：回流要做的是把「逐帧解码」「`lastSelfAt` 写入」这两处**挑出来**放进仓库版
 （不能整份搬，见上面那条写死路径），而不是复制文件。这里没有做。
 
+### 2026-10-23（同日第五次）· 全库扫一遍「写死作者机器路径」
+
+起因是一句话：「检查插件和仓库里面是否有写死我们本机的路径。」
+
+## 扫描口径
+
+扫 `D:\AI` / `C:\Users\pc` / `E:\dsh` / `.workbuddy` / `yanqing-soul|hub`，排除 `node_modules` / `.git` / `archive`。
+命中按**是否参与运行**分类，不按「看起来像不像路径」分类：
+
+| 类别 | 数量 | 处理 |
+|---|---|---|
+| **代码里真生效**（常量、`import` 源、兜底值） | 8 行 | 全部处理 |
+| 代码注释里的举例 | 15 行 | 多数保留（见下） |
+| 文档（更新记录、审核报告、示例命令） | 14 行 | 保留 |
+
+## 找到的真问题（这一类才值得修）
+
+**① `plugins/echo/index.js` 的 `DSH_HOME` 兜底**
+
+```js
+const DSH_HOME = process.env.DSH_HOME !== undefined && process.env.DSH_HOME !== ''
+  ? process.env.DSH_HOME
+  : 'D:/AI/dsh/home'          // ← 这个
+```
+
+这是最阴的一种：**本机永远不会执行到这一行**（作者的 `DSH_HOME` 设在 User 环境变量里，实测 `D:\AI\dsh\home`），
+所以本地怎么测都正常 —— 它只在**别人的机器**上生效，而那里这个目录不存在：
+HUB 跟着推成 `不存在的地方/hub` → doctor 报 `spawn ENOENT` → 版本漂移报「一个脚本都没扫到」。
+
+★ 一句话：**一个「作者机器上走不到、别人机器上一定走错」的兜底，比没有兜底更坏，因为本机测不出来。**
+
+改成 `~/.dsh`（本机实测 `C:\Users\pc\.dsh` 也存在，是 DSH 的标准位置）。本机行为不变（仍走环境变量）。
+
+**② `tools/scan-probe.mjs` 的 `import` 源**
+
+```js
+const S = 'file:///D:/AI/dsh-tools/dsh-agent-soul/install.js'
+```
+
+别人 clone 到别处，这行让脚本**直接 import 失败** —— 而这个脚本存在的意义正是
+「换个环境也能立刻复验那个 scan bug」。改成从 `import.meta.url` 推仓库根。
+
+**③ `install-desktop.ps1` 的 profile 候选**
+
+候选列表里多一行本机的 `D:\AI\dsh\home\profiles\desktop`。前两项（`$DSH_HOME`、`~/.dsh`、`%APPDATA%`）已覆盖，删掉。
+
+**④ `probe-kit-tools.mjs` 的四个默认探针路径**
+
+它们是**本机夹具**（作者机器上的 journey 沙箱），换台机器读不到。不删 —— 改成四个都能用
+`PROBE_SOUL` / `PROBE_MEMORY` / `PROBE_SESSIONS` / `PROBE_RUNTIME` 覆盖，并写明「这是夹具」。
+
+**⑤ `HOW-TO-TAKEOVER.md`（两份）第 110 行**
+
+原话：「本机主环境用的就是这条（`D:\AI\dsh\home\.agent-presets\yanqing\agent.cordis.yml`）」。
+两个毛病叠一起：**路径是本机的**，而且 **`.agent-presets` 那个目录官方已经不再读取**
+（Nothing reads that directory any more）—— 写到那里**静默不生效**：文件在、YAML 对、就是没人读。
+
+改成「本机验证过这条」+ 明确「路径按你自己的 profile 走」+ 那句废弃警告。
+`dsh-agent-soul` 和 `dsh-agent-organs` 两份都要改（它们内容一样，一直是两个副本）。
+
+## 故意不改的（每条都有理由）
+
+| 位置 | 为什么不改 |
+|---|---|
+| `plugins/yantai/index.js` 的 `<DSH_HOME>` / `<你的记忆目录>` / `<user>` | **故意留的占位符**。上面注释写明了理由：「假目录比不给更坏 —— 它会去读那个字面路径然后什么都读不到」 |
+| `kit/echo/test-self-check.mjs` 里 `Current working directory: "D:\\AI\\yanqing-soul"` | 测试固件：它**模拟的是一段本机日志**，改了就不像真日志了 |
+| `tools/verify-packaging.mjs` 的 `D:/AI/.../node_modules/semver` | 是**降级链的第二项**，第一项是通用的 `'semver'`。别人机器第一项就成功 |
+| 各 `echo-config.mjs` 注释里的「例：`D:\AI\yanqing-soul`」 | 注释举例，且说的是「env 变量该填什么」—— 举例用真实路径比用 `xxx` 更清楚 |
+| `README` / `docs/` 里的路径 | 更新记录和审核报告里的「改之前是什么」，是历史 |
+
+## 结果
+
+```
+代码里"真生效"且无兜底的写死路径：0
+（剩 6 行"生效但已兜底"：测试固件 1 + 探针夹具 4 + 降级链 1）
+```
+
+
 
 
 
