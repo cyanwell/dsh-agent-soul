@@ -1830,6 +1830,23 @@ export function apply(ctx, config) {
             //   ① 压根没这行 → turn 没结束，卡在中间了（判据 ④ 管不到，得靠判据 ①）
             //   ② 有这行但 kind 不是 completed → 判断被我筛掉了
             //   ③ 有这行、kind=completed、最后一条=reasoning → 应该续却没续（代码 bug）
+            /* ★★ 2026-10-23（砚青落）：子 agent 不参与判定 —— 这条判据在 `turn/end` 这条路
+             *   原来整个漏掉了。
+             *
+             * `react()`（挂在 `llm/stream` 上）有 isSubagent 早退，但「空回合」这条判据是挂在
+             * `session/event` 上的 —— 走的是另一条路，于是：
+             *   ① 判词照记 `continue:credit=N`，面板上看着像「换气要续一个子 agent」；
+             *   ② 更要紧的是后面真会 `scheduleResume` —— 那会把一个正在读文件、跑长命令的
+             *      子 agent 推走。**它不是循环，是工作。**
+             * 实测（2026-10-23 20:18，四个子 agent 在跑视频渲染时）：
+             *   `sid=955c6893… verdict=continue:credit=4` 就是这么记下来的。
+             *
+             * ★ 判词必须如实 —— 面板是给人看的，`skip:subagent` 才说真话。
+             * ★ 拿不到 agent / 拿不到元数据时不拦（与 isSubagent 同一条方向：
+             *   宁可漏拦一个子 agent，也不能读不到元数据就把主会话这层保险悄悄关掉）。
+             */
+            const verdictAgent = ctx.agents.get(sid);
+            const subagentExempt = verdictAgent !== undefined && isSubagent(verdictAgent);
             const lastHad = lastMessageHadOutput.get(sid) === true;
             const shape = lastMessageShape.get(sid) ?? '(还没有 assistant 消息)';
             const startedAt = turnStartedAt.get(sid);
@@ -1843,7 +1860,9 @@ export function apply(ctx, config) {
             const kindStr = kind === undefined ? '(none)' : String(kind);
             const kindAccepted = kind === 'completed' || kind === 'no-visible-output';
             let verdict;
-            if (!kindAccepted)
+            if (subagentExempt)
+                verdict = 'skip:subagent';
+            else if (!kindAccepted)
                 verdict = 'skip:kind=' + kindStr;
             else if (lastHad)
                 verdict = 'skip:had-output';
@@ -1878,6 +1897,13 @@ export function apply(ctx, config) {
             turnStartedAt.delete(sid);
             const agent = ctx.agents.get(sid);
             if (agent === undefined)
+                return;
+            /* ★★ 2026-10-23（砚青落）：这里才是**真正会出手**的地方 ——
+             *   `scheduleResume`（自动再开一轮）和熔断后的 `steer` 都在下面。
+             *   上面那条 `subagentExempt` 只修了判词（让面板说真话），
+             *   这一道才是拦「把正在干活的子 agent 推走」的。
+             *   ★ 两道都要有：只改判词不改行为＝假装修好了；只改行为不改判词＝面板继续撒谎。 */
+            if (subagentExempt)
                 return;
             const strings = stringsFor(readLanguage(ctx));
             if (ledger.canContinue()) {
