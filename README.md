@@ -2626,8 +2626,12 @@ if (type === 'turn/end') {
 
 ## 还留着的
 
-- `plugins/huanqi` 在 `DSH_HOME` 为空时把账本 / `huanqi-turns.jsonl` / 启动日志落到**进程 cwd**，cwd 不可写时只 `logger.warn`（桌面端不落盘）→ 额度静默重置。这是第三方项目的设计，**这次没动**。
-- `plugins/echo/index.js` 的换气读端读 `<DSH_HOME>/state`，而写端在 cwd → 两边可能分叉。同上，属于换气那一侧。
+- `plugins/huanqi` 在 `DSH_HOME` 为空时曾把账本 / `huanqi-turns.jsonl` / 启动日志落到**进程 cwd** ——
+  落点随启动目录漂移，写不进去时只 `logger.warn`（桌面端不落盘）→ 额度静默重置。
+  **本日已修**：三层（账本、turns、boot log）统一兜底到 `~/.dsh/state`，
+  和换气面板找的位置对齐。★ 这个 bug 只有 `DSH_HOME` 为空的机器上才显形 —— 作者机器上永远有值。
+- `plugins/echo/index.js` 的换气读端读 `<DSH_HOME>/state`。
+  **本日已核**：它的 `DSH_HOME` 兜底也已经是 `~/.dsh`，和上面写端的兜底**同一个落点** —— 两边不再分叉。
 - `dsh-yanqing-line/scripts/anchor.mjs` 读 `COMFY_HOST` 而文档写的是 `COMFYUI_HOST`，名实不符。本机版专用，不分发，没动。
 
 ### 2026-10-17 · 再扫一遍旧口径

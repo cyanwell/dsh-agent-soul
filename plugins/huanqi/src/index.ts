@@ -161,6 +161,19 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+
+/**
+ * 家目录。
+ *
+ * ★ 2026-10-23：这里**故意不用** `import { homedir } from 'node:os'` ——
+ *   这个项目自带的 `@types/node` 太旧（连 `appendFileSync` 都没有声明，见 bootLog 的注释），
+ *   引 `node:os` 会 TS2307，`tsc` 直接失败。而 `lib/index.js` 其实照样生成，
+ *   于是「本机能跑、别人 build 报错」—— 又一个只在不该出问题的地方出问题的东西。
+ *   读环境变量同样可靠，且不动依赖。
+ */
+function homeDir(): string {
+  return process.env.USERPROFILE ?? process.env.HOME ?? '.'
+}
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, AgentCancelCause } from '@deepseek-ai/dsh-agent'
@@ -1153,13 +1166,21 @@ export class CreditLedger {
    * 账本的默认路径：`<DSH_HOME>/state/dsh-huanqi.json`。
    *
    * 为什么要走环境变量而不是硬编码：`DSH_HOME` 是 DSH 自己给每个子进程的，
-   * 换一台机器、换一次安装位置都自动跟着走。取不到才退回相对路径。
+   * 换一台机器、换一次安装位置都自动跟着走。
+   *
+   * ★★ 2026-10-23 改：取不到 `DSH_HOME` 时**不能再退回 `join('.', ...)`**。
+   *   那是相对**进程 cwd** 的 —— 账本落点会随启动目录漂移，重启一次就可能「额度莫名回满」，
+   *   而且写不进去时只 `logger.warn`（桌面端根本不落盘）→ 完全静默。
+   *   这个 bug 来自第一个用户的实机验收报告：他的机器上 `DSH_HOME` **就是空的**，
+   *   于是账本落到 profile 根，而换气面板按 `DSH_HOME/state` 去找 —— **两边分叉，面板永远空**。
+   *   DSH 的标准位置是 `~/.dsh`（本机实测 `~/.dsh` 也存在），所以兜底用它。
    */
   static defaultPath(): string {
     const home = process.env.DSH_HOME
-    return home !== undefined && home !== ''
-      ? join(home, 'state', 'dsh-huanqi.json')
-      : join('.', 'dsh-huanqi.json')
+    const root = home !== undefined && home !== ''
+      ? home
+      : join(homeDir(), '.dsh')
+    return join(root, 'state', 'dsh-huanqi.json')
   }
 }
 
@@ -1961,7 +1982,13 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
   /** 状态目录：启动探针与检测层共用同一个落点。 */
   const stateDir = ((): string => {
     const home = process.env.DSH_HOME
-    return home !== undefined && home !== '' ? join(home, 'state') : '.'
+    // ★ 2026-10-23：同 Ledger.defaultPath —— 不退回 cwd。
+    //   启动探针、huanqi-turns.jsonl、账本三者必须落在**同一个目录**，
+    //   否则换气面板读 turns、运维看 boot log、面板看账本，三边各看各的。
+    const root = home !== undefined && home !== ''
+      ? home
+      : join(homeDir(), '.dsh')
+    return join(root, 'state')
   })()
 
   /**
