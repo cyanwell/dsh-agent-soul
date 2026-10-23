@@ -189,7 +189,18 @@ export const Config = z.object({
     anomalyWindow: z.number().step(1).min(3).max(50).default(10),
     warnAtCredit: z.number().step(1).min(1).max(10).default(2),
     ledgerPath: z.string().default(''),
-    silentReasoningChars: z.number().step(1).min(0).default(3000),
+    /**
+     * 流内早杀阈值：推理写到这么多字、正文与工具调用仍是零，就地截断。
+     *
+     * ★★ 2026-10-23 默认值 3000 → **8000**。
+     *   这个数 2026-10-12 就已经在本机拍板改成 8000 了（3000 实测误杀约 7.9% 的正常长推理：
+     *   probe-loop 全量 7533 步里，3000 字以上的正常步有 592 个，当晚被误截断 4 次、全是正常思考，
+     *   额度被误耗到 0 导致熔断；放宽后误杀率降到 0.37%）。
+     *   **但那天只改了本机 profile 的覆盖值，默认值一直停在 3000** ——
+     *   于是「作者机器上对、新装的人会被误杀」，和本仓库这一整天在修的是同一个病。
+     *   ★ 判据：一个参数的安全值不该靠「记得在 profile 里覆盖它」来保证。
+     */
+    silentReasoningChars: z.number().step(1).min(0).default(8000),
     reasoningOnlySteps: z.number().step(1).min(1).max(10).default(1),
     maxRepeatedText: z.number().step(1).min(0).default(60),
     maxRepeatedCycleChars: z.number().step(1).min(0).default(512),

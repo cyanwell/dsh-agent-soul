@@ -588,7 +588,19 @@ window.__ModuleLoader__.load({
                       },
                     },
                     h("span", { style: { flex: "0 0 56px", opacity: 0.75 } },
-                      String(t.t || "").slice(11, 19) || "--:--:--"),
+                      /* ★ 2026-10-23 修：原来这里直接 `String(t.t).slice(11,19)` —— 那是**字符串切片**，
+                       *   取的是 ISO 里的 UTC 小时数，**没有转本地时区**。于是晚上 20:06 会被显示成
+                       *   「12:06:06」，看起来像「面板停在中午不动了」。
+                       *   判据：JSONL 里的 t 形如 `2026-10-23T12:06:06.884Z`，末尾那个 Z 就是 UTC；
+                       *   而 mtime 是本地时间 —— 两者差整 8 小时，人眼一看就以为坏了。
+                       *   现在按本地时区格式化；解析失败才退回原来的切片（至少不会空）。 */
+                      (function (iso) {
+                        if (!iso) return "--:--:--";
+                        var d = new Date(iso);
+                        if (isNaN(d.getTime())) return String(iso).slice(11, 19) || "--:--:--";
+                        var p = function (n) { return (n < 10 ? "0" : "") + n; };
+                        return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+                      })(t.t)),
                     h("span", { style: { flex: "0 0 104px" }, title: "turn/end 的 reason.kind" },
                       String(t.kind || "?")),
                     h("span", { style: { flex: "0 0 132px" }, title: "最后一条 assistant 消息的形状" },

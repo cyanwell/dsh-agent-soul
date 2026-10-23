@@ -179,7 +179,9 @@ dsh plugin --profile <name> add <path-to-this-package>
     - id: huanqi
       config:
         maxContinuations: 6          # 一口气能接几次（也是额度上限）；0 = 关掉换气层，只留循环检测
-        silentReasoningChars: 3000   # 流内早杀：思考写到这么多字、正文与工具仍为零，就地截断
+        silentReasoningChars: 8000   # 流内早杀：思考写到这么多字、正文与工具仍为零，就地截断
+                                     # ★ 默认值本来就是 8000（2026-10-23 把代码默认从 3000 改成 8000 了）；
+                                     #   这里列出它只是把「本机在用的值」写全，不改它也没关系。
         reasoningOnlySteps: 1        # 流末：连续几次 reasoning-only 才出手（1 = 一次就出）
         minReasoningChars: 2048      # 推理短于这个长度不计入（避免误伤短思考）
         emptyTurnContinue: true      # 空回合也续一轮（上面的判据 ④）
