@@ -2414,7 +2414,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
       //   ① 压根没这行 → turn 没结束，卡在中间了（判据 ④ 管不到，得靠判据 ①）
       //   ② 有这行但 kind 不是 completed → 判断被我筛掉了
       //   ③ 有这行、kind=completed、最后一条=reasoning → 应该续却没续（代码 bug）
-      /* ★★ 2026-10-23（砚青落）：子 agent 不参与判定 —— 这条判据在 `turn/end` 这条路
+      /* ★★ 2026-10-23（砚青落，第二版）：子 agent 不参与判定 —— 这条判据在 `turn/end` 这条路
        *   原来整个漏掉了。
        *
        * `react()`（挂在 `llm/stream` 上）有 isSubagent 早退，但「空回合」这条判据是挂在
@@ -2422,15 +2422,41 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
        *   ① 判词照记 `continue:credit=N`，面板上看着像「换气要续一个子 agent」；
        *   ② 更要紧的是后面真会 `scheduleResume` —— 那会把一个正在读文件、跑长命令的
        *      子 agent 推走。**它不是循环，是工作。**
-       * 实测（2026-10-23 20:18，四个子 agent 在跑视频渲染时）：
-       *   `sid=955c6893… verdict=continue:credit=4` 就是这么记下来的。
        *
-       * ★ 判词必须如实 —— 面板是给人看的，`skip:subagent` 才说真话。
-       * ★ 拿不到 agent / 拿不到元数据时不拦（与 isSubagent 同一条方向：
-       *   宁可漏拦一个子 agent，也不能读不到元数据就把主会话这层保险悄悄关掉）。
+       * ★★ 第一版只查了 `ctx.agents.get(sid)` —— **实测拿不到**（子 agent 的会话不一定在
+       *   `ctx.agents` 里），于是 `subagentExempt` 恒为 false，修复等于没生效。
+       *   证据：2026-10-23 20:36 子 agent `84b4994d` 仍被判 `continue:credit=4`，
+       *   而 `skip:subagent` 一条都没出现过。
+       *
+       * ★ 所以**两路都查**：`session.meta`（这个回调的入参对象上就带着，最可靠）
+       *   与 `ctx.agents.get(sid)?.session.meta`（兜底）。任一命中就整条早退。
+       * ★ 两路都拿不到时不拦 —— 与 isSubagent 同一条方向：宁可漏拦一个子 agent，
+       *   也不能读不到元数据就把主会话这层保险悄悄关掉。
        */
       const verdictAgent = ctx.agents.get(sid as never) as GuardableAgent | undefined
-      const subagentExempt = verdictAgent !== undefined && isSubagent(verdictAgent)
+      const eventSessionMeta = (session as { meta?: unknown } | undefined)?.meta
+      const subagentExempt =
+        (verdictAgent !== undefined && isSubagent(verdictAgent))
+        || (eventSessionMeta !== undefined && isSubagent({ session: { meta: eventSessionMeta } }))
+
+      /* ★ 诊断（2026-10-23，只在「疑似废轮」时打一行，平时不出声）：
+       * 上一版修复为什么没生效，就是缺这一行 —— 我猜 `ctx.agents.get(sid)` 拿得到，
+       * 实际拿不到；改完又猜 `session.meta` 有值，**没有证据**。
+       * 现在把三个判据的原始读数一次打出来，下次不用再猜。
+       * 看到 `exempt:false` 且 `agentFound:false` + `hasMeta:false`（或 meta 里没有
+       * origin/delegationDepth）→ 说明这条路也走不通，要换判据（比如按 session id 前缀）。 */
+      if (!lastMessageHadOutput.get(sid)) {
+        ctx.logger.warn('[huanqi] subagent-diag ' + JSON.stringify({
+          sid: String(sid).slice(0, 8),
+          agentFound: verdictAgent !== undefined,
+          hasMeta: eventSessionMeta !== undefined,
+          metaKeys: eventSessionMeta === undefined || eventSessionMeta === null
+            ? null
+            : Object.keys(eventSessionMeta as object),
+          sessionKeys: session === undefined ? null : Object.keys(session as object),
+          exempt: subagentExempt,
+        }))
+      }
 
       const lastHad = lastMessageHadOutput.get(sid) === true
       const shape = lastMessageShape.get(sid) ?? '(还没有 assistant 消息)'
