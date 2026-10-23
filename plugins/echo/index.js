@@ -154,44 +154,81 @@ function saveCfg() {
 /** 起子进程跑一个 node 脚本，输出走**文件**（不用管道 —— 本机踩过受限环境管道 EPERM 的坑）。 */
 function runNode(script, args, timeoutMs) {
   return new Promise((resolve) => {
-    const out = path.join(os.tmpdir(), `yq-echo-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`)
-    let fd
-    try { fd = fs.openSync(out, 'w') } catch (e) { return resolve({ ok: false, error: 'open tmp: ' + e.message }) }
+    const tag = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    const out = path.join(os.tmpdir(), `yq-echo-${tag}.txt`)
+    // ★★ 2026-10-23：stderr 也必须接住，而且同样走文件。
+    //
+    //   原来这里是 stdio: ['ignore', fd, 'ignore'] —— stderr 直接丢。
+    //   后果实测：把新版 echo-doctor 换上去、但没换它 import 的 echo-config.mjs 时，
+    //   doctor 在**模块加载阶段**就崩了（ERR_MODULE_NOT_FOUND），
+    //   什么都还没来得及往 stdout 写。面板那侧只能看到「输出是空的」，
+    //   于是报「输出不是 JSON：Unexpected end of JSON input」——**真正的原因一个字都没露**。
+    //
+    //   ★ 同时还漏了 exit code：原来的 on('exit') 不管退出码是多少都判 ok。
+    //   于是「进程崩了」和「跑完了但没输出」看起来一模一样。
+    //   这两处一起修，判据才立得住：**非零退出码就是失败，并把 stderr 原样报出来。**
+    const errFile = path.join(os.tmpdir(), `yq-echo-err-${tag}.txt`)
+    let fd, fdErr
+    try {
+      fd = fs.openSync(out, 'w')
+      fdErr = fs.openSync(errFile, 'w')
+    } catch (e) {
+      try { if (fd !== undefined) fs.closeSync(fd) } catch { /* */ }
+      return resolve({ ok: false, error: 'open tmp: ' + e.message, text: '', stderr: '' })
+    }
     let done = false
     const finish = (r) => {
       if (done) return
       done = true
       try { fs.closeSync(fd) } catch { /* */ }
+      try { fs.closeSync(fdErr) } catch { /* */ }
       let txt = ''
+      let errTxt = ''
       try { txt = fs.readFileSync(out, 'utf8') } catch { /* */ }
+      try { errTxt = fs.readFileSync(errFile, 'utf8') } catch { /* */ }
       try { fs.unlinkSync(out) } catch { /* */ }
-      resolve(Object.assign(r, { text: txt }))
+      try { fs.unlinkSync(errFile) } catch { /* */ }
+      resolve(Object.assign(r, { text: txt, stderr: errTxt }))
     }
     let child
     try {
-      child = spawn(NODE, [script, ...args], { stdio: ['ignore', fd, 'ignore'], windowsHide: true })
+      child = spawn(NODE, [script, ...args], { stdio: ['ignore', fd, fdErr], windowsHide: true })
     } catch (e) { return finish({ ok: false, error: 'spawn: ' + e.message }) }
     const timer = setTimeout(() => {
       try { child.kill() } catch { /* */ }
       finish({ ok: false, error: `超时（${timeoutMs}ms）` })
     }, timeoutMs)
     child.on('error', (e) => { clearTimeout(timer); finish({ ok: false, error: 'spawn error: ' + e.message }) })
-    child.on('exit', () => { clearTimeout(timer); finish({ ok: true }) })
+    child.on('exit', (code, signal) => {
+      clearTimeout(timer)
+      if (code === 0) return finish({ ok: true })
+      finish({ ok: false, error: `退出码 ${code}${signal ? ' (signal ' + signal + ')' : ''}` })
+    })
   })
 }
 
 function parseReport(r, mode) {
   const stamp = new Date().toISOString().replace('T', ' ').slice(0, 19)
+  // ★ stderr 只留尾巴 —— 它是给人看「为什么起不来」的，不是日志
+  const errTail = String(r.stderr || '').trim().slice(-800)
   if (!r.ok) {
     return {
       at: stamp, mode, overall: 'error', counts: { error: 1, warn: 0, ok: 0, pending: 0 }, ms: 0,
-      checks: [{ id: 'doctor', label: '体检器本身', status: 'error', detail: '跑不起来：' + r.error, evidence: { script: DOCTOR } }],
+      checks: [{
+        id: 'doctor', label: '体检器本身', status: 'error',
+        detail: '跑不起来：' + r.error + (errTail ? ' ｜ stderr：' + errTail.split('\n').pop() : ''),
+        evidence: { script: DOCTOR, stderr: errTail || null, stdout: String(r.text || '').slice(0, 300) || null },
+      }],
     }
   }
   try { return JSON.parse(r.text) } catch (e) {
     return {
       at: stamp, mode, overall: 'error', counts: { error: 1, warn: 0, ok: 0, pending: 0 }, ms: 0,
-      checks: [{ id: 'doctor', label: '体检器本身', status: 'error', detail: '输出不是 JSON：' + e.message, evidence: { head: String(r.text).slice(0, 300) } }],
+      checks: [{
+        id: 'doctor', label: '体检器本身', status: 'error',
+        detail: '输出不是 JSON：' + e.message + (errTail ? ' ｜ stderr：' + errTail.split('\n').pop() : ''),
+        evidence: { head: String(r.text).slice(0, 300), stderr: errTail || null },
+      }],
     }
   }
 }

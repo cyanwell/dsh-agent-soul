@@ -521,14 +521,25 @@ export function registerInstallTool(ctx) {
         {
           const echoWanted = bundles.some((b) => /echo/.test(b)) || allDirs.some((d) => d === 'echo')
           if (echoWanted) {
+            const kitDirShown = join(HERE, 'kit', 'echo')
             lines.push('')
             lines.push('  ★ echo 装完还有一件事：把体检脚本复制进 HUB。')
-            lines.push('     源：<本仓库>/kit/echo/*.mjs')
-            lines.push('     目标：DSH_HOME/hub/（与 echo 面板里的 HUB/HOME_DIR 一致）')
+            lines.push('     源：' + kitDirShown)
+            lines.push('     目标：DSH_HOME/hub/（与 echo 面板里的 HUB/HOME_DIR 一致；设了 ECHO_HUB 就用它）')
+            lines.push('     ★ 整段粘进 PowerShell 就行（路径已经填好）：')
+            lines.push('       $kit = "' + kitDirShown + '"')
+            lines.push('       $hub = if ($env:ECHO_HUB) { $env:ECHO_HUB } else { Join-Path $env:DSH_HOME "hub" }')
+            lines.push('       New-Item -ItemType Directory -Force -Path $hub | Out-Null')
+            lines.push('       Get-ChildItem "$kit\\*.mjs" | Copy-Item -Destination $hub -Force')
+            lines.push('    ★★ 必须是**整套**，不能只拷 echo-doctor.mjs（2026-10-23 实测踩到）：')
+            lines.push('       doctor import 同目录的 echo-config.mjs。只换 doctor 不换它，')
+            lines.push('       doctor 直接 import 失败 —— 面板上表现为**空白输出**，不是报错。')
             lines.push('    ★ 少了这一步：面板能开，但 /api/status 里 doctor 会报 spawn ENOENT；')
             lines.push('      版本漂移检查会报「一个脚本都没扫到 —— 这项等于没检查」。')
             lines.push('      两句都不是「出故障了」，是「还没配好」—— 但都会让面板看起来是坏的。')
             lines.push('    ★ 有自己的记忆中枢就设 ECHO_HUB 指过去，脚本放那儿也行。')
+            lines.push('    ★ 升级本仓库之后要重跑一次这四行 —— 否则 HUB 里跑的还是旧版，')
+            lines.push('      而且**没有任何东西会发现它旧了**（这条是 2026-10-23 那次的教训）。')
           }
         }
 

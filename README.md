@@ -365,6 +365,70 @@ hub 版（补上 echo-config 后）→ 0 错 / 3 警 / 10 好，L0 时钟 ✓、
 ★ 还剩一件**没做**：把 `install.js` 那行「打印」改成**真的复制**，并加一条「hub 与 kit 版本不一致就报告」的检查。
 在那之前，三份仍然可能再次漂移 —— 这次只是把它们对齐了一次。
 
+### 2026-10-23（同日第三次）· 收尾：让「跑不起来」和「跑完了没输出」能被分开
+
+上一节末尾留的那个「没做」，做完了一部分 —— 但**做法和原计划不同**，理由如下。
+
+## 为什么没有把 install.js 改成「真的复制」
+
+读代码才发现那是**明确的设计**，不是疏忽（原文就在旁边）：
+
+> 这里只【说清楚】，不替用户拷文件：这个工具只出计划，不执行。
+
+所以硬塞一个复制动作进去，是拿「我以为的修法」覆盖「它本来的定位」。改成它能做的最大帮助：
+
+**把「源→目标」那两句，换成一段可以直接粘的 PowerShell**，路径已经用 `HERE` 填好：
+
+```powershell
+$kit = "<本仓库>/kit/echo"
+$hub = if ($env:ECHO_HUB) { $env:ECHO_HUB } else { Join-Path $env:DSH_HOME "hub" }
+New-Item -ItemType Directory -Force -Path $hub | Out-Null
+Get-ChildItem "$kit\*.mjs" | Copy-Item -Destination $hub -Force
+```
+
+并且明确写了一句：**必须整套拷，不能只拷 `echo-doctor.mjs`** —— 因为它 `import` 同目录的
+`echo-config.mjs`，只换 doctor 会让它**在模块加载阶段就崩**。
+
+## 真正该修的是那个「空白输出」
+
+上一节记的现象是「换完 doctor 跑出空白」。查下去发现**两个 bug 叠在一起**：
+
+| # | 位置 | 原来 | 后果 |
+|---|---|---|---|
+| 1 | `plugins/echo/index.js` 的 spawn | `stdio: ['ignore', fd, 'ignore']` —— **stderr 丢弃** | doctor 起不来时，真正的报错（`ERR_MODULE_NOT_FOUND`）一个字都看不到 |
+| 2 | 同一个函数的 `on('exit')` | `finish({ ok: true })`，**不看退出码** | 「进程崩了」和「跑完了但没输出」判据完全一样 |
+
+于是 `import` 失败 → stdout 空 → 面板报「输出不是 JSON：Unexpected end of JSON input」→
+**真正的原因在 stderr 里，被 `ignore` 掉了。**
+
+★ 这个形状值得单独记一笔：**一个吞掉 stderr 的子进程包装，会把「装错了」伪装成「输出格式不对」。**
+后者听起来像 doctor 的 bug，前者才是事实。
+
+## 改成了什么
+
+- `stdio: ['ignore', fd, fdErr]` —— **stderr 也走文件**（不用管道：本机踩过受限环境管道 EPERM）
+- `on('exit', (code, signal))` —— **非零退出码就是失败**
+- `parseReport` 的两条失败路径都带上 `stderr` 尾巴（800 字符），`detail` 里也拼一句
+
+## 验证（这次先证明前提成立，再谈修法有效）
+
+上一轮踩过「把脚手架跑挂当成测试有效」，所以这次分两步：
+
+```
+① 前提成立吗：故意移走 echo-config.mjs，直接跑 doctor
+   → exit code: 1 ｜ stdout: 0 字节 ｜ stderr: 831 字节
+   → stderr 里确实是 Error [ERR_MODULE_NOT_FOUND]: Cannot find module ...\echo-config.mjs
+② 所以接住 stderr + 看退出码，这两条修法才有意义
+```
+
+★ 顺带又踩了一次同一个坑：第一次验证写成 `2>&1 1>$null`，抓到的是空 ——
+**差点据此宣布「stderr 里没有东西，修法无效」**。重定向写反了而已。
+判据：**「我没看到」不等于「那里没有」**，先换个方法再看一次。
+
+★ 还留着一条没做：**「hub 与 kit 版本不一致就报告」的自动检查**。
+现在靠的是「升级后记得重跑那四行」，那仍然是人在记。
+
+
 
 
 这一条修的不是别人的 bug，是**我自己 10-22 写的那条检查**。
