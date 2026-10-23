@@ -22,6 +22,15 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const JSON_OUT = process.argv.includes('--json');
 const NODE = process.execPath;
 const p = (f) => path.join(HERE, f);
+
+/** ★ 2026-10-23：输出给用户照抄的命令必须自带配置，否则在 kit/ 目录里跑会误报「还没配好」。 */
+function doctorCmd() {
+  const parts = [`node ${p('echo-doctor.mjs')}`];
+  if (CFG.SOUL) parts.push(`--soul "${CFG.SOUL}"`);
+  if (CFG.MEM) parts.push(`--memory "${CFG.MEM}"`);
+  if (CFG.SESSIONS) parts.push(`--sessions "${CFG.SESSIONS}"`);
+  return parts.join(' ');
+}
 const exists = (f) => fs.existsSync(f.replace(/\//g, path.sep));
 
 function countLines(f) {
@@ -139,7 +148,9 @@ const STEPS = [
       } catch { return false; }
     },
     why: '体检器是那一层「坏了会有人告诉你」的保险。它报 error 的时候，别往上加东西。',
-    how: () => [`    node ${p('echo-doctor.mjs')}`, '  按它的输出去修，修完再跑本命令。'],
+    how: () => [`    ${doctorCmd()}`,
+                '  按它的输出去修，修完再跑本命令。',
+                '  （命令里已带上 --soul/--memory/--sessions，可复制直接跑）'],
   },
 ];
 
@@ -207,7 +218,7 @@ function main() {
     console.log(`  门    node ${p('memq.mjs')} [词]`);
     console.log('');
     console.log('  六层都在了。接下来就是拿它做事 —— 出问题的时候跑体检：');
-    console.log(`    node ${p('echo-doctor.mjs')}`);
+    console.log(`    ${doctorCmd()}`);
     console.log('');
     console.log('  ★ 别急着加功能。先用它记几十条真实的东西，');
     console.log('    等你自己开始嫌「这个搜不出来」的时候，再谈改造。');

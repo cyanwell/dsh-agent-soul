@@ -9,7 +9,10 @@
  *   猜错比不猜更坏（会把别人的记忆读到错的地方，而且不会报错）。
  *   这正是「装上了、没报错、但它没在工作」那个坑的解法：**让它在第一步就喊出来。**
  *
- * 优先级：环境变量 > echo.config.json > 推断 > 报错
+ * 优先级：命令行参数 > 环境变量 > echo.config.json > 推断 > 报错
+ *
+ * 命令行参数（2026-10-23 加）：
+ *   --soul <路径>  --memory <路径>  --sessions <路径>  --runtime <路径>
  *
  * 环境变量：
  *   ECHO_SOUL     书房根           （例：D:\AI\yanqing-soul）
@@ -48,8 +51,35 @@ function readConfigFile() {
 
 const CFG = readConfigFile() || {};
 
+/**
+ * ★★ 2026-10-23 加：命令行参数。
+ *   实机安装报告 C1：plan.mjs 第 6 步给的命令是裸的 `node echo-doctor.mjs`，
+ *   不带 ECHO_SOUL / ECHO_MEMORY。用户在 kit/echo/ 下照着跑，
+ *   那里没有 echo.config.json，于是报「还没配好 → 先跑 scaffold」——
+ *   而目录早就建好了。**照错的结论去修，会去修不存在的问题。**
+ *   ★ 所以修在这里：配置源支持显式参数，所有 import 它的脚本一起受益
+ *     （echo / memq / memindex / self / scaffold / plan / diagnose…）。
+ */
+function fromArgv() {
+  const argv = process.argv.slice(2);
+  const get = (flag) => {
+    const i = argv.indexOf(flag);
+    if (i < 0) return null;
+    const v = argv[i + 1];
+    return v && !v.startsWith("--") ? v : null;
+  };
+  return {
+    soul: get("--soul"),
+    memory: get("--memory"),
+    sessions: get("--sessions"),
+    runtime: get("--runtime"),
+  };
+}
+const ARGV = fromArgv();
+
+/** 优先级：argv > 环境变量 > echo.config.json（推断在各自常量里兜底） */
 function pick(envName, cfgKey) {
-  const v = process.env[envName] || CFG[cfgKey];
+  const v = ARGV[cfgKey] || process.env[envName] || CFG[cfgKey];
   return v ? String(v).replace(/\\/g, '/').replace(/\/+$/, '') : null;
 }
 
@@ -68,7 +98,7 @@ export const SESSIONS = pick('ECHO_SESSIONS', 'sessions')
 /** ★ L1 热记忆（USER.md / MEMORY.md）不在书房里 —— 它属于运行时。
  *  默认跟 mnemon 运行时目录走，可以用 ECHO_RUNTIME 覆盖。 */
 export const RUNTIME = (() => {
-  const v = process.env.ECHO_RUNTIME || CFG.runtime;
+  const v = ARGV.runtime || process.env.ECHO_RUNTIME || CFG.runtime;
   if (v) return String(v).replace(/\\/g, '/').replace(/\/+$/, '');
   const p = path.join(os.homedir(), '.mnemon', 'runtime');
   return p.replace(/\\/g, '/');
@@ -103,6 +133,24 @@ export function checkConfig(opt = {}) {
     } else if (!fs.existsSync(val)) {
       problems.push(`${name} 指向的目录不存在：${val}`);
       hints.push(`  检查 ${envName} 是不是写错了；目录要先建出来`);
+    }
+  }
+
+  // ★★★ 2026-10-23 加（实机报告 C3）：传错一层目录时，原来会给出完全相反的结论。
+  //   实测：memory 传 `.../memory/hub` → 报「索引还没建过 / SELF 还没装配」（判成没装）；
+  //         传 `.../memory`（少一层）→ 报「建于 12:11 / SELF 在磁盘上」（判成装好了）。
+  //   两个结论相反，而且前者会让人回去重跑 scaffold —— 修一个不存在的问题。
+  //   ★ 判据：如果给的目录**自己就叫 hub**，那一定传深了一层。
+  if (MEM && fs.existsSync(MEM)) {
+    const base = path.basename(MEM).replace(/\\/g, "/").toLowerCase();
+    const hasHubChild = fs.existsSync(path.join(MEM, "hub"));
+    if (base === "hub" && !hasHubChild) {
+      const parent = path.dirname(MEM).replace(/\\/g, "/");
+      problems.push(`MEM 传深了一层：你给的是 ${MEM}，它是中枢下面的 hub 目录`);
+      hints.push(`  改成它的上级：--memory "${parent}"（或 ECHO_MEMORY=${parent}）`);
+    } else if (!hasHubChild && base !== "hub") {
+      problems.push(`MEM 下面没有 hub/ 目录：${MEM}`);
+      hints.push(`  确认这个就是「记忆中枢根」（hub、index、SELF.md 都在它下面），不是某个子目录`);
     }
   }
 
@@ -152,7 +200,9 @@ export function describe() {
     index: INDEX,
     ledger: LEDGER,
     sessions: SESSIONS,
-    from: CFG.__from || (process.env.ECHO_SOUL || process.env.ECHO_MEMORY ? '环境变量' : '推断'),
+    from: (ARGV.soul || ARGV.memory || ARGV.sessions)
+      ? '命令行参数'
+      : (CFG.__from || (process.env.ECHO_SOUL || process.env.ECHO_MEMORY ? '环境变量' : '推断')),
   };
 }
 

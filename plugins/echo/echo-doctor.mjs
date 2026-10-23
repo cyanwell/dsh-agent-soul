@@ -249,13 +249,50 @@ function checkDoorSign(logs, deep) {
     return { id: "doorsign", label: "门牌回取（实测）", status: "warn", detail: "这份日志里还没有压缩摘要，无可测门牌", evidence: { events: events.length }, deep: true };
   }
   const last = summaries[summaries.length - 1];
-  const raw = JSON.stringify(last.data || {});
-  const m = /#seq=(\d+)/.exec(raw);
-  if (!m) {
+
+  // ★★★ 2026-10-23 修假阳性（实机报告 C2）。
+  //   原实现：`const raw = JSON.stringify(last.data); /#seq=(\d+)/.exec(raw)` ——
+  //   把**摘要正文**也算进去了。于是只要正文里提到过门牌格式（比如这个会话本身就在排查门牌，
+  //   正文写着「首行必须是 log:session-<id>#seq=<n>」），就会命中、被判成"有门牌"。
+  //   实测后果：hasMark=true 而实际是 1 块无门牌 —— 一个会误导人的假绿。
+  //   ★ 现在改成**结构判断**：看块数 + 第 0 块的开头与长度，不看"全文是否出现过"。
+  const blocks = Array.isArray(last.data && last.data.summary) ? last.data.summary : [];
+  const head = (blocks[0] && typeof blocks[0].text === "string") ? blocks[0].text : "";
+  const headTrim = head.trim();
+  // 门牌块的两种合法开头：完整式（⛬ 压缩索引…）与降级式（直接 log:session-…）
+  const looksLikeAnchor = /^>?\s*⛬/.test(headTrim) || /^>?\s*log:session-[0-9a-f-]+#seq=\d+/i.test(headTrim);
+  // ★ 判据（2026-10-23 回归修正）：
+  //   充分条件 = **第 0 块本身以门牌标记开头，且它是短行**。
+  //   blocks.length 只作辅助证据，不作必要条件 ——
+  //   降级式门牌（拿不到范围，只写会话号 + 检索入口）可能只有 1 块。
+  //   而小深那条 seq=4322 是「1 块 + 正文 5764 字 + 以 ## 开头」，
+  //   looksLikeAnchor 为 false，照样判无 —— 假阳性不复现。
+  const structural = looksLikeAnchor && headTrim.length < 500;
+  const m = structural ? /#seq=(\d+)/.exec(headTrim) : null;
+
+  if (!structural) {
     return {
       id: "doorsign", label: "门牌回取（实测）", status: "error",
-      detail: "最近一次压缩的摘要里没有门牌 —— 压缩发生了，但回取链断了",
-      evidence: { summarySeq: last.seq, time: iso(last.time), hasMark: raw.includes(MARK) }, deep: true,
+      detail: `最近一次压缩的摘要里没有门牌 —— 压缩发生了，但回取链断了（${blocks.length} 块${blocks.length === 1 ? "，门牌应在前面单独一块" : ""}）`,
+      evidence: {
+        summarySeq: last.seq, time: iso(last.time),
+        blocks: blocks.length,
+        headPreview: headTrim.replace(/\s+/g, " ").slice(0, 120),
+        // ★ 保留这个字段但改名意：现在它是「正文里提到过门牌字样」，
+        //   仅作排查线索，**不再参与判定**。
+        mentionsMarkInBody: JSON.stringify(last.data || {}).includes(MARK),
+        hint: "判据看结构：data.summary 应为 2 块、第 0 块是短门牌行。正文提到门牌字样不算。",
+      }, deep: true,
+    };
+  }
+  if (!m) {
+    // 结构性合格但没有精确 seq —— 属于「降级式门牌」（拿不到范围时只写会话号 + 检索入口）。
+    // 这是设计内的行为，不该报错，但要说清它没有精确坐标。
+    return {
+      id: "doorsign", label: "门牌回取（实测）", status: "ok",
+      detail: `有门牌（${blocks.length} 块结构正确），但这一条没带精确 seq —— 压缩时拿不到范围，退化成会话号级指针`,
+      evidence: { summarySeq: last.seq, time: iso(last.time), blocks: blocks.length, headPreview: headTrim.replace(/\s+/g, " ").slice(0, 160) },
+      deep: true,
     };
   }
   const want = Number(m[1]);
@@ -409,22 +446,66 @@ function checkSelf(logs, deep) {
   //    只查「文件存在」的话，这一项永远 ✓，而推送层其实一点没吃到。
   //    所以深检要从**真实注入过的日志**里找证据 —— 这是唯一的硬判据。
   let injected = null // null = 快检，没验
+  let injectInfo = null // 深检时记下证据长什么样，好让报错能指到具体位置
   if (deep) {
     const targetLog = logs.find((l) => l.bytes > 0)
     if (targetLog) {
       try {
         const { events } = decodeCached(targetLog.file)
-        const raw = events.map((e) => JSON.stringify(e.data || {})).join("\n")
-        if (raw.includes("SELF.md 读不到")) injected = false
-        else if (raw.includes("自我层") || raw.includes("SELF.md")) injected = true
+        // ★★★ 2026-10-23 定稿判据（这个文件此前落后两个版本，本轮补齐）：
+        //   ① 认字符串 "SELF.md" → 只要插件装上、工具描述里就有这个字，判据恒真（假绿）
+        //   ② 认日志里出现「四条硬线」→ 日志里既记录系统事件、也记录**人对系统的讨论**；
+        //      实测同一状态间隔 97 秒，只因读了一次 echo-doctor 源码，就从 ✓ 变成 ✗，
+        //      而且会自锁死（报错文本进日志 → 下轮又读到 → 永远修不好）
+        //   ★ 正确形状：注入的证据只能从**注入通道**里取，不能从整个日志里取。
+        //   真实结构（本机实测）：
+        //     type=user/message
+        //     data.source = { kind:"runtime-context", form:"snapshot",
+        //                     sections:[ {name:"yanqing:self", text:"【此刻】…\n\n# SELF · 定长自我层…"}, … ] }
+        //   回归测试：同目录 test-self-check.mjs（6 场景，双向抗污染）
+        const SELF_MARK = /#\s*SELF\s*[·・\-—]|##\s*我是谁|四条硬线/;
+        let lastSnap = null;
+        for (const e of events) {
+          if (e?.type !== "user/message") continue;
+          const src = e?.data?.source;
+          if (src?.kind !== "runtime-context") continue;
+          lastSnap = { seq: e.seq, time: e.time, sections: Array.isArray(src.sections) ? src.sections : [] };
+        }
+        if (lastSnap) {
+          const strs = lastSnap.sections.filter((s) => s && typeof s.text === "string");
+          const hit =
+            strs.find((s) => /self/i.test(String(s.name || "")) && s.text.length > 200) ||
+            strs.find((s) => SELF_MARK.test(s.text));
+          if (hit) {
+            injected = true;
+            injectInfo = { seq: lastSnap.seq, section: hit.name || null, chars: hit.text.length, at: lastSnap.time };
+          } else {
+            injected = false;
+            injectInfo = { seq: lastSnap.seq, sections: strs.map((s) => s.name || "(无名节)"), at: lastSnap.time };
+          }
+        }
+        // 连 runtime-context 快照都没有 → injected 保持 null：没有证据就不下结论，别猜。
       } catch { /* 解不出来就不下结论，别猜 */ }
     }
   }
   if (injected === false) {
+    // ★★★ 2026-10-23 四修：这里**不许报 error** —— 「日志里没有」不等于「没注入」。
+    //   两条推送通道，只有一条落日志：
+    //     ① runtime-context 快照的 sections[] —— 落日志（本机 dsh-yanqing-memory 走这条）
+    //     ② ctx.systemPrompt.context()        —— **不落日志**
+    //        （本插件仓库自带的 plugins/memory 就是走这条：name: 'agent:self'）
+    //   实测：会话日志里 system/message 0 条、request/header 只有 provider/model/tools、
+    //   40 种事件类型里没有任何 systemPrompt 正文。
+    //   所以「没找到 SELF 节」有两种可能，判据只能**证有不证无**：
+    //   找到就是确定注入了；找不到只能说「看不到」。报 error 会制造假红 ——
+    //   让人去修一个不存在的故障（就是那份实机报告里 C1/C3 的形状）。
+    const names = injectInfo?.sections?.length ? injectInfo.sections.join(" / ") : "（空）";
     return {
-      id: "self", label: "推送层 SELF", status: "error",
-      detail: `SELF.md 在磁盘上（${st.size} B），但最近一轮注入时读不到 —— 查 dsh-agent-memory 的 selfPath 指到哪了，现在它多半在找 ./SELF.md`,
-      evidence: { bytes: st.size, path: SELF_MD, injected: false },
+      id: "self", label: "推送层 SELF", status: "warn",
+      detail: `SELF.md 在磁盘上（${st.size} B），但最近一轮 runtime context 快照（seq=${injectInfo?.seq ?? "?"}）里没有 SELF 正文 —— 那一轮注入了这些节：${names}。`
+        + `★ 这不一定是故障：如果推送插件走的是 ctx.systemPrompt.context()（本仓库的 dsh-agent-memory 就是这样），它不进日志，体检看不到。`
+        + `自己确认一条就够：GUI 里这一轮 agent 到底读不读得到 SELF。读得到 → 虚警；读不到 → 查推送插件的 selfPath / maxBytes。`,
+      evidence: { bytes: st.size, path: SELF_MD, injected: false, snapshot: injectInfo },
     }
   }
 
@@ -434,8 +515,10 @@ function checkSelf(logs, deep) {
   return {
     id: "self", label: "推送层 SELF", status,
     detail: `${st.size} B${pct !== null ? `（预算 ${pct}%）` : ""}，装配于 ${iso(st.mtime)}（${round1(h)} 小时前）`
-      + (injected === true ? "，最近的注入里读到了" : injected === null ? "" : ""),
-    evidence: { bytes: st.size, usedPct: pct, ageHours: round1(h), injected },
+      + (injected === true
+        ? `，最近的注入里读到了（节 ${injectInfo?.section ?? "?"}，${injectInfo?.chars ?? "?"} 字，快照 seq=${injectInfo?.seq ?? "?"}）`
+        : ""),
+    evidence: { bytes: st.size, usedPct: pct, ageHours: round1(h), injected, snapshot: injectInfo },
   };
 }
 
