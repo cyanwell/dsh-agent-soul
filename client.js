@@ -91,7 +91,7 @@ window.__ModuleLoader__.load({
       "",
       "★ 这张图是索引，不是权威源。细节以 soul/ 为准 ——",
       "  两处都写就是两处真相，冲突时不知道听谁的。",
-      "★ ECHO 内部还有六层（L1–L6），见 soul/10-echo-anatomy.md。",
+      "★ ECHO 内部还有六层（L0–L5），见 docs/ECHO-权威口径.md。",
     ].join("\n");
 
     const TREE2 = [
@@ -273,7 +273,7 @@ window.__ModuleLoader__.load({
       ["00-layers.md", "五层模型，每层管哪种稀缺资源（★ 第 Ⅰ 层 ECHO 内部还有六层）"],
       ["01-criteria.md", "四条判据；能力半 / 身份半的分界"],
       ["02-echo.md", "ECHO：**为什么**需要它 —— 思考是怎么一步步退化的"],
-      ["10-echo-anatomy.md", "ECHO：**它长什么样** —— 六层 L1–L6，每层缺了会怎样、怎么当场发现"],
+      ["docs/ECHO-权威口径.md", "ECHO：**六层 L0–L5 的唯一口径**。每层缺了会怎样、怎么当场发现看 soul/10-echo-anatomy.md"],
       ["03-vital.md", "VITAL：时间与方向那一层怎么搭"],
       ["04-manifest.json", "装配清单：每类能力要满足什么、装配顺序"],
       ["05-doctor.md", "自检七问 —— 拿它问自己的架构"],

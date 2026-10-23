@@ -270,11 +270,21 @@ window.__ModuleLoader__.load({
 }
 .yq-more:hover{ color:var(--ink) }
 .yq-more .lane{ flex:1; height:1px; background:linear-gradient(90deg,rgba(255,255,255,.10),transparent) }
-.yq-more-ok{ display:flex; flex-wrap:wrap; gap:6px; padding:2px 4px 10px 4px }
-.yq-more-ok span{
-  font-size:11px; color:var(--faint); padding:2px 8px; border-radius:999px;
+.yq-more-ok{ display:flex; flex-wrap:wrap; gap:6px; padding:2px 4px 8px 4px }
+/* ★ 2026-10-23：原来这里是纯 <span>（只能悬停看 title），没有 onClick、没有 evidence。
+   结果「N 项正常」点不开 —— **健康项反而最不可查**，那是假绿的温床。
+   改成可点开的 chip：点一下展开这一项的 detail + evidence。 */
+.yq-ok-chip{
+  font-size:11px; color:var(--faint); padding:3px 9px; border-radius:999px;
   background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.06);
+  cursor:pointer; user-select:none; transition:all .15s ease;
 }
+.yq-ok-chip:hover{ color:var(--ink); border-color:rgba(255,255,255,.22); background:rgba(255,255,255,.07) }
+.yq-ok-chip[data-on="1"]{ color:var(--ink); border-color:rgba(120,200,150,.45); background:rgba(120,200,150,.10) }
+.yq-ok-body{ margin:2px 4px 8px 4px; padding:10px 12px }
+.yq-ok-head{ display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; font-size:12px; line-height:18px }
+.yq-ok-name{ font-weight:600 }
+.yq-ok-detail{ color:var(--faint); font-size:11.5px; flex:1 1 auto }
 
 /* ── 页脚 ────────────────────────────────────────────────── */
 .yq-foot{
@@ -628,7 +638,34 @@ window.__ModuleLoader__.load({
           : null,
         showOk && good.length > 0
           ? h("div", { className: "yq-more-ok" },
-              good.map((c) => h("span", { key: c.id, title: c.detail }, c.label))
+              good.map((c) =>
+                h("span", {
+                  key: c.id,
+                  className: "yq-ok-chip",
+                  "data-on": open[c.id] ? "1" : "0",
+                  title: "点击看这一项的实测（detail + evidence）",
+                  onClick: (e) => {
+                    e.stopPropagation();
+                    setOpen(Object.assign({}, open, { [c.id]: !open[c.id] }));
+                  },
+                }, (open[c.id] ? "▾ " : "▸ ") + c.label)
+              )
+            )
+          : null,
+        // ★ 2026-10-23：正常项的实测结果。点开哪个就展开哪个，可以同时展开多项。
+        showOk && good.some((c) => open[c.id])
+          ? h("div", null,
+              good.filter((c) => open[c.id]).map((c) =>
+                h("div", { key: "ev-" + c.id, className: "yq-glass yq-ok-body" },
+                  h("div", { className: "yq-ok-head" },
+                    h("span", { className: "yq-dot", "data-s": c.status,
+                      style: { width: 16, height: 16, flex: "0 0 16px", fontSize: 10 } }, ICON[c.status] || "✓"),
+                    h("span", { className: "yq-ok-name" }, c.label),
+                    h("span", { className: "yq-ok-detail" }, c.detail)
+                  ),
+                  h("pre", { className: "yq-evidence" }, JSON.stringify(c.evidence, null, 2))
+                )
+              )
             )
           : null,
 

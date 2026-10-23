@@ -234,6 +234,56 @@ function checkLogs(logs) {
   };
 }
 
+/**
+ * ★ L0 时钟 —— 2026-10-23 合并进来的第 11 项。
+ *
+ * 为什么要有这一项：`state.json` 曾停更一个月，而原来的体检里**没有任何一项会报**
+ * —— 一个「没人写」的状态文件看起来和「一切正常」一模一样。
+ * 现在 `self.mjs` 每次装配写 `lastSelfAt` + `selfRuns` 递增，这一项读它：
+ * **超过 26 小时没更新 = self.mjs 没在跑**。
+ *
+ * ★ 顺带纠正一个读法：`lastTurnAt` 的语义是「最后一条手写状态」，
+ * **不是时钟**。它停在很久以前只能说明「很久没手写状态」，不能说明「系统停了」。
+ */
+function checkClock() {
+  const STATE = path.join(HUB, "state.json");
+  const raw = readText(STATE);
+  if (!raw) return { id: "clock", label: "L0 时钟（state.json）", status: "warn", detail: "state.json 不存在 —— self.mjs 装配时会写它", evidence: {} };
+  let st;
+  try { st = JSON.parse(raw) } catch { return { id: "clock", label: "L0 时钟（state.json）", status: "error", detail: "state.json 解析失败", evidence: {} } }
+
+  const selfAt = st.lastSelfAt ? new Date(String(st.lastSelfAt).replace(" ", "T")) : null;
+  const selfAgeH = selfAt && !Number.isNaN(selfAt.getTime()) ? (Date.now() - selfAt.getTime()) / 3600000 : null;
+  const noteAt = st.lastTurnAt ? new Date(st.lastTurnAt) : null;
+  const noteAgeH = noteAt && !Number.isNaN(noteAt.getTime()) ? (Date.now() - noteAt.getTime()) / 3600000 : null;
+
+  let status = "ok";
+  const notes = [];
+  if (selfAgeH === null) {
+    status = "warn";
+    notes.push("没有 lastSelfAt —— self.mjs 还没在修好的版本上跑过（这一步由 self.mjs 每次装配写）");
+  } else if (selfAgeH > 26) {
+    status = "warn";
+    notes.push(`lastSelfAt 已 ${round1(selfAgeH)} 小时没更新 —— self.mjs 可能没在跑`);
+  } else {
+    notes.push(`self.mjs 最近一次装配 ${round1(selfAgeH)} 小时前`);
+  }
+  if (noteAgeH !== null) {
+    const d = Math.round(noteAgeH / 24);
+    notes.push(`最后一条手写状态 ${d} 天前（★ 这不是时钟，别当钟读）`);
+  }
+
+  return {
+    id: "clock", label: "L0 时钟（state.json）", status,
+    detail: notes.join("；"),
+    evidence: {
+      lastSelfAt: st.lastSelfAt || null, selfRuns: st.selfRuns || 0,
+      lastTurnAt: st.lastTurnAt || null, lastNoteAt: st.lastNoteAt || null,
+      selfAgeHours: selfAgeH === null ? null : round1(selfAgeH),
+    },
+  };
+}
+
 /** ★ 深度项：门牌实测。deep=false 时返回 info，由调用方补上次深检结果。 */
 function checkDoorSign(logs, deep) {
   const target = logs.find((l) => l.bytes > 0);
@@ -735,6 +785,7 @@ export function runDoctor(opts = {}) {
   const checks = [
     checkConfigState(),
     checkLogs(logs),
+    checkClock(),
     checkDoorSign(logs, deep),
     checkCompaction(logs, deep),
     checkIndex(logs),
