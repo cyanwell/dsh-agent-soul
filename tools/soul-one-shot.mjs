@@ -231,4 +231,67 @@ if (notInstalled.length) {
   console.log('')
 }
 
+// ── ④ huanqi 的 @deepseek-ai/schemastery（只报，不自动修）────────────
+// ★ 2026-10-24 查清的事实，纠一个我差点做错的方案：
+//   huanqi 的 dependencies 写的是 `@deepseek-ai/schemastery`（**带官方 scope**），
+//   而 profile 的 node_modules 里常见的是 `schemastery`（**不带 scope**，npm 原名）。
+//   **两者不是同一个包名** —— 把后者复制或改名过去，并不等于满足前者。
+//   所以这里只报「有没有那个带 scope 的」，不做任何自动复制。
+try {
+  const wantScoped = join(profile, 'node_modules', '@deepseek-ai', 'schemastery')
+  const plainName = join(profile, 'node_modules', 'schemastery')
+  if (!(await exists(wantScoped))) {
+    console.log('  ⚠ huanqi 依赖的 ' + BT + '@deepseek-ai/schemastery' + BT + ' 在 profile 里没有。')
+    if (await exists(plainName)) {
+      console.log('     node_modules 里有 ' + BT + 'schemastery' + BT + '（**没 scope**）—— 那不是同一个包名，')
+      console.log('     复制过去也不会被解析到。别这么补。')
+    }
+    console.log('     通常不用管：huanqi 作为 bundle 由宿主加载时，宿主能解析到 app.asar 里那份。')
+    console.log('     只有确认 huanqi 报 ' + BT + 'Cannot find package' + BT + ' 时才要处理。')
+    console.log('')
+  }
+} catch { /* 查不了就跳过 */ }
+
+// ── ⑤ --fix：只做确定安全的那一件（add-bundle）────────────────────
+// ★ 为什么不顺手把 preset 也改了：改用户的启动配置，改坏会 sanitizeProfile 重置 bundles，
+//   比不装更糟。那一步**只给教程，不自动做**（2026-10-24 定）。
+if (args.includes('--fix')) {
+  console.log('  ── --fix ────────────────────────────────────────────────')
+  const toAdd = rows.filter(r => !r.part.replace && !r.inBundles && (r.installed || r.inDeps))
+  if (!toAdd.length) {
+    console.log('    没有需要进 bundles 的零件（都已在，或都还没装）。')
+    console.log('')
+  } else {
+    // ★ 路径从 import.meta.url 现算，不引入新常量。
+    const { fileURLToPath } = await import('node:url')
+    const addScript = fileURLToPath(new URL('./add-bundle.cjs', import.meta.url))
+    if (!(await exists(addScript))) {
+      console.log('    ✗ 找不到 tools/add-bundle.cjs —— 跳过（不猜怎么写 package.json）')
+      console.log('')
+    } else {
+      const { spawnSync } = await import('node:child_process')
+      const pkgPath = join(profile, 'package.json')
+      for (const r of toAdd) {
+        // ★ 第三个参数（depValue）**故意不传**：
+        //   file: 后面该写什么取决于包被拷到哪，这个脚本不知道，猜错更糟。
+        const res = spawnSync(process.execPath, [addScript, pkgPath, r.part.pkg], { encoding: 'utf8' })
+        const out = (res.stdout || '').trim()
+        const errFirst = (res.stderr || '').trim().split('\n')[0]
+        if (res.status === 0) {
+          console.log('    ✓ ' + r.part.pkg + '  → ' + (out || 'ok'))
+        } else {
+          console.log('    ✗ ' + r.part.pkg + '  → 退出码 ' + res.status + (errFirst ? '：' + errFirst : ''))
+        }
+      }
+      console.log('')
+      console.log('    ★ 只写了 dsh.profile.bundles，**没动 dependencies** ——')
+      console.log('      这是故意的：file: 后面该写什么取决于包被拷到哪，猜错会把 pnpm 引到错误路径。')
+      console.log('      如果安装方式是把文件拷进 node_modules（桌面脚本就是），')
+      console.log('      再自己补一条  "依赖名": "file:node_modules/<目录名>"  更稳。')
+      console.log('    ★ 重启 DSH 后再跑一次本命令（不带 --fix），那几行应变 ✓。')
+      console.log('')
+    }
+  }
+}
+
 process.exit(1)

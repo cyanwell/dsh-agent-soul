@@ -286,6 +286,55 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-24（同日第九次）· `soul-one-shot.mjs` 加 `--fix`（A 那一半）
+
+上一版只能**告诉你**该跑什么。这一版多一个开关，把确定安全的那一步替你做了：
+
+```
+node tools/soul-one-shot.mjs --profile <dir> --fix
+```
+
+## --fix 只做一件：把「装了但不在 bundles」的写进 `dsh.profile.bundles`
+
+调的是已有的 `tools/add-bundle.cjs`（纯字符串数组、乐观锁、原子写、去 BOM）。实测：
+
+```
+  ── --fix ────────────────────────────────────────────────
+  ✓ dsh-riji  → added
+  ✓ dsh-clock  → added
+  ✓ dsh-mobile-adapt  → added
+  ★ 只写了 dsh.profile.bundles，**没动 dependencies**
+
+  写完后 bundles：@deepseek-ai/dsh-base / dsh-riji / dsh-clock / dsh-mobile-adapt
+```
+
+## 为什么`--fix`只做这一件
+
+| 那三样 | 为什么不做 |
+|---|---|
+| 改 preset | 改坏会 sanitizeProfile 重置 bundles，**比不装更糟**。这一步只给教程 |
+| 改 dependencies | `file:` 后面该写什么取决于包被拷到哪，猜错会把 pnpm 引到错误路径 |
+| 复制 schemastery | **包名不对**（见下） |
+
+## 顺带查清一个我差点做错的方案：schemastery
+
+huanqi 的 dependencies 写的是 `@deepseek-ai/schemastery`（**带官方 scope**），
+而 profile 的 node_modules 里常见的是 `schemastery`（**不带 scope**，npm 原名）。
+
+**两者不是同一个包名。** 把后者复制或改名过去，并不等于满足前者 ——
+复制了也解析不到。所以脚本只**报**「那个带 scope 的在不在」，**不自动复制**。
+
+★ 这也解释了为什么这个坑只在某些机器上出现。
+
+## 踩过的两个坑（都留在这里，免得下次重复）
+
+1. **不要用 Python 补丁脚本往 JS 里塞带引号拼接的代码** —— 第一次我把 `" + BT + "` 这种
+   Python 拼接写进了普通字符串，它不会被求值，会原样落进 JS；第二次补丁又叠了一遍，
+   文件从 11,583 涨到 15,764，里有两份重复块，**`--fix` 写进去了却不生效**。
+   正确做法：用 `edit` 精确替换，路径从 `import.meta.url` 现算，不引入新常量。
+2. **验退出码时别接 `| Select-Object -First N`** —— 管道提前关、node 收到 EPIPE，
+   `$LASTEXITCODE` 会变成 0，看着像脚本没有正确 exit。
+
 ### 2026-10-24（同日第八次）· 新增 `tools/soul-one-shot.mjs`：一句话回答「装完了它到底在跑吗」
 
 **这是今天所有反馈里最扎人的那句话的直接回应：**
