@@ -484,25 +484,41 @@ export function registerInstallTool(ctx) {
           //   报告的原话是「门牌机制——整套架构的核心——装完等于没有」。
           //   这里不替用户改配置，但必须把「还差哪一步」说出来。
           if (s.step === 1) {
-            // ★★★ 2026-10-24 加（三份用户反馈）：
-            //   桌面端**大概率装不上**这两个零件 —— 它们的依赖是 `@deepseek-ai/*`
-            //   的 peerDependencies，而桌面端 profile 的 pnpm-workspace.yaml 是
-            //   `autoInstallPeers: false`，那几个包又打在 `app.asar` 里、没有实体目录
-            //   可 link ⇒ 报 `Cannot find package '@deepseek-ai/dsh-compaction-basic'`。
-            //   用户实测：想补依赖会**链式缺下去**（cordis → dsh-llm → …），
-            //   最后靠「停用所有插件」才把应用救回来。
-            //   所以这里先给判断，别让人白花一晚上。
+            // ★★★ 2026-10-24 晚间更正（这一版之前写错了，留此存照）：
+            //   我一度在这里写「桌面端装不上」，依据是一位用户说「DS 告诉他桌面版就不行」。
+            //   **那是错的。** 2026-10-23 的《安装验收报告》证明：桌面端 14/14 装齐、
+            //   自动裁剪 5 条、手动 /compact 出了带门牌 seq=7371 的摘要。
+            //
+            //   真相反过来 —— 是**两条路**的区别：
+            //     · 路 A（profile bundles `insert`）：新加载一个包，它要 import `@deepseek-ai/*`，
+            //       而 profile 是 autoInstallPeers:false、那些包又打在 app.asar 里
+            //       ⇒ `Cannot find package`。**这条路在桌面端走不通。**
+            //     · 路 B（preset 的 realm 里 `id` 不变、只换 `name`）：那是**替换**已有条目，
+            //       不是新增；包的代码跑在**宿主进程的同一个 realm** 里，
+            //       `@deepseek-ai/*` 从 app.asar 解析得到 ⇒ **能跑，而且已验证。**
+            //   所以要告诉用户的是「别走 A，走 B」，不是「放弃这两个零件」。
             if (isDesktop) {
-              lines.push('  ⚠ 你现在是**桌面端**。compaction / pruner 这两个零件在桌面端**装不上**：')
-              lines.push('     ★ 2026-10-24 已独立确认：一位用户拿这个结论去问了 DSH 侧，答复是')
-              lines.push('       「桌面版目前就是不行，得等官方做相关路径才行」—— 和下面的判断一致。')
-              lines.push('     它们的依赖是 @deepseek-ai/* 的 peerDependencies，而桌面端 profile 的')
-              lines.push('     pnpm-workspace.yaml 是 autoInstallPeers: false，那几个包又打在 app.asar 里、')
-              lines.push('     没有实体目录可 link ⇒ 报 Cannot find package \'@deepseek-ai/dsh-compaction-basic\'。')
-              lines.push('     ★ 别硬补依赖 —— 实测会链式缺下去（cordis → dsh-llm → …），')
-              lines.push('       最后要靠「停用所有插件」才救得回来。')
-              lines.push('     ★ 建议：桌面端先跳过这两个；它们需要 web profile（或等宿主把内部包暴露出来）。')
-              lines.push('       跳过不影响其余 11 个零件 —— 剩下那些的依赖都装得上。')
+              lines.push('  ⚠ 你现在是**桌面端**。这两个零件**能装**，但**别用「路 A」**：')
+              lines.push('     路 A（profile bundles + insert）在桌面端会报 Cannot find package ——')
+              lines.push('     因为它要 import @deepseek-ai/*，而 profile 是 autoInstallPeers:false、')
+              lines.push('     那些包又打在 app.asar 里。**这不是插件的问题，是这条路在桌面端不成立。**')
+              lines.push('')
+              lines.push('     ★ 桌面端走「路 B」：在 preset 的 agent.cordis.yml 里，')
+              lines.push('       于 compaction 那个 realm **内部**把已有条目的 name 换掉（id 不变）：')
+              lines.push('')
+              lines.push('         - id: compaction')
+              lines.push('           group: true')
+              lines.push('           isolate: { compaction: true, toolResultPruner: true }')
+              lines.push('           config:')
+              lines.push('             - id: compaction-basic            # ← id 保持不变')
+              lines.push("               name: 'dsh-agent-compaction'    # ← 只换 name")
+              lines.push('             - id: tool-result-pruner')
+              lines.push("               name: 'dsh-agent-pruner'")
+              lines.push('')
+              lines.push('       ★ 为什么这条路行：id 已存在 ⇒ 是**替换**不是新增，不触发「先到先得」；')
+              lines.push('         而且包跑在宿主进程的同一个 realm 里，@deepseek-ai/* 解析得到。')
+              lines.push('       ★ 参考证据：2026-10-23《安装验收报告》——桌面端 14/14 装齐、')
+              lines.push('         自动裁剪 5 条、手动 /compact 出了带门牌 seq=7371 的摘要。')
               lines.push('')
             }
             lines.push('  ★ 注意：这一步里的 compaction 和 pruner 装上了 **不等于** 接管了。')
