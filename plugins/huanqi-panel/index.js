@@ -1,4 +1,4 @@
-// dsh-yanqing-huanqi-panel · 宿主半
+// dsh-agent-huanqi-panel · 宿主半
 //
 // 干什么：把换气插件（dsh-huanqi）的参数搬到 DSH 设置面板里，并且显示实时延续额度。
 //
@@ -23,7 +23,7 @@ import { join, isAbsolute, resolve as resolvePath } from 'node:path'
 import { homedir } from 'node:os'
 import { readFileSync, writeFileSync, existsSync, copyFileSync, statSync, renameSync, openSync, fsyncSync, closeSync, readdirSync } from 'node:fs'
 
-export const name = 'dsh-yanqing-huanqi-panel'
+export const name = 'dsh-agent-huanqi-panel'
 export const inject = ['webServer']
 
 // ═══════════════════════════════════════════════════════════════════════════

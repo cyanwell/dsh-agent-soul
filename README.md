@@ -286,6 +286,121 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-24 · 两个插件的注册 id 没跟上 organs，会让「装了两份的人」启动即挂
+
+一位用户的机器两次启动都失败，隔了四分钟重启（shell pid 从 29556 变 28384、
+client bundle 的 rev 从 `bdbe53f93ddc` 变 `ba9bc43154d5`），**错误一字不差**：
+
+```
+Error: web boot: 1 entry did not activate
+dsh-agent-echo: import failed
+    at .../app.asar/lib/main.js:12437:15
+
+--- renderer console ---
+client-modules: duplicate factory registration for "dsh-yanqing-echo"
+  (bundle executed twice without invalidate?)
+```
+
+## 改之前是什么：同一个 id 被注册了两次
+
+这不是「id 写错了名字」，是**重复注册**。客户端半的 `__ModuleLoader__.load({ id })` 里那个 id
+是 factory 的键；第二个包用同一个 id 注册，直接抛异常，于是整个 entry 不激活。
+
+而 DSH 那句话只说了「撞了哪个 id」，**没说「是哪两个撞的」** —— 用户拿着它无从下手。
+
+查下发现在仓库里就是这个形状：
+
+| 位置 | package.json name | client.js 里的 id | |
+|---|---|---|---|
+| `dsh-agent-organs/echo`（10-19 已改） | `dsh-agent-echo` | `dsh-agent-echo` | ✅ |
+| `dsh-agent-soul/plugins/echo` | `dsh-agent-echo` | `dsh-yanqing-echo` | ❌ **没跟上** |
+| `dsh-agent-organs/huanqi-panel` | `dsh-agent-huanqi-panel` | `dsh-agent-huanqi-panel` | ✅ |
+| `dsh-agent-soul/plugins/huanqi-panel` | `dsh-agent-huanqi-panel` | `dsh-yanqing-huanqi-panel` | ❌ **没跟上** |
+
+**organs 在 10-19 就把 id 改成包名了，而 `soul/plugins` 没跟上。** 而后者是**安装源** ——
+`install-desktop.ps1` 第 157 行把整个 `plugins/` 目录递归拷进用户 profile。
+于是每个从这条路径装 echo 的人，都拿到一个「包名 dsh-agent-echo、注册 id dsh-yanqing-echo」的坏件；
+只要他机器上还有任何一份别的 echo（旧包、上次装剩的、organs 版），两份就撞在同一个 id 上。
+
+★ 这也纠正了一个之前的口径：**「id 必须等于包名」不是规则，只是最省事的做法。**
+真正的规则是 **id 必须全局唯一**，而包名天然唯一，所以 id := 自己的 package.json name 最稳。
+「id ≠ 包名」本身不错（有包故意用短 id），**只有重复才是错**。
+
+## 改成了什么
+
+★ 同一个包里有**四处**写名字，改齐了才算改：
+
+| 在哪 | 是什么 | echo | huanqi-panel |
+|---|---|---|---|
+| `package.json` | `name` | 本来就是新的 | 本来就是新的 |
+| `cordis.patch.yml` | insert 的 `id` / `name` | 本来就是新的 | 本来就是新的 |
+| `index.js` | `export const name`（**宿主半**） | ❌ 旧的 | ❌ 旧的 |
+| `client.js` | `__ModuleLoader__.load({ id })`（**客户端半**） | ❌ 旧的 | ❌ 旧的 |
+
+所以在 `organs` 那边「看起来已经改好了」的包，装到用户机上仍然是坏的 ——
+**patch 里写着要 insert `dsh-agent-echo`，而模块导出的 name 是 `dsh-yanqing-echo`，两处对不上。**
+
+四处全部对齐（各留 `.bak-20261024-idfix` / `.bak-20261024-halfname` 备份）：
+
+- `plugins/echo`：`index.js` 与 `client.js` 的 id → `dsh-agent-echo`
+- `plugins/huanqi-panel`：`index.js` 与 `client.js` 的 id → `dsh-agent-huanqi-panel`
+
+补一条自检口径：**核对「一个包叫什么」不能只看一处** ——
+跑 `verify-packaging.mjs` 只看包结构，跑 `verify-client-ids.mjs` 只看客户端 id，
+这一处（宿主半 name 与 patch 对不上）**两个都查不出来**，因为它只在装上之后才炸。
+
+## 加了自动检查：`tools/verify-client-ids.mjs`
+
+这是「同一个错误出现两次就该加自动检查」那条的第 N 次兑现 —— 上一次是 `verify-packaging.mjs`。
+它补的正是 DSH 不说的那半句：**哪两个包撞在同一个 id 上**。
+
+```
+node tools/verify-client-ids.mjs               # 扫本机所有 profile
+node tools/verify-client-ids.mjs <目录> [...]   # 扫指定目录
+node tools/verify-client-ids.mjs --json        # 机器可读
+```
+
+退出码 0 = 无重复，1 = 发现重复。**它会列出撞车双方的包名和完整路径**，
+而不是只报一个 id。
+
+## 怎么确认改对了（两条都是真跑的输出）
+
+① 改完复扫安装源：
+
+```
+=== 改后复扫：soul/plugins 里还有没有 id ≠ name ===
+  不一致处 = 0
+```
+
+② 自检脚本在**真实 profile** 上跑（本机三个 profile 共 80 个 client.js / 48 个不同 id）：
+
+```
+  D:\AI\dsh\home\profiles
+    80 个 client.js，48 个不同 id
+
+  ✓ 没有重复注册。
+退出码 = 0
+```
+
+③ **正对照**（证明检测真的会报，不是永远通过）—— 拿源目录跑，
+它抓出了本机另一处同类隐患：
+
+```
+    id = "dsh-agent-soul"
+      被 2 个不同的包同时占用：
+        pkg=dsh-agent-soul      D:\AI\dsh-tools\dsh-agent-soul\client.js
+        pkg=dsh-yanqing-echo    D:\AI\dsh-tools\dsh-yanqing-echo\client.js
+退出码 = 1
+```
+
+★ 那一处是历史包 `dsh-yanqing-echo` 的老 id，本机三个 profile 都没装它，
+所以没影响；但它是同一类雷，记在这儿，下一个人搬它之前先跑一遍自检。
+
+## 还给用户的一句话（比代码重要）
+
+拿到那份 log 之后不要直接改 —— **先问「你机器上到底有几份 echo」**。
+我们自己的 v11 视频底下刚跟人说过「先别猜，要证据」，这次轮到我们自己。
+
 ### 2026-10-23（同日第二次）· ECHO 的三份副本各缺一半
 
 上面那条修完 checkSelf 之后，有人问了一句：「ECHO 也改了、架构也做了权威口径，这些同步到插件和仓库了吗？」

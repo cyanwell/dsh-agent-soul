@@ -9,7 +9,7 @@
 //                POST /yanqing-huanqi/api/config（写，走字节级 YAML 编辑）
 
 window.__ModuleLoader__.load({
-  id: "dsh-yanqing-huanqi-panel",
+  id: "dsh-agent-huanqi-panel",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;

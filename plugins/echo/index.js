@@ -1,4 +1,4 @@
-// dsh-yanqing-echo —— 宿主半 v2（仪表盘版）
+// dsh-agent-echo —— 宿主半 v2（仪表盘版）
 // ============================================================================
 // v1 能体检，但每次要 10-20 秒，面板打开就是干等。
 // v2（爀曦 2026-10-08 04:42 要求）：像任务管理器那样实时，并且分四级轮询：
@@ -21,7 +21,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-export const name = 'dsh-yanqing-echo'
+export const name = 'dsh-agent-echo'
 // ★ 只声明真正用到的服务。多写一个不存在的服务名 → 一直等 → apply 永不执行（静默失效）。
 export const inject = ['webServer']
 
