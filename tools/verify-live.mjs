@@ -118,6 +118,22 @@ async function findBundleDir(name) {
     roots.push(join(dirname(pj), 'node_modules'))
     roots.push(join(dirname(pj), '..', 'node_modules'))
   } catch { /* 解析不到说明这条路不适用 */ }
+  // ★★★ 2026-10-24 补：上面的根全部从 `process.execPath` 推 —— 这假设
+  //   「跑本脚本的 node 就是 DSH 的 node」。用别的 node 跑就会推错。
+  //   实测症状（本机）：明明装好的包，脚本报「所有搜索根里都没有这个目录」，
+  //   并列出 22 个全是 <node 安装目录> 的路径 —— 和 echo 那个 execPath 同一个病。
+  //   所以再从 **profile 位置**往上反推 DSH 安装根（profile 通常在 <DSH_ROOT>\home\profiles\<name>）。
+  try {
+    let cur = profile
+    for (let i = 0; i < 6 && cur; i++) {
+      roots.push(join(cur, 'node_modules'))
+      roots.push(join(cur, 'resources', 'app.asar', 'node_modules'))
+      roots.push(join(cur, 'resources', 'app.asar.unpacked', 'node_modules'))
+      const up = dirname(cur)
+      if (!up || up === cur) break
+      cur = up
+    }
+  } catch { /* 推不出来就跳过 */ }
 
   // ★ 允许外部补根（本机测特殊布局用；也给了给特殊安装兜底的口子）。
   //   POSIX 用 : 分隔，Windows 用 ; —— 两种都认。
