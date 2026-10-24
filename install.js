@@ -164,6 +164,45 @@ const PKG_NAMES = new Map()
 // ★ 外部件（external: true）的包名就是它自己的目录名，不加 dsh-agent- 前缀。
 //   以前这个机制写了却从没被用过 —— ORDER 里一个外部件都没有，于是它是死代码。
 const EXTERNAL_DIRS = new Set()
+
+/**
+ * ★★ 只能用「路 B」装的零件（2026-10-25 加，GitHub #5 的建议 1）。
+ *
+ * 为什么是写死的两个名字，而不是从 package.json 自动推：
+ * ------------------------------------------------------------------
+ * 我一开始想用「依赖里有没有 @deepseek-ai/*」当判据，实测**会误报** ——
+ * 本机 profile 的 `@deepseek-ai` 目录里只有 9 个包，`cordis` / `dsh-agent` / `dsh-llm`
+ * 一个都不在，可 `memory` 和 `huanqi` 这两个零件照样跑得好好的。
+ * 所以「依赖了内置包」≠「路 A 会失败」——能不能解析，取决于**它在哪个位置被加载**，
+ * 那是结构知识，不是包元数据能推出来的。
+ *
+ * 真正的分界是这个：**该零件要顶掉 preset 里一个已经存在的内置条目。**
+ *   compaction → 顶掉 `compaction-basic`
+ *   pruner     → 顶掉 `tool-result-pruner`
+ * 这两个 id 本来就在 `agent.cordis.yml` 的 compaction realm 里，所以只有「同 id 换 name」
+ * （= 替换）能接管；另起一份实现（路 A）会 import 不到 asar 里的东西。
+ *
+ * 其余零件是**新增**，走 profile bundles（路 A）没问题。
+ * ★ 将来若有新零件要顶别的内置条目，把目录名加进这个集合，并在这里记一笔。
+ */
+const REPLACES_BUILTIN = new Set(['compaction', 'pruner'])
+
+/**
+ * 依赖 `@deepseek-ai/*` 的零件：目录名 → 它要 import 的那个包。
+ * **只用来把提示写具体**（能对上报错），不作判定依据 —— 判定只看 REPLACES_BUILTIN。
+ */
+const NEEDS_BUILTIN = new Map()
+
+/** 这个包的依赖里有没有 `@deepseek-ai/*`。 */
+function dependsOnBuiltin(pj) {
+  const groups = [pj.peerDependencies, pj.dependencies, pj.optionalDependencies]
+  for (const g of groups) {
+    if (!g || typeof g !== 'object') continue
+    for (const k of Object.keys(g)) if (k.startsWith('@deepseek-ai/')) return k
+  }
+  return null
+}
+
 const PKG = (dir) =>
   EXTERNAL_DIRS.has(dir) ? dir : PKG_NAMES.get(dir) || 'dsh-agent-' + dir
 
@@ -181,6 +220,9 @@ async function loadPkgNames(pluginsDir) {
     try {
       const pj = await readJsonNoBom(join(pluginsDir, e.name, 'package.json'))
       if (pj && typeof pj.name === 'string' && pj.name) PKG_NAMES.set(e.name, pj.name)
+      // ★ 顺手记下"它要 import 哪个内置包" —— 只用于把提示写具体，不作判定依据
+      const dep = pj && dependsOnBuiltin(pj)
+      if (dep) NEEDS_BUILTIN.set(e.name, dep)
     } catch {
       // tools/ 这种没有 package.json 的目录，跳过
     }
@@ -253,6 +295,46 @@ function installCommand(profile, dir, isDesktop, pluginsDir) {
   // ★ 有真实路径就用真实路径；没有就写清占位符该填什么，别让它看起来能直接跑
   const src = pluginsDir ? join(pluginsDir, dir) : `<soul 仓库>/plugins/${dir}`
   if (isDesktop) {
+    // ★★ 路 A 对这类零件在桌面端必然失败（2026-10-25 加，GitHub #5 的建议 1）
+    //
+    // 为什么必须在这里拦：报错里**一个字都不提装法**，只写
+    //   Cannot find package '@deepseek-ai/dsh-compaction-basic' imported from ...
+    // 于是读的人（尤其 AI）会得出一个很自然的结论：「这东西桌面端装不上」。
+    // 而真相是 —— 路走死了，不是东西不存在。已经不止一个人这么理解错过了。
+    if (REPLACES_BUILTIN.has(dir)) {
+      return [
+        '★ 这个零件**不能**用下面这条路装 —— 在 Electron 打包版上必然失败。',
+        '  （它要顶掉 preset 里已经存在的内置条目，所以只有路 B 能接管。）',
+        ...(NEEDS_BUILTIN.has(dir) ? [`  它要 import 的正是：${NEEDS_BUILTIN.get(dir)}`] : []),
+        '',
+        '  失败时会看到：',
+        "",
+        "      Cannot find package '@deepseek-ai/…' imported from …",
+        '',
+        '  ★ 看到它**别**得出「这东西桌面端装不上」的结论 —— 那是在路 A 上钻牛角尖。',
+        '    真正的原因是：它要 import 的 @deepseek-ai/* 住在 resources/app.asar 里，',
+        '    只有 Electron 补过的 fs 读得到；profile 的 node_modules 里没有，',
+        '    pnpm 也不会替你装（autoInstallPeers: false）。',
+        '',
+        '  它只有一条路能跑 —— **路 B**：在 preset 的 realm 内部换 name，',
+        '  靠「同一个 id 再注册一次 = 替换」接管，包就跑在宿主进程同一个 realm 里了。',
+        '',
+        `  # ① 复制**整个包目录**进 profile（和别的零件一样，别挑文件）`,
+        `  #    源：${src}/`,
+        `  #    目标：${join(profile, 'node_modules', pkg)}/`,
+        '  # ② 在 **preset** 的 agent.cordis.yml 里，找到它要替换的那一条：**只换 name，id 不动**',
+        '  #      - id: compaction-basic            # ← id 保持原样，这是"替换"的钥匙',
+        `  #        name: '${pkg}'                  # ← 只把 name 换成它`,
+        '  #    ★ 不要把它加进 dsh.profile.bundles —— 那是路 A，会变成另起一份实现',
+        '  # ③ 重启 DSH（不是刷新页面）',
+        '  # ④ 验证（最简单的一条，不用装任何探针）：',
+        '  #    手动 /compact 一次，看摘要首块有没有 log:session-…-#seq= 门牌。',
+        '  #    有 = 我们的实现接管了（内置引擎写不出门牌）；没有 = 还是内置在跑。',
+        '  #',
+        '  # 完整说明与 rc.2 / rc.3 的实测记录：',
+        '  #   docs/安装常见问题汇总与解决方法.md 的「桌面端怎么装（路 B）」',
+      ].join('\n')
+    }
     return [
       '手动两步（桌面端不接受 CLI 安装）：',
       '  # ① 复制**整个包目录**进 profile（不要挑文件）',

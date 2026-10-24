@@ -257,3 +257,43 @@ Write-Host '  Parts live under <pkg>/plugins/ (13 packages + tools/ scripts; 14t
 Write-Host '  Health check:'
 Write-Host '    agent_soul_verify' -ForegroundColor Cyan
 Write-Host ''
+
+# ── 装完立刻自检 ───────────────────────────────────────────────────────────
+# 为什么挂在这儿：有用户的原话是「插件安装好了，但根本不知道有没有在运行」。
+# 这一步把那句话变成一条看得见的结果，而不是让他自己去想该跑什么。
+#
+# ★ 这里只跑**静态**检查（verify-client-ids）——
+#   它查「注册 id 撞车」；撞了的话 DSH 启动直接失败，装完不查等于把雷留到重启。
+# ★ soul-one-shot 查的是**运行状态**，重启之前跑没有意义，所以只提示命令。
+$toolsDir  = Join-Path $PSScriptRoot 'tools'
+$idsScript = Join-Path $toolsDir 'verify-client-ids.mjs'
+$oneShot   = Join-Path $toolsDir 'soul-one-shot.mjs'
+
+Write-Host ''
+Write-Host '  ---------------------------------' -ForegroundColor Cyan
+Write-Host '  pre-flight check (before you restart)' -ForegroundColor Cyan
+
+if (Test-Path $idsScript) {
+  $nodeExe = (Get-Command node -ErrorAction SilentlyContinue).Source
+  if ($nodeExe) {
+    Write-Host ''
+    & $nodeExe $idsScript
+    Write-Host ''
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host '  ★ 上面报了重复 id —— 先别重启，把这个解决掉。' -ForegroundColor Red
+      Write-Host '    撞车不会给你好懂的报错，它表现为「DSH 起不来」或「某个面板整排消失」。' -ForegroundColor DarkGray
+    }
+  } else {
+    Write-Host '  (node not on PATH - run this yourself before restarting:)' -ForegroundColor DarkGray
+    Write-Host "    node `"$idsScript`"" -ForegroundColor DarkGray
+  }
+} else {
+  Write-Host '  (tools/verify-client-ids.mjs not found - skipped)' -ForegroundColor DarkGray
+}
+
+if (Test-Path $oneShot) {
+  Write-Host ''
+  Write-Host '  After restart, one command answers "is it actually running":' -ForegroundColor DarkGray
+  Write-Host "    node `"$oneShot`"" -ForegroundColor Cyan
+}
+Write-Host ''

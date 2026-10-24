@@ -290,6 +290,31 @@ git log --oneline -- README.md
 git show <commit>:README.md | head -300
 ```
 
+### 2026-10-25 · 路 A 在桌面端会把人带到错误结论上，install.js 现在会拦
+
+`compaction` 和 `pruner` 这两个零件要顶掉 preset 里已有的内置条目，**只有路 B 能装**。
+而走错路时给出的报错是：
+
+```
+Cannot find package '@deepseek-ai/dsh-compaction-basic' imported from ...
+```
+
+**通篇没有一个字提到装法。** 于是很自然的反应是「这东西桌面端装不了」——
+然后就在这个结论上停住了，不再试路 B，也不再怀疑「我是不是走错路了」。
+而它其实是**路线选错**，不是东西不存在。
+
+现在 `installCommand` 认得这两个零件（`REPLACES_BUILTIN`），**不再给路 A 的手动两步**，
+直接说明必然失败的原因、路 B 的四步，以及一行能自证的验证法：
+手动 `/compact` 一次，看摘要首块有没有 `log:session-…-#seq=` 门牌 ——
+有就是我们的实现接管了（内置引擎写不出门牌）。**不用装探针，也不用重启第二次。**
+
+★ 顺带记一条没走通的推断：本来想用「依赖里有没有 `@deepseek-ai/*`」当判据，实测**会误报** ——
+本机 profile 的 `@deepseek-ai` 里只有 9 个包，`cordis` / `dsh-agent` / `dsh-llm` 一个都不在，
+可 `memory` 和 `huanqi` 照样跑。所以判据改成显式标注：**要顶掉内置条目的才走路 B**。
+
+另外 `install-desktop.ps1` 装完会先跑一次 `verify-client-ids`（静态查注册 id 撞车）。
+撞了的话 DSH 启动直接失败，装完不查等于把雷留到重启。
+
 ### 2026-10-25 · 体检器不再只看最近一份日志
 
 「门牌回取」和「压缩机制」这两项，原来都只读**最新那一份**会话日志：
@@ -337,17 +362,3 @@ curl http://127.0.0.1:<端口>/yanqing-echo/api/status
 返回一段 JSON 就是活的。
 
 `INSTALL.md` 坑 6 前面加了**动手前必须先做的一个动作**：备份 `package.json` 与 `cordis.patch.yml`。理由是那个坑不是报错退出，而是触发 `sanitizeProfile` 自愈 —— 它会把 `dsh.profile.bundles` 重置成只剩两条，该 profile 里其他所有插件一起下线，而恢复完的 DSH 看着是活的，你不会立刻发现少了什么。这个前提不该靠读者自己想到。
-
-### 2026-10-24 · 自诊脚本加了 `--fix`
-
-```bash
-node tools/soul-one-shot.mjs --profile <你的 profile> --fix
-```
-
-装完发现某个零件「装了但没在跑」，加这个开关它会把名字补进 bundles，你再重启就行。
-
-只动 `dsh.profile.bundles` 一个地方。**不碰 preset、不碰依赖、不复制任何包** ——
-那三样猜错都比不做更糟。
-
----
-
