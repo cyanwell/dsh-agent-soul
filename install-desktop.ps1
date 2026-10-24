@@ -1,4 +1,4 @@
-# install-desktop.ps1 - desktop one-command installer for dsh-agent-soul
+﻿# install-desktop.ps1 - desktop one-command installer for dsh-agent-soul
 #
 # Why this file exists:
 #   The desktop profile refuses `dsh plugin add` (DSH says:
