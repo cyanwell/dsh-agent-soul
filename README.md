@@ -314,6 +314,8 @@ curl http://127.0.0.1:<端口>/yanqing-echo/api/status
 
 返回一段 JSON 就是活的。
 
+`INSTALL.md` 坑 6 前面加了**动手前必须先做的一个动作**：备份 `package.json` 与 `cordis.patch.yml`。理由是那个坑不是报错退出，而是触发 `sanitizeProfile` 自愈 —— 它会把 `dsh.profile.bundles` 重置成只剩两条，该 profile 里其他所有插件一起下线，而恢复完的 DSH 看着是活的，你不会立刻发现少了什么。这个前提不该靠读者自己想到。
+
 ### 2026-10-24 · 自诊脚本加了 `--fix`
 
 ```bash

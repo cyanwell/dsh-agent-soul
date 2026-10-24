@@ -352,6 +352,20 @@ agent-soul/
 
 ★ 这一条是**真实用户反馈**（2026-10-22，第一个装这个插件的人踩的）。
 
+★★★ **动手之前先做这一个动作**（2026-10-25 加，来自第二份实机报告，GitHub #4）：
+
+```bash
+cp <profile>/package.json      <profile>/package.json.bak
+cp <profile>/cordis.patch.yml  <profile>/cordis.patch.yml.bak
+```
+
+**为什么必须先备份**：这一条和别的坑不一样 —— 它**不是报错退出，而是触发自愈**。
+`sanitizeProfile` 会把 `dsh.profile.bundles` 重置成只有 `@deepseek-ai/dsh-base` +
+`@deepseek-ai/dsh-web-app` 两条，**该 profile 里其他所有插件一起下线**。
+一次装错，代价是整个 profile，而恢复完的 DSH 看着是活的 —— 你不会立刻发现少了什么。
+
+那位报告者说他「这次是备份了才没丢东西」。**这个前提不该靠读者自己想到。**
+
 **症状**：装完之后 DSH 看起来正常、进程也在跑，但 guard / 桌宠 / session switch 全都没加载。
 crash 日志里 `intercom` 的 `failed to import` 排在很次要的位置，真正的原因是
 `modules (required)` 因为 **soul 的 `client.js` 缺失**而 compose 失败 → 整个启动崩 →
