@@ -286,6 +286,56 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-24（同日第七次）· `verify-live.mjs` 的 DSH 根推断：和 echo 的 execPath 同一个病
+
+**这是做验收时顺手撞出来的**，但它是「装完怎么知道活了」那把尺子本身的毛病。
+
+## 症状
+
+拿它验本机 profile，报：
+
+```
+✗ @deepseek-ai/dsh-experimental-agent-team-profile: 在 bundles 里，但所有搜索根里都没有这个目录
+（然后列出 22 个搜索路径，全都是 C:\Users\pc\.workbuddy\binaries\node\versions\22.22.2-3\...）
+```
+
+**包明明是装好的。** 而那 22 个路径一眼能看出问题：**全是跑脚本那个 node 的安装目录**，
+和 DSH 装在哪毫无关系。
+
+## 真因
+
+根推断全部从 `process.execPath` 往上推 —— 这假设「跑脚本的 node 就是 DSH 的 node」。
+用 Electron 里跑（execPath 是 DSH 的 exe）时成立；
+**但你从命令行用别的 node 跑它，推出来的就是那个 node 的目录。**
+
+★ 和 `plugins/echo/index.js` 那个 E1 是**同一个病**：
+都默认「我的 execPath 就是宿主的」。echo 那边已经修了（`resolveNode()` 判 `process.versions.electron`），
+**这个脚本当时没跟着修。**
+
+## 已修
+
+除了原来的 `execPath` 那条路，**再从 profile 位置往上反推 6 层**，每层都试三个位置：
+
+```
+profile/node_modules
+profile/resources/app.asar/node_modules
+profile/resources/app.asar.unpacked/node_modules
+```
+
+profile 通常在 `<DSH_ROOT>\home\profiles\<name>`，往上走几层就盖住了 DSH 安装根。
+
+**复核**：本机 desktop profile 从「失败 1」变成「**失败 0**」，
+剩下 2 条「需注意」都是真实信息（huanqi 副本陈旧、pruner 要靠真裁剪判）。
+
+## ★ 这条和上一条放在一起看，才是完整的
+
+| 缺什么 | 后果 |
+|---|---|
+| 安装脚本没 BOM | **装都装不上**（PS 5.1 解析失败） |
+| `verify-live` 根推断错 | 装上了也**判不出有没有在跑**（报假失败） |
+
+**两条合起来才是用户那句「装完根本不知道有没有在运行」。**
+
 ### 2026-10-24（同日第六次）· `install-desktop.ps1` 没有 BOM，在 PowerShell 5.1 下根本跑不起来
 
 **这是这一轮最严重的一条** —— 前面几份「装不上」的反馈，有一部分根本不是插件问题，
