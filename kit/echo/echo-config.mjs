@@ -95,6 +95,25 @@ export const MEM = pick('ECHO_MEMORY', 'memory');
 export const SESSIONS = pick('ECHO_SESSIONS', 'sessions')
   || (dshHome() ? `${dshHome()}/sessions` : null);
 
+/**
+ * ★★ 2026-10-25 加（GitHub #1，aslarn 报）：压缩由谁托管。
+ *
+ * 病：echo-doctor 的「门牌回取」「压缩机制」两项都只从日志里数 `compaction/*` 事件。
+ * 而 billion-context 自带一个 gate，在自身 active 时把 DSH 内置压缩**整行禁用** ——
+ * 于是日志里一条 `compaction/*` 都没有，两项恒定 warn，而其实一切正常。
+ *
+ * ★ 这个误报不只是看着烦，它是一条诱导链：
+ *   用户看到「压缩没有门牌」→ 以为缺能力 → 去装 dsh-agent-compaction →
+ *   内置的被 bili 禁了、槽位是空的，于是它**直接注册成功** →
+ *   复活了 bili 有意关掉的兜底引擎，两套上下文管理并存、无法归因。
+ *
+ * 取值：
+ *   off        → 不认外部托管，走旧行为
+ *   auto / 空  → 自动探测（默认）
+ *   其它字符串 → 直接当托管者名用（例：billion-context）
+ */
+export const EXTERNAL_COMPACTION = pick('ECHO_EXTERNAL_COMPACTION', 'externalCompaction');
+
 /** ★ L1 热记忆（USER.md / MEMORY.md）不在书房里 —— 它属于运行时。
  *  默认跟 mnemon 运行时目录走，可以用 ECHO_RUNTIME 覆盖。 */
 export const RUNTIME = (() => {

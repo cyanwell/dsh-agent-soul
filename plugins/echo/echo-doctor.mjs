@@ -404,6 +404,54 @@ function checkDeploy() {
   };
 }
 
+/**
+ * ★★★ 2026-10-25 加（GitHub #1，aslarn 报）：识别「压缩由外部策略在代理层托管」。
+ *
+ * 病：门牌回取 / 压缩机制两项都从日志里数 `compaction/*` 事件。而 billion-context
+ * 自带一个 gate（`bili-compaction-gate`），在自身 active 时把 DSH 内置压缩**整行禁用** ——
+ * 于是这两个零件压根不跑，日志里一条 `compaction/*` 都没有，两项恒定 warn。
+ * doctor 没有能力区分两件事：**压缩坏了**（有 start、没 summary）与**压缩不归内置管**（一条都没有）。
+ *
+ * ★ 为什么这个误报不只是看着烦（报告作者的原话，我认同）—— 它是一条诱导链：
+ *   用户看到「压缩没有门牌」→ 以为缺能力 → 去装 dsh-agent-compaction →
+ *   内置的被 bili 禁了、槽位是空的，于是它**直接注册成功** →
+ *   复活了 bili 有意关掉的兜底引擎，两套上下文管理并存、无法归因。
+ *
+ * 判据顺序（显式配置优先于自动探测）：
+ *   ① ECHO_EXTERNAL_COMPACTION / echo.config.json 的 externalCompaction：
+ *      off → 不认（走旧行为）；auto 或空 → 自动探测；其它字符串 → 直接当托管者名
+ *   ② 自动探测：<DSH_HOME>/profiles/<p>/package.json 的 dsh.profile.bundles 含 billion-context，
+ *      且 <p>/node_modules/billion-context/dist/agent/dsh-compaction-gate.js 真的在盘上
+ *
+ * ★ 为什么只能做「文件级启发式」：doctor 是**子进程**，读不到 cordis 的 ctx.reflect。
+ *   bili 其实把答案挂出来了（ctx.reflect.provide("biliBasicCompactionPolicy", …)），
+ *   但那要宿主侧的探针去读、再落进日志 —— 那一步留作后续（GitHub #1 的方案 B）。
+ */
+function detectExternalCompaction() {
+  const raw = String(CFG.EXTERNAL_COMPACTION || "").trim();
+  const low = raw.toLowerCase();
+  if (low === "off") return null;                       // 显式关掉探测
+  if (raw && low !== "auto") return { owner: raw, via: "config" };
+
+  const home = CFG.dshHome();
+  if (!home) return null;
+  const profRoot = path.join(home, "profiles");
+  let profs = [];
+  try { profs = fs.readdirSync(profRoot) } catch { return null }
+  for (const p of profs) {
+    const dir = path.join(profRoot, p);
+    let j;
+    try { j = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")) } catch { continue }
+    const bundles = j && j.dsh && j.dsh.profile && j.dsh.profile.bundles;
+    if (!Array.isArray(bundles) || !bundles.includes("billion-context")) continue;
+    const gate = path.join(dir, "node_modules", "billion-context", "dist", "agent", "dsh-compaction-gate.js");
+    // ★ 只列在 bundles 里、没落盘 → 不算。否则「装过又删了」会永久骗过判据。
+    if (!fs.existsSync(gate)) continue;
+    return { owner: "billion-context", via: "auto", profile: p, gate };
+  }
+  return null;
+}
+
 /** ★ 深度项：门牌实测。deep=false 时返回 info，由调用方补上次深检结果。 */
 function checkDoorSign(logs, deep) {
   const target = logs.find((l) => l.bytes > 0);
@@ -416,6 +464,18 @@ function checkDoorSign(logs, deep) {
   }
   const summaries = events.filter((e) => e.type === "compaction/summary");
   if (summaries.length === 0) {
+    // ★ 2026-10-25（GitHub #1）：零摘要有两种完全不同的原因，必须分开说。
+    const ext = detectExternalCompaction();
+    if (ext) {
+      return {
+        id: "doorsign", label: "门牌回取（实测）", status: "ok",
+        detail: `压缩由 ${ext.owner} 在代理层托管，不走内置兜底 —— 门牌这一项不适用于这条链`,
+        evidence: {
+          events: events.length, external: ext,
+          hint: "内置 compaction/* 被外部策略禁用，零摘要属预期。★ 不要为此去装 dsh-agent-compaction —— 那会复活外部策略有意关掉的兜底引擎。",
+        }, deep: true,
+      };
+    }
     return { id: "doorsign", label: "门牌回取（实测）", status: "warn", detail: "这份日志里还没有压缩摘要，无可测门牌", evidence: { events: events.length }, deep: true };
   }
   const last = summaries[summaries.length - 1];
@@ -511,14 +571,34 @@ function checkCompaction(logs, deep) {
   const prune = tally["compaction/prune"] || 0;
   const errs = events.filter((e) => e.type === "compaction/end" && e.data && e.data.error);
   const ratio = start ? sum / start : 1;
+  // ★ 2026-10-25（GitHub #1）：start === 0 有两种原因 —— 压缩坏了，还是压缩不归内置管。
+  const ext = detectExternalCompaction();
   let status = "ok";
-  if (start === 0) status = "warn";
-  else if (ratio < 0.9 || errs.length > 0) status = "warn";
+  let detail = `start ${start} / summary ${sum} / end ${end} / prune ${prune}${errs.length ? `；${errs.length} 次带 error` : ""}`;
+  if (start === 0) {
+    if (ext) {
+      detail = `start 0 —— 压缩由 ${ext.owner} 在代理层托管，内置兜底未启用（预期）`;
+    } else {
+      status = "warn";
+    }
+  } else if (ratio < 0.9 || errs.length > 0) {
+    status = "warn";
+  }
+  // ★ 反过来才是真问题：外部策略声明在管，内置却真的启动了 —— 两套并存。
+  if (ext && start > 0) {
+    status = "warn";
+    detail += `；★ 外部策略（${ext.owner}）在跑，但内置也出现了 ${start} 次 start —— 两套压缩并存，值得看一眼`;
+  }
   const lastEnd = [...events].reverse().find((e) => e.type === "compaction/end");
   return {
     id: "compaction", label: "压缩机制", status,
-    detail: `start ${start} / summary ${sum} / end ${end} / prune ${prune}${errs.length ? `；${errs.length} 次带 error` : ""}`,
-    evidence: { tally, ratio: round1(ratio * 100) / 100, errors: errs.slice(-3).map((e) => ({ seq: e.seq, error: e.data.error })), lastEndAt: lastEnd ? iso(lastEnd.time) : null },
+    detail,
+    evidence: {
+      tally, ratio: round1(ratio * 100) / 100,
+      external: ext,
+      errors: errs.slice(-3).map((e) => ({ seq: e.seq, error: e.data.error })),
+      lastEndAt: lastEnd ? iso(lastEnd.time) : null,
+    },
     deep: true,
   };
 }
@@ -612,6 +692,26 @@ function checkHuanqi(logs, deep) {
   if (!targets.length) return { id: "huanqi", label: "换气（思考预算）", status: "warn", detail: "没有可测的日志", evidence: {}, deep: true };
 
   const MIN_REASONING = 2048; // = 换气默认 minReasoningChars
+
+  // ★★★ 2026-10-25 修假 warn（GitHub #3，aslarn 报）：
+  //   这一项原来去 `turn/end.data.reason.kind` 里找 /repetitive|loop|no-visible/ ——
+  //   而**换气的介入从来不写在那里**。它改的是同一轮内部的流程
+  //   （continue 续写 / circuitBreak 熔断），从不会给 turn/end 造一个新的 reason kind。
+  //   实测这版 DSH 的 kind 只有 completed / aborted / error 三种，所以 everBroke **恒为 false** ——
+  //   只要「有病症」就永久 warn。
+  //   ★ 最坏的不是噪音：这一项存在的全部意义是发现「该响的没响」，
+  //     而现在它无论响没响都报同一句 —— 等于这一项**没在检查它声称要检查的东西**。
+  //   ★ 判据换成换气自己的账本：continuations / circuitBreaks / anomalies。
+  //     （状态文件在 <DSH_HOME>/state/dsh-huanqi.json，由 SESSIONS 反推；
+  //       没装换气或从没跑过 → 读不到 → hqFired 0 → 行为与旧版完全一致。）
+  const HQ_STATE = SESSIONS ? path.join(path.dirname(SESSIONS), "state", "dsh-huanqi.json") : null;
+  let hqStats = null;
+  if (HQ_STATE) {
+    try { hqStats = (JSON.parse(fs.readFileSync(HQ_STATE, "utf8")) || {}).stats || null; } catch {}
+  }
+  const hqFired = hqStats
+    ? Number(hqStats.continuations || 0) + Number(hqStats.circuitBreaks || 0) + Number(hqStats.anomalies || 0)
+    : 0;
   let total = 0, noReply = 0, overThreshold = 0;
   const reasons = {};
   const samples = [];
@@ -639,11 +739,22 @@ function checkHuanqi(logs, deep) {
 
   // ★ 判据：有病症却零介入 = 该响的没响。这是这一项存在的全部意义。
   const hasSymptom = overThreshold > 0;
+  // ★ 保留 turn/end 的 kind 扫描（它仍是证据），但**不再单独当判据** ——
+  //   见上面那段注释：这个值域里根本没有 repetitive/loop/no-visible。
   const everBroke = Object.keys(reasons).some((k) => /repetitive|loop|no-visible/i.test(k));
+  const fired = everBroke || hqFired > 0;
   let status = "ok";
   let note = "";
-  if (hasSymptom && !everBroke) { status = "warn"; note = "；该介入的回合存在，但日志里零介入痕迹"; }
-  else if (hasSymptom && everBroke) { note = "；已见过介入痕迹"; }
+  if (hasSymptom && !fired) {
+    status = "warn";
+    note = HQ_STATE && !hqStats
+      ? "；该介入的回合存在，但换气状态文件读不到、日志里也零痕迹"
+      : "；该介入的回合存在，但日志里零介入痕迹";
+  } else if (hasSymptom && hqFired > 0) {
+    note = `；已见过介入痕迹（continuations ${hqStats.continuations || 0} / circuitBreaks ${hqStats.circuitBreaks || 0} / anomalies ${hqStats.anomalies || 0}）`;
+  } else if (hasSymptom && everBroke) {
+    note = "；已见过介入痕迹";
+  }
 
   return {
     id: "huanqi", label: "换气（思考预算）", status,
@@ -652,6 +763,10 @@ function checkHuanqi(logs, deep) {
       logsSampled: targets.length, assistantMessages: total, noVisibleOutput: noReply,
       overReasoningThreshold: overThreshold, minReasoningChars: MIN_REASONING,
       turnEndReasons: reasons, samples,
+      // ★ 2026-10-25（GitHub #3）：判据来自换气自己的账本，不再从 turn/end 猜。
+      huanqiStateFile: HQ_STATE,
+      huanqiStats: hqStats,
+      huanqiFired: hqFired,
       crossCheck: "换气自己覆盖四种退化（含空回合）；不再需要 dsh-stalled-turn-continue —— 两套账会让一轮被续成两轮",
     },
     deep: true,

@@ -33,6 +33,9 @@
  */
 
 import { readFile, access, readdir } from 'node:fs/promises'
+// ★ 2026-10-25：`statSync` 要显式导入。写漏了会被那一处的 try/catch 吞成「一律不命中」——
+//   看着跑通了，其实新分支从未执行。**静默失效比报错更坏。**
+import { statSync } from 'node:fs'
 import { join, resolve, dirname, delimiter } from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
@@ -98,9 +101,22 @@ async function findBundleDir(name) {
   //   不包含它。**这条和 P1-13 是同一个坑的第二次**：上一次我加了「往上爬 4 层」
   //   治共享安装，这一次是全局安装。两次都错在「只想到一种装法」。
   const roots = []
+  // ★ 2026-10-25 加（GitHub #4 第四节，yunchengyc 报）：把「可能的 app.asar 位置」单独记下来。
+  //   桌面打包版把 @deepseek-ai/* 全封在 resources/app.asar 里，而**普通 node 的 fs
+  //   读不进去**（只有 Electron 进程里的 fs 被补过 asar 支持）。所以那 4 个内置包
+  //   （dsh-base / dsh-web-app 等）在搜索根里永远找不到 —— 旧版据此报「✗ 缺失」，
+  //   而它们本来就在，只是住在一个 node 打不开的归档里。**「我找不到」≠「它不在」。**
+  const asars = []
   try {
     // 进程可执行文件 -> 安装根（Electron 打包时 execPath 就是 DSH 的 exe）
     const exeDir = dirname(process.execPath)
+    asars.push(join(exeDir, 'resources', 'app.asar'))
+    // ★ 2026-10-25：跑本脚本的往往是**另一份** node（不是 DSH 的），execPath 就推不到安装根。
+    //   桌面版 Windows 的标准安装位置再补一条；也可以用 DSH_APP_ASAR 显式指定。
+    if (process.env.DSH_APP_ASAR) asars.push(process.env.DSH_APP_ASAR)
+    if (process.env.LOCALAPPDATA) {
+      asars.push(join(process.env.LOCALAPPDATA, 'Programs', 'DeepSeek Harness', 'resources', 'app.asar'))
+    }
     roots.push(join(exeDir, 'node_modules'))
     roots.push(join(exeDir, 'resources', 'app.asar', 'node_modules'))
     roots.push(join(exeDir, 'resources', 'app.asar.unpacked', 'node_modules'))
@@ -127,6 +143,7 @@ async function findBundleDir(name) {
     let cur = profile
     for (let i = 0; i < 6 && cur; i++) {
       roots.push(join(cur, 'node_modules'))
+      asars.push(join(cur, 'resources', 'app.asar'))
       roots.push(join(cur, 'resources', 'app.asar', 'node_modules'))
       roots.push(join(cur, 'resources', 'app.asar.unpacked', 'node_modules'))
       const up = dirname(cur)
@@ -145,6 +162,10 @@ async function findBundleDir(name) {
   }
 
   const tried = []
+  // ★ 把 asar 候选挂到函数上，和 lastTried 同一个路子 —— ② 那段在模块顶层，
+  //   拿不到函数里的局部变量。（第一版写成直接引用 `asars`，实测直接
+  //   `ReferenceError: asars is not defined` 把整个脚本崩掉：宁可炸，也不要静默失效。）
+  findBundleDir.asars = asars
   for (const r of roots) {
     const candidate = join(r, name)
     tried.push(candidate)
@@ -185,6 +206,16 @@ console.log('── ② 每个 bundle 的 patch 状态 ' + '─'.repeat(30))
 for (const name of bundles) {
   const dir = await findBundleDir(name)
   if (!dir) {
+    // ★ 2026-10-25 修假失败（GitHub #4 第四节）：内置包住在 app.asar 里，普通 node 读不到。
+    //   旧版把它们报成「✗ 缺失 4 条」，而它们本来就在 —— 一个把人引去「重装内置包」的假失败。
+    //   ★ 判据只写在能确证的那一半：「有 app.asar」+「名字是 @deepseek-ai/ 命名空间」
+    //     ⇒ 归为内置、本项不验。**不假装验过，也不谎报缺失。**
+    const isScoped = /^@deepseek-ai\//.test(name)
+    const asarHit = (findBundleDir.asars || []).find((a) => { try { return statSync(a).isFile() } catch { return false } })
+    if (isScoped && asarHit) {
+      console.log(`  · ${name}  内置包（在 ${asarHit} 里）—— 普通 node 打不开 asar，此项跳过，不算缺失`)
+      continue
+    }
     bad(name, '在 bundles 里，但所有搜索根里都没有这个目录')
     console.log(`  ✗ ${name}  找不到。试过这些位置：`)
     for (const t of findBundleDir.lastTried || []) console.log('      ' + t)

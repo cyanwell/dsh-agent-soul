@@ -172,17 +172,26 @@ HUB = <包目录>/runtime          ← 默认值，可用 ECHO_HUB 环境变量�
 - `verify-live` 通过 ✓
 - `agent_soul_doctor` 也过 ✓
 
-**但它调不起体检，也不写 `echo-panel.json`。**
+**但它调不起体检。**
 
-因为写配置那一行包在 `try/catch` 里，失败**不报错、不打日志、不出一行字**。
+因为起子进程那一行包在 `try/catch` 里，失败**不报错、不打日志、不出一行字**。
 
-**怎么当场发现**：
+**怎么当场发现**：直接问它一句。
 
 ```bash
-ls <profile>/node_modules/dsh-agent-echo/runtime/echo-panel.json
+# 把地址换成你当前 DSH 的地址（桌面版启动日志里那个 http://127.0.0.1:<端口>）
+curl http://127.0.0.1:<端口>/yanqing-echo/api/status
 ```
 
-文件不在，就是没在跑。这条查一次十秒钟，比事后猜一晚上便宜。
+返回一段 JSON = 宿主半活着、路由通、能回话。
+返回 404 或连不上 = 没在跑。这一条查一次十秒钟，比事后猜一晚上便宜。
+
+> ★ 2026-10-25 更正（GitHub #4 第三节，yunchengyc 报）：这里原来让人查
+> `runtime/echo-panel.json` 在不在。**那个判据是错的** —— 它存的是「面板档位」，
+> 只在你在面板里改过档位时由 `saveCfg()` 写一次（`plugins/echo/index.js` 里
+> `saveCfg` 只有一个调用点，就是 `/api/level` 那个 POST）。
+> 没打开过面板时它本来就不存在 —— 照旧文档查，会把「一切正常」判成「没在跑」。
+> **一个恒假阴性的判据，比没有判据更坏。**
 
 **怎么修**：把需要的脚本放进 `runtime/`，或者用 `ECHO_HUB` 指到你已有的记忆库目录。
 只要记忆检索的话，`memindex.mjs` 就够；`self.mjs` 管的是「每轮注入自我层」那一套，
