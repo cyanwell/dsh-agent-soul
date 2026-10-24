@@ -493,7 +493,9 @@ export function registerInstallTool(ctx) {
             //   最后靠「停用所有插件」才把应用救回来。
             //   所以这里先给判断，别让人白花一晚上。
             if (isDesktop) {
-              lines.push('  ⚠ 你现在是**桌面端**。compaction / pruner 这两个零件在桌面端大概率装不上：')
+              lines.push('  ⚠ 你现在是**桌面端**。compaction / pruner 这两个零件在桌面端**装不上**：')
+              lines.push('     ★ 2026-10-24 已独立确认：一位用户拿这个结论去问了 DSH 侧，答复是')
+              lines.push('       「桌面版目前就是不行，得等官方做相关路径才行」—— 和下面的判断一致。')
               lines.push('     它们的依赖是 @deepseek-ai/* 的 peerDependencies，而桌面端 profile 的')
               lines.push('     pnpm-workspace.yaml 是 autoInstallPeers: false，那几个包又打在 app.asar 里、')
               lines.push('     没有实体目录可 link ⇒ 报 Cannot find package \'@deepseek-ai/dsh-compaction-basic\'。')
