@@ -405,6 +405,33 @@ function checkDeploy() {
 }
 
 /**
+ * ★★★ 2026-10-25 修「只看一份日志」（GitHub #1 里 aslarn 的**补正三**）。
+ *
+ * 原来 checkDoorSign / checkCompaction 都写 `logs.find((l) => l.bytes > 0)` ——
+ * logs 按 mtime 倒序，于是这两项**永远只看最新那一份**。后果不是噪音，是判错：
+ *   · 「最新那份刚好还没压缩」被读成「压缩坏了」
+ *   · 他做的全量扫描是 **167 份 / 330303 事件 / 10131 条 compaction** —— 一条都没被看过
+ *
+ * ★ 现在从最新往前扫，**一命中就停**：常见情况还是只解一份，开销几乎不变；
+ *   只有最近几份都没有时才多解。返回命中那一份的 events，供原有判据继续用。
+ * ★ 不整份全扫（167 份 / 几百 MB）—— 面板每 3 分钟跑一次，不能那样解。
+ */
+const RECENT_LOGS = 5;
+function scanRecent(logs, n, matcher) {
+  const targets = logs.filter((l) => l.bytes > 0).slice(0, n);
+  const per = [];
+  for (const t of targets) {
+    const d = decodeCached(t.file);          // 与门牌/压缩共用同一份缓存
+    const hits = d.events.filter(matcher);
+    per.push({ sid: String(t.sid).slice(0, 12), events: d.events.length, hits: hits.length });
+    if (hits.length) {
+      return { events: d.events, frames: d.frames, failed: d.failed, hits, hit: hits[hits.length - 1], target: t, per, scanned: per.length };
+    }
+  }
+  return { events: [], frames: 0, failed: 0, hits: [], hit: null, target: targets[targets.length - 1] || null, per, scanned: per.length };
+}
+
+/**
  * ★★★ 2026-10-25 加（GitHub #1，aslarn 报）：识别「压缩由外部策略在代理层托管」。
  *
  * 病：门牌回取 / 压缩机制两项都从日志里数 `compaction/*` 事件。而 billion-context
@@ -454,15 +481,22 @@ function detectExternalCompaction() {
 
 /** ★ 深度项：门牌实测。deep=false 时返回 info，由调用方补上次深检结果。 */
 function checkDoorSign(logs, deep) {
-  const target = logs.find((l) => l.bytes > 0);
-  if (!target) return { id: "doorsign", label: "门牌回取（实测）", status: "warn", detail: "没有可测的日志", evidence: {}, deep: true };
+  const target0 = logs.find((l) => l.bytes > 0);
+  if (!target0) return { id: "doorsign", label: "门牌回取（实测）", status: "warn", detail: "没有可测的日志", evidence: {}, deep: true };
   if (!deep) return { id: "doorsign", label: "门牌回取（实测）", status: "info", detail: "待深度检测…", evidence: { skipped: true }, deep: true };
 
-  const { events, frames, failed } = decodeCached(target.file);
-  if (events.length === 0) {
-    return { id: "doorsign", label: "门牌回取（实测）", status: "error", detail: "日志解不出任何事件", evidence: { file: target.file, frames, failed }, deep: true };
+  // ★ 2026-10-25（补正三）：不再只看最新那一份 —— 往前扫最多 RECENT_LOGS 份，命中即停。
+  const scan = scanRecent(logs, RECENT_LOGS, (e) => e.type === "compaction/summary");
+  const target = scan.target || target0;
+  const { events, frames, failed } = scan;
+  if (scan.scanned > 0 && scan.per.every((p) => p.events === 0)) {
+    return {
+      id: "doorsign", label: "门牌回取（实测）", status: "error",
+      detail: `最近 ${scan.scanned} 份日志都解不出任何事件`,
+      evidence: { files: scan.per, frames, failed }, deep: true,
+    };
   }
-  const summaries = events.filter((e) => e.type === "compaction/summary");
+  const summaries = scan.hits;
   if (summaries.length === 0) {
     // ★ 2026-10-25（GitHub #1）：零摘要有两种完全不同的原因，必须分开说。
     const ext = detectExternalCompaction();
@@ -558,11 +592,19 @@ function checkDoorSign(logs, deep) {
 
 /** ★ 深度项：压缩统计。与门牌共用同一个 decodeCached，不再各解一遍。 */
 function checkCompaction(logs, deep) {
-  const target = logs.find((l) => l.bytes > 0);
-  if (!target) return { id: "compaction", label: "压缩机制", status: "warn", detail: "没有可测的日志", evidence: {}, deep: true };
+  const target0 = logs.find((l) => l.bytes > 0);
+  if (!target0) return { id: "compaction", label: "压缩机制", status: "warn", detail: "没有可测的日志", evidence: {}, deep: true };
   if (!deep) return { id: "compaction", label: "压缩机制", status: "info", detail: "待深度检测…", evidence: { skipped: true }, deep: true };
 
-  const { events } = decodeCached(target.file);
+  // ★ 2026-10-25（补正三）：从最新往前扫最多 RECENT_LOGS 份，用**含压缩事件的那一份**做统计。
+  //   原来只看最新一份 ——「最新那份刚好还没压缩」会被读成「压缩坏了」。
+  const scan = scanRecent(logs, RECENT_LOGS, (e) => typeof e.type === "string" && e.type.startsWith("compaction/"));
+  const target = scan.target || target0;
+  const { events } = scan;
+  // ★ 他真正想问的是「最后一次压缩距今多久」—— 比「有没有」有信息量得多：
+  //   「3 小时前刚压过」和「三天没压过」是两种完全不同的状态。
+  const lastCompactionAt = scan.hit ? Number(scan.hit.time) : null;
+  const compactionAgeH = lastCompactionAt ? round1(hoursSince(lastCompactionAt)) : null;
   const tally = {};
   for (const e of events) if (typeof e.type === "string" && e.type.startsWith("compaction/")) tally[e.type] = (tally[e.type] || 0) + 1;
   const start = tally["compaction/start"] || 0;
@@ -575,6 +617,10 @@ function checkCompaction(logs, deep) {
   const ext = detectExternalCompaction();
   let status = "ok";
   let detail = `start ${start} / summary ${sum} / end ${end} / prune ${prune}${errs.length ? `；${errs.length} 次带 error` : ""}`;
+  // ★ 「最后一次压缩距今多久」比「有没有」有信息量 —— 见上面那两行的注释。
+  detail += compactionAgeH === null
+    ? `；最近 ${scan.scanned} 份日志里没有压缩事件`
+    : `；最后一次压缩 ${compactionAgeH} 小时前`;
   if (start === 0) {
     if (ext) {
       detail = `start 0 —— 压缩由 ${ext.owner} 在代理层托管，内置兜底未启用（预期）`;
@@ -596,6 +642,11 @@ function checkCompaction(logs, deep) {
     evidence: {
       tally, ratio: round1(ratio * 100) / 100,
       external: ext,
+      // ★ 补正三：把「扫了几份、各自多少事件、最后一次多久」都摆出来，
+      //   出问题时不用再猜它看的是哪一份。
+      scannedLogs: scan.scanned, searchedRecent: scan.per,
+      lastCompactionAt: lastCompactionAt ? iso(lastCompactionAt) : null,
+      compactionAgeHours: compactionAgeH,
       errors: errs.slice(-3).map((e) => ({ seq: e.seq, error: e.data.error })),
       lastEndAt: lastEnd ? iso(lastEnd.time) : null,
     },
