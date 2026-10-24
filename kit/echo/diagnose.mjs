@@ -84,7 +84,7 @@ const REMEDY = {
       '没装配 → node kit/echo/self.mjs build',
       '装好了却报「读不到」→ 查 dsh-agent-memory 的 selfPath 配的是不是实际位置',
     ],
-    where: ['evidence.selfPath —— 配置说的位置', 'evidence.actualPath —— 文件实际在哪', 'evidence.injectionLogs —— 哪些日志里出现了「读不到」'],
+    where: ['evidence.selfPath —— 配置说的位置', 'evidence.actualPath —— 文件实际在哪', 'evidence.seq / section / chars —— 最后一条 runtime-context 快照里那个 SELF 小节（★ 不翻历史日志；2026-10-23 三修后只认最近一次注入）'],
   },
   mo: {
     means: '《墨》账本读不了或者格式不对',
@@ -154,17 +154,85 @@ function readContext(file, before = 2, after = 2) {
 }
 
 // ── 跑 doctor ────────────────────────────────────────────────
+// ★★★ 2026-10-24（外部验证报告 Bug 1）：不要用 process.execPath 起子进程。
+//
+//   这个脚本会被 agent_soul_verify 调用，而那条工具跑在 **Electron 宿主**里 ——
+//   此时 process.execPath 是 "DeepSeek Orb.exe"，不是 node。它不认 --json、
+//   也不会去执行一个 .mjs，于是 stdout 空着、命令失败，体检器永远跑不起来。
+//   （原话见用户报告：Command failed: DeepSeek Orb.exe .../diagnose.mjs --json）
+//
+//   清单里早就承诺过 ECHO_NODE 可以覆盖 node 路径，但代码一直没实现 —— 这里补上。
+//   顺序：ECHO_NODE → NODE → 'node'(PATH) → 常见安装路径。
+//   只有在 execPath 的 basename 确实是 node 时才把它当候选（本机直接跑就是这个情况）。
+const NODE_CANDIDATES = () => {
+  const list = []
+  if (process.env.ECHO_NODE) list.push({ how: 'ECHO_NODE', bin: process.env.ECHO_NODE })
+  if (process.env.NODE) list.push({ how: 'NODE', bin: process.env.NODE })
+  // 本机 / 非 Electron 环境下 execPath 就是 node，可以直接用；Electron 下必须排除
+  if (/^node(\.exe)?$/i.test(path.basename(process.execPath))) {
+    list.push({ how: 'process.execPath', bin: process.execPath })
+  }
+  list.push({ how: 'PATH', bin: 'node' })
+  for (const p of [
+    'C:\\Program Files\\nodejs\\node.exe',
+    'C:\\Program Files (x86)\\nodejs\\node.exe',
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'nodejs', 'node.exe'),
+  ]) if (p) list.push({ how: '常见路径', bin: p })
+  return list
+}
+
 function runDoctor() {
   const script = path.join(HERE, 'echo-doctor.mjs')
-  const r = spawnSync(process.execPath, [script, '--json'], { encoding: 'utf8', timeout: 60000 })
-  const out = (r.stdout || '').trim()
-  const err = (r.stderr || '').trim()
-  if (out) {
-    try { return { ok: true, report: JSON.parse(out) } } catch (e) {
-      return { ok: false, why: 'doctor 输出了东西但不是 JSON', stdoutHead: out.slice(0, 600), stderr: err.slice(0, 800) }
+
+  // ★ 打包成数组先传给 doctor：让它把「我试过谁、各自什么结果」一并报出来，
+  //   而不是失败之后只剩一句「一行输出都没有」。
+  const tried = []
+  for (const cand of NODE_CANDIDATES()) {
+    const r = spawnSync(cand.bin, [script, '--json'], { encoding: 'utf8', timeout: 60000 })
+    const out = (r.stdout || '').trim()
+    const err = (r.stderr || '').trim()
+    // ★★★ 2026-10-24（本机实测）：不要用退出码判断「doctor 跑没跑起来」。
+    //
+    //   echo-doctor 的设计是——**体检不通过时 exit 2**（好让 CI 能直接判失败）。
+    //   于是「它有输出、而且输出完全正常，只是里面有一条 error」也会 exit≠0。
+    //   原来的 ok = (status === 0 && out) 会把这种情况当成「doctor 崩了」，
+    //   报「没有一个候选 node 能把 doctor 跑出输出」—— 而它明明跑出了输出。
+    //
+    //   实测现场：node echo-doctor.mjs --json → 合法 JSON，overall:"error"，
+    //   原因只是「没配 MEM」。这条原因从来没被打印出来，用户只看到「跑不起来」。
+    //
+    //   判据改成：**stdout 能 parse 成 JSON，就算跑起来了。** 退出码当附带信息。
+    const hasOut = out.length > 0
+    tried.push({ how: cand.how, bin: cand.bin, status: r.status, err: (r.error && r.error.message) || null, bytes: out.length })
+    if (hasOut) {
+      try {
+        return {
+          ok: true,
+          report: JSON.parse(out),
+          nodeUsed: cand.how + ' → ' + cand.bin,
+          doctorExit: r.status,   // 体检不通过时是 2，不是故障
+          tried,
+        }
+      } catch (e) {
+        return {
+          ok: false,
+          why: 'doctor 输出了东西但不是 JSON',
+          nodeUsed: cand.how + ' → ' + cand.bin,
+          stdoutHead: out.slice(0, 600),
+          stderr: err.slice(0, 800),
+          tried,
+        }
+      }
     }
   }
-  return { ok: false, why: 'doctor 一行输出都没有' + (r.error ? '（' + r.error.message + '）' : ''), exitCode: r.status, stderr: err.slice(0, 800) }
+  return {
+    ok: false,
+    why: '没有一个候选 node 能把 doctor 跑出输出（一共试了 ' + tried.length + ' 个）',
+    tried,
+    // 保留原来的两个字段，下面那套「崩溃说明」还在用
+    exitCode: tried.length ? tried[tried.length - 1].status : null,
+    stderr: '',
+  }
 }
 
 // ── 主流程 ──────────────────────────────────────────────────
@@ -179,10 +247,25 @@ if (!res.ok) {
   console.log('  ★ 红在哪：' + path.join(HERE, 'echo-doctor.mjs'))
   console.log('    —— 它自己崩了，所以底下这一层替你把它的话捞出来：')
   console.log('')
+  if (res.nodeUsed) console.log('  跑起来用的 node：' + res.nodeUsed)
+  if (Array.isArray(res.tried) && res.tried.length) {
+    console.log('')
+    console.log('  试过的 node（按顺序）：')
+    for (const t of res.tried) {
+      const mark = (t.status === 0 && t.bytes > 0) ? '✓' : '✗'
+      const tail = t.err ? ('  ' + t.err) : (t.bytes ? '' : '  无输出')
+      console.log('    ' + mark + ' ' + t.how.padEnd(18) + t.bin + '  exit=' + t.status + tail)
+    }
+    console.log('')
+    console.log('  ★ 如果上面全是 ✗ —— 说明这台机器上没有能用的 node。')
+    console.log('    装一个 Node.js，或者设 ECHO_NODE=<node.exe 的完整路径> 再跑一次。')
+    console.log('    这个脚本和 echo-doctor.mjs 都需要真 node，Electron 的 exe 不行。')
+  }
   if (res.stderr) {
+    console.log('')
     console.log('  stderr（最后 15 行）：')
     for (const l of res.stderr.split('\n').slice(-15)) console.log('    ' + l)
-  } else {
+  } else if (!res.tried || !res.tried.length) {
     console.log('  stderr 是空的 —— 说明它不是崩了，是静默退出（很可能 export 语句根本没执行到）')
   }
   if (res.stdoutHead) {
