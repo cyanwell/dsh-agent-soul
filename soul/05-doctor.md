@@ -46,7 +46,7 @@
 node <kit>/memq.mjs now
 
 # ② 索引建过没有                          → 对应第 1 句
-node <kit>/memindex.mjs --status
+node <kit>/memindex.mjs stats
 
 # ③ 自我层有没有退化                      → 对应第 7 句（"坏了没人发现"）
 node <kit>/self.mjs --check

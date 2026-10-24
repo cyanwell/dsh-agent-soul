@@ -93,7 +93,7 @@
 ```bash
 node [hub]/self.mjs                 # L1 装配得出来吗、超没超预算
 node [hub]/echo-doctor.mjs          # L1/L4/L6 一次全查
-node [hub]/memindex.mjs --status    # L4 索引建过没有
+node [hub]/memindex.mjs stats    # L4 索引建过没有
 node [hub]/memq.mjs now             # L0 + L3 + L5 一次全查
 ```
 

@@ -39,6 +39,26 @@ const F_META = path.join(IDX, "meta.json");
 // ── 参数 ──
 const argv = process.argv.slice(2);
 const cmd = argv.shift() || "stats";
+
+// ★★★ 2026-10-24（外部验证报告）：不认识子命令时要出声。
+//   原来任何不认识的词（比如文档里写错的 `--status`）都会被当成「没给子命令」，
+//   于是**静默按默认（stats）跑**，看起来一切正常 —— 用户照着错文档抄，永远发现不了。
+//   一个静默降级的入口，比一个报错的入口更坏。
+{
+  const known = new Set(["build", "audit", "stats", "verify"]);
+  const HELP = new Set(["--help", "-h", "help"]);
+  const first = process.argv[2];
+  if (first && !HELP.has(first) && !known.has(first)) {
+    // ★ 第一版这里写了 `!first.startsWith("-")`，于是 `--status` 被当成 flag 放过去了 ——
+    //   它随后打出一屏帮助、退出 0，看起来完全正常。这正是「静默降级」本身。
+    //   现在不管带不带短横，只要不是已知子命令就报。
+    console.error(`✗ 不认识的子命令: ${first}`);
+    console.error("");
+    console.error("  支持的是: build / audit / stats / verify（不写 = stats）");
+    console.error("  ★ 如果你是从某份文档抄来的，那份文档可能过时了 —— 请把那处文档一起改掉。");
+    process.exit(2);
+  }
+}
 const opt = (name, def) => {
   const i = argv.indexOf(name);
   if (i === -1) return def;
