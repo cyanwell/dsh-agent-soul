@@ -286,6 +286,108 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ★ 写法约定：**只追加，不改旧条目** —— 写错了就再加一条更正，让历史留着。
 每条要能回答三个问题：**改之前是什么、为什么改、怎么确认改对了**。
 
+### 2026-10-24（同日第二次）· 一位用户用一份诊断报告，把我们三个「看起来正常」的洞挖了出来
+
+一位用户（通过邮件）发来一份 104 行的诊断报告，每条都带位置、可复现证据和反证。
+查下来三条属实，**另外还撞出了第四条**——而第四条才是前三条共同的放大器。
+
+## ① `process.execPath` 在 Electron 宿主里不是 node
+
+原文 `kit/echo/diagnose.mjs:159`：
+
+```js
+const r = spawnSync(process.execPath, [script, '--json'], …)
+```
+
+`agent_soul_verify` 跑在 Electron 宿主里，`process.execPath` 是 `DeepSeek Orb.exe`——
+它不认 `--json`、也不执行 `.mjs`。于是 stdout 空着、命令失败，**体检器永远跑不起来**。
+用户报告的原话：`Command failed: DeepSeek Orb.exe .../kit/echo/diagnose.mjs --json`。
+
+改成四级候选：`ECHO_NODE` → `NODE` → `process.execPath`（**仅当 basename 确实是 node**）
+→ `node`（PATH）→ 常见安装路径。失败时把**每个候选的 exit 和错误全打出来**，
+而不是只说一句「一行输出都没有」。
+
+★ `ECHO_NODE` 在 `plugins/清单.md` 里承诺过，但代码一直没实现——这次补上了。
+
+## ② 最值钱的那条：**「体检不通过」被当成了「体检器崩了」**
+
+本轮新发现，不在用户报告里。真发现场（本机）：
+
+```
+node echo-doctor.mjs --json
+→ {"at":"…","mode":"deep","overall":"error","counts":{"error":1,…},…}
+→ 退出码 2
+
+node diagnose.mjs
+→ ══ 体检器自己跑不起来 ══
+  说的是：没有一个候选 node 能把 doctor 跑出输出（一共试了 5 个）
+```
+
+**doctor 明明跑起来了、输出完全正常。** 只是它体检出一条 error
+（本机原因是「没配 `ECHO_MEMORY`」），而 `echo-doctor` 的设计是
+**体检不通过时 exit 2**（好让 CI 能直接判失败）。
+
+而 `diagnose` 判「跑起来没有」的条件是 `status === 0 && out.length > 0` ⇒
+**「体检发现 1 条 error」被当成「体检器自己崩了」**，那条真正的红因**从来没被打印出来过**。
+
+改：判据改成 **stdout 能 parse 成 JSON 就算跑起来了**；退出码存进 `doctorExit` 当附带信息。
+
+★ 这条的教训写成一句话：**「他没通过」和「他没跑起来」是两件事，别压成同一个症状。**
+
+## ③ `where` 里的字段名停留在旧实现
+
+用户报告说「`injectionLogs` 翻旧日志 ⇒ SELF 读不到假红」。
+
+查下来：`echo-doctor.mjs` 的 `checkSelf` **已经在 10-22 / 10-23 改过三版**，
+现在只认「最后一条 `runtime-context` 快照里的 SELF 小节」，不再翻历史日志。
+而 `diagnose.mjs:87` 的 `where` 还写着 `evidence.injectionLogs`——**提示文字没跟上实现**，
+用户照着旧描述去查，自然找不到对应字段。
+
+改：`where` 改成 `seq / section / chars`，并注明「不翻历史日志」。
+
+## ④ 不认识的子命令要出声，别静默按默认跑
+
+用户报告里那句「**建议作者在脚本里对未知子命令给出提示（现在会静默按默认跑）**」——
+**这半句是整份报告里最值钱的一句。**
+
+根因：`const cmd = argv.shift() || "stats"`。任何不认识的第一个参数都被吞掉，于是：
+
+```
+node memindex.mjs --status
+→ 打印一屏帮助、退出 0
+```
+
+**看起来完全正常。** 用户照着过时文档抄，永远发现不了自己抄错了。
+
+改两处：① 加子命令守卫（不是 build/audit/stats/verify、也不是 --help/-h ⇒ 报错退 2）
+② 两份文档里的 `--status` 改成 `stats`（`soul/05-doctor.md`、`soul/10-echo-anatomy.md`）。
+
+★ **第一版守卫我们自己也写错了**：条件里带 `!first.startsWith("-")`，于是 `--status`
+被当成 flag 放过去，实测又打出了那屏帮助。第二轮收紧成「不管带不带短横都报」。
+
+## 怎么确认改对了（四条对照，全部真跑）
+
+```
+--status → ✗ 不认识的子命令: --status …   exit 2
+foo      → ✗ 不认识的子命令: foo            exit 2
+stats    → 正常输出（1001 摘要 / 42117 原话）  exit 0
+--help   → 帮助文本                        exit 0
+```
+
+```
+node diagnose.mjs（改前）→ ══ 体检器自己跑不起来 ══ … 没有一个候选 node…
+node diagnose.mjs（改后）→ ══ 体检报告：error ══ … 【红】配置（三个根）… 先跑一次 agent_soul_scaffold
+```
+
+★ 正对照也做了：`ECHO_NODE` 指向不存在的路径 ⇒ 如实列出
+`✗ ECHO_NODE … ENOENT`，没有假装成功。
+
+## 顺带
+
+用户报告里指出的宿主行为（「停用所有插件」按钮会把 `dsh.profile.bundles` 重写成 2 项、
+`cordis.patch.yml` 清空 ⇒ 每重启一次掉一批插件）**不在本仓库**，
+但那是比「某个插件坏了」严重得多的设计问题 —— 已记录，转给 DSH 那边。
+
 ### 2026-10-24 · 两个插件的注册 id 没跟上 organs，会让「装了两份的人」启动即挂
 
 一位用户的机器两次启动都失败，隔了四分钟重启（shell pid 从 29556 变 28384、
