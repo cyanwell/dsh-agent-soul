@@ -484,12 +484,41 @@ export function registerInstallTool(ctx) {
           //   报告的原话是「门牌机制——整套架构的核心——装完等于没有」。
           //   这里不替用户改配置，但必须把「还差哪一步」说出来。
           if (s.step === 1) {
+            // ★★★ 2026-10-24 加（三份用户反馈）：
+            //   桌面端**大概率装不上**这两个零件 —— 它们的依赖是 `@deepseek-ai/*`
+            //   的 peerDependencies，而桌面端 profile 的 pnpm-workspace.yaml 是
+            //   `autoInstallPeers: false`，那几个包又打在 `app.asar` 里、没有实体目录
+            //   可 link ⇒ 报 `Cannot find package '@deepseek-ai/dsh-compaction-basic'`。
+            //   用户实测：想补依赖会**链式缺下去**（cordis → dsh-llm → …），
+            //   最后靠「停用所有插件」才把应用救回来。
+            //   所以这里先给判断，别让人白花一晚上。
+            if (isDesktop) {
+              lines.push('  ⚠ 你现在是**桌面端**。compaction / pruner 这两个零件在桌面端大概率装不上：')
+              lines.push('     它们的依赖是 @deepseek-ai/* 的 peerDependencies，而桌面端 profile 的')
+              lines.push('     pnpm-workspace.yaml 是 autoInstallPeers: false，那几个包又打在 app.asar 里、')
+              lines.push('     没有实体目录可 link ⇒ 报 Cannot find package \'@deepseek-ai/dsh-compaction-basic\'。')
+              lines.push('     ★ 别硬补依赖 —— 实测会链式缺下去（cordis → dsh-llm → …），')
+              lines.push('       最后要靠「停用所有插件」才救得回来。')
+              lines.push('     ★ 建议：桌面端先跳过这两个；它们需要 web profile（或等宿主把内部包暴露出来）。')
+              lines.push('       跳过不影响其余 11 个零件 —— 剩下那些的依赖都装得上。')
+              lines.push('')
+            }
             lines.push('  ★ 注意：这一步里的 compaction 和 pruner 装上了 **不等于** 接管了。')
             lines.push('    两个各自和内置的抢同一个服务名，而 cordis 是「先到先得」：')
             lines.push('      dsh-agent-compaction  ←→ 内置 compaction-basic')
             lines.push('      dsh-agent-pruner      ←→ 内置 tool-result-pruner')
             lines.push('    默认装完，doctor 只会报 warn（压缩机制 start 0）—— 看不出「装了但没接管」。')
             lines.push('    接管办法见 plugins/compaction/HOW-TO-TAKEOVER.md：')
+            lines.push('')
+            lines.push('    ★★★ 做任何一步之前，先确认「我们的包到底加载成功没有」：')
+            lines.push('      node -e "require.resolve(\'dsh-agent-pruner\')"   # 或者看 profile 的 node_modules')
+            lines.push('      更有用的判据：**启动日志里有没有** import failed / Cannot find package。')
+            lines.push('      ★ 为什么这一步是硬前置：下面第②步会把内置的裁剪器**禁掉**。')
+            lines.push('        如果我们的包没加载成功，你就会**两个都没有** ——')
+            lines.push('        工具结果不再被裁剪，而且**不报任何错**。')
+            lines.push('        2026-10-24 有一位用户正是这样：12000 字符的输出原样保留，')
+            lines.push('        既没有官方 marker、也没有 seq 门牌。他以为「只是少了门牌」，实际是全停了。')
+            lines.push('')
             lines.push('      路 A —— 两步，缺一不可：')
             lines.push('             ① 把两个都排到 profile bundles 最前面（dsh-base 之前）')
             lines.push('             ② 在 profile 的 cordis.patch.yml 里禁掉内置的：')
