@@ -63,6 +63,16 @@
           "failure": "换掉它，你还是你 —— 这正是判据",
           "check": "如果把这一层整个换掉，你的身份判据还成立吗？成立就对了",
           "examples": []
+        },
+        {
+          "what": "外部工具接入（MCP）",
+          "required": false,
+          "failure": "外部能力只能靠内置写死；更要紧的是 ECHO 的快车道没了 —— 检索退回 CLI，慢一个数量级",
+          "check": "换掉它，身份判据还成立吗？成立（所以它在 III 层）。但它决定门有多快：有它 46ms，没它 650ms",
+          "examples": [
+            "dsh-mcp-hub",
+            "kit/echo/echo-mcp.mjs"
+          ]
         }
       ]
     },
