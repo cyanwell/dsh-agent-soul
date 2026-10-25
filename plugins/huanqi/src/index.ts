@@ -179,6 +179,13 @@ import z from '@deepseek-ai/schemastery'
 import type { Agent, AgentCancelCause } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed, LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm'
+/* ★ 2026-10-26（砚青落）：压缩服务与边界检查。
+ *   ★★ 这两个 import 让 huanqi **在类型上**依赖 dsh-compaction，
+ *   但运行时是可选的（`ctx.get('compaction')` 拿不到就整层跳过）——
+ *   所以换气仍然能在没有 compaction 的宿主上加载，只是「治疗」那层不生效。 */
+import type { CompactionAgentContext, CompactionEngine } from '@deepseek-ai/dsh-compaction'
+import { toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
+import type { SessionSeq } from '@deepseek-ai/dsh-session'
 
 type UserMessage = ReturnType<typeof createUserMessage>
 
@@ -575,6 +582,29 @@ export interface Config {
 
   /** 空回合也续一轮（吸收自 dsh-stalled-turn-continue）。默认 true。 */
   emptyTurnContinue?: boolean
+
+  /* ★ 2026-10-26（砚青落）：思考退化「治疗」三件套。
+   *
+   * 打断（ReasoningLoopBreaker）只结束当前这一轮，但那段「做。做。做。」已经进了历史 ——
+   * 下一次模型读到「刚才是这样做出来的」，更容易被激活，这是**复利**。
+   * 所以配上压缩：**把污染搬到磁盘上、留门牌，需要时再取回**。
+   *
+   * 三级阶梯（按代价递增）：
+   *   ① 打断（已有，流级）
+   *   ② 范围压缩：累计截断 N 次后做一次，压走「最近这一段循环」，**继续对话**
+   *   ③ 全量压缩：熔断时做，彻底清空 + 告知用户 + **不再延续**
+   *
+   * ★ 为什么范围压缩不在第一次截断就做 —— 单次截断是正常呼吸。
+   *   `normalTurnThreshold: 20` 意味着一轮能截断几十次，每次都压缩等于每轮都在换容器。
+   */
+  /** 累计截断多少次后做一次范围压缩。0 = 关闭范围压缩。默认 3。 */
+  regionCompactAfterCuts?: number
+  /** 熔断时是否做全量压缩。默认 true。 */
+  fullCompactOnBreaker?: boolean
+  /** 压缩后是否注入「取回一手原文」的指引（不让它读摘要）。默认 true。 */
+  postCompactRecallHint?: boolean
+  /** 要接的压缩服务名。留空 = `compaction`（本机默认）。 */
+  compactionService?: string
 }
 
 /** Resolved config: every field carries its validated default. */
@@ -588,7 +618,15 @@ export const Config: z<Config> = z.object({
   maxFires: z.number().min(1).default(4),
   cancelCause: z.string().default('thinking-loop'),
   // 换气层（huanqi）—— 思考预算管理，见文件头的 Config 接口注释
-  maxContinuations: z.number().step(1).min(0).max(10).default(4),
+  maxContinuations: z.number().step(1).min(0).max(10).default(6),
+  /** 累计截断多少次后做一次范围压缩。0 = 关闭。默认 3。 */
+  regionCompactAfterCuts: z.number().step(1).min(0).max(10).default(3),
+  /** 熔断时是否做全量压缩。默认 true。 */
+  fullCompactOnBreaker: z.boolean().default(true),
+  /** 压缩后是否注入「取回一手原文」的指引。默认 true。 */
+  postCompactRecallHint: z.boolean().default(true),
+  /** 要接的压缩服务名。留空 = `compaction`。 */
+  compactionService: z.string().default(''),
   /** 子 agent（含 Agent Teams 成员）的严格程度。默认 `strict` = 现在的行为。 */
   subagentPolicy: z.union(['strict', 'relaxed', 'exempt']).default('strict'),
   /** 投影缓存目录（`subagentPolicy` 兜底判据用）。留空 = `<dsh home>/storages/session_projcache/sessions`。 */
@@ -2102,6 +2140,232 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
   }
 
   const detectors = new WeakMap<object, LoopDetector>()
+
+  /* ══════════════════════════════════════════════════════════════════════
+   * ★★ 2026-10-26（砚青落）：思考退化「治疗」层 —— 压缩
+   *
+   * 为什么要有这一层：
+   *   打断（ReasoningLoopBreaker）只结束当前这一轮，但那段「做。做。做。」
+   *   已经进了历史。下一次模型读到「刚才是这样做出来的」，**更容易被激活** ——
+   *   这是复利：每打断一次，上下文里就多一段「循环记录」，下一次更容易。
+   *
+   *   ⇒ 打断是止血，不是清创。清创＝把污染搬到磁盘上 + 留门牌。
+   *
+   * 三级阶梯：
+   *   ① 打断（已有，流级，极轻）
+   *   ② 范围压缩：累计截断 N 次 → compactRegion，压走最近这一段，**继续对话**
+   *   ③ 全量压缩：熔断时 → compactNow，彻底清空 + 告知用户 + **不再延续**
+   *
+   * ★ 为什么②不在第一次截断就做：单次截断是正常呼吸（normalTurnThreshold: 20，
+   *   一轮能截断几十次）。每次都压缩等于每轮都在换容器。
+   *
+   * ★★ 为什么压缩之后要「让它自己去取一手原文」而不是读摘要：
+   *   如果压缩后去读摘要，**摘要就成了新的输入** —— 那是摘要复利，压了等于白压。
+   *   所以注入的是一张地图（seq 指针），不是一段转述。
+   * ══════════════════════════════════════════════════════════════════════ */
+
+  /** 每个会话在当前 turn 内累计的截断次数。`turn/end` 时清零。 */
+  const cutCounts = new Map<string, number>()
+
+  /** 最近一次压缩的结果 —— 判词要写进去，面板才看得见「它到底有没有动手」。 */
+  interface CompactOutcome {
+    kind: 'region' | 'full'
+    ok: boolean
+    /** 压掉的 seq 范围（拿不到就 null —— ★ 宁可没有门牌，也不写一个错的）。 */
+    range: { start: number; end: number } | null
+    /** 失败原因（ok=false 时有）。 */
+    error?: string
+  }
+  const lastCompact = new Map<string, CompactOutcome>()
+
+  /**
+   * 取压缩服务。
+   *
+   * ★ 用 `ctx.get(...)` 而不是 `ctx.compaction` —— 和本文件其余地方一致
+   *   （见 `readConfig` 那段注释：`ctx.get` 在没有该服务时返回 undefined，
+   *    而属性访问在类型上存在、运行时可能没有，会抛）。
+   */
+  function compactionService(): CompactionEngine | undefined {
+    const name = config.compactionService !== '' ? config.compactionService : 'compaction'
+    try {
+      return ctx.get(name as never) as CompactionEngine | undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * 算一个「可以安全压」的 seq 范围 —— 从末尾往前找，直到工具调用配对平衡。
+   *
+   * 依据（`dsh-compaction-basic` 的 `selectCompactableRange`）：
+   *   - `retainTokens = 0` ⇒ 起点是最后一个 surface 节点
+   *   - 从那里往回退，直到 `toolPairingBalancedBefore` 成立
+   *   - start = 第一个（有 system 头就跳过它），end = 退到的前一个
+   *
+   * ★ 也就是说：**默认压「最后一条之前的所有东西」** —— 这正是「范围压缩」要的形态：
+   *   保留最后一条（通常是刚产出/正在产出的那条），把前面这段换成摘要。
+   */
+  function pickRegion(agent: Agent): { start: number; end: number } | null {
+    try {
+      const surface = agent.session.surface
+      const nodes = surface.nodes
+      if (!Array.isArray(nodes) || nodes.length < 3) return null
+
+      // 保留最后一个（`retainTokens = 0` 的等价形态）
+      let keepFromIdx = nodes.length - 1
+
+      /* ★ 边界必须平衡：不满足就往前退，退到 0 就放弃。
+       *   这里用 try/catch 包住 —— `toolPairingBalancedBefore` 是官方导出，
+       *   但守卫不该因为它签名变了就整个挂掉。 */
+      let guard = 0
+      while (keepFromIdx > 0 && guard < 512) {
+        guard += 1
+        const seq = nodes[keepFromIdx]
+        if (seq === undefined) return null
+        let balanced = true
+        try {
+          balanced = toolPairingBalancedBefore(agent.session, seq)
+        } catch {
+          balanced = true // 判不了就当它平衡 —— 不能被一个辅助判据卡死
+        }
+        if (balanced) break
+        keepFromIdx -= 1
+      }
+      if (keepFromIdx <= 0) return null
+
+      // system 头占首位的话要跳过（它不该被压进摘要）
+      let firstIdx = 0
+      try {
+        const head = agent.session.surface.nodes[0]
+        if (head !== undefined) {
+          const ev = agent.session.eventAt(head)
+          if (ev !== null && ev !== undefined && ev.type === 'system/message') firstIdx = 1
+        }
+      } catch {
+        firstIdx = 0
+      }
+      if (keepFromIdx <= firstIdx) return null
+
+      const start = nodes[firstIdx]
+      const end = nodes[keepFromIdx - 1]
+      if (start === undefined || end === undefined) return null
+      if (!(start < end)) return null
+      return { start, end }
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * 压缩一次。**永不抛** —— 失败只记录，绝不让守卫自己变成故障。
+   *
+   * @param mode `region` = 尽量只压最近这一段（失败降级全量）；
+   *             `full`   = 直接全量。
+   */
+  async function compactOnce(agent: Agent, mode: 'region' | 'full', sid: string): Promise<CompactOutcome> {
+    const svc = compactionService()
+    if (svc === undefined) {
+      const out: CompactOutcome = { kind: mode, ok: false, range: null, error: 'compaction service not found' }
+      lastCompact.set(sid, out)
+      return out
+    }
+
+    /* ★★ 2026-10-26（砚青落）：`compactNow` 要 `ManualCompactAgentContext`，
+     *   它比 `CompactionAgentContext` 多一个 `runMaintenance` —— 因为**手动压缩必须在
+     *   agent 空闲时跑**（它是非 turn 维护任务，不能和正在跑的回合抢史）。
+     *
+     *   `Agent` 上正好有 `runMaintenance<T>(task: (signal) => Promise<T>)`，
+     *   所以最干净的写法是**把整件事塞进 runMaintenance 里**：
+     *     - 它会给我们一个 signal（省掉自己造 AbortController）
+     *     - 它会保证「没在跑回合」
+     *     - 它会挡住后续唤醒输入直到任务落定
+     *
+     *   ★ 这比自己 new 一个 AbortController 更对：手动压缩本来就该是维护任务。
+     */
+    const manualCtx = {
+      session: agent.session,
+      options: {},
+      /* ★ 不注解 `signal` 的类型 —— 本项目的 tsconfig 只开了 `lib: ["ES2022"]`，
+       *   没有 DOM，所以 `AbortSignal` 是**不存在的名字**。
+       *   让 TS 从 `agent.runMaintenance` 的签名里推断即可（那是权威来源）。 */
+      runMaintenance: <T>(task: Parameters<typeof agent.runMaintenance<T>>[0]): Promise<T> =>
+        agent.runMaintenance(task),
+    }
+    let out: CompactOutcome
+
+    if (mode === 'region') {
+      const range = pickRegion(agent)
+      if (range === null) {
+        out = { kind: 'region', ok: false, range: null, error: 'no balanced range' }
+      } else {
+        try {
+          /* ★ SessionSeq 是 branded type（`{ readonly [BRAND]: 'SessionSeq' }`），
+           *   运行时就一个 number —— 所以这里必须显式过一道。
+           *   不 cast 的话 strict 模式直接拒绝。 */
+          await svc.compactRegion(
+            range.start as unknown as SessionSeq,
+            range.end as unknown as SessionSeq,
+            manualCtx,
+          )
+          out = { kind: 'region', ok: true, range }
+        } catch (err) {
+          /* ★ 边界不平衡 / 区间被替换 / 正在压缩 —— 都退到全量。
+           *   这和熔断时的动作是同一个，所以共用一个 outcome 形态。 */
+          out = { kind: 'region', ok: false, range, error: describeError(err) }
+        }
+      }
+    } else {
+      out = { kind: 'full', ok: false, range: null, error: 'not attempted' }
+    }
+
+    // 范围压缩失败（或本来就是全量）→ 走 compactNow
+    if (!out.ok) {
+      try {
+        await agent.runMaintenance(async (signal) => {
+          await svc.compactNow(manualCtx, signal)
+        })
+        out = { kind: 'full', ok: true, range: out.range }
+      } catch (err) {
+        out = { kind: 'full', ok: false, range: null, error: describeError(err) }
+      }
+    }
+
+    lastCompact.set(sid, out)
+    return out
+  }
+
+  /** 把任意 throw 值变成一行可读的字。 */
+  function describeError(err: unknown): string {
+    if (err instanceof Error) return err.name + ': ' + err.message
+    return String(err)
+  }
+
+  /**
+   * 压缩之后的「取回指引」。
+   *
+   * ★★ 这是整层的最后一环，也是最容易被写坏的一环：
+   *   **不能让 agent 去读摘要** —— 摘要会变成新的输入，回到摘要复利。
+   *   所以给的是一张地图（seq 指针）+ 明确的「去取一手原文」。
+   */
+  function recallHint(outcome: CompactOutcome, cuts: number): string {
+    const sid = outcome.range === null ? '' : ''
+    void sid
+    const span = outcome.range === null
+      ? '（这段的 seq 没能算准，用会话号 + 关键词检索）'
+      : 'log:<会话>#seq=' + String(outcome.range.start) + '–' + String(outcome.range.end)
+    return [
+      '[huanqi] 刚才连续 ' + String(cuts) + ' 次陷入重复，已做',
+      outcome.kind === 'region' ? '范围压缩' : '全量压缩',
+      '（上下文已清）。',
+      '',
+      '本段原文：' + span,
+      '',
+      '★ 不要依赖摘要 —— 它是二手转述。需要细节时先用 memq open（或 mcp__echo__echo_open）',
+      '  取回一手原文，再继续。你要的不是「我记得当时怎样」，是「原文写着什么」。',
+    ].join('\n')
+  }
+
+
   /**
    * 已经收到过「落盘指令」的 agent。
    *
@@ -2693,6 +2957,17 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
         credit: ledger.credit,
         creditMax: ledger.creditMax,
         verdict,
+        /* ★ 2026-10-26（砚青落）：最近一次压缩的结果。
+         *
+         * ★★ 注意一个**真实的顺序限制**：判词在 recordTurn 这里就写完了，
+         *   而压缩发生在它**后面**（续跑/熔断分支）。所以这里带的是
+         *   「之前压过没有、压成什么了」，不是「本轮这次熔断压了什么」。
+         *
+         * 这不是缺陷 —— 面板要回答的是「换气到底有没有动手」，那看的是历史；
+         * 而本轮熔断压缩通过 inject 的告知直接给人看。
+         * 硬把两者绑在一起，反而会让判词说一个当时还没发生的事。 */
+        compact: lastCompact.get(sid) ?? null,
+
         /* ★ 诊断（2026-10-23 第三版）：**写进 JSONL，不走 logger** ——
          *   这台 Electron 上 logger 输出看不到，前两版就死在这里。
          *   一条命令就能读出真相：
@@ -2733,11 +3008,51 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
         ctx.logger.warn(
           `dsh-huanqi: turn ended with no visible output; continuing (credit left ${left}/${ledger.creditMax})`,
         )
-        scheduleResume(
-          agent,
-          strings.continueNotice(left, ledger.creditMax, config.normalTurnThreshold),
-          `huanqi: empty-turn continuation, credit ${left}/${ledger.creditMax}`,
-        )
+        /* ══════════════════════════════════════════════════════════════
+         * ★★ 2026-10-26（砚青落）：范围压缩（初步治疗）
+         *
+         * 为什么不在「一检测到循环就压」：单次截断是正常呼吸
+         * （normalTurnThreshold: 20，一轮能截断几十次）。每次都压等于每轮都在换容器。
+         * 所以**攒够 N 次才压一次**（N = regionCompactAfterCuts，默认 3）。
+         *
+         * ★★ 为什么包一层 async IIFE：`session/event` 的处理器是**同步**的，
+         *    不能直接 `await`（TS1308）。而压缩必须 await 完才 resume ——
+         *    否则压缩改 surface 会和下一轮撞车。
+         *    所以：处理器**同步返回**，压缩+resume 在后台按顺序跑完。
+         *    这不是偷懒，是唯一既能 await 又不阻塞宿主的写法。
+         * ══════════════════════════════════════════════════════════════ */
+        void (async () => {
+          const cuts = (cutCounts.get(sid) ?? 0) + 1
+          cutCounts.set(sid, cuts)
+          let notice = strings.continueNotice(left, ledger.creditMax, config.normalTurnThreshold)
+          const cutThreshold = config.regionCompactAfterCuts
+          if (cutThreshold > 0 && cuts >= cutThreshold && !subagentExempt) {
+            cutCounts.set(sid, 0) // 攒够了 —— 归零重计
+            const agentFull = ctx.agents.get(sid as never) as unknown as Agent | undefined
+            if (agentFull !== undefined && agentFull.session !== undefined) {
+              const outcome = await compactOnce(agentFull, 'region', sid)
+              ctx.logger.warn(
+                'dsh-huanqi: region compaction after ' + String(cuts) + ' cuts → ' +
+                  (outcome.ok ? 'ok' : 'failed(' + String(outcome.error) + ')') +
+                  (outcome.range === null
+                    ? ''
+                    : ' range=' + String(outcome.range.start) + '–' + String(outcome.range.end)),
+              )
+              /* ★ 压缩成功 → 换成「取回指引」而不是普通续跑提示。
+               *   压缩把上下文清了一大块，普通提示会让它「不知道为什么变干净了」。 */
+              if (outcome.ok && config.postCompactRecallHint !== false) {
+                notice = recallHint(outcome, cuts)
+              }
+            }
+          }
+
+          scheduleResume(
+            agent,
+            notice,
+            `huanqi: empty-turn continuation, credit ${left}/${ledger.creditMax}`,
+          )
+        })()
+
         if (left <= config.warnAtCredit) {
           agent.inject(message(
             strings.creditWarning(left, ledger.creditMax, config.normalTurnThreshold),
@@ -2749,11 +3064,53 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
         ledger.noteCircuitBreak()
         ledger.save(ledgerPath, warnLedger)
         ctx.logger.warn('dsh-huanqi: empty turn and continuation budget exhausted; circuit-breaking')
-        agent.inject(message(
-          strings.circuitBreakNotice(ledger.creditMax),
-          'notice',
-          'huanqi: circuit break (empty turn)',
-        ))
+
+        /* ══════════════════════════════════════════════════════════════
+         * ★★ 2026-10-26（砚青落）：熔断 → 全量压缩（彻底清空）
+         *
+         * 和范围压缩的区别不是「手段」而是「后续」：
+         *   范围压缩之后**继续对话**；全量压缩之后**不再延续**。
+         *
+         * ★ 为什么熔断时也要压：打断只结束这一轮，那段循环已经进了历史，
+         *   下一次更容易被激活。压掉它 + 留门牌 = 把污染搬走、把钥匙留下。
+         *
+         * ★ 告知必须写清三件事（circuitBreakNotice 里补不上，所以单独组装）：
+         *   ① 做了什么（全量压缩）② 原文在哪（seq 指针）③ 不再延续。
+         *   少了任何一条，用户都会以为是崩溃 —— 那可能让他直接重开，整轮工作就真丢了。
+         *
+         * ★ 同样包 async IIFE：处理器是同步的（见上面范围压缩那段的说明）。
+         * ══════════════════════════════════════════════════════════════ */
+        void (async () => {
+          let fullNote: string | null = null
+          if (config.fullCompactOnBreaker !== false && !subagentExempt) {
+            const agentFull = ctx.agents.get(sid as never) as unknown as Agent | undefined
+            if (agentFull !== undefined && agentFull.session !== undefined) {
+              const outcome = await compactOnce(agentFull, 'full', sid)
+              ctx.logger.warn(
+                'dsh-huanqi: circuit break → full compaction ' +
+                  (outcome.ok ? 'ok' : 'failed(' + String(outcome.error) + ')'),
+              )
+              if (outcome.ok) {
+                const span = outcome.range === null
+                  ? '（seq 未算准，用会话号 + 关键词检索）'
+                  : 'log:' + sid + '#seq=' + String(outcome.range.start) + '–' + String(outcome.range.end)
+                fullNote = [
+                  '[huanqi] 思考退化熔断。',
+                  '- 原因：连续 ' + String(ledger.creditMax) + ' 次续跑仍无产出，判定为退化。',
+                  '- 已做：**全量压缩，上下文已清空**（不是崩溃，是换气插件主动清的）。',
+                  '- 原文：' + span + '（memq open 可取回一手原文，别只看摘要）。',
+                  '- 本轮**不再延续**。请确认任务状态后，再决定继续还是换容器。',
+                ].join('\n')
+              }
+            }
+          }
+
+          agent.inject(message(
+            fullNote === null ? strings.circuitBreakNotice(ledger.creditMax) : fullNote,
+            'notice',
+            'huanqi: circuit break (empty turn)',
+          ))
+        })()
         /* ★ 2026-10-23（砚青落）：inject 只是让人**看见**；要它真的去落盘，必须 steer ——
          * steer 是一条真正的用户消息，会进下一轮被模型读到并执行。
          * ★ 守卫只用一次（landPrompted）：熔断后额度是 0，若它又被推进一轮却仍无产出，

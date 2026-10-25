@@ -35,6 +35,37 @@ export interface Config {
     /** Cancel cause used when `escalate` is `cancel`. Default `'thinking-loop'`. */
     cancelCause?: string;
     /**
+     * ★★ 子 agent（含 Agent Teams 成员）的严格程度 —— 三档。
+     *
+     * 2026-10-23 爀曦定：**智能体团队的 agent 和一次性子 agent 归成一类**，
+     * 不再区分（实测它们在投影缓存里长得一样：都有 `subagent.identity`、
+     * `mode` 都是 `continuable`，`parentSession` 两边都没有）。
+     *
+     * | 档 | 循环检测 react() | 流内早杀 | 空回合续/熔断 | 判词 |
+     * |---|---|---|---|---|
+     * | `strict`  | 生效 | 生效 | 生效 | `continue` / `circuit-break` |
+     * | `relaxed` | 跳过 | **生效** | 跳过 | `skip:subagent:relaxed` |
+     * | `exempt`  | 跳过 | **跳过** | 跳过 | `skip:subagent:exempt` |
+     *
+     * ★ 为什么默认 `strict`：它等于「现在的行为」，不会让谁突然失去保护。
+     * ★ 为什么 `relaxed` 保留流内早杀：2026-10-23 实测（子 agent S5 的四条通知），
+     *   流内早杀那次**恰恰是有用的** —— 它把一个正在推演的 agent 推向了「写盘」。
+     *   真正白烧额度的是「空回合被判 continue」那三次，而它们发生在**任务已交付之后**。
+     *
+     * ★ 判据（三条，任一命中即认定是子 agent）：
+     *   ① 运行时 `session.meta.parentSession`（DSH 写进 session header 的父会话 id）
+     *   ② `session.meta.origin === 'subagent'` / `delegationDepth > 0`（别的版本可能用）
+     *   ③ 兜底：读投影缓存 `record.rows.subagent.val.identity` 非空
+     *
+     * Default `'strict'`.
+     */
+    subagentPolicy?: 'strict' | 'relaxed' | 'exempt';
+    /**
+     * 投影缓存的会话目录，`subagentPolicy` 兜底判据要读它。
+     * 留空 = `<dsh home>/storages/session_projcache/sessions`。
+     */
+    sessionCacheDir?: string;
+    /**
      * 一口气能接几次（延续上限，也是额度上限）。
      *
      * 一轮把输出预算烧光、正文没出来时，截断这一轮并**再发起一轮**
@@ -65,7 +96,7 @@ export interface Config {
      */
     warnAtCredit?: number;
     /**
-     * 额度账本落盘路径。留空则用 `<DSH_HOME>/state/dsh-agent-huanqi.json`。
+     * 额度账本落盘路径。留空则用 `<DSH_HOME>/state/dsh-huanqi.json`。
      * ★ 落盘是必须的：不落盘的话重启一次就忘了，「每 N 轮回血」永远攒不满。默认空。
      */
     ledgerPath?: string;
@@ -340,6 +371,14 @@ export interface Config {
     resumeAfterBreak?: boolean;
     /** 空回合也续一轮（吸收自 dsh-stalled-turn-continue）。默认 true。 */
     emptyTurnContinue?: boolean;
+    /** 累计截断多少次后做一次范围压缩。0 = 关闭范围压缩。默认 3。 */
+    regionCompactAfterCuts?: number;
+    /** 熔断时是否做全量压缩。默认 true。 */
+    fullCompactOnBreaker?: boolean;
+    /** 压缩后是否注入「取回一手原文」的指引（不让它读摘要）。默认 true。 */
+    postCompactRecallHint?: boolean;
+    /** 要接的压缩服务名。留空 = `compaction`（本机默认）。 */
+    compactionService?: string;
 }
 /** Resolved config: every field carries its validated default. */
 type ResolvedConfig = Required<Config>;
@@ -612,10 +651,17 @@ export declare class CreditLedger {
      */
     save(path: string, onWarn: (msg: string) => void): void;
     /**
-     * 账本的默认路径：`<DSH_HOME>/state/dsh-agent-huanqi.json`。
+     * 账本的默认路径：`<DSH_HOME>/state/dsh-huanqi.json`。
      *
      * 为什么要走环境变量而不是硬编码：`DSH_HOME` 是 DSH 自己给每个子进程的，
-     * 换一台机器、换一次安装位置都自动跟着走。取不到才退回相对路径。
+     * 换一台机器、换一次安装位置都自动跟着走。
+     *
+     * ★★ 2026-10-23 改：取不到 `DSH_HOME` 时**不能再退回 `join('.', ...)`**。
+     *   那是相对**进程 cwd** 的 —— 账本落点会随启动目录漂移，重启一次就可能「额度莫名回满」，
+     *   而且写不进去时只 `logger.warn`（桌面端根本不落盘）→ 完全静默。
+     *   这个 bug 来自第一个用户的实机验收报告：他的机器上 `DSH_HOME` **就是空的**，
+     *   于是账本落到 profile 根，而换气面板按 `DSH_HOME/state` 去找 —— **两边分叉，面板永远空**。
+     *   DSH 的标准位置是 `~/.dsh`（本机实测 `~/.dsh` 也存在），所以兜底用它。
      */
     static defaultPath(): string;
 }

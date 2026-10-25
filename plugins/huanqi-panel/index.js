@@ -170,7 +170,7 @@ const LEDGER = LEDGER_RES.path
 
 /** 面板里暴露的参数：类型 + 取值范围 + 中文说明。范围抄自 dsh-huanqi 的 Config（zod schema）。 */
 const FIELDS = [
-  { key: 'maxContinuations', type: 'int', min: 0, max: 10, def: 4, label: '延续额度上限', hint: '一口气能接几次；0 = 关掉换气层（只留循环检测）' },
+  { key: 'maxContinuations', type: 'int', min: 0, max: 10, def: 6, label: '延续额度上限', hint: '一口气能接几次；0 = 关掉换气层（只留循环检测）' },
   { key: 'normalTurnThreshold', type: 'int', min: 5, max: 100, def: 20, label: '涨额度所需正常轮', hint: '攒够多少「正常轮」额度 +1（正常轮 = 出了正文、没触发延续）' },
   { key: 'anomalyWindow', type: 'int', min: 3, max: 50, def: 10, label: '异常判定窗口', hint: '出正文后多少轮内又卡住，算一次异常（额度 −1）' },
   { key: 'warnAtCredit', type: 'int', min: 1, max: 10, def: 2, label: '剩几点开始提示', hint: '额度降到这个数时换气会在提示里带上警告' },
@@ -187,6 +187,31 @@ const FIELDS = [
       { value: 'strict', label: '全局应用（最严格）' },
       { value: 'relaxed', label: '子 agent 放宽（保留流内早杀）' },
       { value: 'exempt', label: '子 agent 完全豁免' },
+    ],
+  },
+  /* ★ 2026-10-26（砚青落）：思考退化「治疗」三件套 —— 与 dsh-huanqi 的 Config 同源。
+   * 语义见 huanqi 的 Config 注释：打断只是止血，压缩才是清创。 */
+  { key: 'regionCompactAfterCuts', type: 'int', min: 0, max: 10, def: 3, label: '几次截断做一次范围压缩', hint: '累计截断到这个数就压一次「最近这一段」（带门牌，可回取）。0 = 关闭范围压缩。默认 3 —— 单次截断是正常呼吸，每次都压等于每轮换容器' },
+  {
+    key: 'fullCompactOnBreaker',
+    type: 'enum',
+    def: 'true',
+    label: '熔断时全量压缩',
+    hint: '熔断（额度耗尽且仍无产出）时彻底清空上下文 + 告知 + 不再延续。关掉它，熔断就只是「停下等人」。',
+    options: [
+      { value: 'true', label: '开（推荐）' },
+      { value: 'false', label: '关' },
+    ],
+  },
+  {
+    key: 'postCompactRecallHint',
+    type: 'enum',
+    def: 'true',
+    label: '压缩后注入取回指引',
+    hint: '压缩完让它拿 seq 指针去取一手原文，而不是读摘要 —— 读摘要会变成新的输入，那是摘要复利。',
+    options: [
+      { value: 'true', label: '开（推荐）' },
+      { value: 'false', label: '关' },
     ],
   },
   { key: 'ledgerPath', type: 'str', def: '', label: '账本路径', hint: '留空 = <DSH_HOME>/state/dsh-huanqi.json' }

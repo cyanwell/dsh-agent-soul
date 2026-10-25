@@ -606,7 +606,23 @@ window.__ModuleLoader__.load({
                       String(t.kind || "?")),
                     h("span", { style: { flex: "0 0 132px" }, title: "最后一条 assistant 消息的形状" },
                       String(t.shape || "?")),
-                    h("span", { style: { flex: 1 } }, String(t.verdict || "?"))
+                    h("span", { style: { flex: 1 } }, String(t.verdict || "?")),
+                    /* ★ 2026-10-26（砚青落）：压缩列 —— 「换气到底有没有动手」。
+                     *   数据来自 huanqi-turns.jsonl 的 compact 字段（宿主半整行透传）。
+                     *   ★ 注意它是「**上一次**压缩的结果」：判词在压缩之前写，顺序决定。
+                     *   没有这一列，压缩发生与否就只能翻日志 —— 那等于不可视。 */
+                    h("span", {
+                        style: { flex: "0 0 76px", opacity: t.compact ? 1 : 0.35 },
+                        title: t.compact
+                          ? "最近一次压缩：" + String(t.compact.kind) +
+                            (t.compact.ok ? " 成功" : " 失败") +
+                            (t.compact.range ? " seq " + t.compact.range.start + "–" + t.compact.range.end : "（无 seq）") +
+                            (t.compact.error ? " · " + String(t.compact.error) : "")
+                          : "这一轮之前没有发生过压缩",
+                      },
+                      t.compact
+                        ? (t.compact.kind === "region" ? "压缩·范围" : "压缩·全量") + (t.compact.ok ? " ✓" : " ✗")
+                        : "—")
                   );
                 }),
                 hq.turns.length > 3
