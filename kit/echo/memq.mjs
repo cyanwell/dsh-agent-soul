@@ -95,7 +95,86 @@ const inRange = (t) => {
   if (UNTIL && UNTIL !== true && t > String(UNTIL)) return false;
   return true;
 };
-const hit = (s) => terms.length === 0 || terms.every((t) => s && s.includes(t));
+/**
+ * ★★★ 2026-10-25【归一化】—— 准确度第一刀。
+ *
+ * 起因（当晚实测）：`62829` 命中 **0 条**，而日志里写的是 `62,829`（带千分位逗号）。
+ * 同一个数，换个写法就找不到 —— 这不是检索该有的样子。
+ * 同类问题还有：`DSH`(3615) 与 `dsh`(5888) 是**两批不同结果**；全角/半角不互通。
+ *
+ * ★ 只用于**匹配**，绝不用来展示 —— 展示的必须是原文。
+ *   把一手材料归一化再显示，等于篡改证据。
+ */
+const norm = (s) => String(s == null ? "" : s)
+  // 全角 → 半角（！到 ～ 整段；中文标点里只有这部分是可逆的全角映射）
+  .replace(/[\uFF01-\uFF5E]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+  .replace(/\u3000/g, " ")
+  .toLowerCase()
+  // 数字千分位：62,829 → 62829
+  // ★★ 第一版写成 `.replace(/(\d),(?=\d{3}(?!\d))/g, "")`，把**数字也一起吃掉了**：
+  //   `62,829` 里 `2,` 整段被删 → `6829`。于是 `62829` 永远找不到它，
+  //   而「62,829」自己反而能命中（因为原词命中了 exact 档，掩盖了这个 bug）。
+  //   ★ 教训：写「去掉某些字符」的正则时，**必须先跑一个带数字的用例**，
+  //     而不是只看它「没报错」。
+  .replace(/(\d),(?=\d{3}(?!\d))/g, "$1");
+
+/**
+ * ★★ 2026-10-25【近义匹配】—— 默认关闭，`--near` 才开。
+ *
+ * 为什么不做成默认：近义扩展必然降低精确度。
+ * 查「标签」得到 761 条真含「标签」的是**对的**；一旦把它扩成「门牌」，
+ * 就混进大量不相关。所以它必须是「显式要才有」的东西。
+ *
+ * ★ 不用向量模型：那要部署新模型、占显存、响应还慢（这是很早之前就定下的判断）。
+ *   这里用**可编辑的同义词表**（`<HUB>/synonyms.json`，双向生效）——
+ *   零依赖、零显存、改完立即生效，代价是覆盖面靠人维护。
+ */
+const NEAR = !!opt("--near", false);
+let SYN = null;
+const loadSyn = () => {
+  if (SYN) return SYN;
+  SYN = Object.create(null);
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(HUB, "synonyms.json"), "utf8"));
+    for (const [k, arr] of Object.entries(j)) {
+      if (k.startsWith("//") || !Array.isArray(arr)) continue;
+      const group = [k, ...arr].map(norm).filter(Boolean);
+      // ★ 双向展开：查「门牌」能找到「指针」，查「指针」也能找到「门牌」
+      for (const w of group) {
+        SYN[w] = SYN[w] || new Set();
+        for (const x of group) if (x !== w) SYN[w].add(x);
+      }
+    }
+  } catch { /* 没表就只做 exact + norm */ }
+  return SYN;
+};
+
+/**
+ * 匹配判据（三档，由严到宽）。
+ * ★ 返回档位而不是 boolean —— 因为「这条是精确命中、归一化命中还是近义命中」是要能说清的：
+ *   如果只返回 true，用户永远不知道自己看到的是不是「换个说法才撞上的」。
+ * @returns {"exact"|"norm"|"synonym"|null}
+ */
+const hitKind = (s) => {
+  if (terms.length === 0) return "exact";          // 没给词（只给了 --since）→ 全收
+  if (s == null) return null;
+  const raw = String(s);
+  if (terms.every((t) => raw.includes(t))) return "exact";
+  const ns = norm(raw);
+  if (terms.every((t) => ns.includes(norm(t)))) return "norm";
+  if (NEAR) {
+    const syn = loadSyn();
+    const ok = terms.every((t) => {
+      const alts = syn[norm(t)];
+      if (!alts || alts.size === 0) return false;
+      for (const a of alts) if (ns.includes(a)) return true;
+      return false;
+    });
+    if (ok) return "synonym";
+  }
+  return null;
+};
+const hit = (s) => hitKind(s) !== null;
 
 /**
  * ★★ 2026-10-25【只 parse 命中行】—— 检索从 2.4s 再往下压的那一步。
@@ -120,10 +199,33 @@ const scanJsonl = (f, field) => {
   try { txt = fs.readFileSync(f, "utf8"); } catch { return []; }
   // 有词、且每个词都不含会被 JSON 转义的字符 → 才能拿原行粗筛
   const canRough = terms.length > 0 && terms.every((t) => t.length > 0 && !/["\\\u0000-\u001f]/.test(t));
+  const nterms = terms.map(norm);
+  /**
+   * ★★ 归一化「什么时候才可能带来新命中」—— 这是性能与召回的平衡点。
+   *   归一化只做三件事：全角→半角、小写、去千分位。
+   *   ⇒ **纯中文词（不含 ASCII 字母/数字、不含全角区）归一化后等于它自己**，
+   *     所以它绝不可能因为归一化而多命中一行 —— 跳过整行 norm，省掉 800 ms。
+   *   ⇒ 含数字（62829）/ 含字母（DSH）/ 含全角（ＤＳＨ）的查询，才走慢路径。
+   *   ★ 实测：门牌 2418 → 1540 ms（回到加归一化之前），而 62829 / DSH 仍然正确。
+   */
+  const needsNorm = terms.some((t) => /[\dA-Za-z\uFF01-\uFF5E]/.test(t));
   const out = [];
   for (const line of txt.split("\n")) {
     if (!line.trim()) continue;
-    if (canRough && !terms.every((t) => line.includes(t))) continue;   // ★ 不 parse 就排除
+    // ★★ 粗筛必须和 hitKind 走同一套判据 —— 否则会出现「精确匹配放行了、粗筛却先排除」
+    //   这种最难查的漏检（改了归一化却没改粗筛，`62829` 永远找不到 `62,829`）。
+    // ★★ `--near` 时必须关掉粗筛：近义词和原词**字面上毫无关系**（「门牌」vs「指针」），
+  //   任何基于原行 includes 的粗筛都会把它们提前排除 —— 那会让近义匹配永远返回 0，
+  //   而且**看起来像「表里没有这个词」**，最难查。
+  //   代价：--near 走全量 parse（约 2.4 s）。这是「精确度换召回」必须付的钱。
+  if (canRough && !NEAR) {
+      let ok = terms.every((t) => line.includes(t));
+      if (!ok && needsNorm) {
+        const nl = norm(line);
+        ok = nterms.every((t) => nl.includes(t));
+      }
+      if (!ok) continue;   // ★ 不 parse 就排除
+    }
     let r;
     try { r = JSON.parse(line); } catch { continue; }
     if (typeof r["概要"] === "string" && typeof r.text !== "string") r.text = r["概要"];
