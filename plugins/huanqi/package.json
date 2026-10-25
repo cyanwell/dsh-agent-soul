@@ -1,7 +1,7 @@
 {
   "name": "dsh-huanqi",
   "description": "换气 (huanqi) — 思考预算管理器。一轮把输出预算烧光、正文一个字没出来时，截断这一轮并再开一轮（最多 N 次）；接不动了就熔断，塞一段能认出来的话请人介入。额度是体温计不是配额：靠正常对话慢慢攒，异常时下降，最低 1 点。★ 延续额度 N 等参数在 profiles\\<profile>\\cordis.patch.yml 里调（搜 id: huanqi），改完重启生效。吸收 dsh-loop-guard 的重复检测与 dsh-reasoning-only-guard 的空消息保护。",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
