@@ -2347,12 +2347,23 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
    *   **不能让 agent 去读摘要** —— 摘要会变成新的输入，回到摘要复利。
    *   所以给的是一张地图（seq 指针）+ 明确的「去取一手原文」。
    */
-  function recallHint(outcome: CompactOutcome, cuts: number): string {
-    const sid = outcome.range === null ? '' : ''
-    void sid
-    const span = outcome.range === null
-      ? '（这段的 seq 没能算准，用会话号 + 关键词检索）'
-      : 'log:<会话>#seq=' + String(outcome.range.start) + '–' + String(outcome.range.end)
+  function recallHint(outcome: CompactOutcome, cuts: number, sid: string): string {
+    /* ★★ 2026-10-26（砚青落·仿真抓出来的真 bug）：
+     *   这里原来写的是 `const sid = ...; void sid;` 然后直接用字面量 `log:<会话>` ——
+     *   也就是说**发出去的门牌是坏的**（`log:<会话>#seq=1–5`，那个 `<会话>` 是字面量）。
+     *   仿真跑第一次就把它打出来了：「本段原文：log:<会话>#seq=1–5」。
+     *   ★ 这正是我们自己定的那条 —— **错的门牌比没有更坏**。所以必须拿真 sid。
+     *     拿不到真 sid 时（理论上不会）宁可不说 seq，也不能给一个假门牌。 */
+    const span = outcome.range !== null && sid !== ''
+      ? 'log:' + sid + '#seq=' + String(outcome.range.start) + '–' + String(outcome.range.end)
+      : outcome.range !== null
+        // 有 range 但没 sid：不猜门牌，只给检索入口
+        ? '（这段落在第 ' + String(outcome.range.start) + '–' + String(outcome.range.end) +
+          ' 条，但没拿到会话号 —— 用 memq 按关键词检索）'
+        // 全量压缩没有 range：给会话号 + 检索入口
+        : sid !== ''
+          ? '（全量压缩没有「压了哪一段」—— 用 `memq timeline --since <时间>` 或 memq 搜关键词，会话 ' + sid + '）'
+          : '（这段的 seq 没能算准，用会话号 + 关键词检索）'
     return [
       '[huanqi] 刚才连续 ' + String(cuts) + ' 次陷入重复，已做',
       outcome.kind === 'region' ? '范围压缩' : '全量压缩',
@@ -3041,7 +3052,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
               /* ★ 压缩成功 → 换成「取回指引」而不是普通续跑提示。
                *   压缩把上下文清了一大块，普通提示会让它「不知道为什么变干净了」。 */
               if (outcome.ok && config.postCompactRecallHint !== false) {
-                notice = recallHint(outcome, cuts)
+                notice = recallHint(outcome, cuts, sid)
               }
             }
           }
@@ -3091,8 +3102,12 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
                   (outcome.ok ? 'ok' : 'failed(' + String(outcome.error) + ')'),
               )
               if (outcome.ok) {
+                /* ★ 2026-10-26（砚青落）：全量压缩没有「压了哪一段」，所以给不出 seq 门牌。
+                 *   但不能就此只说「seq 未算准」—— 那样它连去哪找都不知道。
+                 *   至少要把**会话号**递过去，并给出可执行的检索入口。 */
                 const span = outcome.range === null
-                  ? '（seq 未算准，用会话号 + 关键词检索）'
+                  ? '（全量压缩没有「压了哪一段」—— 会话 ' + sid +
+                    '，用 `memq timeline --since <时间>` 或按关键词 `memq <词>` 取回）'
                   : 'log:' + sid + '#seq=' + String(outcome.range.start) + '–' + String(outcome.range.end)
                 fullNote = [
                   '[huanqi] 思考退化熔断。',
