@@ -478,7 +478,52 @@ if (terms.length === 0) {
   process.exit(0);
 }
 
+/* ── 常驻服务客户端（内嵌，不 spawn 进程）──────────────────────────────
+ *
+ * ★★ 2026-10-25 实测：用 `spawnSync` 起一个 client 进程要 **310 ms**（我原估 60 ms，差 5 倍）。
+ *    而服务内检索只要 23 ms —— 也就是说「起进程」比「检索」贵 13 倍。
+ *    ⇒ 必须让 memq **自己**连 pipe（ESM 支持 top-level await）。
+ *
+ * ★ 三条退路，任何一条都回到今天的原路径（功能完全不变）：
+ *   ① 环境变量 ECHO_NO_SVC 关掉
+ *   ② 连不上 pipe（服务没起）
+ *   ③ 900 ms 内没响应
+ *   **宁可慢，不可错。** 优化出问题只能变慢，不能变坏。
+ */
+const SVC_PIPE = process.env.ECHO_PIPE || "\\\\.\\pipe\\echo-hub";
+const svcSearch = (req) => new Promise((resolve) => {
+  if (process.env.ECHO_NO_SVC) return resolve(null);
+  let done = false, sock = null;
+  const fin = (v) => {
+    if (done) return;
+    done = true;
+    if (sock) { try { sock.destroy(); } catch {} }
+    resolve(v);
+  };
+  try { sock = net.connect(SVC_PIPE); } catch { return fin(null); }
+  let buf = "";
+  const timer = setTimeout(() => fin(null), 4000);
+  sock.setEncoding("utf8");
+  sock.on("connect", () => { try { sock.write(JSON.stringify(req) + "\n"); } catch { fin(null); } });
+  sock.on("data", (d) => {
+    buf += d;
+    const i = buf.indexOf("\n");
+    if (i < 0) return;
+    clearTimeout(timer);
+    let j = null;
+    try { j = JSON.parse(buf.slice(0, i)); } catch { /* 协议坏 → 走退路 */ }
+    fin(j);
+  });
+  sock.on("error", () => { clearTimeout(timer); fin(null); });
+});
+
 const hits = [];
+// ★ 服务返回的是「前 N 条 + 总数」，所以真实命中数这里单独记。
+//   ★★ SVC_EXTRA = 「服务里有、但没传回来的条数」。
+//     第一版直接把 TOTAL 设成 svc.n，结果**把墨/书房/留底几层的命中覆盖掉了**
+//     （服务侧 954 vs 退路 1215）—— 这是「只替换一层却接管了全局计数」的典型错法。
+let TOTAL = null;
+let SVC_EXTRA = 0;
 
 // ① 《墨》—— 一手，结构化
 if (WANT("墨")) {
@@ -491,6 +536,16 @@ if (WANT("墨")) {
 
 // ② 书房 —— 一手文档
 if (WANT("书房")) {
+  // ★★ 2026-10-25 第二轮：书房层走服务（服务缓存了 754 个文本文件的内容 + mtime）
+  //   实测：原来每次 readFileSync 8.3 GB 里的文本 → 1000ms+；现在只 stat（约 250ms）+ 内存匹配。
+  //   ★ 目录 mtime 发现不了「内容被改」，所以服务仍然逐个 stat 文件 —— 这是「正确」的成本。
+  const svcSoul = terms.length > 0
+    ? await svcSearch({ cmd: "soul", terms, near: NEAR, limit: Math.max(LIMIT * 4, 80) })
+    : null;
+  if (svcSoul && Array.isArray(svcSoul.hits)) {
+    for (const h of svcSoul.hits) hits.push(h);
+    SVC_EXTRA += Math.max(0, (svcSoul.n || 0) - svcSoul.hits.length);
+  } else {
   // ★★ 2026-10-25【书房检索提速】—— 21 秒里最大的一段就是这里。
   //   原来只按扩展名排除（mp3/png/…），于是 **.mp4/.mov/.pdf/.gguf 这些全被当成文本读**，
   //   而且**没有大小上限** —— 实测 D:\AI\yanqing-soul 是 8.3 GB / 6,462 个文件，
@@ -519,54 +574,8 @@ if (WANT("书房")) {
     }
   };
   walk(SOUL);
+  }
 }
-
-// ★ 服务返回的是「前 N 条 + 总数」，所以真实命中数这里单独记。
-//   不用 hits.length 是因为服务只回了 limit 条 —— 把 1213 条完整 JSON 传回来本身就比检索贵。
-//   ★★ SVC_EXTRA = 「服务里有、但没传回来的条数」。
-//     第一版直接把 TOTAL 设成 svc.n，结果**把墨/书房/留底几层的命中覆盖掉了**
-//     （服务侧 954 vs 退路 1215）—— 这是「只替换一层却接管了全局计数」的典型错法。
-let TOTAL = null;
-let SVC_EXTRA = 0;
-
-/* ── 常驻服务客户端（内嵌，不 spawn 进程）──────────────────────────────
- *
- * ★★ 2026-10-25 实测：用 `spawnSync` 起一个 client 进程要 **310 ms**（我原估 60 ms，差 5 倍）。
- *    而服务内检索只要 23 ms —— 也就是说「起进程」比「检索」贵 13 倍。
- *    ⇒ 必须让 memq **自己**连 pipe（ESM 支持 top-level await）。
- *
- * ★ 三条退路，任何一条都回到今天的原路径（功能完全不变）：
- *   ① 环境变量 ECHO_NO_SVC 关掉
- *   ② 连不上 pipe（服务没起）
- *   ③ 900 ms 内没响应
- *   **宁可慢，不可错。** 优化出问题只能变慢，不能变坏。
- */
-const SVC_PIPE = process.env.ECHO_PIPE || "\\\\.\\pipe\\echo-hub";
-const svcSearch = (req) => new Promise((resolve) => {
-  if (process.env.ECHO_NO_SVC) return resolve(null);
-  let done = false, sock = null;
-  const fin = (v) => {
-    if (done) return;
-    done = true;
-    if (sock) { try { sock.destroy(); } catch {} }
-    resolve(v);
-  };
-  try { sock = net.connect(SVC_PIPE); } catch { return fin(null); }
-  let buf = "";
-  const timer = setTimeout(() => fin(null), 900);
-  sock.setEncoding("utf8");
-  sock.on("connect", () => { try { sock.write(JSON.stringify(req) + "\n"); } catch { fin(null); } });
-  sock.on("data", (d) => {
-    buf += d;
-    const i = buf.indexOf("\n");
-    if (i < 0) return;
-    clearTimeout(timer);
-    let j = null;
-    try { j = JSON.parse(buf.slice(0, i)); } catch { /* 协议坏 → 走退路 */ }
-    fin(j);
-  });
-  sock.on("error", () => { clearTimeout(timer); fin(null); });
-});
 
 // ③ 索引 —— L4：摘要（我的话）+ 原话（人的话）
 if (WANT("索引")) {
@@ -580,7 +589,10 @@ if (WANT("索引")) {
     for (const h of svc.hits) hits.push(h);
     TOTAL = Number.isFinite(svc.n) ? svc.n : svc.hits.length;
     // ★ 只记「服务侧没传回来的条数」，最终总数在下面统一算（hits.length + SVC_EXTRA）
-    SVC_EXTRA = Math.max(0, TOTAL - svc.hits.length);
+    //   ★★ 这里必须是 `+=` 不是 `=` —— 书房层在索引层**之前**执行（L537 vs L615），
+    //     写成 `=` 会把书房层已经累加的「未传回条数」覆盖掉（实测差 119 条 = 219-100）。
+    //     这是「同一个累加器在多处使用，其中一处写成了赋值」的经典错。
+    SVC_EXTRA += Math.max(0, TOTAL - svc.hits.length);
   } else {
     // ── 退路：今天原来的路径（服务不在时行为完全一致）──
     for (const s of scanJsonl(path.join(IDX, "summaries.jsonl"), "summary")) {

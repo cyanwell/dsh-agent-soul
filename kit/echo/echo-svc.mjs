@@ -16,7 +16,7 @@ import path from "node:path";
 import net from "node:net";
 
 import * as CFG from "./echo-config.mjs";
-const HUB = process.env.ECHO_HUB || CFG.HUB;   // ★ 发布版：从 echo-config 读
+const HUB = process.env.ECHO_HUB || CFG.HUB;
 const IDX = path.join(HUB, "index");
 const PIPE = process.env.ECHO_PIPE || "\\\\.\\pipe\\echo-hub";
 const PIDF = path.join(HUB, ".cache", "echo-svc.pid");
@@ -167,6 +167,84 @@ const search = (req) => {
   return { hits, total };
 };
 
+/* ── 书房缓存（2026-10-25 第二轮）─────────────────────────────────────
+ *
+ * ★ 为什么需要它：`memq <词>` 剩下的 1.5-2 秒几乎全在书房层 ——
+ *   每次 walk 8.3 GB / 6462 个文件，逐个 readFileSync 成 utf8 再逐行匹配。
+ *
+ * ★★ 一个必须说清的判据（我一开始想错了）：
+ *   **目录 mtime 只能发现「新增/删除文件」，发现不了「文件内容被改」。**
+ *   所以不能只 stat 目录就认为「子树没变」。
+ *   ⇒ 每次请求仍然要 **逐个 stat 文件**（6462 次，约 100-200 ms），
+ *     但**只要 mtime+size 没变，就不重读内容** —— 省掉的是读 8.3 GB。
+ *   ⇒ 要再快的唯一办法是 inotify / TTL，而 TTL 会让「刚写的查不到」，
+ *     那是比慢更坏的事。**所以这里选「正确但 150 ms」，不选「快但可能漏」。**
+ */
+const SOUL = process.env.ECHO_SOUL || CFG.SOUL;
+const SOUL_SKIP = /(\.mp3|\.mp4|\.mov|\.avi|\.mkv|\.wav|\.flac|\.m4a|\.ogg|\.aac|\.webm|\.png|\.jpg|\.jpeg|\.webp|\.gif|\.bmp|\.ico|\.svg|\.tif|\.tiff|\.pdf|\.zip|\.7z|\.rar|\.gz|\.zst|\.zstd|\.tar|\.exe|\.dll|\.bin|\.pyc|\.pyo|\.pyd|\.so|\.gguf|\.safetensors|\.onnx|\.pt|\.pth|\.ckpt|\.wasm|node_modules|\.git)/i;
+const SOUL_MAX = 512 * 1024;
+const SC = { files: new Map(), scans: 0, reads: 0, lastMs: 0 };
+
+/** 返回 {files: [{p, text}], ms} —— 只读「变了」的文件的内容 */
+const refreshSoul = () => {
+  const t0 = Date.now();
+  let reads = 0;
+  const walk = (dir, depth) => {
+    if (depth > 4) return;
+    let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { if (!/^(_|dsh-image-gen)/.test(e.name)) walk(p, depth + 1); continue; }
+      if (SOUL_SKIP.test(e.name)) continue;
+      if (e.name === "02-墨.jsonl") continue;
+      let st; try { st = fs.statSync(p); } catch { continue; }
+      if (st.size > SOUL_MAX) continue;
+      const old = SC.files.get(p);
+      if (old && old.mtimeMs === st.mtimeMs && old.size === st.size) continue;  // ★ 没变 → 不重读
+      let txt; try { txt = fs.readFileSync(p, "utf8"); } catch { continue; }
+      SC.files.set(p, { mtimeMs: st.mtimeMs, size: st.size, text: txt });
+      reads++;
+    }
+  };
+  walk(SOUL, 0);
+  if (reads) { SC.reads += reads; }
+  SC.scans++;
+  SC.lastMs = Date.now() - t0;
+  return { ms: SC.lastMs, reads };
+};
+
+/** 书房层检索：返回 {hits, total} */
+const searchSoul = (req) => {
+  const terms = Array.isArray(req.terms) ? req.terms : [];
+  const near = !!req.near;
+  const cap = Number(req.limit) > 0 ? Number(req.limit) : 0;
+  const t0 = Date.now();
+  const r = refreshSoul();
+  const hits = [];
+  let total = 0;
+  const SN = 400;
+  for (const [p, f] of SC.files) {
+    const lines = f.text.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const ln = lines[i];
+      if (!ln.trim()) continue;
+      const k = hitKind(ln, terms, near);
+      if (!k) continue;
+      total++;
+      if (!cap || hits.length < cap) {
+        hits.push({
+          layer: "L3", src: "书房", t: null,
+          ptr: `file:${p}:${i + 1}`,
+          kind: (p.match(/\.([A-Za-z0-9]+)$/) || [, ""])[1],
+          text: ln.trim().length > SN ? ln.trim().slice(0, SN) : ln.trim(),
+          extra: p.slice(SOUL.length).replace(/^[\\/]/, ""), m: k,
+        });
+      }
+    }
+  }
+  return { hits, total, scanMs: r.ms, reads: r.reads, ms: Date.now() - t0 };
+};
+
 const handle = (req) => {
   const t0 = Date.now();
   refresh();
@@ -176,6 +254,10 @@ const handle = (req) => {
     case "search": {
       const r = search(req);
       return { ok: true, hits: r.hits, n: r.total, shown: r.hits.length, ms: Date.now() - t0 };
+    }
+    case "soul": {
+      const r = searchSoul(req);
+      return { ok: true, hits: r.hits, n: r.total, shown: r.hits.length, ms: r.ms, scanMs: r.scanMs, reads: r.reads };
     }
     case "stats":
       return {
@@ -222,10 +304,12 @@ server.listen(PIPE, () => {
     fs.mkdirSync(path.dirname(PIDF), { recursive: true });
     fs.writeFileSync(PIDF, JSON.stringify({ pid: process.pid, pipe: PIPE, at: new Date().toISOString() }), "utf8");
   } catch { /* pid 文件写不了不影响服务 */ }
-  // ★ 预热：先把索引 parse 进内存，别让第一个请求等
+  // ★ 预热：先把索引和书房都读进内存，别让第一个请求等
   const t0 = Date.now();
   refresh();
-  console.error(`echo-svc ready  pid=${process.pid}  words=${C.words.length}  sums=${C.sums.length}  预热 ${Date.now() - t0}ms  rss=${Math.round(process.memoryUsage().rss / 1048576)}MB`);
+  const s0 = Date.now();
+  const sr = refreshSoul();
+  console.error(`echo-svc ready  pid=${process.pid}  words=${C.words.length}  sums=${C.sums.length}  soul=${SC.files.size} 文件  索引预热 ${s0 - t0}ms  书房预热 ${Date.now() - s0}ms（读 ${sr.reads} 个）  rss=${Math.round(process.memoryUsage().rss / 1048576)}MB`);
 });
 
 // ★ 收到关闭信号时清掉 pid 文件（Ctrl+C / 任务管理器结束）
