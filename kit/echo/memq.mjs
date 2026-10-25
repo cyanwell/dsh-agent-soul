@@ -23,6 +23,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import * as CFG from "./echo-config.mjs";
 import { spawnSync } from "node:child_process";   // ★ 自动放宽时用它重跑自己
+import net from "node:net";                       // ★ 常驻服务（内嵌客户端，不 spawn 进程）
 // ★★★ 2026-10-08 修复（回声系统的一次真实故障）
 //   本脚本原先在两处把日志文件名写死成 `session.v3.jsonl.zstd`（open 取文件 / sources 统计）。
 //   宿主把日志升到 v4（约 09-30）之后，这条门**静默失效**：
@@ -520,18 +521,79 @@ if (WANT("书房")) {
   walk(SOUL);
 }
 
+// ★ 服务返回的是「前 N 条 + 总数」，所以真实命中数这里单独记。
+//   不用 hits.length 是因为服务只回了 limit 条 —— 把 1213 条完整 JSON 传回来本身就比检索贵。
+//   ★★ SVC_EXTRA = 「服务里有、但没传回来的条数」。
+//     第一版直接把 TOTAL 设成 svc.n，结果**把墨/书房/留底几层的命中覆盖掉了**
+//     （服务侧 954 vs 退路 1215）—— 这是「只替换一层却接管了全局计数」的典型错法。
+let TOTAL = null;
+let SVC_EXTRA = 0;
+
+/* ── 常驻服务客户端（内嵌，不 spawn 进程）──────────────────────────────
+ *
+ * ★★ 2026-10-25 实测：用 `spawnSync` 起一个 client 进程要 **310 ms**（我原估 60 ms，差 5 倍）。
+ *    而服务内检索只要 23 ms —— 也就是说「起进程」比「检索」贵 13 倍。
+ *    ⇒ 必须让 memq **自己**连 pipe（ESM 支持 top-level await）。
+ *
+ * ★ 三条退路，任何一条都回到今天的原路径（功能完全不变）：
+ *   ① 环境变量 ECHO_NO_SVC 关掉
+ *   ② 连不上 pipe（服务没起）
+ *   ③ 900 ms 内没响应
+ *   **宁可慢，不可错。** 优化出问题只能变慢，不能变坏。
+ */
+const SVC_PIPE = process.env.ECHO_PIPE || "\\\\.\\pipe\\echo-hub";
+const svcSearch = (req) => new Promise((resolve) => {
+  if (process.env.ECHO_NO_SVC) return resolve(null);
+  let done = false, sock = null;
+  const fin = (v) => {
+    if (done) return;
+    done = true;
+    if (sock) { try { sock.destroy(); } catch {} }
+    resolve(v);
+  };
+  try { sock = net.connect(SVC_PIPE); } catch { return fin(null); }
+  let buf = "";
+  const timer = setTimeout(() => fin(null), 900);
+  sock.setEncoding("utf8");
+  sock.on("connect", () => { try { sock.write(JSON.stringify(req) + "\n"); } catch { fin(null); } });
+  sock.on("data", (d) => {
+    buf += d;
+    const i = buf.indexOf("\n");
+    if (i < 0) return;
+    clearTimeout(timer);
+    let j = null;
+    try { j = JSON.parse(buf.slice(0, i)); } catch { /* 协议坏 → 走退路 */ }
+    fin(j);
+  });
+  sock.on("error", () => { clearTimeout(timer); fin(null); });
+});
+
 // ③ 索引 —— L4：摘要（我的话）+ 原话（人的话）
 if (WANT("索引")) {
-  for (const s of scanJsonl(path.join(IDX, "summaries.jsonl"), "summary")) {
-    if (!inRange(s.t)) continue;
-    hits.push({ layer: "L4", src: "索引/摘要", t: s.t, ptr: "idx:" + s.id, kind: "摘要", text: s.summary, extra: `替换 ${s.shadowedTokens} tok` });
-  }
-  for (const w of scanJsonl(path.join(IDX, "words.jsonl"), "text")) {
-    if (!inRange(w.t)) continue;
-    // ★ kind=task 的是别的通道的程序提示词；kind=结论 是**我写下的正文**（推理的结果）。
-    //   两者都不能冒充「人说的原话」。
-    const k = w.kind === "task" ? "程序提示" : w.kind === "结论" ? "结论" : "原话";
-    hits.push({ layer: "L3", src: "索引", t: w.t, ptr: `log:${w.session}#seq=${w.seq}`, kind: k, text: w.text, extra: w.ws });
+  // ★ 只在真有查询词时走服务（`--since` 全量的情况服务也能做，但收益不大）
+  const svc = terms.length > 0
+    ? await svcSearch({ cmd: "search", terms, near: NEAR, since: SINCE, until: UNTIL, limit: Math.max(LIMIT * 4, 80) })
+    : null;
+
+  if (svc && Array.isArray(svc.hits)) {
+    // ── 快路径：索引在服务内存里，已经 parse 过了 ──
+    for (const h of svc.hits) hits.push(h);
+    TOTAL = Number.isFinite(svc.n) ? svc.n : svc.hits.length;
+    // ★ 只记「服务侧没传回来的条数」，最终总数在下面统一算（hits.length + SVC_EXTRA）
+    SVC_EXTRA = Math.max(0, TOTAL - svc.hits.length);
+  } else {
+    // ── 退路：今天原来的路径（服务不在时行为完全一致）──
+    for (const s of scanJsonl(path.join(IDX, "summaries.jsonl"), "summary")) {
+      if (!inRange(s.t)) continue;
+      hits.push({ layer: "L4", src: "索引/摘要", t: s.t, ptr: "idx:" + s.id, kind: "摘要", text: s.summary, extra: `替换 ${s.shadowedTokens} tok` });
+    }
+    for (const w of scanJsonl(path.join(IDX, "words.jsonl"), "text")) {
+      if (!inRange(w.t)) continue;
+      // ★ kind=task 的是别的通道的程序提示词；kind=结论 是**我写下的正文**（推理的结果）。
+      //   两者都不能冒充「人说的原话」。
+      const k = w.kind === "task" ? "程序提示" : w.kind === "结论" ? "结论" : "原话";
+      hits.push({ layer: "L3", src: "索引", t: w.t, ptr: `log:${w.session}#seq=${w.seq}`, kind: k, text: w.text, extra: w.ws });
+    }
   }
 }
 
@@ -567,8 +629,11 @@ if (WANT("留底")) {
 //     因为「真的没有」和「词不对」在结果上无法区分，而放宽一次的代价只有 2.5 s。
 //   ★ 用子进程重跑而不是把这整段包成函数：这是线性脚本，包函数要动的地方太多，
 //     而多一次进程启动（约 60 ms）在「本来就要 2.5 s」面前可以忽略。
-if (!NEAR && terms.length > 0 && hits.length < 3 && !process.env.MEMQ_NO_RETRY) {
-  console.error(`\n〔精确只命中 ${hits.length} 条 —— 自动放宽到近义再试一次…〕`);
+// ★ 最终总数 = 实际收集到的（含墨/书房/留底全部）+ 服务里没传回来的那部分
+TOTAL = hits.length + SVC_EXTRA;
+
+if (!NEAR && terms.length > 0 && (TOTAL ?? hits.length) < 3 && !process.env.MEMQ_NO_RETRY) {
+  console.error(`\n〔精确只命中 ${TOTAL ?? hits.length} 条 —— 自动放宽到近义再试一次…〕`);
   const r = spawnSync(process.execPath, [...process.argv.slice(1), "--near"], {
     encoding: "utf8",
     env: { ...process.env, MEMQ_NO_RETRY: "1" },   // ★ 防递归
@@ -590,14 +655,14 @@ hits.sort((a, b) => {
 
 const LIM = LIMIT;
 const shown = hits.slice(0, LIM);
-console.log(`「${terms.join(" + ")}」命中 ${hits.length} 条${SINCE || UNTIL ? `（时间 ${SINCE || "最早"} → ${UNTIL || "现在"}）` : ""}，显示 ${shown.length} 条：\n`);
+console.log(`「${terms.join(" + ")}」命中 ${TOTAL ?? hits.length} 条${SINCE || UNTIL ? `（时间 ${SINCE || "最早"} → ${UNTIL || "现在"}）` : ""}，显示 ${shown.length} 条：\n`);
 for (const h of shown) {
   const mark = h.layer === "L3" ? "一手" : "索引";
   const t = h.t ? String(h.t).slice(0, 16).replace("T", " ") : "        —       ";
   console.log(`  ${t}  [${mark}] [${h.src}/${h.kind}]  ${clip(h.text, 150)}`);
   console.log(`      └ ${h.ptr}${h.extra ? "   " + clip(h.extra, 80) : ""}`);
 }
-if (hits.length > LIM) console.log(`\n…还有 ${hits.length - LIM} 条。用 --limit 调大，或加词缩小范围。`);
+if (hits.length > LIM) console.log(`\n…还有 ${(TOTAL ?? hits.length) - LIM} 条。用 --limit 调大，或加词缩小范围。`);
 console.log(`\n★ 要看某条的原文：node memq.mjs open <上面那个 └ 后面的指针>`);
 
 // ── 会话日志解码（open 用）──
