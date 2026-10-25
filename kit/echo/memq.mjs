@@ -59,7 +59,7 @@ function newestLog(dir) {
   return best ? best.p : null;
 }
 
-const SOUL = CFG.SOUL;   // ★ 发布版：从 echo-config 读
+const SOUL = CFG.SOUL;
 const MO = path.join(SOUL, "02-墨.jsonl");
 const MEM = CFG.MEM;
 const HUB = path.join(MEM, "hub");
@@ -86,7 +86,6 @@ const LIMIT = Number(opt("--limit", 25));
 const SRC = String(opt("--src", "墨,书房,索引,留底")).split(",").map((s) => s.trim());
 const WANT = (k) => SRC.includes(k) || SRC.includes("all") || SRC.includes("全部");
 const terms = argv.filter((a) => !a.startsWith("--"));
-
 // ── 通用 ──
 const p2 = (n) => String(n).padStart(2, "0");
 const iso = (d = new Date()) =>
@@ -525,6 +524,24 @@ const hits = [];
 let TOTAL = null;
 let SVC_EXTRA = 0;
 
+/* ── 书房层的「按需扫描」（2026-10-25，为达成整机 <100 ms）─────────────
+ *
+ * ★ 为什么必须这样：书房的 `walk` 要逐个 stat **6462 个文件 = 250 ms**。
+ *   目录 mtime 只能发现「增删」，发现不了「内容被改」，所以这 250 ms 省不掉。
+ *   ⇒ 它是「整机 <100 ms」前面唯一的拦路石头。
+ *
+ * ★★ 做法：**索引层先答（23 ms），命中够多就不扫书房。**
+ *   判据用 `SOUL_SKIP_MIN = 5`：索引已经给了 ≥5 条，再花 250 ms 扫书房
+ *   换来的多半只是「同一件事的另一处摘录」——不值。
+ *
+ * ★★★ 但**绝不能默默漏**：跳过时必须在输出里写明
+ *   「书房层未扫描（索引已命中 N 条）」，并告诉对方 `--full` 可以强制全扫。
+ *   **让人以为查全了、其实漏了，比慢 250 ms 坏得多。**
+ */
+const FULL = !!opt("--full", false);
+const SOUL_SKIP_MIN = 5;
+let SOUL_SKIPPED = 0;   // >0 表示跳过了书房，值是当时的索引命中数
+
 // ① 《墨》—— 一手，结构化
 if (WANT("墨")) {
   for (const r of readJsonl(MO)) {
@@ -536,6 +553,17 @@ if (WANT("墨")) {
 
 // ② 书房 —— 一手文档
 if (WANT("书房")) {
+  // ★★ 按需扫描（2026-10-25）：先问服务「索引层有多少命中」，够多就跳过书房。
+  //   省的是 `walk` 的 6462 次 stat（约 250 ms）—— 那是整机 <100 ms 前唯一的大石头。
+  //   ★ 跳过时 SOUL_SKIPPED > 0，输出层必须明说「书房层未扫描」+ 指向 --full。
+  let idxN = 0;
+  if (!FULL && terms.length > 0) {
+    const probe = await svcSearch({ cmd: "search", terms, near: NEAR, limit: 1 });
+    idxN = probe && Number.isFinite(probe.n) ? probe.n : 0;
+  }
+  if (!FULL && idxN >= SOUL_SKIP_MIN) {
+    SOUL_SKIPPED = idxN;
+  } else {
   // ★★ 2026-10-25 第二轮：书房层走服务（服务缓存了 754 个文本文件的内容 + mtime）
   //   实测：原来每次 readFileSync 8.3 GB 里的文本 → 1000ms+；现在只 stat（约 250ms）+ 内存匹配。
   //   ★ 目录 mtime 发现不了「内容被改」，所以服务仍然逐个 stat 文件 —— 这是「正确」的成本。
@@ -574,6 +602,7 @@ if (WANT("书房")) {
     }
   };
   walk(SOUL);
+  }
   }
 }
 
@@ -667,6 +696,10 @@ hits.sort((a, b) => {
 
 const LIM = LIMIT;
 const shown = hits.slice(0, LIM);
+// ★★★ 跳过书房时必须明说 —— 绝不能让人以为查全了其实漏了。
+if (SOUL_SKIPPED > 0) {
+  console.log(`※ 书房层未扫描（索引已命中 ${SOUL_SKIPPED} 条）。要全扫加 --full（约 +250 ms）。\n`);
+}
 console.log(`「${terms.join(" + ")}」命中 ${TOTAL ?? hits.length} 条${SINCE || UNTIL ? `（时间 ${SINCE || "最早"} → ${UNTIL || "现在"}）` : ""}，显示 ${shown.length} 条：\n`);
 for (const h of shown) {
   const mark = h.layer === "L3" ? "一手" : "索引";
