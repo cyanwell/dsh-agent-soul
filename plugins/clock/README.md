@@ -56,11 +56,42 @@ dsh plugin --profile <name> add <path-to-this-package>
 
 ---
 
+## 面板为什么挂在 `document.body`（别改回去）
+
+`position: fixed` **只有在祖先链上没有 `transform` / `filter` / `backdrop-filter` /
+`contain` / `will-change` 时才相对视口**。DSH 侧栏那类毛玻璃容器恰好会创建包含块 ——
+面板若还渲染在 `sidebar.footer.action` 的 React 子树里，fixed 就变成「相对那个
+256×36 的小格子」，坐标算得再准也会跑到窗口外。
+
+所以本实现有五条硬约束：
+
+1. 面板用原生 DOM 建好后直接 `appendChild` 到 `document.body`（不依赖 `react-dom` 的
+   portal —— 宿主不保证给）；
+2. 先 `visibility:hidden` 挂上去、量真实 `offsetWidth/offsetHeight`，再算位置；
+3. 定位后用 `getBoundingClientRect()` 回读校准：拿「目标视口坐标」与实测的差去修
+   style 值、迭代到收敛 —— 即使 body 被皮肤插件加了 transform 也贴合视口；
+4. 四边夹在视口内 8px，CSS 再兜 `max-width/max-height` + `overflow:auto`；
+5. 打开期间每秒 tick 做一次漂移检测（按钮动了 / 视口变了 / 面板尺寸变了就重贴）。
+
+垂直方向的基线是**面板底边与按钮底边对齐**（面板从按钮这一行往上长），不是
+「底边 = 按钮顶 - 间距」—— 后者会把整块面板吊在按钮上方，看着像悬空。
+
 ## 自检
 
 ```bash
-node render-test.mjs
+node render-test.mjs        # 契约：注册、注入、按钮、样式、宿主半
+node verify-position.mjs    # 定位算法穷举：视口 × 按钮位置 × 面板尺寸（不需要浏览器）
+node verify-browser.mjs     # 真 Chrome 里量真 DOM（可选；缺 playwright-core/Chrome 会自动跳过）
 ```
+
+后两个是**可复跑的验收**，不是「你自己点点看」：
+
+- `verify-position.mjs` 拿真 `client.js` 里的 `placeNear()`，穷举 6 种视口 × 9 个按钮位置 ×
+  3 种面板高度，断言每一个组合下面板四边都留在视口内 8px；
+- `verify-browser.mjs` 用 playwright-core 起真 Chrome，在「带 transform/backdrop-filter 的
+  侧栏槽位」这个真实场景里跑三组：A 新实现、B 旧实现（`position:fixed` 挂在槽位内 + 估算高度）、
+  C 新算法但挂错容器。B 组会复现旧版的跑偏（1440×900 下算出 top=1580，整体在窗口外）——
+  那是根因的证据，不是期望它坏。
 
 它检查的几件事里有一条值得单独说：**`order` 必须是数字。**
 写字符串（`"60"`）时它可能在某些排序实现下**静默排到最后** ——

@@ -159,6 +159,35 @@ dsh plugin --profile <name> add github:<owner>/<repo>
 **每一个执行器都要有对应的观测面。**
 一个调好就不再看的阈值系统，你永远不会知道它误伤过几次。
 
+### 插件页显示「未启动」≠ 没在跑
+
+桌面端「设置 → 插件」会把**找不到存活 fiber 的条目**统一落到「未启动」一档。
+宿主自己的口径是「fiber 已消失的条目没有可报告的存活根」，而这一档**不区分原因**：
+可能真的没启动，也可能只是它的 entry 不在清单投影的基准里（例如由别的包
+`- insert:` 带进来、还带 `group: true` 的那种）。
+
+所以装完看到一屏「未启动」，**先别去点「启动」** —— 那会按包名再加载一次，
+跟 patch 里已有的 entry 撞车。先跑两条判据：
+
+```bash
+# ① 它自己的路由通不通（有 HTTP 路由的零件，如回声/换气）
+curl -s http://127.0.0.1:<port>/yanqing-echo/api/status
+# ② 它在不在写状态文件（看 mtime 是不是刚刚）
+ls -l <DSH_HOME>/state/huanqi-turns.jsonl
+```
+
+路由 200 / 状态文件在长 → **它在跑，只是清单没认出它。** 重启一次通常能把投影刷新。
+
+这一轮为此做了两件插件侧能做的事：
+
+- `plugins/mobile-adapt/cordis.patch.yml` 的 entry id 与包名对齐（`dsh-agent-mobile-adapt`）；
+- `plugins/huanqi` 的 id 仍是 `huanqi`（被 `huanqi-panel` 按字节定位来写配置），
+  但 `huanqi-panel` 的 `locate()` 已兼容 `huanqi` / `dsh-huanqi` 两种写法，
+  将来对齐时不必两边同时改代码。
+
+★ 剩下的部分在宿主侧：清单应当把「真的没启动」和「在跑但没索引到」分开显示。
+插件仓库只能把能对齐的对齐、把不能对齐的写成契约。
+
 ---
 
 ## 包结构
