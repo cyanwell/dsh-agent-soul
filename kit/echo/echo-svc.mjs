@@ -15,7 +15,8 @@ import fs from "node:fs";
 import path from "node:path";
 import net from "node:net";
 
-import * as CFG from "./echo-config.mjs";`nconst HUB = process.env.ECHO_HUB || CFG.HUB;   // ★ 发布版：从 echo-config 读
+import * as CFG from "./echo-config.mjs";
+const HUB = process.env.ECHO_HUB || CFG.HUB;   // ★ 发布版：从 echo-config 读
 const IDX = path.join(HUB, "index");
 const PIPE = process.env.ECHO_PIPE || "\\\\.\\pipe\\echo-hub";
 const PIDF = path.join(HUB, ".cache", "echo-svc.pid");
