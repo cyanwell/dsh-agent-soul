@@ -755,7 +755,7 @@ function checkHuanqi(logs, deep) {
   //   ★ 判据换成换气自己的账本：continuations / circuitBreaks / anomalies。
   //     （状态文件在 <DSH_HOME>/state/dsh-huanqi.json，由 SESSIONS 反推；
   //       没装换气或从没跑过 → 读不到 → hqFired 0 → 行为与旧版完全一致。）
-  const HQ_STATE = SESSIONS ? path.join(path.dirname(SESSIONS), "state", "dsh-huanqi.json") : null;
+  const HQ_STATE = (() => { const cs = [process.env.DSH_HOME ? path.join(process.env.DSH_HOME, "state", "dsh-huanqi.json") : null, SESSIONS ? path.join(path.dirname(SESSIONS), "state", "dsh-huanqi.json") : null, path.join(process.cwd(), "dsh-huanqi.json")].filter(Boolean); for (const f of cs) { try { if ((JSON.parse(fs.readFileSync(f, "utf8")) || {}).stats) return f } catch {} } return cs[0] || null })();
   let hqStats = null;
   if (HQ_STATE) {
     try { hqStats = (JSON.parse(fs.readFileSync(HQ_STATE, "utf8")) || {}).stats || null; } catch {}
@@ -977,7 +977,7 @@ function checkHeartbeat() {
     //     所以给 warn 而不是 error，把判断权留给人。
     return {
       id: "heartbeat", label: "心跳（自律神经）", status: "warn",
-      detail: "没有心跳目录 —— 这一层可选，没装是正常的。装过的话，那就是它停了",
+      detail: "没有心跳目录 —— 这一层可选，且**本仓库不提供**心跳零件（要自己建定时任务）。没装是正常的",
       evidence: { dir: HEARTBEAT_DIR, installed: false },
     };
   }

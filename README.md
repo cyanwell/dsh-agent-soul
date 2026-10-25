@@ -290,6 +290,34 @@ git log --oneline -- README.md
 git show <commit>:README.md | head -300
 ```
 
+### 2026-10-25 · 八条用户反馈：两条已修过、四条修掉了、一条不成立
+
+来自两封邮件（白毛狼狼 10-25、此胡桃非比胡桃是也 10-24），逐条核实后：
+
+**已经修过的**（只回信说明，没再动）
+
+- `memindex.mjs` / `memq.mjs` 的 `Buffer.concat` 巨串 —— 10-23 已改成逐帧 + carry。
+  反馈里「原话数 382 → 439」少的那 57 条，正是旧实现在小日志上**静默吞掉**的
+- `self.mjs` 不写 `state.json` —— 现在写了（`lastSelfAt` / `updatedAt`）
+
+**修掉的**
+
+- `tools/soul-one-shot.mjs`：包名匹配同时接受 `dsh-<x>` / `dsh-agent-<x>` / `dsh-yanqing-<x>` 三种写法（一代老名一个都不能漏）。
+  原来用写死的 `part.pkg` 精确匹配，而 PARTS 表里两种写法混着 —— 于是「装了、只是名字写法不同」被判没装
+- `echo-doctor.mjs`（kit + hub 两份）：换气账本按优先级找多处。
+  `dsh-huanqi` 的 `defaultPath()` 在 `DSH_HOME` 为空时落在**宿主 cwd**，不在 `<DSH_HOME>/state/`；只认一处就会误报「没装」
+- `echo-doctor.mjs`（两份）：心跳那项说清**本仓库不提供**这个零件，别让人去找一个不存在的东西
+- `plugins/echo/client.js` 首行注释：旧注册名改成 `dsh-agent-echo`，并把「历史名已弃用」写上去
+- `INSTALL.md`：补 crash 日志真实路径（`%APPDATA%\@deepseek-ai\dsh-desktop\logs\crash-*.log`）
+
+**不成立的**
+
+- `compaction` 的 `files` 漏 `lib`：那个 `lib/` 目录现在已经不存在（内容并进 `index.js`），不再适用。
+  但反馈建议的「打包期校验 `files` 必须覆盖入口的相对 import」是对的，已列入待做
+
+★ 反馈里有一句总结值得记住：**「白名单类配置，漏一项就是静默失效，而且症状长得像另一个病。」**
+  这条已经踩过三次（`peerDependencies` / client id / `files`）—— 第四次该由自动检查挡住，不该再由人踩。
+
 ### 2026-10-25 · ECHO 六层与 mnemon 的协同（新文档，纠正同一天早些时候那版）
 
 `docs/ECHO六层与mnemon协同说明书.md`。
@@ -338,25 +366,3 @@ Cannot find package '@deepseek-ai/dsh-compaction-basic' imported from ...
 
 另外 `install-desktop.ps1` 装完会先跑一次 `verify-client-ids`（静态查注册 id 撞车）。
 撞了的话 DSH 启动直接失败，装完不查等于把雷留到重启。
-
-### 2026-10-25 · 体检器不再只看最近一份日志
-
-「门牌回取」和「压缩机制」这两项，原来都只读**最新那一份**会话日志：
-
-```js
-const target = logs.find((l) => l.bytes > 0);   // logs 按 mtime 倒序 → 永远是最新那份
-```
-
-于是「最新那份刚好还没压缩」和「压缩坏了」被读成同一件事。报告的读者做过一次全量扫描：167 份日志、330303 条事件、其中 **10131 条** `compaction/*` 事件 —— 一条都没被这两项看过。
-
-现在从最新往前扫，**一命中就停**：常见情况仍然只解一份，开销几乎不变；只有当最近几份都没有时才多解几份（上限 5）。另外「压缩机制」这一项会直接给出**最后一次压缩距今多久**，比「有没有」有信息量 ——「3 小时前刚压过」和「三天没压过」是两种完全不同的状态。
-
-本机实测（最新一份就有 196 条压缩事件）：`start 51 / summary 51 / end 51 / prune 43；最后一次压缩 0 小时前`，扫了 1 份。
-
-顺带说清**怎么让它生效**：面板真正调用的是 `D:\AI\memory\hub\echo-doctor.mjs`，不是这里的 `kit/echo/`。改完要跑
-
-```bash
-node kit/echo/install-kit.mjs --hub <你的中枢目录>
-```
-
-`--hub` 不能省 —— 它会依次尝试 `--hub` / `$ECHO_HUB` / `$DSH_HOME/hub`，而 `$DSH_HOME/hub` 往往不是你的中枢，装到那儿会**新建一个空目录**，然后面板照旧跑旧版、还多一条「部署一致性」的黄。装对了 `.kit-origin.json` 会跟着更新，那条黄自己就绿了。

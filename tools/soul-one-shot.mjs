@@ -55,17 +55,17 @@ async function readJson(p) {
 // `replace: true` 的两个（compaction / pruner）在桌面端是**替换**官方实现，
 // 判据不是「在 bundles 里」，而是「preset 里有没有把 name 换成我们的」。
 const PARTS = [
-  { pkg: 'dsh-riji',            label: '日记 riji',          dir: 'riji' },
-  { pkg: 'dsh-clock',           label: '时钟 clock',          dir: 'clock' },
-  { pkg: 'dsh-model-statusbar', label: '状态栏 model-statusbar', dir: 'model-statusbar' },
-  { pkg: 'dsh-mobile-adapt',    label: '移动适配 mobile-adapt', dir: 'mobile-adapt' },
-  { pkg: 'dsh-splash',          label: '启动 splash',         dir: 'splash' },
-  { pkg: 'dsh-yantai',          label: '砚台 yantai',         dir: 'yantai' },
+  { pkg: 'dsh-agent-riji',            label: '日记 riji',          dir: 'riji' },
+  { pkg: 'dsh-agent-clock',           label: '时钟 clock',          dir: 'clock' },
+  { pkg: 'dsh-agent-model-statusbar', label: '状态栏 model-statusbar', dir: 'model-statusbar' },
+  { pkg: 'dsh-agent-mobile-adapt',    label: '移动适配 mobile-adapt', dir: 'mobile-adapt' },
+  { pkg: 'dsh-agent-splash',          label: '启动 splash',         dir: 'splash' },
+  { pkg: 'dsh-agent-yantai',          label: '砚台 yantai',         dir: 'yantai' },
   { pkg: 'dsh-agent-echo',      label: '回声 echo',           dir: 'echo' },
   { pkg: 'dsh-huanqi',          label: '换气 huanqi',         dir: 'huanqi' },
   { pkg: 'dsh-agent-huanqi-panel', label: '换气面板 huanqi-panel', dir: 'huanqi-panel' },
   { pkg: 'dsh-agent-memory',    label: '热记忆 memory',       dir: 'memory' },
-  { pkg: 'dsh-mnemon-probe',    label: 'mnemon 探针',         dir: 'mnemon-probe' },
+  { pkg: 'dsh-agent-mnemon-probe',    label: 'mnemon 探针',         dir: 'mnemon-probe' },
   { pkg: 'dsh-agent-compaction', label: '兜底压缩 compaction', dir: 'compaction', replace: true },
   { pkg: 'dsh-agent-pruner',    label: '工具结果裁剪 pruner',  dir: 'pruner',    replace: true },
   { pkg: 'dsh-agent-tools',     label: '工具集 tools',         dir: 'tools' },
@@ -107,8 +107,8 @@ console.log('  本体包      ' + (soulPkg
 // replace 件额外要求 c) preset 里把官方 name 换成了我们的
 const rows = []
 for (const part of PARTS) {
-  const inBundles = bundles.includes(part.pkg)
-  const inDeps = Object.prototype.hasOwnProperty.call(deps, part.pkg)
+  const inBundles = [...new Set([part.pkg, 'dsh-' + part.dir, 'dsh-agent-' + part.dir, 'dsh-yanqing-' + part.dir])].some((n) => bundles.includes(n))
+  const inDeps = [...new Set([part.pkg, 'dsh-' + part.dir, 'dsh-agent-' + part.dir, 'dsh-yanqing-' + part.dir])].some((n) => Object.prototype.hasOwnProperty.call(deps, n))
   // 包目录：先按包名找，再按「dsh-agent-X」实际落在 node_modules 下的名字找
   const candidates = [
     join(profile, 'node_modules', part.pkg),

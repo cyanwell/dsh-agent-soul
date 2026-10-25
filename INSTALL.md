@@ -367,6 +367,10 @@ cp <profile>/cordis.patch.yml  <profile>/cordis.patch.yml.bak
 那位报告者说他「这次是备份了才没丢东西」。**这个前提不该靠读者自己想到。**
 
 **症状**：装完之后 DSH 看起来正常、进程也在跑，但 guard / 桌宠 / session switch 全都没加载。
+> **crash 日志在哪儿**：`%APPDATA%\@deepseek-ai\dsh-desktop\logs\crash-*.log`
+> （本机实测路径；**不在** Cache、**不在** Storage —— 是从 asar 里 `writeCrashReport(app.getPath("logs"))` 反推的。）
+> 崩了先看这里，**别反复重启**：每重启一次可能又掉一批插件，而界面看起来一切正常。
+
 crash 日志里 `intercom` 的 `failed to import` 排在很次要的位置，真正的原因是
 `modules (required)` 因为 **soul 的 `client.js` 缺失**而 compose 失败 → 整个启动崩 →
 `sanitizeProfile` 自动恢复 → **bundles 被重置** + patch 被备份。恢复完 DSH 是活的，
