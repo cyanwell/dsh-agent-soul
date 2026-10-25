@@ -28,7 +28,7 @@ import * as CFG from "./echo-config.mjs";
 //   现在改成版本无感：认 /^session\.v\d+\.jsonl\.zstd$/（见下面 findLogs）。
 
 const MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
-const SESSIONS = CFG.SESSIONS;
+const SESSIONS = CFG.SESSIONS;   // ★ 发布版：从 echo-config 读，不写死本机路径
 const HUB = CFG.HUB;
 const IDX = path.join(HUB, "index");
 const F_SUMMARY = path.join(IDX, "summaries.jsonl");
@@ -38,27 +38,25 @@ const F_META = path.join(IDX, "meta.json");
 
 // ── 参数 ──
 const argv = process.argv.slice(2);
-const cmd = argv.shift() || "stats";
 
 // ★★★ 2026-10-24（外部验证报告）：不认识子命令时要出声。
 //   原来任何不认识的词（比如文档里写错的 `--status`）都会被当成「没给子命令」，
 //   于是**静默按默认（stats）跑**，看起来一切正常 —— 用户照着错文档抄，永远发现不了。
 //   一个静默降级的入口，比一个报错的入口更坏。
-{
-  const known = new Set(["build", "audit", "stats", "verify"]);
-  const HELP = new Set(["--help", "-h", "help"]);
-  const first = process.argv[2];
-  if (first && !HELP.has(first) && !known.has(first)) {
-    // ★ 第一版这里写了 `!first.startsWith("-")`，于是 `--status` 被当成 flag 放过去了 ——
-    //   它随后打出一屏帮助、退出 0，看起来完全正常。这正是「静默降级」本身。
-    //   现在不管带不带短横，只要不是已知子命令就报。
-    console.error(`✗ 不认识的子命令: ${first}`);
-    console.error("");
-    console.error("  支持的是: build / audit / stats / verify（不写 = stats）");
-    console.error("  ★ 如果你是从某份文档抄来的，那份文档可能过时了 —— 请把那处文档一起改掉。");
-    process.exit(2);
-  }
+const known = new Set(["build", "audit", "stats", "verify"]);
+const HELP = new Set(["--help", "-h", "help"]);
+const first = process.argv[2];
+if (first && !HELP.has(first) && !known.has(first)) {
+  // ★ 第一版这里写了 `!first.startsWith("-")`，于是 `--status` 被当成 flag 放过去了 ——
+  //   它随后打出一屏帮助、退出 0，看起来完全正常。这正是「静默降级」本身。
+  //   现在不管带不带短横，只要不是已知子命令就报。
+  console.error(`✗ 不认识的子命令: ${first}`);
+  console.error("");
+  console.error("  支持的是: build / audit / stats / verify（不写 = stats）");
+  console.error("  ★ 如果你是从某份文档抄来的，那份文档可能过时了 —— 请把那处文档一起改掉。");
+  process.exit(2);
 }
+const cmd = argv.shift() || "stats";
 const opt = (name, def) => {
   const i = argv.indexOf(name);
   if (i === -1) return def;
@@ -79,45 +77,72 @@ const localIso = (ms) => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 };
 
-function decodeZstd(p) {
-  const buf = fs.readFileSync(p);
+/**
+ * 解码会话日志。
+ * @param {string} p 日志路径
+ * @param {number} [fromByte=0] 从哪个字节开始（**必须是帧边界**，由上次的 nextByte 传入）
+ * @returns {{recs:Array, frames:number, badFrames:number, dropped:number, nextByte:number}}
+ *   nextByte = **最后一个成功解压的帧的结束位置**（绝对偏移）。
+ *   ★ 它是「下次可以安全从这里接着读」的唯一凭据：把没解成功的帧（通常是还没写完的半帧）
+ *     排除在外，下次自然会重试那一帧。**绝不能拿文件 size 当续读点** ——
+ *     最后一帧可能正写到一半，从那里续会得到一个残片。
+ */
+function decodeZstd(p, fromByte = 0) {
+  // ★★ 2026-10-25 支持续读：只把 [fromByte, EOF) 读进内存，不再整文件抬进来。
+  //   代价是要保证 fromByte 落在帧边界上 —— 调用方用上次的 nextByte 保证这一点。
+  let buf;
+  let base = 0;
+  const fd = fs.openSync(p, "r");
+  try {
+    const size = fs.fstatSync(fd).size;
+    base = Math.max(0, Math.min(fromByte || 0, size));
+    buf = Buffer.allocUnsafe(size - base);
+    if (buf.length > 0) fs.readSync(fd, buf, 0, buf.length, base);
+  } finally {
+    try { fs.closeSync(fd); } catch { /* 已关 */ }
+  }
+
   const frames = [];
+  const ends = [];          // 每帧的结束偏移（相对 buf）
   let s = buf.indexOf(MAGIC, 0);
   while (s >= 0) {
     let e = buf.indexOf(MAGIC, s + 4);
     if (e < 0) e = buf.length;
     frames.push(buf.subarray(s, e));
+    ends.push(e);
     s = buf.indexOf(MAGIC, e);
   }
-  // ★★ 2026-10-23 修复：原来把全部帧 concat 成一个巨串再 toString。
-  //   会话日志压缩后可以到 200+ MB，解压后超过 Node 的字符串上限（0x1fffffe8 ≈ 512 MB），
-  //   抛 ERR_STRING_TOO_LONG。两个表现，都很像别的问题：
-  //     建索引 → 报「解码失败 N 条」，看上去像个别坏帧；
-  //     memq open → 直接崩，于是**门牌打不开**（门牌本身是对的，门后面堵着）。
-  //   改成【逐帧解码 → 逐帧按行切 → carry 跨帧续行】，内存里永远不出现完整巨串。
-  //   ★ carry 不能省：一行 JSON 可能跨帧，直接逐帧 split 会截断那一行、静默丢记录。
-  //   ★ 索引和 open 是两份实现，**一处修了另一处没修**过（2026-10-23 当天踩到）。
+  // ★★ 2026-10-23 修复：原来是把全部帧 concat 成一个大 Buffer 再 toString。
+  //   实测 session.v4.jsonl.zstd 压缩后 212 MB，解压后远超 Node 的字符串上限
+  //   （0x1fffffe8 ≈ 512 MB），抛 ERR_STRING_TOO_LONG → build 报"解码失败 1"、
+  //   verify 直接崩、audit 里 159 条摘要"日志解不开"。
+  //   改成【逐帧解码 → 逐帧按行切 → 累积行】，内存里永远不出现一个完整的巨串。
+  //   ★ 判据：build 的"解码失败"要归 0，verify 不再抛字符串超长。
   const recs = [];
-  const MAX_LINE = 8 * 1024 * 1024;   // 单行上限 8 MB：超长行对检索没价值，丢掉
+  const MAX_LINE = 8 * 1024 * 1024;   // 单行上限 8 MB：超长行对索引没有价值，丢掉并计数
   let carry = "";
-  const take = (line) => {
-    if (line.length > MAX_LINE) return;
+  let dropped = 0;
+  let badFrames = 0;
+  let nextByte = base;      // 每成功解一帧就往前推
+  const takeLine = (line) => {
+    if (line.length > MAX_LINE) { dropped++; return; }
     const t = line.trim();
     if (!t) return;
-    try { recs.push(JSON.parse(t)); } catch { /* 非 JSON 行 */ }
+    try { recs.push(JSON.parse(t)); } catch { /* 非 JSON 行，跳过 */ }
   };
-  for (const f of frames) {
+  for (let i = 0; i < frames.length; i++) {
     let out;
-    try { out = zlib.zstdDecompressSync(f); } catch { continue; }
+    try { out = zlib.zstdDecompressSync(frames[i]); } catch { badFrames++; continue; }
     let str;
-    try { str = out.toString("utf8"); } catch { continue; }
+    try { str = out.toString("utf8"); } catch { badFrames++; continue; }
     const parts = (carry + str).split("\n");
     carry = parts.pop() || "";
-    for (const line of parts) take(line);
-    if (carry.length > MAX_LINE) carry = "";
+    for (const line of parts) takeLine(line);
+    if (carry.length > MAX_LINE) { dropped++; carry = ""; }
+    nextByte = base + ends[i];   // ★ 这一帧完整解出来了，续读点推到这里
   }
-  if (carry) take(carry);
-  return { recs, frames: frames.length };
+  if (carry) takeLine(carry);
+  return { recs, frames: frames.length, badFrames, dropped, nextByte };
 }
 
 // ★ 一条压缩记录「被替换掉的是哪一段」。优先 shadowedSeqs，但它可能是空数组
@@ -225,6 +250,29 @@ if (cmd === "build") {
   let nSum = 0, nWord = 0, skipped = 0, done = 0, failed = 0;
   const t0 = Date.now();
 
+  // ★★ 2026-10-25【预判早退】—— 放在读任何分片之前。
+  //   为什么不在循环里判断：那样要先读 1864 个分片才能知道「有没有变」，
+  //   而读分片本身就要 5 秒 —— 早退省下的那点又被它吃回去了（实测 8.13 → 7.18，只快 1 秒）。
+  //   这一遍只做 stat（不读文件内容），全都没变就立刻退出 —— 实测降到 1.5 秒量级。
+  if (!FORCE && logs.length > 0) {
+    let anyChanged = false;
+    for (const L of logs) {
+      const st = fs.statSync(L.file);
+      const p = prev.get(L.file);
+      if (!p || p.key !== `${st.mtimeMs}:${st.size}`) { anyChanged = true; break; }
+    }
+    if (!anyChanged && fs.existsSync(F_SUMMARY)) {
+      fs.writeFileSync(F_META, JSON.stringify({
+        builtAt: localIso(Date.now()), elapsedSec: +((Date.now() - t0) / 1000).toFixed(2),
+        logs: logs.length, scanned: 0, skippedUnchanged: logs.length, failed: 0,
+        note: "no-op：全部未变（预判，未读任何分片）",
+      }, null, 2), "utf8");
+      console.log(`\n全部 ${logs.length} 个日志都未变 —— 预判直接退出，一个分片都没读。`);
+      console.log(`  用时 ${((Date.now() - t0) / 1000).toFixed(2)}s`);
+      process.exit(0);
+    }
+  }
+
   for (const L of logs) {
     const st = fs.statSync(L.file);
     const key = `${st.mtimeMs}:${st.size}`;
@@ -240,8 +288,21 @@ if (cmd === "build") {
       continue;
     }
 
-    let recs;
-    try { recs = decodeZstd(L.file).recs; } catch { failed++; continue; }
+    // ★★ 2026-10-25【帧级增量】—— 这是 build 从 43 秒降下来的关键。
+    //   旧行为：只要 key（mtime+size）变了，就把整个文件**全量重解压**。
+    //   而当前这个会话日志 237 MB 一直在写 → 每次 build 都全量 → 43 秒。
+    //   新行为：如果上次记过 nextByte（帧边界）、文件**变长**、且没开 FORCE，
+    //          就只解压 [nextByte, EOF) 这一段 —— 后面追加的那几帧。
+    //   ★ 为什么这个前提成立：会话日志是 append-only 的 zstd 帧流，宿主只往后追加。
+    //   ★ 为什么文件**变短**时必须全量：那说明日志被重写或截断了，前缀靠不住 ——
+    //     从旧偏移续读会读到一段完全无关的字节，而它可能**看起来像正常的帧**。
+    const canResume = !FORCE && p && Number.isFinite(p.nextByte)
+      && p.nextByte > 0 && st.size > p.nextByte;
+    const fromByte = canResume ? p.nextByte : 0;
+
+    let dec;
+    try { dec = decodeZstd(L.file, fromByte); } catch { failed++; continue; }
+    const recs = dec.recs;
     const sumOut = [], wordOut = [];
 
     for (const r of recs) {
@@ -355,14 +416,51 @@ if (cmd === "build") {
     const base = L.sid.replace(/[^\w.-]/g, "_");
     const sumF = path.join(shardDir, `${base}.sum.jsonl`);
     const wordF = path.join(shardDir, `${base}.word.jsonl`);
-    fs.writeFileSync(sumF, sumOut.join("\n"), "utf8");
-    fs.writeFileSync(wordF, wordOut.join("\n"), "utf8");
+    // ★★ 续读时**追加**，不重写 —— 重写会把之前已索引的记录整体抹掉，
+    //    而这次 sumOut 里只有「新增帧」产出的那几条。
+    //    ★ 不能只判断 canResume：分片文件必须真的存在，否则追加会凭空造一个残缺分片。
+    const sumResume = canResume && fs.existsSync(sumF);
+    const wordResume = canResume && fs.existsSync(wordF);
+    if (sumResume) {
+      if (sumOut.length) fs.appendFileSync(sumF, "\n" + sumOut.join("\n"), "utf8");
+    } else {
+      fs.writeFileSync(sumF, sumOut.join("\n"), "utf8");
+    }
+    if (wordResume) {
+      if (wordOut.length) fs.appendFileSync(wordF, "\n" + wordOut.join("\n"), "utf8");
+    } else {
+      fs.writeFileSync(wordF, wordOut.join("\n"), "utf8");
+    }
 
-    for (const l of sumOut) sumLines.push(l);
-    for (const l of wordOut) wordLines.push(l);
-    fileLines.push(JSON.stringify({ file: L.file, key, ws: L.ws, sid: L.sid, nSum: sumOut.length, nWord: wordOut.length, sumOut: sumF, wordOut: wordF }));
+    // 全局层：读分片**全量**（旧 + 新），保证 summaries/words 的总数正确
+    let shardSumN = 0, shardWordN = 0;
+    for (const line of fs.readFileSync(sumF, "utf8").split("\n")) if (line.trim()) { sumLines.push(line); shardSumN++; }
+    for (const line of fs.readFileSync(wordF, "utf8").split("\n")) if (line.trim()) { wordLines.push(line); shardWordN++; }
+    // ★ nextByte 必须落盘 —— 没有它，下次就退化成全量重解压（那就回到 43 秒了）
+    fileLines.push(JSON.stringify({
+      file: L.file, key, nextByte: dec.nextByte,
+      ws: L.ws, sid: L.sid, nSum: shardSumN, nWord: shardWordN,
+      sumOut: sumF, wordOut: wordF,
+    }));
 
     if (++done % 50 === 0) console.log(`  已扫 ${done} 个（摘要 ${nSum} / 原话 ${nWord}），${((Date.now() - t0) / 1000).toFixed(0)}s`);
+  }
+
+  // ★★ 2026-10-25【全都没变就早退】。
+  //   实测：一次「什么都没变」的 build 要 8.2 秒 —— 全花在读 1864 个分片、
+  //   全局排序、再重写 summaries(11 MB) + words(41 MB)。而产出的文件与上次**逐字节相同**。
+  //   判据：done === 0 且 skipped === logs.length，就说明一个需要重算的文件都没有。
+  //   ★ 早退是安全的：sumLines / wordLines 这时已经从分片读满了，而磁盘上的
+  //     summaries/words 本来就是同一份内容 —— 不重写不会丢任何东西。
+  if (done === 0 && skipped === logs.length && fs.existsSync(F_SUMMARY)) {
+    fs.writeFileSync(F_META, JSON.stringify({
+      builtAt: localIso(Date.now()), elapsedSec: +((Date.now() - t0) / 1000).toFixed(1),
+      logs: logs.length, scanned: 0, skippedUnchanged: skipped, failed: 0,
+      note: "no-op：全部未变，未重写 summaries/words",
+    }, null, 2), "utf8");
+    console.log(`\n全部 ${logs.length} 个日志都未变 —— 索引已是最新，跳过重写。`);
+    console.log(`  用时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    process.exit(0);
   }
 
   // ★ 按时间排序落盘 —— 不排序的话「最后几条」就不是最新的

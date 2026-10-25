@@ -64,6 +64,25 @@ export const DEFAULTS = {
   doorSign: true,
   /** 门牌那段的位置：紧跟我自己那一段（130）之后，两条一起读。 */
   doorSignOrder: 131,
+  /**
+   * ★★ 水位提示（2026-10-25 加）。
+   * 起因：新版桌面端**不再包含 ACP 插件**（`billion-context-dsh` 在 asar 里已不存在），
+   * 于是那套 0.45 / 0.60 / 0.80 的预警**整体静默失效** —— 压缩只在兜底 0.88 那一刻才发生，
+   * 一路上没有任何提示。这个字段就是补那层预警：每轮读一次真水位，过线就在提示里写出来。
+   * ★ 为什么放在推送层而不是再装一个插件：它是唯一「不会被设置面板重写、
+   *   也不会随宿主升级消失」的位置 —— 这是 SELF 那条分工的延伸。
+   */
+  watermark: true,
+  /**
+   * 三档阈值 —— **刻意与原 ACP 的 min/max/emergency 一一对齐**（0.45 / 0.60 / 0.80）。
+   * ★ 为什么不自己另定一套：这套数字是用了一个月、并在一次水位复盘里逐条核实过的。
+   *   这里换的只是**承载位置**（ACP 插件没了），不该顺手把语义也换掉。
+   */
+  watermarkWarnPct: 0.45,
+  watermarkAlertPct: 0.60,
+  watermarkEmergencyPct: 0.80,
+  /** 上下文窗口大小（tokens）。★ 本机实测 1048576，不是整数 1000000 —— 差 2.3 个点。 */
+  contextWindow: 1048576,
 };
 
 /**
@@ -138,6 +157,68 @@ export function apply(ctx, config) {
     readState = reader(cfg.statePath);
   } catch { readState = () => ''; }
 
+  /**
+   * 读「真水位」（tokens）。三级兜底，**任何一级失败都不许影响对话**。
+   *
+   * ★ 为什么是这个顺序（2026-09-27 读宿主源码确认、2026-10-25 复核）：
+   *   引擎自己读的是 `sessionProjections...contextPressure.projectedTokens`，
+   *   所以第一选择就跟着它走 —— 跟引擎用同一把尺子，才不会出现「我以为才 60%、
+   *   它已经在压」这种错位。后两级只是拿不到时的退路。
+   */
+  function readPressure(agent) {
+    try {
+      const session = agent && agent.session;
+      if (!session) return 0;
+      const ctx = agent.ctx;
+
+      // ① 引擎自己的准星（projcache 里看不到 projectedTokens，它是派生字段，
+      //    只在活的 projection 视图里存在 —— 所以必须从这里读）
+      try {
+        const sp = ctx.get('sessionProjections');
+        if (sp && typeof sp.snapshot === 'function') {
+          const snap = sp.snapshot(session);
+          const cp = snap && snap.values && snap.values.contextPressure;
+          const a = Number((cp && cp.projectedTokens) || 0);
+          if (a > 0) return a;
+          const b = Number((cp && cp.pressureTokens) || 0);
+          if (b > 0) return b;
+        }
+      } catch { /* 服务不在或 API 变了 —— 往下退 */ }
+
+      // ② 可见消息面（只是 surfaceTokens，不是真水位，最后才用）
+      try {
+        const tm = ctx.get('tokenMeter');
+        if (tm && typeof tm.measure === 'function') {
+          const m = tm.measure(session);
+          const n = Number((m && (m.surfaceTokens || m.tokens)) || 0);
+          if (n > 0) return n;
+        }
+      } catch { /* 同上 */ }
+
+      // ③ 最后兜底：直接读投影缓存文件（不依赖任何 ctx 服务）。
+      //    ★ 加了 mtime 缓存 —— 那个文件可能有 1.6 MB，每轮 JSON.parse 是不可接受的。
+      try {
+        const sid = String((session && session.id) || '');
+        const home = ENV('DSH_HOME');
+        if (sid && home) {
+          const f = join(home, 'storages', 'session_projcache', 'sessions', 'session-' + sid + '.json');
+          const st = fs.statSync(f);
+          const key = sid + ':' + st.mtimeMs + ':' + st.size;
+          if (readPressure._k !== key) {
+            const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+            const v = j && j.record && j.record.rows && j.record.rows.contextPressure
+              && j.record.rows.contextPressure.val;
+            readPressure._t = Number((v && (v.projectedTokens || v.pressureTokens)) || 0);
+            readPressure._k = key;
+          }
+          if (readPressure._t > 0) return readPressure._t;
+        }
+      } catch { /* 文件读不到不算故障 */ }
+
+      return 0;
+    } catch { return 0; }
+  }
+
   function render(context) {
     try {
       const agent = context && context.agent;
@@ -190,6 +271,29 @@ export function apply(ctx, config) {
           }
           lines.push('');
           lines.push(self);
+        }
+      }
+
+      // ★★ 2026-10-25【水位提示】—— 补 ACP 消失后留下的空档。
+      //   三档刻意与原 ACP 的 min/max/emergency 对齐（0.45 / 0.60 / 0.80）。
+      //   ★ 放在最后：它是「当前状态」，不像门牌那样是常驻条款。
+      if (cfg.watermark !== false) {
+        const tokens = readPressure(agent);
+        const win = Number(cfg.contextWindow) || 1048576;
+        if (tokens > 0) {
+          const pct = tokens / win;
+          const k = (n) => Math.round(n / 1000) + 'K';
+          const head = `【水位】${(pct * 100).toFixed(0)}%（${k(tokens)} / ${k(win)}）`;
+          if (pct >= cfg.watermarkEmergencyPct) {
+            lines.push(`${head} ★★★ 红灯（≥${(cfg.watermarkEmergencyPct * 100).toFixed(0)}%）—— ` +
+              `兜底压缩在 88% 会自己动手、不问你。现在就该：把该落盘的落盘，然后 /compact。`);
+          } else if (pct >= cfg.watermarkAlertPct) {
+            lines.push(`${head} ★★ 该压了（≥${(cfg.watermarkAlertPct * 100).toFixed(0)}%）—— ` +
+              `先落盘再压缩，顺序不能反：压缩会吃掉这一段里的细节，而落盘能把它们捡回来。`);
+          } else if (pct >= cfg.watermarkWarnPct) {
+            lines.push(`${head} ⚠ 可以开始考虑整理（≥${(cfg.watermarkWarnPct * 100).toFixed(0)}%）—— ` +
+              `还不用急，但别等到红灯才动手。`);
+          }
         }
       }
 

@@ -32,6 +32,11 @@ import * as CFG from "./echo-config.mjs";
 //     它只认 `/^session\.v\d+\.jsonl\.zstd$/`，同会话多版本时取 mtime 最新那份。
 //     宿主将来升 v5、v6，这里一行都不用改。
 import { findSessionFile, listSessionFiles } from "./session-store.mjs";
+// ★★ 2026-10-25 提速：帧索引直取（见 framestore.mjs）。
+//   原来 `open` 要走 decodeZstd 全量解码 —— 62,829 帧 / 解压后 576 MB / 实测 31 秒一次。
+//   改成「先用帧索引定位、只解 2~3 帧」后实测 30 ms。
+//   ★ framestore 不可用时会自动降级回 decodeZstd，所以这个 import 不是硬依赖。
+import * as fstore from "./framestore.mjs";
 
 const MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
 
@@ -52,7 +57,7 @@ function newestLog(dir) {
   return best ? best.p : null;
 }
 
-const SOUL = CFG.SOUL;
+const SOUL = CFG.SOUL;   // ★ 发布版：从 echo-config 读
 const MO = path.join(SOUL, "02-墨.jsonl");
 const MEM = CFG.MEM;
 const HUB = path.join(MEM, "hub");
@@ -221,9 +226,21 @@ if (cmd === "open") {
       if (f) { file = f; break; }
     }
     if (!file) { console.log("✗ 找不到会话日志: " + sid); process.exit(1); }
-    const recs = decodeZstd(file);
-    const r = recs.find((x) => String(x.seq) === sq);
-    if (!r) { console.log(`✗ 该 seq 不在日志里（在 ${path.basename(file)} 里找的，该文件共 ${recs.length} 条事件；会话 ${sid}）`); process.exit(1); }
+    // ★★ 2026-10-25：【先走帧索引直取，拿不到才降级】。
+    //   旧行为 = 无条件 decodeZstd(file) 全量解码（62,829 帧 / 实测 31 s）。
+    //   新行为 = 帧索引定位 + 只解 2~3 帧（实测 30 ms）；索引缺失/损坏/没这条时，
+    //   原样走下面那句全量解码 —— ★ 降级路径保留全部旧逻辑，所以最坏情况只是「和以前一样慢」，
+    //   不会打不开门牌。这个保底是故意留的：读慢可以忍，读不到不能忍。
+    let r = null;
+    try {
+      const fast = fstore.readSeq(file, HUB, Number(sq));
+      if (fast && String(fast.seq) === sq) r = fast;
+    } catch { /* framestore 不可用：静默降级 */ }
+    if (!r) {
+      const recs = decodeZstd(file);
+      r = recs.find((x) => String(x.seq) === sq);
+      if (!r) { console.log(`✗ 该 seq 不在日志里（在 ${path.basename(file)} 里找的，该文件共 ${recs.length} 条事件；会话 ${sid}）`); process.exit(1); }
+    }
     console.log(`[一手原文] ${file}\n  seq=${r.seq}  ${iso(new Date(r.time))}  type=${r.type}`);
     const d = r.data || {};
     // ★★ 正文与 reasoning 必须分开 —— 踩过：原来的写法把所有带 text 的块拼起来，
@@ -335,7 +352,15 @@ if (WANT("墨")) {
 
 // ② 书房 —— 一手文档
 if (WANT("书房")) {
-  const SKIP = /(\.mp3|\.wav|\.png|\.jpg|\.jpeg|\.webp|\.gif|\.zip|\.pyc|node_modules)/i;
+  // ★★ 2026-10-25【书房检索提速】—— 21 秒里最大的一段就是这里。
+  //   原来只按扩展名排除（mp3/png/…），于是 **.mp4/.mov/.pdf/.gguf 这些全被当成文本读**，
+  //   而且**没有大小上限** —— 实测 D:\AI\yanqing-soul 是 8.3 GB / 6,462 个文件，
+  //   逐个 readFileSync 成 utf8 字符串再逐行匹配。
+  //   ★ 判据：检索是「按行找回原文」，对超大文件/媒体文件没有意义 ——
+  //     一个 200 MB 的视频里不可能有一行值得当证据的文本。
+  //   两道闸：① 扩展名扩表（加媒体/模型/压缩包）② 单文件 512 KB 上限。
+  const SKIP = /(\.mp3|\.mp4|\.mov|\.avi|\.mkv|\.wav|\.flac|\.m4a|\.ogg|\.aac|\.webm|\.png|\.jpg|\.jpeg|\.webp|\.gif|\.bmp|\.ico|\.svg|\.tif|\.tiff|\.pdf|\.zip|\.7z|\.rar|\.gz|\.zst|\.zstd|\.tar|\.exe|\.dll|\.bin|\.pyc|\.pyo|\.pyd|\.so|\.gguf|\.safetensors|\.onnx|\.pt|\.pth|\.ckpt|\.wasm|\.mp3|node_modules|\.git)/i;
+  const MAX_TEXT = 512 * 1024;   // 512 KB：超过就不当「可检索的一手文本」
   const walk = (dir, depth = 0) => {
     if (depth > 4) return;
     let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
@@ -344,6 +369,8 @@ if (WANT("书房")) {
       if (e.isDirectory()) { if (!/^(_|dsh-image-gen)/.test(e.name)) walk(p, depth + 1); continue; }
       if (SKIP.test(e.name)) continue;
       if (e.name === "02-墨.jsonl") continue;   // 《墨》有专门的一层，别在这里重复抓
+      let st; try { st = fs.statSync(p); } catch { continue; }
+      if (st.size > MAX_TEXT) continue;         // ★ 大文件直接跳过：那是产物/归档，不是一手文本
       let txt; try { txt = fs.readFileSync(p, "utf8"); } catch { continue; }
       const lines = txt.split("\n");
       lines.forEach((ln, i) => {
@@ -424,19 +451,23 @@ function decodeZstd(p) {
     frames.push(buf.subarray(s, e));
     s = buf.indexOf(MAGIC, e);
   }
-  // ★★ 2026-10-23 修复：原来把全部帧 concat 成一个巨串再 toString。
-  //   会话日志压缩后可以到 200+ MB，解压后超过 Node 的字符串上限（0x1fffffe8 ≈ 512 MB），
-  //   抛 ERR_STRING_TOO_LONG。两个表现，都很像别的问题：
-  //     建索引 → 报「解码失败 N 条」，看上去像个别坏帧；
-  //     memq open → 直接崩，于是**门牌打不开**（门牌本身是对的，门后面堵着）。
+  // ★★ 2026-10-23 修复 —— 和 memindex.mjs 是同一个病，那次只修了索引那一份。
+  //   这里原来是把所有帧 Buffer.concat 成一个巨串再 toString。
+  //   本会话日志压缩后 217 MB，解压后超过 Node 的字符串上限（0x1fffffe8 ≈ 512 MB），
+  //   抛 ERR_STRING_TOO_LONG —— 表现是 **`memq open` 打不开任何门牌**。
+  //
+  //   ★ 这个 bug 的形状值得记住：索引修好之后，build 报「解码失败 0」，看着一切正常；
+  //   而压缩插件照常在写门牌、摘要第一行也带着正确的 seq。
+  //   **门牌是对的，门后面堵着** —— 直到真去 open 一次才发现。
+  //   判据不是「索引能建」也不是「摘要带门牌」，而是「拿那个指针真的能打开」。
+  //
   //   改成【逐帧解码 → 逐帧按行切 → carry 跨帧续行】，内存里永远不出现完整巨串。
-  //   ★ carry 不能省：一行 JSON 可能跨帧，直接逐帧 split 会截断那一行、静默丢记录。
-  //   ★ 索引和 open 是两份实现，**一处修了另一处没修**过（2026-10-23 当天踩到）。
+  //   ★ carry 不能省：一行 JSON 可能跨帧，直接逐帧 split 会把那行截断、静默丢记录。
   const recs = [];
-  const MAX_LINE = 8 * 1024 * 1024;   // 单行上限 8 MB：超长行对检索没价值，丢掉
+  const MAX_LINE = 8 * 1024 * 1024;
   let carry = "";
   const take = (line) => {
-    if (line.length > MAX_LINE) return;
+    if (line.length > MAX_LINE) return;   // 超长行对检索没价值，丢掉
     const t = line.trim();
     if (!t) return;
     try { recs.push(JSON.parse(t)); } catch { /* 非 JSON 行 */ }
