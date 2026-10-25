@@ -96,6 +96,42 @@ const inRange = (t) => {
   return true;
 };
 const hit = (s) => terms.length === 0 || terms.every((t) => s && s.includes(t));
+
+/**
+ * ★★ 2026-10-25【只 parse 命中行】—— 检索从 2.4s 再往下压的那一步。
+ *
+ * 病：`readJsonl` 是「整文件读进来 → 每行 JSON.parse → 再筛」。
+ *     而 `words.jsonl` 有 4.3 万条 / 41 MB，绝大多数跟这次检索无关，
+ *     却**每一条都被 parse 成对象**才轮到 `hit()` 说不要。
+ *
+ * 改：先在**原始行文本**上做 includes 粗筛（不 parse），只对通过的行 JSON.parse。
+ *     精确判断仍然交给 `hit(field)` —— 粗筛只是**多收**的宽网，不会改变结果集。
+ *
+ * ★ 什么时候这个等价性不成立（所以下面要判 canRough）：
+ *   JSON 会把 `"` `\` 和换行转义成 `\"` `\\` `\n`。
+ *   如果检索词里含这些字符，原始行里根本不会出现它 —— 粗筛会**漏掉本该命中的行**。
+ *   所以含转义字符的词一律退回全量 parse（宁慢不错）。
+ *   ★ 另一个边界：如果调用方拼了多个字段再 hit（`hit(r.text + " " + r.ref)`），
+ *     一个跨字段边界的词组在原行里也搜不到 —— 这类调用点**不用这个函数**（见《墨》那一段）。
+ */
+const scanJsonl = (f, field) => {
+  if (!fs.existsSync(f)) return [];
+  let txt;
+  try { txt = fs.readFileSync(f, "utf8"); } catch { return []; }
+  // 有词、且每个词都不含会被 JSON 转义的字符 → 才能拿原行粗筛
+  const canRough = terms.length > 0 && terms.every((t) => t.length > 0 && !/["\\\u0000-\u001f]/.test(t));
+  const out = [];
+  for (const line of txt.split("\n")) {
+    if (!line.trim()) continue;
+    if (canRough && !terms.every((t) => line.includes(t))) continue;   // ★ 不 parse 就排除
+    let r;
+    try { r = JSON.parse(line); } catch { continue; }
+    if (typeof r["概要"] === "string" && typeof r.text !== "string") r.text = r["概要"];
+    if (!hit(String(r[field] == null ? "" : r[field]))) continue;      // 精确判断（与原语义一致）
+    out.push(r);
+  }
+  return out;
+};
 const clip = (s, n = 160) => {
   const one = String(s).replace(/\s+/g, " ").trim();
   return one.length > n ? one.slice(0, n) + " …" : one;
@@ -116,8 +152,7 @@ const readJsonl = (f) => {
       if (typeof r["概要"] === "string" && typeof r.text !== "string") r.text = r["概要"];
       out.push(r);
     } catch {}
-  }
-  return out;
+  }  return out;
 };
 
 // ════════════════ now ════════════════
@@ -384,14 +419,12 @@ if (WANT("书房")) {
 
 // ③ 索引 —— L4：摘要（我的话）+ 原话（人的话）
 if (WANT("索引")) {
-  for (const s of readJsonl(path.join(IDX, "summaries.jsonl"))) {
+  for (const s of scanJsonl(path.join(IDX, "summaries.jsonl"), "summary")) {
     if (!inRange(s.t)) continue;
-    if (!hit(s.summary)) continue;
     hits.push({ layer: "L4", src: "索引/摘要", t: s.t, ptr: "idx:" + s.id, kind: "摘要", text: s.summary, extra: `替换 ${s.shadowedTokens} tok` });
   }
-  for (const w of readJsonl(path.join(IDX, "words.jsonl"))) {
+  for (const w of scanJsonl(path.join(IDX, "words.jsonl"), "text")) {
     if (!inRange(w.t)) continue;
-    if (!hit(w.text)) continue;
     // ★ kind=task 的是别的通道的程序提示词；kind=结论 是**我写下的正文**（推理的结果）。
     //   两者都不能冒充「人说的原话」。
     const k = w.kind === "task" ? "程序提示" : w.kind === "结论" ? "结论" : "原话";
