@@ -22,6 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 import * as CFG from "./echo-config.mjs";
+import { spawnSync } from "node:child_process";   // ★ 自动放宽时用它重跑自己
 // ★★★ 2026-10-08 修复（回声系统的一次真实故障）
 //   本脚本原先在两处把日志文件名写死成 `session.v3.jsonl.zstd`（open 取文件 / sources 统计）。
 //   宿主把日志升到 v4（约 09-30）之后，这条门**静默失效**：
@@ -551,6 +552,30 @@ if (WANT("留底")) {
     }
   };
   walk(MEM);
+}
+
+// ★★★ 2026-10-25【自动放宽】—— 这个「开关」不该由使用者记着拨，该由我判断。
+//
+//   爀曦原话（22:53）：「有时候我们依靠关键词检索，第一时间可能命中不了，就要换关键词重新检索，
+//   速度就会拖慢；有时候我叫你检索记忆，我自己的记忆也模糊，只能给你模糊的线索……
+//   近义匹配就是帮你做了这一步，虽然时间略微增加，但帮你省略了换关键词的推理过程。
+//   所以这个开关是捏在你手上的，不需要我们用户自己设置。」
+//
+//   所以：精确 + 归一化只命中很少几条时，**自动**放宽到近义重跑一次。
+//   ★ 判据用「少于 3 条」而不是「0 条」：0 条是明确的「没有」，
+//     而 1-2 条更像「关键词猜偏了」——后者才是最该放宽的时候。0 条也放宽，
+//     因为「真的没有」和「词不对」在结果上无法区分，而放宽一次的代价只有 2.5 s。
+//   ★ 用子进程重跑而不是把这整段包成函数：这是线性脚本，包函数要动的地方太多，
+//     而多一次进程启动（约 60 ms）在「本来就要 2.5 s」面前可以忽略。
+if (!NEAR && terms.length > 0 && hits.length < 3 && !process.env.MEMQ_NO_RETRY) {
+  console.error(`\n〔精确只命中 ${hits.length} 条 —— 自动放宽到近义再试一次…〕`);
+  const r = spawnSync(process.execPath, [...process.argv.slice(1), "--near"], {
+    encoding: "utf8",
+    env: { ...process.env, MEMQ_NO_RETRY: "1" },   // ★ 防递归
+  });
+  if (r.stdout) process.stdout.write(r.stdout);
+  if (r.stderr) process.stderr.write(r.stderr);
+  process.exit(r.status == null ? 0 : r.status);
 }
 
 // 排序：有时间的一手在前，其次按时间倒序；没时间的排最后
