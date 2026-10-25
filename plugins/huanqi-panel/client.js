@@ -9,7 +9,11 @@
 //                POST /yanqing-huanqi/api/config（写，走字节级 YAML 编辑）
 
 window.__ModuleLoader__.load({
-  id: "dsh-agent-huanqi-panel",
+  /* ★★ 2026-10-26（砚青落）：id 必须等于**包名** dsh-yanqing-huanqi-panel。
+   *   写成 dsh-agent-huanqi-panel 会和部署包名对不上 →
+   *   client-modules 报 "loaded without registering" → 整个 web boot 批次不激活 →
+   *   界面弹「应用无法启动」。package.json 的 name 已同步成同一个值。 */
+  id: "dsh-yanqing-huanqi-panel",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;

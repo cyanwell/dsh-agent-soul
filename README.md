@@ -283,6 +283,45 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-26 凌晨 · 一次真实的「应用无法启动」—— client id 与包名必须相等
+
+> 起因：换气升级部署时，我把仓库版的 `client.js` 拷进了 `profiles/desktop/node_modules/`，
+> 重启后桌面端直接弹「应用无法启动」，进不去界面。爀曦让 workbuddy 修好了，我事后复盘。
+
+**根因是「命名分裂」，而且我拼出了最坏的组合：**
+
+| | 部署目录（实际被加载） | 仓库（发布源） |
+|---|---|---|
+| echo package name | `dsh-yanqing-echo` | `dsh-agent-echo` |
+| echo client `id` | `dsh-yanqing-echo` ✓ | `dsh-agent-echo` ✓ |
+| panel package name | `dsh-yanqing-huanqi-panel` | `dsh-agent-huanqi-panel` |
+| panel client `id` | `dsh-yanqing-huanqi-panel` ✓ | `dsh-agent-huanqi-panel` ✓ |
+
+**两边各自内部一致、互相不一致。** 我只拷了 `client.js`（id = `dsh-agent-*`）进部署目录
+（name = `dsh-yanqing-*`），拼出了一个 id ≠ name 的包 —— 而这正是 DSH 的硬约束：
+
+```
+client-modules 拿 package.json 的 name 当 key 去对注册表，
+对不上就报 "loaded without registering ... via __ModuleLoader__.load"，
+整个 web boot 批次随之不激活 → 界面弹「应用无法启动」。
+```
+
+**修法：把仓库的 name 和 client id 都统一成部署名（`dsh-yanqing-*`）** ——
+部署那一侧是唯一被验证过能跑的组合，仓库向它对齐。
+两边都加了注释写明这条约束，免得下次又只改一边。
+
+**★ 这个坑为什么能藏这么久**：仓库里 id 和 name 本来是**一致**的（都是 `dsh-agent-*`），
+所以本地看怎么都对；错只发生在「把仓库文件拷进一个名字不同的部署目录」这一步。
+而部署版一直是旧的（10-19 的文件），从没被覆盖过，于是两边各自都对、合起来就炸。
+
+**★ 教训（已写进脚本与注释）**：
+
+1. **改 `client.js` 或 `package.json` 的任何一边之前，先确认**
+   `package.json.name === __ModuleLoader__.load({ id })`，这两个是一对，不能只动一个。
+2. **部署不是「拷文件」，是「保持一对不变量」** —— 拷完要验这条等式，不是验文件大小。
+3. `tools/verify-client-ids.mjs` 现在只查「id 有无重复」，**不查「id 是否等于包名」** ——
+   那是漏掉的那一半，下次补上。
+
 ### 2026-10-26 凌晨 · 换气第一次能治病：从「打断」升级到「打断 + 清创」
 
 > 起因：爀曦的定位——「**换气插件我的定位是思考退化挽救**」。
