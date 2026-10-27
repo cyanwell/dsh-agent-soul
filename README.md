@@ -283,6 +283,43 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-28 凌晨 · 换气第二档治疗终于生效：部分压缩真的只压那一段
+
+**这一版修的是一个「压缩成功、界面上一个字都不显示」的问题。**
+
+换气的三档治疗里，第二档是**范围压缩**：累计截断 N 次之后，只压走最近那一段脏历史，然后继续对话（区别于熔断时那种整段压掉、不再延续的全量压缩）。它一直没生效，卡在两处：
+
+**① 够不到 `compaction`。** 那个服务被 preset 的 `isolate: { compaction: true }` 关在 realm 里，根层的换气从 `agent.ctx` / `agent.session.ctx` / 根 `ctx` 三条路都取不到 —— 而删掉 isolate 会让所有会话 `resume failed`（`RemoteError: Preset services require isolate realms`）。唯一的门是 `commands` 服务，可官方的 `/compact` **不接受参数、只做全量**。
+
+**② 命令返回没带门牌。** 前端靠 `command/done.sourceEventSeq` 去找对应的 `compaction/summary`，才渲染「· compact · 已压缩 N 条历史记录（约 X tokens）」。换气那条命令原来只回一句 `Compacted seq a–b.`，没有 `sourceEventSeq` —— 压缩真的发生了，界面一个字都不显示。
+
+**修法（两侧各一半）：**
+
+- **organs 侧**新增零件 `compact-region/`：在 realm 内注册 `/compact-region <start> <end>`，handler 返回 `{ kind: 'success', text, sourceEventSeq: result.summarySeq }`，与官方 `dsh-command-compact` 的 `executeCompact` 同构。
+- **换气**的 region 分支改成只走 `/compact-region`，失败不降级全量（熔断那条仍然走全量）。
+
+**实测（2026-10-27 16:10，一次自动触发的范围压缩）：**
+
+```
+[compact-region] compactRegion(1847–2108) → OK n=95 tok=130302 summarySeq=2116
+[huanqi][compact] 走 commands 桥 → kind=region range=1847-2108 / OK
+```
+
+事件流 `#2113 command/run` → `#2116 compaction/summary` → `#2119 command/done kind="success" sourceEventSeq=2116`。界面两行都出来了：
+
+```
+>_ compact-region · Compacted 95 history items (~130302 tokens).
+上下文已压缩 · 已压缩 95 条历史记录（约 130302 tokens）
+```
+
+**顺带把换气的源码追平产物。** `lib/index.js` 从 10-23 起被直接改过（压缩层、测试触发口、schema 字段只落在产物里），`src/index.ts` 停在 10-23。这次补齐 792 行（3017 → 3809），`tsc --noEmit` 在 strict 全开下零错误，去注释空白后与 `lib/index.js` 逐字符相同（42878 = 42878，delta = 0）—— **`lib` 本身一个字节没动**（SHA256 前后同为 `CFF585548E848122…`）。
+
+**一件要说清的事**：`maxContinuations` 默认值随这次同步从 **4 变成 6**。本机 `desktop` = 6 / `web` = 4 都显式覆盖了，所以本机行为不变；从仓库装、又没配这一项的人会拿到 6。
+
+**口径修正**：正文「三档治疗」那张表里写的是「范围压缩 = `compactRegion` 压走最近这一段」，现在实际路径是**借 `/compact-region` 命令进 realm 再调它** —— 能力没变，进门的路变了。
+
+**两个仓库同一次落地**：`dsh-agent-organs` 的 `6735d72`（新增 compact-region + 换气源码/types + 两个测试 + 零件清单与更新记录），本仓库同步记这一条。
+
 ### 2026-10-26 凌晨 · 装了一道闸门：动了实现但没写公告 → 拒绝提交
 
 > 起因：发布纪律那条我**记得住条文，但没执行动作**。
@@ -551,7 +588,7 @@ client-modules 拿 package.json 的 name 当 key 去对注册表，
 | 层 | 做什么 | 触发 |
 |---|---|---|
 | ① 打断 | 结束当前流（**已有**） | 检测到循环 |
-| ② **范围压缩** | `compactRegion` 压走最近这一段，**继续对话** | 累计截断 **3** 次 |
+| ② **范围压缩** | 借 `/compact-region` 命令进 realm，调 `compactRegion` 压走最近这一段、**继续对话** | 累计截断 **3** 次 |
 | ③ **全量压缩** | `compactNow` 彻底清空 + **告知 + 不再延续** | 熔断 |
 
 **★★ 最重要的一条：压缩之后不让它读摘要。**
