@@ -34,6 +34,10 @@ function readConfigFile() {
     path.join(HERE, 'echo.config.json'),
     path.join(HERE, '..', 'echo.config.json'),
     path.join(HERE, '..', '..', 'echo.config.json'),
+    // ★ 2026-10-26：面板（plugins/echo/index.js）用的是 $DSH_HOME/hub，
+    //   而 soul 的 agent_soul_verify 跑的是包内 kit/echo 这一份 ——
+    //   只在前三个位置找，就会出现「面板绿、工具红」两个结论。
+    path.join(process.env.DSH_HOME || path.join(os.homedir(), '.dsh'), 'hub', 'echo.config.json'),
   ];
   for (const p of candidates) {
     try {

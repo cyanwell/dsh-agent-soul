@@ -24,3 +24,6 @@ plugins/yantai/apps/apps.json
 plugins/yantai/apps/icons/
 plugins/yantai/apps/usage.json
 .gh-issues/
+
+# 本机的实际路径配置（每人不同，不该进仓库）
+echo.config.json
