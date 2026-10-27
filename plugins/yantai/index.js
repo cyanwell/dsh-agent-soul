@@ -19,6 +19,7 @@ import { join, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir, hostname } from 'node:os'
 import { spawn, execFileSync } from 'node:child_process'
+import { envOrConfig, configHint } from './env-config.mjs'
 
 export const name = 'dsh-agent-yantai'
 export const inject = ['webServer']
@@ -32,7 +33,13 @@ export const inject = ['webServer']
 //   ① 使用者显式配的环境变量（README 的「可配项」）
 //   ② 本机一定能探测到的东西（当前进程、插件自己所在目录、系统 API）
 //   ③ 都没有 → 这一格显示「未配置 + 怎么配」，**绝不退回某个人的路径去猜**
-const ENV = (k) => String(process.env[k] || '').trim()
+// ★ 2026-10-27：改为「进程 env 优先，配置文件兜底」。
+//   原因：宿主被 App 拉起时（本机就是），启动命令由 App 生成，`.bashrc` 管不到它，
+//   DSH 也没有 profile 级 env 注入 —— 于是这些配置项**根本没有入口**，
+//   界面只能一直显示「未配置」。那不是「没配」，是「配不进去」。
+//   退路文件：$YANTAI_CONFIG / $DSH_HOME/yantai.json / ~/.dsh/yantai.json
+//   见 ./env-config.mjs（那里写了完整的优先级和键名规则）。
+const ENV = (k) => envOrConfig(k)
 const HERE = dirname(fileURLToPath(import.meta.url))   // 插件自己所在目录，换机器自动跟着走
 
 // 数据源 · 工作区（账本所在的那个根）
@@ -266,8 +273,8 @@ async function nodeProbe() {
   if (!NODE_ORIGIN) {
     nodeState.reachable = false
     nodeState.loggedIn = false
-    nodeState.lastError = '未配置：请设环境变量 YANTAI_NODE_ORIGIN = 手机服务经 adb forward 后的本机地址'
-      + '（例 http://127.0.0.1:8766），改完重启 DSH'
+    nodeState.lastError = '未配置：请设 YANTAI_NODE_ORIGIN = 手机服务经 adb forward 后的本机地址'
+      + '（例 http://127.0.0.1:8766）—— 环境变量，或写进 ' + configHint() + '，改完重启 DSH'
     return nodeState
   }
   try {
