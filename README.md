@@ -283,6 +283,48 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-28 午后 · 补两份「给人看」和「给机器看」的东西
+
+**前面几条做的是机制，这一条补的是**：一个用户拿到这个仓库，知道该干什么；以及一台机器能说出「我现在装的是哪一版」。
+
+**① `presets/README.md` —— 给人看的三步**
+
+```
+node tools/soul-preset.mjs verify          # 看现在缺什么
+node tools/soul-preset.mjs build --write   # 缺的补上
+# 然后完全退出 DSH 再打开
+```
+
+★ **没有第三步。** 重启是唯一必须手动做的事。
+
+里面写了五条命令的分工、`@include` 标记是什么、**八种栽倒方式各对应哪里挡**、以及「压缩是三件套不是一件」。
+
+★ 那份文档的写法有一条刻意的地方：**先说「为什么会栽倒」，再说「命令怎么用」** —— 因为前面几节的根因（0.2.0-rc.2 起不扫 `.agent-presets/`）不知道，后面每条命令都像是多余的限制。
+
+**② `soul-version.json` —— 给机器看的**
+
+```
+soulVersion = 2.0.0   profile = desktop
+preset-yanqing             4a4bd03e29f6e948  三件套齐
+preset-yanqing-cordis      679341cc9be3cdd8  三件套齐
+preset-yanqing-ptc         94f1525dc2bf7775  三件套齐
+preset-yanqing-distill     0837b4bc6a6ad33b  三件套齐
+```
+
+每个 preset 带完整 SHA256、三件套清单、缺什么。还有一行 `contracts: { doorplate: 1, recall: 1, record: 1 }`。
+
+★ **为什么现在就要有这个**：`install.js` 的已装判定**只看「在不在」，完全不看版本** —— 所以「更新」等于整目录覆盖、无 diff。没有这个文件，「我装的是哪一版」只能靠猜。
+
+★ 而 `contracts` 那三个数字是**关键的那一行**：零件版本怎么变，只要契约版本没变，就不需要迁移器。
+
+**新增第 6 条命令：**
+
+| 命令 | 干什么 |
+|---|---|
+| `version` | 生成 `soul-version.json` |
+
+★ 它跑的是和 `verify` 同一套扫描，只是输出成 JSON 而不是打屏。
+
 ### 2026-10-28 午后 · 压缩段从「四份复制」变成「一份共享源」，且展开后逐字节还原
 
 **这是本轮最后一块，也是前面所有铺垫的目的。**

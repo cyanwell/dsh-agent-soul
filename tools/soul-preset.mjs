@@ -148,6 +148,46 @@ if (CMD === 'export') {
 }
 
 // ═══════════════════════════════════════════════════════════════
+if (CMD === 'version') {
+  // 生成 soul-version.json —— 「现在装的是哪一版」的唯一答案来源。
+  // 现在 install.js 的已装判定只看「在不在」，完全不看版本，所以「更新」= 整目录覆盖、无 diff。
+  const crypto = await import('node:crypto')
+  const sha = (s) => crypto.createHash('sha256').update(s).digest('hex')
+  const out = argOf('--out') || join(process.cwd(), 'soul-version.json')
+  let pkgVersion = '0.0.0'
+  try { pkgVersion = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')).version || pkgVersion } catch { /* 仓库根没有 package.json 就留默认 */ }
+
+  const doc = {
+    soulVersion: pkgVersion,
+    generatedAt: new Date().toISOString(),
+    profile: PROFILE,
+    source: patchPath,
+    presets: presets.map((p) => {
+      const names = namesIn(p.body)
+      const cfgAt = p.body.join('\n').search(/^\s+config:\s*$/m)
+      const cfgText = cfgAt >= 0 ? p.body.join('\n').slice(cfgAt) : ''
+      return {
+        blockId: p.id,
+        configId: cfgText.match(/^\s+id:\s*([\w.-]+)\s*$/m)?.[1] || p.id.replace(/^preset-/, ''),
+        displayName: (cfgText.match(/^\s+name:\s*([^\n]+?)\s*$/m)?.[1] || '').replace(/^['"]|['"]$/g, ''),
+        order: cfgText.match(/^\s+order:\s*(\d+)\s*$/m)?.[1] || null,
+        lines: p.body.length,
+        parts: names,
+        missing: REQUIRED.filter((r) => !names.includes(r)),
+        sha256: sha(p.body.join('\n')),
+      };
+    }),
+    contracts: { doorplate: 1, recall: 1, record: 1 },
+    note: 'contracts 变了 = 重大更新；零件版本怎么变，契约没变就不用迁移',
+  }
+  writeFileSync(out, JSON.stringify(doc, null, 2) + '\n', 'utf8')
+  console.log(`\n写了 ${out}`)
+  console.log(`  soulVersion = ${doc.soulVersion}  profile = ${doc.profile}`)
+  for (const p of doc.presets) console.log(`  ${p.blockId.padEnd(26)} ${p.sha256.slice(0, 16)}  ${p.missing.length ? '缺 ' + p.missing.join(',') : '三件套齐'}`)
+  process.exit(0)
+}
+
+// ═══════════════════════════════════════════════════════════════
 if (CMD === 'split') {
   // 把四个 preset 里那段逐字相同的 compaction group 抽成 _shared/compaction.yml，
   // 原位留一行 @include 标记。前提已在 2026-10-28 验过：四份 raw hash 相同（5c8a546b…）。

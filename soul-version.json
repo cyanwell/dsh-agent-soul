@@ -1,0 +1,70 @@
+{
+  "soulVersion": "2.0.0",
+  "generatedAt": "2026-10-28T04:30:05.230Z",
+  "profile": "desktop",
+  "source": "D:\\AI\\dsh\\home\\profiles\\desktop\\cordis.patch.yml",
+  "presets": [
+    {
+      "blockId": "preset-yanqing",
+      "configId": "yanqing",
+      "displayName": "砚青",
+      "order": "9",
+      "lines": 167,
+      "parts": [
+        "dsh-yanqing-compaction",
+        "dsh-yanqing-compact-region",
+        "dsh-yanqing-pruner"
+      ],
+      "missing": [],
+      "sha256": "4a4bd03e29f6e94859aa354267b50ec541377d53c6a263672bb0552afbc240c6"
+    },
+    {
+      "blockId": "preset-yanqing-cordis",
+      "configId": "yanqing-cordis",
+      "displayName": "砚青创造",
+      "order": "11",
+      "lines": 191,
+      "parts": [
+        "dsh-yanqing-compaction",
+        "dsh-yanqing-compact-region",
+        "dsh-yanqing-pruner"
+      ],
+      "missing": [],
+      "sha256": "679341cc9be3cdd86398f291844cfa8ee2126a6a8066c6245ba41738baa2e89e"
+    },
+    {
+      "blockId": "preset-yanqing-ptc",
+      "configId": "yanqing-ptc",
+      "displayName": "砚青 PTC",
+      "order": "10",
+      "lines": 178,
+      "parts": [
+        "dsh-yanqing-compaction",
+        "dsh-yanqing-compact-region",
+        "dsh-yanqing-pruner"
+      ],
+      "missing": [],
+      "sha256": "94f1525dc2bf777557ed071a3a24fba4cac775ea905c379ae9274608ee5ee45a"
+    },
+    {
+      "blockId": "preset-yanqing-distill",
+      "configId": "yanqing-distill",
+      "displayName": "砚青蒸馏",
+      "order": "12",
+      "lines": 178,
+      "parts": [
+        "dsh-yanqing-compaction",
+        "dsh-yanqing-compact-region",
+        "dsh-yanqing-pruner"
+      ],
+      "missing": [],
+      "sha256": "0837b4bc6a6ad33bc2bcc04d65edbe5255a9c107245aedbfab5cdd74302016ab"
+    }
+  ],
+  "contracts": {
+    "doorplate": 1,
+    "recall": 1,
+    "record": 1
+  },
+  "note": "contracts 变了 = 重大更新；零件版本怎么变，契约没变就不用迁移"
+}
