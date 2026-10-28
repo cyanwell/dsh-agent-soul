@@ -283,6 +283,46 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-28 午后 · `presets/` 里第一次有了 preset —— 从「只活在部署现场」变成「可版本化」
+
+**接上一条：为什么要导出。**
+
+上一条把「注册 preset」做成了命令，但有件事没解决：**仓库里根本没有 preset 的文件**。它们只活在 `profiles\desktop\cordis.patch.yml` 里，是 330+ 行的内联定义。**别人 clone 这个仓库，拿不到任何 preset。**
+
+这才是「装不到别人机器上」的根因之一 —— 不是脚本写得不好，是**要装的东西不在仓库里**。
+
+**做法：`soul-preset export`。**
+
+从本机跑通的 profile 里提取四个 preset 块，原样落成 `presets/*.yml`：
+
+| 文件 | 行数 | `config.id` | 显示名 | order |
+|---|---|---|---|---|
+| `preset-yanqing.yml` | 167 | `yanqing` | 砚青 | 9 |
+| `preset-yanqing-cordis.yml` | 191 | `yanqing-cordis` | 砚青创造 | 11 |
+| `preset-yanqing-ptc.yml` | 178 | `yanqing-ptc` | 砚青 PTC | 10 |
+| `preset-yanqing-distill.yml` | 178 | `yanqing-distill` | 砚青蒸馏 | 12 |
+
+外加 `_manifest.json`：每个 preset 的 `blockId` / `configId` / `displayName` / `order` / 行数 / 三件套清单 / 缺什么。
+
+**四件的三件套全是完整的：**
+
+```
+dsh-yanqing-compaction / dsh-yanqing-compact-region / dsh-yanqing-pruner
+missing: []   ×4
+```
+
+**★ 顺手验了一件更要紧的事：这四个文件里没有一个绝对路径。**
+
+全文扫 `[A-Za-z]:[\\/]` 零命中 —— 也就是说**preset 本身是可移植的**。
+
+这跟零件层形成对照：`dsh-huanqi` 里写死了 `D:\AI\memory\hub\*`，那才是「装到别人机器就静默失效」的地方。**preset 是干净的，脏的是零件。**
+
+**还没做的：`build`。**
+
+`export` 是单向的（profile → 仓库）。要双向闭环还差一个 `build`（仓库 → profile），以及拆分 `_shared/` 让四个 preset 的压缩段只有一个真源。
+
+★ 顺序上我故意先做 `export`：**先把能跑的配置固定下来，再谈重构。** 反过来做（先拆 shared 再导）会在还没有基准的时候动刀。
+
 ### 2026-10-28 午后 · `soul-preset.mjs`：把「注册 preset」从手工活变成一条命令，并补上三个 preset 缺的零件
 
 **为什么做这个。** 爀曦原话：「最难的一关就是如何引导用户注册 agent preset，**我们在这上面栽倒的次数太多了**」。所以这次不是先设计，而是**先去《墨》里把栽过的跟头全捞出来**，再照着设计。

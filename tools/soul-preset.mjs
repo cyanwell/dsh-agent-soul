@@ -30,7 +30,7 @@
  * 5. 不解析 YAML —— 文件里有 !!js process.platform 这种 loader 专有写法，
  *    普通解析器会炸。本脚本一律用文本扫描。
  */
-import { readFileSync, writeFileSync, copyFileSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const HOME = process.env.DSH_HOME || 'D:/AI/dsh/home'
@@ -114,6 +114,37 @@ if (CMD === 'verify') {
 
 function readdirCount(d) {
   try { return require('node:fs').readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).length } catch { return 0 }
+}
+
+// ═══════════════════════════════════════════════════════════════
+if (CMD === 'export') {
+  // 把「本机能跑的 preset」导出成仓库里的模板。
+  // 理由：preset 现在只活在部署现场，别人 clone 仓库拿不到 —— 这是「装不到别人机器上」的根因之一。
+  // 本机跑通的这份就是黄金样本，先把它变成可版本化的东西。
+  const outDir = argOf('--out') || join(process.cwd(), 'presets')
+  mkdirSync(outDir, { recursive: true })
+  console.log(`\n导出 ${presets.length} 个 preset → ${outDir}`)
+  const manifest = { exportedAt: new Date().toISOString(), source: patchPath, presets: [] }
+  for (const p of presets) {
+    const body = p.body
+    const text = body.join('\n')
+    // config.id / config.name 在 `config:` 之下，比块头部的 name 更深一级 —— 别抓错
+    const cfgAt = text.search(/^\s+config:\s*$/m)
+    const cfgText = cfgAt >= 0 ? text.slice(cfgAt) : ''
+    const cfgId = cfgText.match(/^\s+id:\s*([\w.-]+)\s*$/m)?.[1] || p.id.replace(/^preset-/, '')
+    const cfgName = cfgText.match(/^\s+name:\s*([^\n]+?)\s*$/m)?.[1] || ''
+    const order = cfgText.match(/^\s+order:\s*(\d+)\s*$/m)?.[1] || ''
+    const file = join(outDir, `${p.id}.yml`)
+    writeFileSync(file, body.join('\n') + '\n', 'utf8')
+    const names = namesIn(body)
+    const missing = REQUIRED.filter((r) => !names.includes(r))
+    manifest.presets.push({ blockId: p.id, configId: cfgId, displayName: cfgName.replace(/^['"]|['"]$/g, ''), order: order || null, file: `${p.id}.yml`, lines: body.length, parts: names, missing })
+    console.log(`  ${p.id}  ${body.length} 行  config.id=${cfgId}  name=${cfgName}${missing.length ? '  ⚠ 缺 ' + missing.join(',') : ''}`)
+  }
+  writeFileSync(join(outDir, '_manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8')
+  console.log(`\n还写了 _manifest.json（${manifest.presets.length} 条）`)
+  console.log(`★ 这些是「本机能跑的形状」，进仓库后要能被 build 回插到任意 profile。`)
+  process.exit(0)
 }
 
 // ═══════════════════════════════════════════════════════════════
