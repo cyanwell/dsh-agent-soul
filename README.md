@@ -283,6 +283,82 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-28 午后 · 补上「安装层」的两个交付物：分层 doctor + 给 agent 读的说明书
+
+**背景**：26 条用户反馈里有 10 条是「装不上 / 装上了不工作」。之前这个仓库只有**零件**，
+没有**安装路径** —— 用户得自己看懂 profile 结构、自己改 `cordis.patch.yml`。
+
+**① `tools/soul-doctor.mjs` —— 分三层体检**
+
+```
+L0 地基   DSH_HOME / profile / patch / package.json+BOM / bundles 数组     5 项
+L1 能力   四零件 resolve / 官方包（仅提示）/ node 版本                     3 项
+L2 装配   preset 块 / 三件套 / 引用包 resolve / registry / 死目录          5 项
+```
+
+★ **为什么分层**：最贵的一条教训是「装完了、体检全绿、就是不工作」——
+那些绿是因为检查项只查了「文件在不在」，没查「上游认不认它」。
+**L0 错，后面两层全白查；doctor 失败时只给最底层那一条建议。**
+
+**★ 首跑就打出一个真问题 + 一个我自己的假警：**
+
+- **真问题**：本机 `.agent-presets/` 里还有 **6 个死目录**（2026-09-30 事故的残留）
+- **假警**：第一版把「`@deepseek-ai/dsh-compaction-basic` 不在 profile 里」报成 ❌
+
+**假警的查证过程**（这段值得记）：
+逐字节读了 `dsh-yanqing-compaction/index.js` 第 87 行，确实写着 `from '@deepseek-ai/dsh-compaction-basic'`；
+但 `node_modules/@deepseek-ai` 只有 9 个包，一个 compaction 系列都没有 —— **可它一直在工作**。
+
+> **宿主加载插件时用的是宿主自己的 resolve 上下文（app.asar 里有官方包），
+> 不是 profile 的 node_modules。文件系统里看不到 = 正常的。**
+
+**判据错在**：我查的是「文件在不在」，该问的是「宿主能不能拿到」。
+改法：**降级为提示，不算失败**。
+
+``★ 一条通用的判据：每条检查都得自问「这条失败时，用户照着做的动作会不会是错的？」
+  答「会」→ 它就不能是 error，最多是 info。假的好消息和假的坏消息，代价一样高。``
+
+**② `AGENT-INSTALL.md` —— 写给 agent 读的，不是给人读的**
+
+| | 给人读的 | **给 agent 读的** |
+|---|---|---|
+| 需要什么 | 理解「为什么」 | **判据：「装到什么程度算对」** |
+| 命令 | 必须能抄 | 不一定要 —— 它自己能想 |
+| 失败 | 安慰 + 下一步 | **「这条失败时你该做什么」** |
+
+★ 结构就是「13 个 check id → 失败了干什么」，全部和 doctor 里的 id **逐字对齐**（已用 grep 核过）。
+
+**★★ 两处故意没写：**
+- **零件包怎么装** —— 本机那 4 个是别人装的，**我不知道确切命令**。写的是判据（`require.resolve`），不是编的命令。
+- **`install.mjs update` 没真跑过 pull** —— 只验了「不是 git 仓库」的错误分支。
+
+**③ `install.mjs` —— 安装层入口（doctor 之上的一层）**
+
+```
+node install.mjs doctor                 # 转调 soul-doctor
+node install.mjs apply [--write]        # 按 doctor 结论修 L2，默认 dry-run
+node install.mjs update                 # git pull + apply
+node install.mjs rollback [--to <bak>]  # 从备份恢复
+```
+
+**★ 三条设计规矩：**
+
+1. **`apply` 先跑 `doctor`，L0/L1 有任一项不过就拒绝动手。**
+   地基错了还去改配置，只会把环境搞得更乱，而且会掩盖真正的问题。
+   ★ **L2 不在这个门槛里** —— 因为 apply 正是修 L2 的工具（「L2 全绿才允许修 L2」是循环依赖）。
+
+2. **默认 dry-run。** 除 `rollback` 外都要显式 `--write`。
+
+3. **`rollback` 不指定 `--to` 就只列备份**，而且**先把当前状态另存一份**
+   （`.bak-before-rollback-<时间>`）—— 否则「恢复」变成单向丢失。
+
+**★ `apply` 只修三样**（`presets` / `threeparts` / `presetresolve`，都是 `soul-preset build` 能干的）。
+`registry` 和 `deadpresets` 归「人工处理」——**它不替你决定 registry 该指哪个 preset，也不擅自删你的旧目录。**
+
+**★ 实跑抓到一个自己的 bug**：`apply` 一上来就报 `Cannot find module ...\soul-doctor.mjs`。
+原因是 `install.mjs` 在仓库根，所以 `HERE` 就是根目录，而两个子脚本在 `tools/` 下；
+`ROOT = join(HERE,'..')` 也退多了一级。**是实跑才发现的，光看代码看不出来。**
+
 ### 2026-10-28 午后 · ✅ 验证通过：四个预设全部识别得到（并纠正了我自己的验证方法）
 
 **结果**：重启后，四个预设**全部能识别 `/compact-region`**。L3 这一级补齐了。
