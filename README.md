@@ -283,6 +283,57 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-28 午后 · `soul-preset.mjs`：把「注册 preset」从手工活变成一条命令，并补上三个 preset 缺的零件
+
+**为什么做这个。** 爀曦原话：「最难的一关就是如何引导用户注册 agent preset，**我们在这上面栽倒的次数太多了**」。所以这次不是先设计，而是**先去《墨》里把栽过的跟头全捞出来**，再照着设计。
+
+**捞到的根因（2026-09-30 那次，一手原文 `log:session-3c80e2e5…#seq=476`）：**
+
+> 「preset 的文件一个都没丢，**丢的是「桌面端认识它的方式」**。」
+> 文件完好、健康检查 24 行全绿 —— 只是**没有任何人去读那个目录了**，于是它们从 picker 里一起消失。
+
+`dsh 0.2.0-rc.2` 起 preset 改成 **profile 层声明**（配置里一行 `@deepseek-ai/dsh-agent-preset`），**不再扫描 `.agent-presets/`**。当前 0.2.1-rc.3，那个目录里的 6 个 preset **全是死的**。
+
+**归出八种栽倒方式（F1–F8）**，每条都对应脚本里的一个动作：写进死目录 / 改了没重启 / 改错 profile / 插件挂不上 / 坏 preset 当默认 / 裁配置丢别的块 / YAML 方言不兼容 / 编码。
+
+**新增 `tools/soul-preset.mjs`（三个子命令）：**
+
+| 子命令 | 作用 |
+|---|---|
+| `verify` | 只读。preset 块在不在、三件套齐不齐、包能不能 resolve、registry 配置 |
+| `register` | 从现成 preset 复制一份改 id/name，**默认 dry-run** |
+| `register-all` | 检查四个砚青 preset 是否齐，缺的报出来 |
+
+★ **不解析 YAML** —— 那个文件里有 `!!js process.platform` 这种 loader 专有写法，普通解析器会炸（F7）。三个子命令一律用**文本扫描**。
+
+**顺带修了一个真问题：三个 preset 缺 `command-compact-region`。**
+
+`verify` 一跑就暴露：
+
+```
+preset-yanqing          ✅ 三件套齐全
+preset-yanqing-cordis   ❌ 缺 dsh-yanqing-compact-region
+preset-yanqing-ptc      ❌ 缺
+preset-yanqing-distill  ❌ 缺
+```
+
+也就是说 **4 个 preset 只有 1 个能走范围压缩**（换气第二档）。已补上，插入位置与标准 preset 同构（`command-compact` 之后、`tool-result-pruner` 之前，缩进 14 空格逐字相同）。
+
+**复核四条，全过：**
+
+```
+写回 48,870 字符（原 48,582，+288 = 3 处 × 2 行）
+dsh.profile.bundles  42 → 42   ✅ 未被 sanitizeProfile 重置
+BOM                          ✅ 无
+四个 preset 的三件套          ✅ 全齐
+```
+
+★ **改的是 `profiles\desktop\cordis.patch.yml`（内嵌那份），不是 `.agent-presets/`。** 备份在 `*.bak-before-region-20261028042425`。
+
+**顺手查实一条已过期的旧记录**：2026-09-30 说「desktop 是指向 web 的 junction」——**现在不是了**，四个 profile 全是实体目录，desktop 与 web 的 patch SHA 也不同。
+
+★ **还没生效** —— profile 只在启动时读一次，要完全退出 DSH 再打开。
+
 ### 2026-10-28 凌晨 · 换气第二档治疗终于生效：部分压缩真的只压那一段
 
 **这一版修的是一个「压缩成功、界面上一个字都不显示」的问题。**
