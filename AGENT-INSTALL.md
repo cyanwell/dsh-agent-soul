@@ -136,6 +136,36 @@ node -e "console.log(require.resolve('dsh-yanqing-compaction'))"
 
 这些脚本用 `node:` 前缀的 ESM import，需要 **18+**，建议 **20 或 22**。
 
+### `L1/pkgintegrity` —— 已装插件的 `package.json` 不自洽
+
+**查什么**：入口里每个 `import './x'` 的文件必须真的存在；不存在时还会指出
+「`files` 里也没列这个目录 → **装机必丢**」。
+
+**★★ 为什么这条值得单独查**（用户反馈里踩过三次）：
+
+| 次 | 白名单 | 漏了什么 | 症状 |
+|---|---|---|---|
+| 1 | `peerDependencies` | 没声明宿主包 | **插件不加载、无 crash 日志** |
+| 2 | （id 空间） | 两个包同一 client id | **启动崩溃循环** |
+| 3 | `files` | 漏列 `lib` | import 失败 ⇒ **长得像服务空窗** |
+
+**共同形状：装机时不报错，症状出现在别处，且长得像另一个病。**
+
+**怎么办**：在**那个包**的 `package.json` 的 `files` 里补上缺的目录，然后重装。
+★ 改源码树没用 —— `files` 是包自己的字段，要重新打包/安装才生效。
+
+### `L1/peerdeps` —— `peerDependencies` 没声明宿主包
+
+**查什么**：源码里 `import` 了 `@deepseek-ai/*`，就必须在 `peerDependencies` 里声明。
+
+**为什么**：宿主按 `peerDependencies` 白名单拦截。**缺声明时插件不加载，而且没有 crash 日志** ——
+你会看到一个「装了、但什么都没发生」的插件。
+
+**怎么办**：补进**那个包**的 `peerDependencies`（和 `files` 一样，要重装才生效）。
+
+★ **一条自检**：这条检查如果在装机后仍然红，而你说「我明明改了」——
+那多半是**改了源码树、没重装**。`grep -A2 peerDependencies <profile>/node_modules/<包>/package.json` 看一眼就知道。
+
 ---
 
 ## 4. L2 装配：五个检查
@@ -289,12 +319,13 @@ cp package.json     "package.json.bak-$(date +%Y%m%d%H%M%S)"
 
 | 这里写的 | 可靠性 |
 |---|---|
-| doctor 的 12 项检查 | **本机真跑过**（2026-10-28，见 `30-状态/调研.../21-分层doctor首跑记录.md`） |
+| doctor 的 **14 项**检查 | **本机真跑过**（2026-10-28，见 `30-状态/调研.../21-分层doctor首跑记录.md`） |
 | 「命令能被识别就算成」的验证法 | **真验过**（四个 preset 全部识别） |
-| 四条失败的处理办法 | 逐条对应 doctor 的 `hint`，都来自实测 |
+| 每条失败的处理办法 | 逐条对应 doctor 的 `hint`，都来自实测 |
 | `install.mjs` 的 doctor / apply / rollback | **三个都实跑过**（apply 的路径 bug 是实跑才发现的） |
 | `install.mjs update` | ⚠️ **只验证了「不是 git 仓库」的错误分支**，没真跑过一次 pull |
 | **零件包怎么装** | ★ **我不知道** —— 本机是别人装的，这段故意没写命令 |
+| **新加的两项**（`pkgintegrity` / `peerdeps`） | ★ 首跑就抓到真 bug 和我自己的假警，都写进 README 了 |
 
 **★ 最后一条原则：这份文件里没有一条是「应该有」。写了的，都是跑过的。**
 
