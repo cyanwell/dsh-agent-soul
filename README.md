@@ -283,6 +283,68 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-28 午后 · 压缩段从「四份复制」变成「一份共享源」，且展开后逐字节还原
+
+**这是本轮最后一块，也是前面所有铺垫的目的。**
+
+四个 preset 的 `compaction` group 一直是**复制的**（34 行 × 4）。今天早上那次事故就是这么来的：3 个 preset 复制时漏了 `command-compact-region`，而**没人做过「这三个不需要」的决定**。
+
+**动手前先验了一件事**（不验就拆是赌）：
+
+```
+preset-yanqing-cordis.yml   compaction group: 34 行  raw=5c8a546ba6e66637
+preset-yanqing-distill.yml  compaction group: 34 行  raw=5c8a546ba6e66637
+preset-yanqing-ptc.yml      compaction group: 34 行  raw=5c8a546ba6e66637
+preset-yanqing.yml          compaction group: 34 行  raw=5c8a546ba6e66637
+=== 去重后 1 种 ===
+```
+
+★ **四份逐字节相同** —— 才敢拆。
+
+**做了三步：**
+
+1. `split` —— 抽出共享源 `presets/_shared/compaction.yml`（1877 B，去缩进），四个 preset 原位留一行 `# @include $DIR/_shared/compaction.yml`
+2. `build` 认这行标记，按标记的缩进把共享段展开回去
+3. **验证**：展开后必须还原成原 hash
+
+**验证结果 —— 四个全中：**
+
+```
+✅ preset-yanqing-cordis   一致（679341cc9be3cdd8）
+✅ preset-yanqing-distill  一致（0837b4bc6a6ad33b）
+✅ preset-yanqing-ptc      一致（94f1525dc2bf7775）
+✅ preset-yanqing          一致（4a4bd03e29f6e948）
+```
+
+★ 这四个哈希**和拆分前完全相同**。所以这次重构**没有改变任何一个字节** —— 只是把「四份复制」换成了「一份源 + 展开」。
+
+**体积变化：**
+
+| 文件 | 拆前 | 拆后 |
+|---|---|---|
+| `preset-yanqing.yml` | 9259 B | 7465 B |
+| 四个 preset 合计 | 39,595 B | 33,186 B（+ 共享 1877 B） |
+
+**踩到的一个坑（记下来）：**
+
+第一版 `split` 给共享文件加了 4 行说明注释，`build` 展开时把它们一起插进了 preset → 四个 hash 全不一致。
+
+修法是：展开时**跳过共享文件开头连续的 `#` 行**，但段**内部**的 `#` 注释保留（压缩段里有十几行是解释性注释，那些必须留着）。
+
+★ 教训：**「注释头」和「内容里的注释」在展开时必须分开处理** —— 否则注释会跑进产物，而它看起来像正常内容，不会报错。
+
+**现在的五条命令：**
+
+| 命令 | 干什么 |
+|---|---|
+| `verify` | 只读：目标 profile 的 preset 齐不齐 |
+| `export` | profile → 仓库 |
+| `build` | 仓库 → profile（默认只比对） |
+| `split` | 把共享段抽出来（前提：几份逐字相同） |
+| `register` | 从现成 preset 复制一份改 id/name |
+
+★ 从「改一个零件要改四处」变成「**改一处，build 展开四处，hash 证明没走样**」。
+
 ### 2026-10-28 午后 · `build` 补上闭环：仓库里的 preset 真的能装回去（四个哈希全一致）
 
 **接上一条：`export` 只是单向的。**

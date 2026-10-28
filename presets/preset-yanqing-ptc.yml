@@ -67,40 +67,7 @@
                     Make the plan decision-complete: state the goal and success criteria; group implementation changes by subsystem; identify public API, schema, and data-flow changes; cover edge cases, failure modes, tests, acceptance criteria, and explicit assumptions. Keep it concise enough to review but detailed enough that another engineer can implement it without making design decisions.
 
                     When ready, call exit_plan_mode with the complete plan markdown, starting with a # title. Make exit_plan_mode the only and final tool call in that assistant response: it presents the plan for approval, and implementation begins only in a later step after approval. Do not paste the final plan as a plain reply or ask "should I proceed?" through prose or ask_user_question. If review rejects it, incorporate the feedback and present again. If the review channel is unavailable or aborted, stay in plan mode and ask the user to switch modes manually; do not proceed with implementation.
-          - id: compaction
-            name: cordis:group
-            group: true
-            isolate:
-              # ★★ compaction: true 是 preset 的硬约束，删不得。
-              #   2026-10-27 01:14 试过一次（想放开隔离让 dsh-huanqi 够到 compaction），
-              #   结果所有会话直接 resume failed：
-              #     RemoteError: Preset services require isolate realms: compaction (gateway/internal)
-              #   判据在 dsh-agent-preset 的 leakedServices()：
-              #     preset 子树里注册的服务，一旦发布到 root realm
-              #     （rootIsolate[impl.name] === store key）就判为泄漏，preset 挂载直接抛错。
-              #   要解决「huanqi 拿不到 compaction」，只能从取值路径下手
-              #   （preset 内部走 agent ctx，或由宿主注入），不要动 isolate。
-              compaction: true
-              toolResultPruner: true
-            config:
-              - id: compaction-basic
-                name: 'dsh-yanqing-compaction'
-                config:
-                  summarizationProvider: deepseek-official
-                  summarizationModel: deepseek-flash
-                  # ★ 2026-09-30：兜底线 0.80 → 0.88（与 .agent-presets\yanqing 那份保持一致）。
-                  # 理由与换算见那份文件里的注释；锚点是模型适配器的 contextWindow＝1000000。
-                  thresholdRatio: 0.88
-              - id: command-compact
-                name: '@deepseek-ai/dsh-command-compact'
-              - id: command-compact-region
-                name: 'dsh-yanqing-compact-region'
-              - id: tool-result-pruner
-                name: 'dsh-yanqing-pruner'
-                config:
-                  thresholdChars: 8192
-                  headChars: 4096
-                  tailChars: 1024
+          # @include $DIR/_shared/compaction.yml（源唯一，别在这里改）
           - id: delegation
             name: cordis:group
             group: true

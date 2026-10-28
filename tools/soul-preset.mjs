@@ -148,6 +148,74 @@ if (CMD === 'export') {
 }
 
 // ═══════════════════════════════════════════════════════════════
+if (CMD === 'split') {
+  // 把四个 preset 里那段逐字相同的 compaction group 抽成 _shared/compaction.yml，
+  // 原位留一行 @include 标记。前提已在 2026-10-28 验过：四份 raw hash 相同（5c8a546b…）。
+  const dir = argOf('--from') || join(process.cwd(), 'presets')
+  const sharedDir = join(dir, '_shared')
+  mkdirSync(sharedDir, { recursive: true })
+  const GROUP_ID = argOf('--group') || 'compaction'
+  const MARK = `# @include $DIR/_shared/${GROUP_ID}.yml（源唯一，别在这里改）`
+
+  function findGroup(lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(/^(\s*)-\s+id:\s*(\S+)\s*$/)
+      if (!m || m[2] !== GROUP_ID) continue
+      const indent = m[1].length
+      let end = lines.length
+      for (let j = i + 1; j < lines.length; j++) {
+        const t = lines[j]
+        if (/^\s*-\s+/.test(t) && t.match(/^\s*/)[0].length <= indent) { end = j; break }
+      }
+      return { at: i, end, indent }
+    }
+    return null
+  }
+
+  const crypto = await import('node:crypto')
+  const sha = (s) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16)
+
+  const files = readdirSync(dir).filter((f) => f.endsWith('.yml') && f.startsWith('preset-')).sort()
+  if (files.length === 0) die(`${dir} 里没有 preset-*.yml`)
+
+  // 1) 确认四份相同，取第一份做源
+  const infos = []
+  for (const f of files) {
+    const lines = readFileSync(join(dir, f), 'utf8').replace(/\r\n/g, '\n').split('\n')
+    const g = findGroup(lines)
+    if (!g) die(`${f} 里找不到 - id: ${GROUP_ID}`)
+    const seg = lines.slice(g.at, g.end)
+    infos.push({ f, lines, ...g, seg, hash: sha(seg.join('\n')), indent: g.indent })
+  }
+  const hashes = [...new Set(infos.map((x) => x.hash))]
+  if (hashes.length !== 1) die(`四份不一致（${hashes.length} 种 hash），拒绝拆分：${hashes.join(' / ')}`)
+  console.log(`\n四份 ${GROUP_ID} group 逐字相同（${infos[0].hash}，${infos[0].seg.length} 行，缩进 ${infos[0].indent}）`)
+
+  // 2) 存共享源（去缩进，供任意缩进展开）
+  const base = infos[0].indent
+  const stripped = infos[0].seg.map((l) => (l.length >= base ? l.slice(base) : l))
+  const header = [
+    `# ${GROUP_ID} group —— 唯一的源`,
+    `# ★ 这个文件被四个 preset 共享。改这里，然后跑 soul-preset build 重新展开。`,
+    `# ★ 内容是从本机跑通的 preset 里原样抽出来的，没改一个字（抽的时候四份 hash 全是 ${infos[0].hash}）。`,
+    `# ★ 缩进已去掉 ${base} 格；build 时按目标位置补回。`,
+    '',
+  ].join('\n')
+  writeFileSync(join(sharedDir, `${GROUP_ID}.yml`), header + stripped.join('\n') + '\n', 'utf8')
+  console.log(`写了 ${join(sharedDir, GROUP_ID + '.yml')}（去缩进后 ${stripped.length} 行）`)
+
+  // 3) 四个 preset 原位替换成标记
+  for (const x of infos) {
+    const next = [...x.lines.slice(0, x.at), ' '.repeat(base) + MARK, ...x.lines.slice(x.end)]
+    writeFileSync(join(dir, x.f), next.join('\n'), 'utf8')
+    console.log(`  改 ${x.f}：${x.seg.length} 行 → 1 行标记（L${x.at + 1}）`)
+  }
+  console.log(`\n★ 现在跑 verify 会报「缺 ${GROUP_ID}」——因为还没展开。build 会认这行标记并展开。`)
+  console.log(`★ 展开后必须能还原成 ${infos[0].hash}；还原不了就回滚。`)
+  process.exit(0)
+}
+
+// ═══════════════════════════════════════════════════════════════
 if (CMD === 'build') {
   // 仓库 → profile。与 export 配对，闭合「导出的能装回去」这件事。
   // 默认比对模式（只报差异），--write 才真插。
@@ -160,11 +228,33 @@ if (CMD === 'build') {
   const sha = (s) => crypto.createHash('sha256').update(s.replace(/\r\n/g, '\n')).digest('hex').slice(0, 16)
   const inProfile = new Map(presets.map((p) => [p.id, sha(p.body.join('\n'))]))
 
+  // 展开 `# @include <rel>/<name>.yml` —— 按标记行的缩进把共享片段补回去
+  function expandIncludes(text, baseDir, depth = 0) {
+    if (depth > 4) die('@include 嵌套超过 4 层，可能是循环')
+    const out = []
+    for (const line of text.split('\n')) {
+      const m = line.match(/^(\s*)#\s*@include\s+(\S+?\.yml)/)
+      if (!m) { out.push(line); continue }
+      const [, pad, rel] = m
+      const p = join(baseDir, rel.replace(/^\$DIR\//, ''))
+      if (!existsSync(p)) die(`@include 找不到文件：${p}`)
+      const rawInc = readFileSync(p, 'utf8').replace(/\r\n/g, '\n')
+      // 跳过共享文件**开头**的说明性注释（段内部的 # 注释要保留），
+      // 否则 split 时加的 header 会被一起插进 preset，导致还原不一致。
+      const incAll = rawInc.replace(/\n$/, '').split('\n')
+      let i0 = 0
+      while (i0 < incAll.length && /^\s*#/.test(incAll[i0])) i0++
+      const incLines = incAll.slice(i0)
+      for (const il of incLines) out.push(il === '' ? '' : pad + il)
+    }
+    return out.join('\n')
+  }
+
   console.log(`\n源 = ${inDir}（${files.length} 个）  目标 = ${PROFILE}`)
   const toInsert = []
   for (const f of files) {
     const blockId = f.replace(/\.yml$/, '')
-    const text = readFileSync(join(inDir, f), 'utf8').replace(/\r\n/g, '\n').replace(/\n$/, '')
+    const text = expandIncludes(readFileSync(join(inDir, f), 'utf8'), inDir).replace(/\r\n/g, '\n').replace(/\n$/, '')
     const body = text.split('\n')
     const mine = sha(text)
     const theirs = inProfile.get(blockId)

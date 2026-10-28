@@ -1,0 +1,38 @@
+# compaction group —— 唯一的源
+# ★ 这个文件被四个 preset 共享。改这里，然后跑 soul-preset build 重新展开。
+# ★ 内容是从本机跑通的 preset 里原样抽出来的，没改一个字（抽的时候四份 hash 全是 5c8a546ba6e66637）。
+# ★ 缩进已去掉 10 格；build 时按目标位置补回。
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    # ★★ compaction: true 是 preset 的硬约束，删不得。
+    #   2026-10-27 01:14 试过一次（想放开隔离让 dsh-huanqi 够到 compaction），
+    #   结果所有会话直接 resume failed：
+    #     RemoteError: Preset services require isolate realms: compaction (gateway/internal)
+    #   判据在 dsh-agent-preset 的 leakedServices()：
+    #     preset 子树里注册的服务，一旦发布到 root realm
+    #     （rootIsolate[impl.name] === store key）就判为泄漏，preset 挂载直接抛错。
+    #   要解决「huanqi 拿不到 compaction」，只能从取值路径下手
+    #   （preset 内部走 agent ctx，或由宿主注入），不要动 isolate。
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: compaction-basic
+      name: 'dsh-yanqing-compaction'
+      config:
+        summarizationProvider: deepseek-official
+        summarizationModel: deepseek-flash
+        # ★ 2026-09-30：兜底线 0.80 → 0.88（与 .agent-presets\yanqing 那份保持一致）。
+        # 理由与换算见那份文件里的注释；锚点是模型适配器的 contextWindow＝1000000。
+        thresholdRatio: 0.88
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+    - id: command-compact-region
+      name: 'dsh-yanqing-compact-region'
+    - id: tool-result-pruner
+      name: 'dsh-yanqing-pruner'
+      config:
+        thresholdChars: 8192
+        headChars: 4096
+        tailChars: 1024
