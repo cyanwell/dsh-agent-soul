@@ -30,7 +30,7 @@
  * 5. 不解析 YAML —— 文件里有 !!js process.platform 这种 loader 专有写法，
  *    普通解析器会炸。本脚本一律用文本扫描。
  */
-import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 const HOME = process.env.DSH_HOME || 'D:/AI/dsh/home'
@@ -145,6 +145,41 @@ if (CMD === 'export') {
   console.log(`\n还写了 _manifest.json（${manifest.presets.length} 条）`)
   console.log(`★ 这些是「本机能跑的形状」，进仓库后要能被 build 回插到任意 profile。`)
   process.exit(0)
+}
+
+// ═══════════════════════════════════════════════════════════════
+if (CMD === 'build') {
+  // 仓库 → profile。与 export 配对，闭合「导出的能装回去」这件事。
+  // 默认比对模式（只报差异），--write 才真插。
+  const inDir = argOf('--from') || join(process.cwd(), 'presets')
+  if (!existsSync(inDir)) die(`找不到 ${inDir}（先跑 export）`)
+  const files = readdirSync(inDir).filter((f) => f.endsWith('.yml') && f.startsWith('preset-')).sort()
+  if (files.length === 0) die(`${inDir} 里没有 preset-*.yml`)
+
+  const crypto = await import('node:crypto')
+  const sha = (s) => crypto.createHash('sha256').update(s.replace(/\r\n/g, '\n')).digest('hex').slice(0, 16)
+  const inProfile = new Map(presets.map((p) => [p.id, sha(p.body.join('\n'))]))
+
+  console.log(`\n源 = ${inDir}（${files.length} 个）  目标 = ${PROFILE}`)
+  const toInsert = []
+  for (const f of files) {
+    const blockId = f.replace(/\.yml$/, '')
+    const text = readFileSync(join(inDir, f), 'utf8').replace(/\r\n/g, '\n').replace(/\n$/, '')
+    const body = text.split('\n')
+    const mine = sha(text)
+    const theirs = inProfile.get(blockId)
+    if (!theirs) { console.log(`  ➕ ${blockId}  目标里没有 → 会插入（${body.length} 行）`); toInsert.push({ blockId, body }); }
+    else if (mine !== theirs) { console.log(`  ⚠️  ${blockId}  存在但不一致  仓库 ${mine} / profile ${theirs}`); }
+    else { console.log(`  ✅ ${blockId}  一致（${mine}）`); }
+  }
+
+  if (toInsert.length === 0) { console.log('\n无需插入。'); process.exit(bad === 0 ? 0 : 1) }
+  if (!WRITE) { console.log(`\n[dry-run] 会插 ${toInsert.length} 个。加 --write 才真写。`); process.exit(0) }
+
+  const lastEnd = Math.max(...presets.map((p) => p.end))
+  const all = []
+  for (const t of toInsert) all.push(...t.body)
+  writeBack(lines, lastEnd, all, pkgPath, patchPath, raw)
 }
 
 // ═══════════════════════════════════════════════════════════════

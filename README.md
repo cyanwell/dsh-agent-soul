@@ -283,6 +283,42 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-28 午后 · `build` 补上闭环：仓库里的 preset 真的能装回去（四个哈希全一致）
+
+**接上一条：`export` 只是单向的。**
+
+导出完还得回答一个问题：**仓库里这份，装回去和原来一样吗？** 不一样的话，进仓库的就是个好看的复制品。
+
+补了 `build`（默认比对，`--write` 才插），然后跑了一遍：
+
+```
+源 = presets（4 个）  目标 = desktop
+  ✅ preset-yanqing-cordis   一致（679341cc9be3cdd8）
+  ✅ preset-yanqing-distill  一致（0837b4bc6a6ad33b）
+  ✅ preset-yanqing-ptc      一致（94f1525dc2bf7775）
+  ✅ preset-yanqing           一致（4a4bd03e29f6e948）
+无需插入。
+```
+
+**四个 SHA256 前缀逐一对上。** 这是「preset 终于能进仓库」的硬证据 —— 不是「看起来一样」，是逐字节相同。
+
+★ `build` 默认**只比对不写**。要真插必须 `--write`，且它会走和 `register` 同一条写盘路径（备份 + 复核 bundles 条数 + 无 BOM）。
+
+**现在的四条命令：**
+
+| 命令 | 方向 | 干什么 |
+|---|---|---|
+| `verify` | 只读 | 目标 profile 的 preset 齐不齐、包能不能 resolve |
+| `export` | profile → 仓库 | 把本机能跑的形状提取出来 |
+| `build` | 仓库 → profile | 比对（默认）/ 插入（`--write`） |
+| `register` | 新建 | 从现成 preset 复制一份改 id/name |
+
+★ **`export` 和 `build` 是同一个方向的两端**，而 `build` 的比对模式**就是一个关掉写权限的 export** —— 这两个命令互相当对方的测试。
+
+**还没做的：拆 `_shared/`。**
+
+四个 preset 现在各存一份完整块，压缩段是四份复制。要真正防漂，得把它抽成一份共享源再展开 —— 但那是重构，**得先有基准**（现在有了）。
+
 ### 2026-10-28 午后 · `presets/` 里第一次有了 preset —— 从「只活在部署现场」变成「可版本化」
 
 **接上一条：为什么要导出。**
