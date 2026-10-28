@@ -257,9 +257,25 @@ cp package.json     "package.json.bak-$(date +%Y%m%d%H%M%S)"
 
 ## 7. 装不上时，先看这个
 
-**如果你卡住了，去这两个地方找同类问题：**
+### ★ 崩了去哪找日志（最常被问、且最难找）
 
-- `https://github.com/cyanwell/dsh-agent-soul/issues` —— 17 条已知问题，按类型分：
+**启动崩溃时 DSH 把报告写到：**
+
+```
+%APPDATA%\@deepseek-ai\dsh-desktop\logs\crash-*.log
+```
+
+（Linux / macOS 对应 Electron 的 `app.getPath("logs")`。）
+
+**★ 这个路径不在 Cache、不在 Storage** —— 它是从 asar 里的
+`writeCrashReport(app.getPath("logs"))` 反推出来的。
+
+**★ 崩了的人第一反应是反复重启 —— 那是错的**，因为每重启一次，掉出来的插件越多。
+**先去看日志，再重启。**
+
+### 已知问题
+
+- `https://github.com/cyanwell/dsh-agent-soul/issues` —— 17 条，按类型分：
   **装不上**（#18 / #5 / #12）、**装上了崩**（#4 / #2）、**功能不符预期**（9 条）、**文档不清**（2 条）
 - 本仓库 `README.md` 的「更新记录」—— 每条都写了「为什么改、怎么验的」
 

@@ -17,7 +17,8 @@
     "./package.json": "./package.json"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-compaction-basic": "*"
+    "@deepseek-ai/dsh-compaction-basic": "*",
+    "@deepseek-ai/dsh-compaction": "*"
   },
   "dsh": {
     "bundle": {

@@ -147,6 +147,106 @@ check('L1', 'official', '地基层官方包在 profile 里可见（仅提示）'
   }
 })
 
+check('L1', 'pkgintegrity', '已装插件的 package.json 自洽（files 覆盖相对 import）', () => {
+  // ★★ 这条来自用户反馈（此胡桃 2026-10-24）的第一次「白名单漏一项静默失效」：
+  //   npm 的 `files` 是「只发这些」不是「排除这些」—— 入口 import 了 './lib/x.js'
+  //   而 files 没列 lib，装机后目录里就没有它，import 失败。
+  //   症状：插件静默不生效，长得和「cordis 服务空窗」一模一样，查半天。
+  if (!existsSync(nmDir)) return { ok: false, detail: `跳过（没有 node_modules）`, hint: '' }
+
+  const broken = []
+  let scanned = 0
+  let dirs = []
+  try { dirs = readdirSync(nmDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name) } catch { return { ok: false, detail: '读不了 node_modules', hint: '' } }
+
+  for (const d of dirs) {
+    const pkgFile = join(nmDir, d, 'package.json')
+    if (!existsSync(pkgFile)) continue
+    let j
+    try { j = JSON.parse(readFileSync(pkgFile, 'utf8')) } catch { continue }
+    const name = String(j.name || '')
+    // ★★ 2026-10-28 实测纠正：第一版只过滤 `includes('dsh-')`，把 plugins-market / free-search
+    //   这些**第三方包**也扫了，报出 51 处 —— 那些是「用 exports 字段而不是 main」的正常包，
+    //   或者本来就靠构建产物发布的包。**它们不是我们的责任，报了只会淹没真问题。**
+    //   现在只扫我们自己的零件。
+    if (!name.startsWith('dsh-yanqing-') && !name.startsWith('dsh-agent-')) continue
+    // ★ 同理：优先认 exports["."]，认不到才退回 main —— 现代包普遍用 exports。
+    const exp = j.exports
+    const expMain = typeof exp === 'string' ? exp : (exp && typeof exp === 'object' ? (exp['.'] || exp.default) : null)
+    const main = (typeof expMain === 'string' ? expMain : null) || j.main || 'index.js'
+    const entry = join(nmDir, d, main)
+    if (!existsSync(entry)) { broken.push(`${name}: 入口 ${main} 不存在`); continue }
+    scanned++
+
+    // 找出入口里所有 './...' 相对 import，逐个确认文件在
+    let src = ''
+    try { src = readFileSync(entry, 'utf8') } catch { continue }
+    const rels = [...new Set([...src.matchAll(/from\s+['"](\.\/[^'"]+)['"]/g)].map((m) => m[1]))]
+    for (const r of rels) {
+      const target = join(nmDir, d, r.replace(/^\.\//, ''))
+      if (!existsSync(target)) {
+        // ★ 关键判断：files 里有没有可能漏了它所在的目录
+        const dirOfRel = r.replace(/^\.\//, '').split('/')[0]
+        const filesField = Array.isArray(j.files) ? j.files : null
+        const listed = !filesField || filesField.some((f) => f === dirOfRel || f.startsWith(dirOfRel + '/') || f === '*' )
+        broken.push(`${j.name}: 入口 import '${r}' 但文件不存在${listed ? '' : `（files 里也没列 "${dirOfRel}" → 装机必丢）`}`)
+      }
+    }
+  }
+
+  if (broken.length) {
+    return {
+      ok: false,
+      detail: `${broken.length} 处：${broken.slice(0, 4).join('；')}${broken.length > 4 ? ' …' : ''}`,
+      hint: '这是「装机时不报错、运行时不加载」的典型。修法：在该包 package.json 的 files 里补上缺的目录，重装。',
+    }
+  }
+  return { ok: true, detail: `扫描 ${scanned} 个包，入口与 files 自洽` }
+})
+
+check('L1', 'peerdeps', '插件包的 peerDependencies 覆盖了宿主包', () => {
+  // ★★ 这条来自同一个反馈的第二次「白名单漏一项」：
+  //   package.json 没声明 @deepseek-ai/* 时，宿主按白名单拦截 ⇒ 插件不加载、且无 crash 日志。
+  //   实测我们仓库里 compaction 已声明 @deepseek-ai/dsh-compaction-basic，这条用来防回归。
+  if (!existsSync(nmDir)) return { ok: false, detail: '跳过（没有 node_modules）', hint: '' }
+
+  const problems = []
+  let scanned = 0
+  let dirs = []
+  try { dirs = readdirSync(nmDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name) } catch { return { ok: false, detail: '读不了 node_modules', hint: '' } }
+
+  for (const d of dirs) {
+    const pkgFile = join(nmDir, d, 'package.json')
+    if (!existsSync(pkgFile)) continue
+    let j
+    try { j = JSON.parse(readFileSync(pkgFile, 'utf8')) } catch { continue }
+    const name = String(j.name || '')
+    if (!name.startsWith('dsh-yanqing-') && !name.startsWith('dsh-agent-')) continue
+    scanned++
+
+    // 源码里 import 了 @deepseek-ai/* 却没在 peerDependencies 里声明
+    const main = j.main || 'index.js'
+    const entry = join(nmDir, d, main)
+    if (!existsSync(entry)) continue
+    let src = ''
+    try { src = readFileSync(entry, 'utf8') } catch { continue }
+    const hostImports = [...new Set([...src.matchAll(/from\s+['"](@deepseek-ai\/[^'"]+)['"]/g)].map((m) => m[1]))]
+    if (!hostImports.length) continue
+    const peer = j.peerDependencies || {}
+    const missing = hostImports.filter((h) => !(h in peer))
+    if (missing.length) problems.push(`${name} 未声明 ${missing.join(', ')}`)
+  }
+
+  if (problems.length) {
+    return {
+      ok: false,
+      detail: problems.join('；'),
+      hint: '宿主按 peerDependencies 白名单拦截 —— 缺声明时插件不加载、且没有 crash 日志。补进该包的 peerDependencies。',
+    }
+  }
+  return { ok: true, detail: `扫描 ${scanned} 个零件，peerDependencies 齐全` }
+})
+
 check('L1', 'nodever', 'node 版本够', () => {
   const m = process.versions.node.match(/^(\d+)\.(\d+)/)
   const major = Number(m?.[1] || 0)

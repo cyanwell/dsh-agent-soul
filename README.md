@@ -283,6 +283,40 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-28 午后 · doctor 补两条「白名单漏一项」检查（来自用户反馈）
+
+**背景**：用户的 bug 反馈里有一条反复出现三次的模式 ——
+**装机时不报错、症状出现在别处、且长得像另一个病。**
+
+| 次 | 白名单 | 漏了什么 | 症状 |
+|---|---|---|---|
+| 1 | `peerDependencies` | 没声明 `@deepseek-ai/*` | 宿主按白名单拦截 ⇒ **插件不加载、无 crash 日志** |
+| 2 | （id 空间） | 两个包注册同一 client id | duplicate ⇒ **启动崩溃循环** |
+| 3 | `files` | 漏列 `lib` | 装机丢目录 ⇒ import 失败 ⇒ **长得像服务空窗** |
+
+**doctor 新增两项：**
+
+- **`L1/pkgintegrity`** —— 已装插件的 `package.json` 自洽：入口里每个 `import './x'` 的文件必须存在；
+  不存在时还会指出「`files` 里也没列这个目录 → 装机必丢」
+- **`L1/peerdeps`** —— 源码 import 了 `@deepseek-ai/*`，就必须在 `peerDependencies` 里声明
+
+**★ 首跑抓到一个真 bug，也抓到一个我自己的假警：**
+
+- **真 bug**：`plugins/compaction` 的 `peerDependencies` 只声明了 `dsh-compaction-basic`，
+  但 `index.js` 里还 import 了 **`@deepseek-ai/dsh-compaction`** —— **已补**。
+  （★ 这就是第 1 次那个模式，第三次在同一个仓库里出现。）
+- **假警**：`pkgintegrity` 第一版只过滤 `includes('dsh-')`，把 `plugins-market` / `free-search`
+  这些**第三方包**也扫了，报出 **51 处** —— 那些是「用 `exports` 而不是 `main`」的正常包。
+  **已收紧到只扫 `dsh-yanqing-*` / `dsh-agent-*`，且优先认 `exports["."]`。**
+
+★★ **判据（第三次同型，值得写死）**：
+**一条检查要能回答「这条失败时，用户照着做的动作会不会是错的？」**
+答「会」→ 它就不能是 error，最多是 info。
+假的好消息和假的坏消息，代价一样高。
+
+**★ 装机版需重装才生效** —— 改的是仓库源码，`profile/node_modules` 里那份还是旧的，
+所以再跑 doctor 仍会报 `peerdeps`。这是正确状态，不是没修。
+
 ### 2026-10-28 午后 · 补上「安装层」的两个交付物：分层 doctor + 给 agent 读的说明书
 
 **背景**：26 条用户反馈里有 10 条是「装不上 / 装上了不工作」。之前这个仓库只有**零件**，
