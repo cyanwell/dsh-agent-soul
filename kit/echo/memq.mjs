@@ -262,7 +262,16 @@ const readJsonl = (f) => {
 if (cmd === "now") {
   const d = new Date();
   const wd = ["日", "一", "二", "三", "四", "五", "六"][d.getDay()];
-  console.log(`现在是 ${iso(d)}（星期${wd}，Asia/Shanghai）`);
+  // ★ 时区标签跟随系统，不再写死 Asia/Shanghai（GitHub #19，2026-10-30）
+  //   原来的问题是：时间数字本身对（本地时间），但标签永远是「Asia/Shanghai」。
+  //   非中国时区的用户会看到「我现在在上海」—— 数字可信、标签不可信，差多少小时只有用户知道。
+  //   `resolvedOptions().timeZone` 拿不到时（极老的 node / 异常运行时）退回「本地时区」，
+  //   不给一个**错的**具体名字 —— 错的名字比没有更坏。
+  const tz = (() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "本地时区" }
+    catch { return "本地时区" }
+  })();
+  console.log(`现在是 ${iso(d)}（星期${wd}，${tz}）`);
   let st = {};
   try { st = JSON.parse(fs.readFileSync(STATE, "utf8")); } catch {}
   if (st.lastTurnAt) {

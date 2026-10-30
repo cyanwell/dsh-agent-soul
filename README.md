@@ -692,6 +692,30 @@ D:/AI/dsh/node_modules 那棵 **CLI 形态的树**；profiles/desktop/node_modul
 
 ---
 
+### 2026-10-30 深夜十 · memq 的时区标签不再写死（GitHub #19）
+
+报告人（JSON-LI-ai）指出：`memq.mjs now` 打印的时区标签永远写着 `Asia/Shanghai`，
+**而时间数字本身是本地时间（对的）** —— 只有标签错。他在 UTC+11，差 3 小时。
+
+**这条我完全看不出来**：本机解析就是 `Asia/Shanghai`，和写死值一模一样。
+★ 也就是说，**只有非中国时区的用户才会撞上**，而我这台机器永远不会。
+
+修法（`kit/echo/memq.mjs`，就是 `now` 那条命令）：
+
+```js
+const tz = (() => {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "本地时区" }
+  catch { return "本地时区" }
+})();
+console.log(`现在是 ${iso(d)}（星期${wd}，${tz}）`);
+```
+
+★ **拿不到时退回「本地时区」，不给一个错的具体名字** —— 错的名字比没有更坏。
+
+**自检**：`node tools/verify-packaging.mjs` → **122 / 123**。
+
+---
+
 ### 2026-10-28 午后 · doctor 补两条「白名单漏一项」检查（来自用户反馈）
 
 **背景**：用户的 bug 反馈里有一条反复出现三次的模式 ——
