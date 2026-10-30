@@ -755,7 +755,20 @@ function checkHuanqi(logs, deep) {
   //   ★ 判据换成换气自己的账本：continuations / circuitBreaks / anomalies。
   //     （状态文件在 <DSH_HOME>/state/dsh-huanqi.json，由 SESSIONS 反推；
   //       没装换气或从没跑过 → 读不到 → hqFired 0 → 行为与旧版完全一致。）
-  const HQ_STATE = SESSIONS ? path.join(path.dirname(SESSIONS), "state", "dsh-huanqi.json") : null;
+  // ★ 找换气的账本。三个候选按可靠度排序，而且**逐个试读**——
+  //   只看路径存不存在不够：路径在、文件坏了的情况会让后面的读取全部抛错。
+  //   判据是「能解析出 stats」，不是「这个名字存在」。
+  const HQ_STATE = (() => {
+    const cands = [
+      process.env.DSH_HOME ? path.join(process.env.DSH_HOME, "state", "dsh-huanqi.json") : null,
+      SESSIONS ? path.join(path.dirname(SESSIONS), "state", "dsh-huanqi.json") : null,
+      path.join(process.cwd(), "dsh-huanqi.json"),
+    ].filter(Boolean)
+    for (const f of cands) {
+      try { if ((JSON.parse(fs.readFileSync(f, "utf8")) || {}).stats) return f } catch { /* 读不到就试下一个 */ }
+    }
+    return cands[0] || null
+  })()
   let hqStats = null;
   if (HQ_STATE) {
     try { hqStats = (JSON.parse(fs.readFileSync(HQ_STATE, "utf8")) || {}).stats || null; } catch {}
@@ -931,7 +944,7 @@ function checkSelf(logs, deep) {
     // ★★★ 2026-10-23 四修：这里**不许报 error** —— 因为「日志里没有」不等于「没注入」。
     //
     //   两条推送通道，只有一条落日志：
-    //     ① runtime-context 快照的 sections[]  —— 落日志（本机 dsh-yanqing-memory 走这条）
+    //     ① runtime-context 快照的 sections[]  —— 落日志（装了 dsh-agent-memory / dsh-yanqing-memory 时走这条）
     //     ② ctx.systemPrompt.context()          —— **不落日志**
     //        （agent-soul 自带的 plugins/memory 就是走这条：name: 'agent:self'）
     //   实测依据：本会话日志里 system/message 0 条、request/header 只有
@@ -977,7 +990,7 @@ function checkHeartbeat() {
     //     所以给 warn 而不是 error，把判断权留给人。
     return {
       id: "heartbeat", label: "心跳（自律神经）", status: "warn",
-      detail: "没有心跳目录 —— 这一层可选，没装是正常的。装过的话，那就是它停了",
+      detail: "没有心跳目录 —— 这一层可选，且**本仓库不提供**心跳零件（要自己建定时任务）。没装是正常的",
       evidence: { dir: HEARTBEAT_DIR, installed: false },
     };
   }

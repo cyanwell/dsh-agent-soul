@@ -397,6 +397,37 @@ import 阶段就失败」。核对源码后确认他的根因分析成立，但�
 
 **自检**：`node tools/verify-packaging.mjs` → **121 / 122**。
 
+### 2026-10-30 深夜三 · 两个 `echo-doctor.mjs` 副本终于一致了
+
+**先说结论**：issue #1 和 #3 的**代码修复 10-23 / 10-25 就做完了**，不需要再改。
+`detectExternalCompaction()` 在，换气判据也换成了读 `dsh-huanqi.json` 的账本。
+**但这两个修好的版本只落在 `kit/echo/` 里一半，`plugins/echo/` 落后了 6 行。**
+
+**这才是真问题**：仓库里有两份 `echo-doctor.mjs`，内容不同。
+
+| 副本 | 用途 | 当时状态 |
+|---|---|---|
+| `kit/echo/echo-doctor.mjs` | 独立发行版 / GitHub Actions | 更新 |
+| `plugins/echo/echo-doctor.mjs` | echo 插件自带的那份 | **落后 6 行** |
+
+**用户不知道哪份是准的**，而两份都叫同一个名字。这次把两边拉齐，并顺手把劣的那半提升：
+
+1. **`HQ_STATE` 的三候选查找** —— 原来只有 `SESSIONS` 反推一条路；现在按可靠度排：
+   `$DSH_HOME/state/` → `SESSIONS` 反推 → `cwd`，而且**逐个试读**。
+   ★ 关键判断是「能解析出 `stats`」而不是「路径存在」——
+   路径在、文件坏了的情况，会让后面的读取全部抛错。
+2. **心跳目录提示** —— 采用更完整的那句（说清「本仓库不提供心跳零件，要自己建定时任务」）。
+3. **注释里的包名** —— `本机 dsh-yanqing-memory` 改成中性表述，
+   两套安装（本机专属 / 发布版）读起来都不别扭。
+
+**结果**：`diff plugins/echo/echo-doctor.mjs kit/echo/echo-doctor.mjs` → **0 行差异**。
+
+**顺手学到的一点**：`kit/` 那份的 `HQ_STATE` 原来是**一行 400 多字符的压缩写法**。
+逻辑是对的，但那种写法没法 review —— 改成多行之后，**「逐个试读」这个意图一眼能看见**。
+压缩代码不是简洁，是把判断藏起来。
+
+**自检**：`node tools/verify-packaging.mjs` → **121 / 122**。
+
 ---
 
 ### 2026-10-28 午后 · doctor 补两条「白名单漏一项」检查（来自用户反馈）
