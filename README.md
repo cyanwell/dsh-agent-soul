@@ -552,6 +552,35 @@ issue 页面上一个字没有，别人看还是 5 个 open。**
 **自检**：`node tools/verify-packaging.mjs` → **122 / 123**
 （通过项从 121 涨到 122，因为多了这条；剩下那个是 `README 有 2026-10-22 的更新记录`，历史项）。
 
+### 2026-10-30 深夜七 · `huanqi-panel` 里的旧包名清干净了（含一处「注释说错名字」）
+
+**先说最要紧的那处**：`client.js:12` 的注释原本写着
+
+> `id 必须等于**包名** dsh-yanqing-huanqi-panel`
+
+**而实际包名是 `dsh-agent-huanqi-panel`，`:16` 的 `id` 也是它。**
+
+**这比没有注释更坏** —— 它把「那个会导致整个界面打不开的致命坑」说成了错误的名字。
+谁照着这句去改，改出来的正是 bug 本身。已改成实际值，并在注释里写明「这段原来写的是错的」。
+
+**一共改了 6 处：**
+
+| 文件 | 改了什么 |
+|---|---|
+| `client.js:1` | 首行标题 `dsh-yanqing-huanqi-panel` → `dsh-agent-huanqi-panel` |
+| `client.js:12` | 注释里的包名（上面那处） |
+| `index.js:561` | 日志前缀 `[dsh-yanqing-huanqi-panel]` → 实际包名 |
+| `README.md:1` | 标题 |
+| `README.md:11` | 「装到了哪」的路径示例写成 `<包名>`，并补一句 ★ **目录名必须 == package.json 的 name** |
+| `README.md:112` / `:126` | 脚本示例里的路径（去掉写死的 `D:\AI\dsh-tools\...`） |
+
+★ **第 5 处值得单说**：原来的写法是
+`node_modules\dsh-yanqing-huanqi-panel\` —— **一个具体值**。
+但「装到目录里叫什么」取决于你怎么装，写死一个具体值本身就是误导。
+现在写成 `<包名>`，并把那条铁律直接摆在那儿：**目录名必须等于 package.json 的 name，否则 client.js 的 id 对不上、整个界面打不开。**
+
+**自检**：`node tools/verify-packaging.mjs` → **122 / 123**。
+
 ---
 
 ### 2026-10-28 午后 · doctor 补两条「白名单漏一项」检查（来自用户反馈）

@@ -1,4 +1,4 @@
-# dsh-yanqing-huanqi-panel · 换气设置面板
+# dsh-agent-huanqi-panel · 换气设置面板
 
 > 在 DSH 设置面板里给**换气插件（dsh-huanqi）**开一页，能调它的参数、能看到实时延续额度。
 > 2026-10-13 建（爀曦：「还剩下一个换气插件啦，上次我们换气插件的参数设置还没有做进设置面板里呢，我们把这个收尾啦」）。
@@ -7,8 +7,8 @@
 
 | | 路径 |
 |---|---|
-| 源码 | `D:\AI\dsh-tools\dsh-yanqing-huanqi-panel\` |
-| 装到了哪 | `<DSH_HOME>\profiles\desktop\node_modules\dsh-yanqing-huanqi-panel\` |
+| 源码 | `<本仓库>/plugins/huanqi-panel/` |
+| 装到了哪 | `<DSH_HOME>\profiles\desktop\node_modules\<包名>\` —— 发布名 **dsh-agent-huanqi-panel**；装到目录里叫什么取决于你怎么装。★ 目录名必须 == package.json 的 name，否则 client.js 的 id 对不上、整个界面打不开 |
 | 它读写的配置 | `<DSH_HOME>\profiles\desktop\cordis.patch.yml` 里 `- set: - id: huanqi` → `config:` 段 |
 | 实时额度账本 | `<DSH_HOME>\state\dsh-huanqi.json` |
 | 面板入口 | 设置 → **换气**（order 64，在「启动动画」之后） |
@@ -108,14 +108,14 @@ enum 的读回值能在 `options` 里找到。这条命令是这次事故留下�
 `profile "desktop" is managed exclusively by the Electron application`）。手动两步：
 
 ```powershell
-$src = "D:\AI\dsh-tools\dsh-yanqing-huanqi-panel"
-$dst = "<DSH_HOME>\profiles\desktop\node_modules\dsh-yanqing-huanqi-panel"
+$src = "<本仓库>\plugins\huanqi-panel"
+$dst = "<DSH_HOME>\profiles\desktop\node_modules\dsh-agent-huanqi-panel"
 New-Item -ItemType Directory -Path $dst -Force | Out-Null
 foreach ($f in @("package.json","cordis.patch.yml","index.js","client.js")) { Copy-Item "$src\$f" "$dst\$f" -Force }
 ```
 
 然后往 `<DSH_HOME>\profiles\desktop\package.json` 的 `dsh.profile.bundles` 数组里加一项
-`"dsh-yanqing-huanqi-panel"`（**用 node 的 JSON.parse/stringify 改，别用 PowerShell 的 ConvertFrom-Json**；
+`"dsh-agent-huanqi-panel"`（**用 node 的 JSON.parse/stringify 改，别用 PowerShell 的 ConvertFrom-Json**；
 写完再 JSON.parse 读回验一次）。重启。
 
 ## 验收（重启后一条命令全跑完）
@@ -123,7 +123,7 @@ foreach ($f in @("package.json","cordis.patch.yml","index.js","client.js")) { Co
 ```powershell
 $py = "python"
 $env:PYTHONIOENCODING = "utf-8"
-& $py D:\AI\dsh-tools\dsh-yanqing-huanqi-panel\_verify.py
+& $py <本仓库>\plugins\huanqi-panel\_verify.py
 ```
 
 它做七件事：读 6 个参数 → 读实时额度 → **改一个值再看文件差多少字节** → 改回去比对 MD5 →

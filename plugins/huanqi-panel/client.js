@@ -1,4 +1,4 @@
-// dsh-yanqing-huanqi-panel · 客户端半（设置面板里的「换气」那一页）
+// dsh-agent-huanqi-panel · 客户端半（设置面板里的「换气」那一页）
 //
 // ★ 挂载点的三件事（都踩过，别再改回去）：
 //   1. `exports.inject = ["slots"]` **必须写** —— 少了它：Host 照报 running，浏览器里一行不跑、零报错。
@@ -9,8 +9,11 @@
 //                POST /yanqing-huanqi/api/config（写，走字节级 YAML 编辑）
 
 window.__ModuleLoader__.load({
-  /* ★★ 2026-10-26（砚青落）：id 必须等于**包名** dsh-yanqing-huanqi-panel。
-   *   写成 dsh-agent-huanqi-panel 会和部署包名对不上 →
+  /* ★★ 2026-10-26（砚青落）；2026-10-30 更正包名：
+   *   id 必须等于**包名** dsh-agent-huanqi-panel。
+   *   ★ 这段注释原来写的正是 dsh-yanqing-huanqi-panel —— 也就是那个致命坑的名字本身：
+   *     注释把正确做法说成了错误的名字，比没有注释更坏。已改成实际值。
+   *   写成别的名字会和部署包名对不上 →
    *   client-modules 报 "loaded without registering" → 整个 web boot 批次不激活 →
    *   界面弹「应用无法启动」。package.json 的 name 已同步成同一个值。 */
   id: "dsh-agent-huanqi-panel",

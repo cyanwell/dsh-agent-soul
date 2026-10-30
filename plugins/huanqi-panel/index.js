@@ -558,7 +558,7 @@ export function apply(ctx) {
     }
   })
 
-  ctx.logger?.info?.('[dsh-yanqing-huanqi-panel] 路由已挂：/yanqing-huanqi/api/{health,state,preview,config}')
+  ctx.logger?.info?.('[dsh-agent-huanqi-panel] 路由已挂：/yanqing-huanqi/api/{health,state,preview,config}')
 }
 
 // ★ 把三个纯函数导出，**为了能在不重启 DSH 的情况下直接对它们做自检**：
