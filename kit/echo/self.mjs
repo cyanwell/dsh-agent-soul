@@ -31,7 +31,7 @@ const META = path.join(HUB, "index/meta.json");
 const IDXW = path.join(HUB, "index/words.jsonl");
 const SESSIONS = CFG.SESSIONS;
 // ★ 预算：注入用的一页。
-//   2026-09-27 由 6144 提到 12288 —— 爀曦定的架构：**SELF 是 AGENTS.md 的缓冲池**。
+//   2026-09-27 由 6144 提到 12288 —— 作者定的架构：**SELF 是 AGENTS.md 的缓冲池**。
 //   AGENTS.md 走指令预算，**满了会静默丢，而且「最宽泛的先丢」**（先丢的正是 §0/§7 这类总纲）；
 //   本页走推送插件，**不会静默消失**，所以它是灵敏度更低、自由度更大的那一侧 ——
 //   最不能丢的东西（硬线 / 身份判据 / 门）在这里留一份保险。
