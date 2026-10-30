@@ -79,9 +79,23 @@ export function apply(ctx) {
   ctx.on('system-prompt/assemble', async (assembly, assembleContext, next) => {
     const out = await next()
     try {
-      out.contexts = (Array.isArray(out.contexts) ? out.contexts : []).concat([
-        { name: 'mnemon-projection-probe', text: render() },
-      ])
+      /* ★★★ 2026-10-30 修「探针逐字重复」（GitHub #22）：
+       *
+       * 原来是无条件 `concat([{ name: 'mnemon-projection-probe' ... }])`。
+       * 只要这个 assemble 钩子在同一条链上被走到两次，就会追加两份 ——
+       * 而实测它确实会走到两次（system prompt 的装配不只有一个阶段）。
+       * 于是每轮白白多花约 300 token，且**一模一样的两块连着出现**，
+       * 看起来像坏了，实际是重复注入。
+       *
+       * ⇒ 做幂等：**追加前先剔掉同名 context**，无论走到几次，最终只留一份。
+       *   判据用 `name`（这是我们自己起的名字，宿主不会占用）。
+       *   ★ 之所以不改成「只走第一次」：那样要引入状态，而状态会和热重载打架；
+       *     幂等是**无状态的**，重排、重入、多阶段都不影响结果。
+       */
+      const NAME = 'mnemon-projection-probe'
+      out.contexts = (Array.isArray(out.contexts) ? out.contexts : [])
+        .filter((c) => !(c && c.name === NAME))
+        .concat([{ name: NAME, text: render() }])
     } catch (e) {
       console.error('[dsh-agent-mnemon-probe] assemble hook failed: ' + String((e && e.message) || e))
     }

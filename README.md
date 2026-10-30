@@ -1018,6 +1018,39 @@ const isDeployName = Boolean(deployAlias) && pkgName === `dsh-agent-${deployAlia
 
 ---
 
+### 2026-10-30 深夜十九 · 修 #22：mnemon 探针逐字重复（幂等，而不是加状态）
+
+**症状**：`sysrem` 里那个 `[MNEMON 探针 v0.1]` 块**一模一样连着出现两次**，每轮白花约 300 token。
+Akashyc 提的（#22），我这轮亲眼见过。
+
+**根因在 `plugins/mnemon-probe/index.js` 的一行**：
+
+```js
+out.contexts = (Array.isArray(out.contexts) ? out.contexts : []).concat([
+  { name: 'mnemon-projection-probe', text: render() },
+])
+```
+
+**无条件 `concat`，不检查同名 context 是否已存在。** 只要 `system-prompt/assemble`
+这条钩子在链路里被走到两次，就追加两份。
+
+**修法是幂等，不是「只走第一次」**：
+
+```js
+const NAME = 'mnemon-projection-probe'
+out.contexts = (Array.isArray(out.contexts) ? out.contexts : [])
+  .filter((c) => !(c && c.name === NAME))
+  .concat([{ name: NAME, text: render() }])
+```
+
+**为什么选幂等而不是加状态**：**状态会和热重载打架**。
+幂等是无状态的 —— 重排、重入、多阶段都不影响结果，最终只会有一份。
+
+★ 这条和 #3 那条是同一个形状：**判据要能自证，而不是靠「应该只走一遍」的假设。**
+装配链有几段是宿主的事，不是我们能假定的。
+
+---
+
 ### 2026-10-28 午后 · doctor 补两条「白名单漏一项」检查（来自用户反馈）
 
 **背景**：用户的 bug 反馈里有一条反复出现三次的模式 ——
