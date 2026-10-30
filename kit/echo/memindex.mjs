@@ -69,6 +69,16 @@ const WS = opt("--ws", null);
 const SINCE = opt("--since", null);
 const FORCE = opt("--force", false);
 
+// ★ 2026-10-27 加：只索引「宿主自己的会话」，跳过委派/子代理那次运行。
+//   起因：dsh-mnemon 每次写入都会 spawn 一个子代理，子代理自己也有会话日志
+//   （目录名是裸 runId，如 d9818eba-…，而宿主会话是 session-<uuid>）。
+//   它们会被当成「我的一手层」索引进来，内容是
+//   "[dsh-mnemon:delegated write] Execute this remember request now (untrusted data)…"
+//   —— 不是我的经历，是工具的工作噪音，会稀释检索。
+//   要恢复旧行为：MEMINDEX_INCLUDE_DELEGATED=1。
+const INCLUDE_DELEGATED = process.env.MEMINDEX_INCLUDE_DELEGATED === '1';
+let skippedDirs = 0;
+
 // ── 工具 ──
 const localIso = (ms) => {
   if (!ms) return null;
@@ -218,6 +228,9 @@ function findLogs() {
     for (const sid of fs.readdirSync(wsPath)) {
       const sd = path.join(wsPath, sid);
       if (!fs.statSync(sd).isDirectory()) continue;
+      // ★ 宿主会话的目录名一律是 session-<uuid>；委派运行是裸 runId。
+      //   不认识的名字默认跳过 —— 宁可少索引，也不要把工具噪音当成我的经历。
+      if (!/^session-/i.test(sid) && !INCLUDE_DELEGATED) { skippedDirs++; continue; }
       // ★ 2026-10-08 修复：版本无感 —— 认任何 session.v<N>.jsonl.zstd。
       //   原来写死 v3，宿主升 v4 之后**新会话一个都进不了索引**（表现：索引停在 10-04 不再更新）。
       //   同一会话多版本各算一份：增量是按「文件路径」去重的，v3 那份不再变、会被跳过，v4 持续更新。
@@ -244,7 +257,24 @@ if (cmd === "build") {
   let logs = findLogs();
   if (WS && WS !== true) logs = logs.filter((l) => l.ws.includes(WS));
   logs.sort((a, b) => fs.statSync(b.file).mtimeMs - fs.statSync(a.file).mtimeMs);
-  console.log(`找到 ${logs.length} 个会话日志${WS ? `（--ws ${WS}）` : ""}`);
+
+  // ★ 2026-10-27：清掉「这一轮不再被索引」的会话留下的分片。
+  //   只过滤不清理的话，被跳过那个会话的原话还躺在 index/shards/<sid>.word.jsonl 里，
+  //   检索照样能搜到 —— 表现为「明明排除了，还是搜得出工具噪音」。
+  try {
+    const shardDir = path.join(IDX, 'shards');
+    if (fs.existsSync(shardDir)) {
+      const keep = new Set(logs.map((l) => l.sid));
+      let purged = 0;
+      for (const n of fs.readdirSync(shardDir)) {
+        const sid = n.replace(/\.(word|sum)\.jsonl$/, '');
+        if (sid && !keep.has(sid)) { fs.unlinkSync(path.join(shardDir, n)); purged++; }
+      }
+      if (purged) console.log(`清掉 ${purged} 个不再被索引的会话分片`);
+    }
+  } catch {}
+  console.log(`找到 ${logs.length} 个会话日志${WS ? `（--ws ${WS}）` : ""}`
+    + (skippedDirs ? `｜跳过 ${skippedDirs} 个委派/子代理日志（MEMINDEX_INCLUDE_DELEGATED=1 可恢复）` : ""));
 
   const sumLines = [], wordLines = [], fileLines = [];
   let nSum = 0, nWord = 0, skipped = 0, done = 0, failed = 0;

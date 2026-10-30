@@ -156,6 +156,7 @@ try {
   const built = new Date(meta.builtAt);
   const ageMin = Math.round((now - built) / 60000);
   // 会话日志数量现在是多少（索引说扫了几个）
+  const INCLUDE_DELEGATED_SELF = process.env.MEMINDEX_INCLUDE_DELEGATED === "1";
   let nLogs = 0;
   for (const w of fs.readdirSync(SESSIONS)) {
     const wp = path.join(SESSIONS, w);
@@ -163,6 +164,10 @@ try {
     // ★ 2026-10-08 修复：原来只认 "session.v3.jsonl.zstd"，宿主升 v4 后 nLogs 会漏掉新会话，
     //   于是「索引该重跑了」这条提示也一起失灵。改成版本无感（同会话多版本只算一个）。
     for (const s of fs.readdirSync(wp)) {
+      // ★ 2026-10-27：与 memindex 用同一条判据 —— 宿主会话目录名是 session-<uuid>，
+      //   委派/子代理运行是裸 runId。两边不一致的话，这里会一直喊「有 N 个新日志该重跑了」，
+      //   而 memindex 那边永远扫不到它们 —— 一条永远消不掉的假警报。
+      if (!/^session-/i.test(s) && !INCLUDE_DELEGATED_SELF) continue;
       let names = [];
       try { names = fs.readdirSync(path.join(wp, s)); } catch { continue; }
       if (names.some((n) => /^session\.v\d+\.jsonl\.zstd$/.test(n))) nLogs++;
