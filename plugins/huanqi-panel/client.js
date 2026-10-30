@@ -192,6 +192,19 @@ window.__ModuleLoader__.load({
                     }, (f.options || []).map(function (o) {
                       return h("option", { key: o.value, value: o.value }, o.label);
                     }))
+                /* ★★★ 2026-10-30 加 bool（GitHub #21）：
+                 * 布尔项必须自己一档，不能落到下面那个文本输入框（那样会存成字符串）。
+                 * 它的两个 option 值刻意是字符串 "true"/"false" —— 前端 state 里统一当字符串走，
+                 * 服务端 render() 的 bool 分支再把它们翻成不带引号的 YAML 布尔。
+                 * ★ 这就是这个 bug 的形状：**值域在前端是字符串，在 schema 里是布尔**，
+                 *   中间那一层必须有人负责翻译；原来是没人翻，于是 'true' 直接落了盘。 */
+                : f.type === "bool"
+                  ? h("select", {
+                      style: S.path, value: form[f.key] == null ? String(f.def) : form[f.key],
+                      onChange: function (e) { var v = {}; v[f.key] = e.target.value; setForm(Object.assign({}, form, v)); }
+                    },
+                    h("option", { key: "true", value: "true" }, "开"),
+                    h("option", { key: "false", value: "false" }, "关"))
                   : h("input", {
                       style: S.path, value: form[f.key] == null ? "" : form[f.key], placeholder: "（留空 = 用默认）",
                       onChange: function (e) { var v = {}; v[f.key] = e.target.value; setForm(Object.assign({}, form, v)); }

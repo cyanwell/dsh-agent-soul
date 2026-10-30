@@ -1078,6 +1078,41 @@ out.contexts = (Array.isArray(out.contexts) ? out.contexts : [])
 
 ---
 
+### 2026-10-30 深夜二十一 · 修 #21：换气面板把布尔写成字符串，导致整个换气插件不装配（且静默）
+
+**kksnowny 提的**，而且他让「大肥鱼」把根因查得很准 —— **连代码位置都是对的**。
+
+**病因**：`plugins/huanqi-panel/index.js` 把 `fullCompactOnBreaker` / `postCompactRecallHint`
+定义成 `type: 'enum'`，value 是字符串 `'true'` / `'false'`。于是面板保存时走 enum 那条分支，
+渲染成 **`'true'`（带单引号的字符串）** 写进 `cordis.patch.yml`。
+而 `dsh-huanqi` 的 Config 里它们是 `z.boolean()` —— 校验直接抛错，
+**整个换气插件不装配，界面上没有任何提示**。
+（他说得对：只能看 `state/huanqi-boot.log` 里「没有新的 `apply() entered`」才看得出来。）
+
+**修法是加一个真正的 `bool` 类型**，三处：
+
+1. `render()` 加 bool 分支 —— **输出不带引号的 YAML 布尔**，值域只认 true/false（含字符串形式），别的直接抛错
+2. 两个字段 `type: 'enum'` → `type: 'bool'`，`def: 'true'` → `def: true`
+3. `client.js` 加 bool 渲染分支 —— **选它自己的 `<select>`，不能落到文本输入框**（那样又存成字符串了）
+
+**★ 这条的形状值得记**：**值域在前端是字符串，在 schema 里是布尔，中间那一层必须有人负责翻译。**
+原来是没人翻，于是 `'true'` 直接落了盘。
+**和 #22 是同一类：不是逻辑写错，是两处对同一个东西的定义不一样，而中间没有断言。**
+
+**实测**（不是「看着对」）：
+
+```
+OK   fullCompactOnBreaker(true)   => "true"
+OK   fullCompactOnBreaker("true") => "true"
+OK   fullCompactOnBreaker(false)  => "false"
+OK   fullCompactOnBreaker("false")=> "false"
+OK   bool 拒绝非法值 "yes"
+OK   bool 输出不带引号 => "true"
+ALL PASS
+```
+
+---
+
 ### 2026-10-28 午后 · doctor 补两条「白名单漏一项」检查（来自用户反馈）
 
 **背景**：用户的 bug 反馈里有一条反复出现三次的模式 ——

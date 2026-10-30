@@ -194,25 +194,20 @@ const FIELDS = [
   { key: 'regionCompactAfterCuts', type: 'int', min: 0, max: 10, def: 3, label: '几次截断做一次范围压缩', hint: '累计截断到这个数就压一次「最近这一段」（带门牌，可回取）。0 = 关闭范围压缩。默认 3 —— 单次截断是正常呼吸，每次都压等于每轮换容器' },
   {
     key: 'fullCompactOnBreaker',
-    type: 'enum',
-    def: 'true',
+    /* ★ 2026-10-30 改 bool（GitHub #21）：原来是 enum + 字符串 'true'，
+     * 面板保存后写成 `'true'`（带引号），而 huanqi 的 schema 是 z.boolean() ——
+     * 校验抛错、整个插件不装配且静默。见 render() 里 bool 分支的注释。 */
+    type: 'bool',
+    def: true,
     label: '熔断时全量压缩',
     hint: '熔断（额度耗尽且仍无产出）时彻底清空上下文 + 告知 + 不再延续。关掉它，熔断就只是「停下等人」。',
-    options: [
-      { value: 'true', label: '开（推荐）' },
-      { value: 'false', label: '关' },
-    ],
   },
   {
     key: 'postCompactRecallHint',
-    type: 'enum',
-    def: 'true',
+    type: 'bool',
+    def: true,
     label: '压缩后注入取回指引',
     hint: '压缩完让它拿 seq 指针去取一手原文，而不是读摘要 —— 读摘要会变成新的输入，那是摘要复利。',
-    options: [
-      { value: 'true', label: '开（推荐）' },
-      { value: 'false', label: '关' },
-    ],
   },
   { key: 'ledgerPath', type: 'str', def: '', label: '账本路径', hint: '留空 = <DSH_HOME>/state/dsh-huanqi.json' }
 ]
@@ -319,6 +314,26 @@ function render(field, value) {
       throw new Error(`${field.key} 只能是 ${opts.join(' / ')} 之一，你给的是「${s}」`)
     }
     return `'${s.replace(/'/g, "''")}'`
+  }
+  /* ★★★ 2026-10-30 加 bool（GitHub #21）：
+   *
+   * 病因：`fullCompactOnBreaker` / `postCompactRecallHint` 原来是 `type: 'enum'`，
+   * value 用 `'true'` / `'false'` 两个字符串。于是面板保存时走上面 enum 那条分支，
+   * 渲染成 **`'true'`（带单引号的字符串）** 写进 cordis.patch.yml。
+   *
+   * 而 `dsh-huanqi` 的 Config 里它们是 `z.boolean()` —— 校验直接抛错，
+   * **整个换气插件不装配，且界面上没有任何提示**（只能看 state/huanqi-boot.log
+   * 里「没有新的 apply() entered」才看得出来）。
+   *
+   * ⇒ 加一个真正的 `bool` 类型：**渲染成不带引号的 YAML 布尔**，与 schema 对上。
+   *   值域只认 true/false（以及它们的字符串形式），别的直接拒绝 —— 和 int 那条同样的口径。
+   */
+  if (field.type === 'bool') {
+    const v = value === true || value === 'true' ? true
+      : value === false || value === 'false' ? false
+        : null
+    if (v === null) throw new Error(`${field.key} 只能是 true / false，你给的是「${value}」`)
+    return v ? 'true' : 'false'
   }
   const s = String(value == null ? '' : value)
   return s === '' ? "''" : `'${s.replace(/'/g, "''")}'`
