@@ -132,3 +132,52 @@ dsh-client-ui-primitives / dsh-home-paths / dsh-lsp 等），**没有 `dsh-compa
 
 ★ 这是我第二次犯同一个形状的错（只处理「我看到的」，不先问「还有没有别的区」）。
   **第一次**：漏了 14 个 issue。**第二次**：漏了全部 4 个 PR。
+
+---
+
+## ★ 已确认的能力边界：浏览器到不了 GitHub 评论框（2026-10-30 23:16）
+
+**别再来一次「再试一个滚动办法」—— 八种都试过了，同一堵墙。**
+
+### 证据链
+
+| 步骤 | 结果 |
+|---|---|
+| `scroll-to @e21` | ✅ 成功，返回坐标 (341.6, 366.8) → **滚动确实生效** |
+| `browser_inspect html` 全文 grep `Add a comment` | **0 次** |
+| 同上 grep `textarea` | 只有 featureFlags 里的字符串，**没有真实 textarea** |
+| 同上 grep `id=\*comment*\` | 只有 `comment-author-association`（一个标签） |
+| 窄视口 390×843（iphone-14） | 同上，仍 0 |
+| 宽视口 1380×692 | 同上，仍 0 |
+
+**结论：滚动生效、页面已加载，但评论框**从来没有渲染**。GitHub 的新 issue UI（React）把它做成了点击才展开的组件。**
+
+### 试过且无效的八种（记录在此，避免重复）
+
+1. `browser_interact press` key=End
+2. `browser_interact wheel` deltaY=8000
+3. `browser_interact wheel` deltaY=30000（窄视口）
+4. `browser_page navigate` 到 `#issuecomment-new` 锚点（DOMContentLoaded 超时）
+5. `browser_interact focus` selector=`#new_comment_field`（不匹配）
+6. `browser_interact focus` selector=`textarea[name="comment[body]"]`（不匹配）
+7. `browser_interact scroll-to` ref（成功滚动，但评论框仍不渲染）
+8. `browser_inspect observe` 用 cursor 逐页翻到底（能翻，但评论框不在 DOM 里）
+
+### 能突破的三条路（都需要人）
+
+| 路 | 代价 | 可靠性 |
+|---|---|---|
+| **给一个 GitHub token**，用 REST API `POST /repos/cyanwell/dsh-agent-soul/issues/N/comments` | 一次性 | **最高** —— 一条命令一条评论 |
+| 装 `gh` CLI 并登录（`gh auth login`） | 一次性 | 高 —— `gh issue comment N -b \...\` |
+| 人手动点开评论框一次 | 每次都要 | 低 —— 浏览器会话 5 分钟超时，会一直断 |
+
+★ **建议第一条。** token 只需 `issues:write`（或 repo scope），且**只用于发评论**。
+
+### 代码侧已经做完了什么（这是可以推进的部分）
+
+- **4 个 PR 全部处理**：#13（jing-hy，修 #6 #7 #8 #9）、#15（小鱼，安装陷阱检查）、#16（小鱼，env 配置）已 merge；#10 待审
+- **issues 19 → 15**（#6 #7 #8 #9 已随 #13 关闭）
+- **两个自检可复现**：`verify-packaging` 122/123、`verify-install-traps` 23/0
+- **回复文案已备好**：`docs/待发issue回复.md`（#14 最终版、#23 补充）
+
+★ **卡住的只有「发出去」这一步，内容全在。**
