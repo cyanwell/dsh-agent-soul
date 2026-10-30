@@ -28,3 +28,6 @@ plugins/yantai/apps/usage.json
 # 安装状态导出快照 —— 不入库（由 tools/soul-preset.mjs --export 生成，含本机路径）
 soul-version.json
 presets/_manifest.json
+
+# 本机的实际路径配置（每人不同，不该进仓库）
+echo.config.json

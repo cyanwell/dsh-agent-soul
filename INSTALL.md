@@ -207,6 +207,11 @@ curl http://127.0.0.1:<端口>/yanqing-echo/api/status
 **别只看「文件复制过去了」。** 本仓库带两个验法：
 
 ```bash
+# ⓪ 四条「静默失败」判据 —— 不需要 profile，任何机器上都能跑
+node tools/verify-install-traps.mjs --verbose
+#   查：insert.name 与包名一致 / 示例配置键名 / 模板与骨架目录一致 / 能解析
+#   当前树实测：通过 22，失败 0
+
 # ① 静态：层进没进 bundles / patch 在不在 / 副本与源一致吗
 node tools/verify-live.mjs --profile <profile 目录>
 
@@ -543,3 +548,47 @@ Get-ChildItem "$env:USERPROFILE\.dsh\sessions" -Recurse -Filter "*.jsonl" |
 
 ★ 这条的意义：**「装不上」是可接受的结局，「装到一半」不是。**
 所以失败都发生在碰用户配置之前 —— 下载、解压、拷贝、自检，四道关全在改 `bundles` 之前。
+
+---
+
+## 坑 7 · 改了仓库，重装一遍 —— 副本没变
+
+★ 这一条是**实测**（2026-10-27）：按上面第 2 步原样重跑
+
+```bash
+dsh plugin --profile web add "file:$(pwd)"
+# → Already up to date / resolved 40, reused 0, added 0
+```
+
+**它什么都没做。** `file:` 目录依赖在 pnpm 里按内容缓存，源码改了不会重拷。
+装好的 `node_modules/dsh-agent-soul/` 里既没有新加的文件，改过的文件也还是旧的 ——
+而命令的退出码是 0，输出是「Already up to date」，看起来像成功了。
+
+**怎么当场发现**（十秒钟）：
+
+```bash
+ls node_modules/dsh-agent-soul/tools/verify-install-traps.mjs    # 新加的文件在不在
+grep -c "hub', 'echo.config.json" node_modules/dsh-agent-soul/kit/echo/echo-config.mjs
+```
+
+**修法：别用 `file:`，用 `link:`。** 这是坑 6 最后建议的那条路，这里是它的第二个理由：
+
+```jsonc
+// <profile>/package.json
+"dependencies": {
+  "dsh-agent-soul": "link:/path/to/dsh-agent-soul"   // ← 不是 file:
+}
+```
+
+然后让 `node_modules/dsh-agent-soul` 成为指向上游仓库的符号链接：
+
+```bash
+cd <profile>
+rm -rf node_modules/dsh-agent-soul
+ln -s /path/to/dsh-agent-soul node_modules/dsh-agent-soul
+```
+
+这样**源里有什么，装的就是什么**，改一处立刻生效，也不会再出现「重装了一遍但它没变」。
+
+★ 这一条真正想说的是：**「命令成功」和「副本更新了」是两件事**。
+和坑 1、坑 5 是同一个形状 —— 这次连报错都没有，只有一句看起来像好消息的 `Already up to date`。

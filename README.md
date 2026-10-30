@@ -924,6 +924,50 @@ console.log(`现在是 ${iso(d)}（星期${wd}，${tz}）`);
 
 ---
 
+### 2026-10-30 深夜十六 · 采用小鱼的 #15：安装路径的坑，从「人眼查」变成「脚本查」
+
+小鱼（`xiaoyu@localhost`）提的这个 PR 修的是**同一类病**：装完了、看着对、其实没生效。
+她补了七个坑的说明，还写了一个 **264 行的 `tools/verify-install-traps.mjs`** —— 把四种静默失败变成断言。
+
+**这正是那条纪律要的东西：同一个错误出现两次，就加一条自动检查。**
+
+## 并进来之后它抓到什么
+
+**23 项通过，0 失败。** 但过程中暴露了一处**我们自己的设计没告诉它**：
+
+```
+✗ plugins/echo/cordis.patch.yml 的 name=dsh-yanqing-echo 解析不到任何包
+✗ plugins/huanqi-panel/cordis.patch.yml 的 name=dsh-yanqing-huanqi-panel 解析不到任何包
+```
+
+**这不是 bug，是「两套命名」约定**：仓库里包名是 `dsh-agent-<x>`，`install.js` 装进 profile 时改名成
+`dsh-yanqing-<x>`；而 `cordis.patch.yml` 是**部署时**给宿主读的，所以它写部署名才是对的。
+
+**所以它的判据没错，是我们的约定没写在它能看见的地方。** 补了一条：
+
+```js
+const deployAlias = /^dsh-yanqing-(.+)$/.exec(row.name)?.[1]
+const isDeployName = Boolean(deployAlias) && pkgName === `dsh-agent-${deployAlias}`
+```
+
+**★ 顺手发现第二个问题：两个自检对同一件事给了相反的判据。**
+
+`verify-packaging.mjs` 里有一条老检查 `patch.name 等于包名` —— 它要求 `name === package.json.name`。
+而 `verify-install-traps.mjs` 认的是「部署名」。**同一份数据，两个脚本一个放行一个报错。**
+
+补齐后两边一致，两条检查都改成**接受仓库名或部署名**，并在断言名里写明带括号的 `（仓库名或部署名）`。
+
+**这就是「同一个数字在不同文件里指不同东西」的另一种形态** —— 不是数字分裂，是**判据分裂**。
+
+## 自检
+
+| 脚本 | 结果 |
+|---|---|
+| `tools/verify-packaging.mjs` | **122 / 123**（唯一失败项仍是 README 那条历史问题） |
+| `tools/verify-install-traps.mjs` | **23 通过 / 0 失败** |
+
+---
+
 ### 2026-10-28 午后 · doctor 补两条「白名单漏一项」检查（来自用户反馈）
 
 **背景**：用户的 bug 反馈里有一条反复出现三次的模式 ——

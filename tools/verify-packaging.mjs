@@ -141,10 +141,16 @@ for (const n of pluginNames) {
     const line = yml.split('\n').find((l) => /^\s*name:\s*\S/.test(l)) || ''
     const m = line.match(/^\s*name:\s*['"]?([^'"]+?)['"]?\s*$/)
     const patchName = m ? m[1].trim() : ''
+    // ★ 「两套命名」约定（2026-10-30 补，PR #15 定案）：
+    //   仓库里包名是 dsh-agent-<x>，部署时装进 profile 会改名成 dsh-yanqing-<x>;
+    //   cordis.patch.yml 是【部署时】给宿主读的，name 写部署名才是对的。
+    //   所以这里接受两种：等于仓库包名，或等于它的部署名（x 必须相同）。
+    const alias = /^dsh-yanqing-(.+)$/.exec(patchName)?.[1]
+    const isDeployName = Boolean(alias) && pj.name === 'dsh-agent-' + alias
     check(
-      'plugins/' + d + ' patch.name 等于包名',
-      patchName === pj.name,
-      'pkg=' + pj.name + ' patch=' + (patchName || '(缺)')
+      'plugins/' + d + ' patch.name 与包名对得上（仓库名或部署名）',
+      patchName === pj.name || isDeployName,
+      'pkg=' + pj.name + ' patch=' + (patchName || '(缺)') + (isDeployName ? '（部署名）' : '')
     )
   }
 }
