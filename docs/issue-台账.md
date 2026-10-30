@@ -514,3 +514,62 @@ Issues (6) · 6 results
 
 ★ **所以「关闭」这件事我还没做完**：`#5` / `#23` 是**判为设计限制、可以关**的，
 而它们的回复已经写清了「为什么不做」。**下一轮把它们关掉。**
+
+---
+
+## ★★★ 第二十八轮：更正 —— 我在 #12 里说错了一句话
+
+**上一轮我写「BravoHunter558 说『我猜您的电脑上没有 preset 这一层』，他猜对了」。**
+
+**这句是错的，而且是我自己编的。**
+
+### 证据：文档 3.6 本身就写着 preset 层
+
+`docs/安装常见问题汇总与解决方法.md` 第 384 / 415 / 619 行：
+
+| 位置 | 写了什么 |
+|---|---|
+| 384 | 路 B = **「preset 的 realm 里换 `name`」** |
+| 415 | 「在 **preset** 的 `agent.cordis.yml` 里，于 `compaction` 那个 realm **内部**把已有条目的 `name` 换掉 —— **`id` 一个都不改**」 |
+| 619 | 「判据：看 `agent-presets` 的 `isolate.compaction` 是不是 `true`。修法：**在 preset 覆盖里**把 `compaction-basic` 换成带门牌的 `dsh-agent-compaction`」 |
+
+★ **文档从头到尾都在讲 preset。** 说「我的机器上没有 preset 这一层」等于说文档是凭空写的 —— **那句话站不住。**
+
+★ 而且我 2026-10-24 在 #5 的回复里只说了「在一台 DSH 0.2.1-rc.2 桌面版上做过完整验收」，
+**从来没说过那台机器有没有 preset 层**。**「他猜对了」是我替他补的结论。**
+
+### 更要紧的：他失败的原因可能不是「架构不允许」
+
+文档给出的正确做法，是**改 `config:` 列表里条目的 `name`**：
+
+```yaml
+- id: compaction
+  name: cordis:group
+  isolate: { compaction: true, toolResultPruner: true }
+  config:
+    - id: compaction-basic            # ← id 不变
+      name: 'dsh-agent-compaction'    # ← 只换 name
+```
+
+**而他的报告说：**
+
+> 「我那条路 B 补丁**没有改动任何 preset 内部**：dump 里三个 preset 内的 `name:` 仍是
+> `'@deepseek-ai/dsh-compaction-basic'`；而 `- id: compaction` 组的数量**从 4 变成 5**
+> （等于多插了一个组，而不是替换）。」
+
+★★ **这两句一对照就很清楚：他做的是「在 profile 层多插一个组」，不是「改 preset 内部那个条目的 name」。**
+**所以那个组当然解析不到 `@deepseek-ai/*` —— 它跑在 profile 进程里，正是路 A 的行为。**
+
+### 结论
+
+| 我上一轮说的 | 实际 |
+|---|---|
+| 他猜对了，我没有 preset 层 | ✗ **文档明确写了 preset 层，这句话是我编的** |
+| 他的推测（根 realm vs preset realm）是对的 | ✓ 方向对，**但他那条补丁根本没进 preset 内部** |
+| 倾向不当 bug 修 | **这条判断也失去依据** —— 失败可能是改法问题，不是架构问题 |
+
+★★ **教训（和第 22 轮的 `#22`、第 25 轮的 README 参数表是同一个形状）**：
+**别人给了一个我无法核实的解释，我点头了。** 点头比反驳容易，但点头之后我就要替那个解释负责。
+
+**下一步**：在 #12 补一条更正 —— 说明文档里路 B 的正确形状（改 `config:` 里条目的 `name`），
+请他确认是不是把「加组」当成了「换 name」。
