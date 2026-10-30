@@ -769,6 +769,53 @@ function checkHuanqi(logs, deep) {
     }
     return cands[0] || null
   })()
+  /* ★★★ 2026-10-25 修假 warn（本机实测，接 GitHub #3 那条之后）：
+   *
+   * `dsh-huanqi.json` 是**额度账本**，只在出事的 5 个分支里 `save()` ——
+   * 正常轮一个字节都不写。所以「账本不存在」不是「没跑」，是「还没出过事」。
+   * 原判据是「账本读不到 ⇒ hqFired 0 ⇒ 有病症就 warn」，
+   * 于是**装好了、在跑、一切正常**的机器会永久报黄，
+   * 而且那句 note 还暗示是它没响 —— 又一条「只会报绿的体检」的反面：
+   * 这次是**只会报黄**。
+   *
+   * 更坏的一层：`hasSymptom` 来自**历史日志**。本机实测那 3 条样本
+   * （seq 6119 / 6128 / 6149）发生在换气装好**之前** ——
+   * 等于拿它出生前的病历判它失职。
+   *
+   * ⇒ 加一条运行证据：`huanqi-turns.jsonl` 是它**每轮都写**的观察日志
+   *   （`{"t","sid","kind","shape","hadOutput","credit","verdict","diag"}`）。
+   *   文件新鲜 = 它真的在看回合（只有看见了才写）。
+   *   **在跑且账本零介入 ⇒ 正常**。
+   *   ★ 这条判据自洽：如果它「在跑但监听不到 agent」，观察日志就不会有新条目，
+   *     fresh 变 false，自动退回旧判据去 warn。
+   */
+  let hqRuntime = null;
+  if (HQ_STATE) {
+    const turnsPath = path.join(path.dirname(HQ_STATE), "huanqi-turns.jsonl");
+    const txt = readText(turnsPath);
+    if (txt !== null) {
+      let n = 0, lastMs = 0;
+      const verdicts = {};
+      for (const line of txt.split("\n")) {
+        const s = line.trim();
+        if (!s) continue;
+        let r;
+        try { r = JSON.parse(s) } catch { continue }
+        n++;
+        const ms = Date.parse(r.t);
+        if (Number.isFinite(ms) && ms > lastMs) lastMs = ms;
+        const k = String(r.verdict || "?").split(":")[0];
+        verdicts[k] = (verdicts[k] || 0) + 1;
+      }
+      hqRuntime = {
+        file: turnsPath, turns: n,
+        lastAt: lastMs > 0 ? iso(lastMs) : null,
+        verdicts,
+        fresh: lastMs > 0 && Date.now() - lastMs < 24 * 3600 * 1000,
+      };
+    }
+  }
+  const hqRunning = !!(hqRuntime && hqRuntime.fresh);
   let hqStats = null;
   if (HQ_STATE) {
     try { hqStats = (JSON.parse(fs.readFileSync(HQ_STATE, "utf8")) || {}).stats || null; } catch {}
@@ -809,11 +856,17 @@ function checkHuanqi(logs, deep) {
   const fired = everBroke || hqFired > 0;
   let status = "ok";
   let note = "";
-  if (hasSymptom && !fired) {
+  if (hqRunning) {
+    // ★ 它在写观察日志 ⇒ 真的看见了回合。零介入只说明**没出过事**。
+    const st = hqStats || {};
+    note = (hqFired > 0 || everBroke)
+      ? `；在跑，已见过介入痕迹（continuations ${st.continuations || 0} / circuitBreaks ${st.circuitBreaks || 0} / anomalies ${st.anomalies || 0}）`
+      : `；在跑（已观察 ${hqRuntime.turns} 轮，最近 ${hqRuntime.lastAt}），零介入 —— 上面的病症样本多半发生在它装上之前`;
+  } else if (hasSymptom && !fired) {
     status = "warn";
-    note = HQ_STATE && !hqStats
-      ? "；该介入的回合存在，但换气状态文件读不到、日志里也零痕迹"
-      : "；该介入的回合存在，但日志里零介入痕迹";
+    note = hqStats
+      ? "；该介入的回合存在，但日志里零介入痕迹"
+      : "；该介入的回合存在，但换气既没有观察日志、也没有账本 —— 大概是没装，或者装上了没监听";
   } else if (hasSymptom && hqFired > 0) {
     note = `；已见过介入痕迹（continuations ${hqStats.continuations || 0} / circuitBreaks ${hqStats.circuitBreaks || 0} / anomalies ${hqStats.anomalies || 0}）`;
   } else if (hasSymptom && everBroke) {
@@ -831,6 +884,8 @@ function checkHuanqi(logs, deep) {
       huanqiStateFile: HQ_STATE,
       huanqiStats: hqStats,
       huanqiFired: hqFired,
+      huanqiRuntime: hqRuntime,
+      huanqiRunning: hqRunning,
       crossCheck: "换气自己覆盖四种退化（含空回合）；不再需要 dsh-stalled-turn-continue —— 两套账会让一轮被续成两轮",
     },
     deep: true,
