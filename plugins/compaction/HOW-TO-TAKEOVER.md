@@ -2,6 +2,49 @@
 
 > 这一页回答一个问题：**为什么我装了压缩插件，兜底压缩还是内置那套？**
 
+---
+
+## ★★ 先看适用范围（2026-10-30 补，GitHub #23）
+
+**这一页的两条路，都只在 `dsh` CLI 形态下成立。**
+
+| 形态 | 能不能用 | 为什么 |
+|---|---|---|
+| **`dsh` CLI**（依赖装在 `node_modules` 里） | ✅ 能 | `@deepseek-ai/*` 是普通 `node_modules` 依赖，ESM 解析正常 |
+| **桌面版**（Electron / `app.asar` 分发） | ❌ **必然失败** | 宿主私有包被打进 `app.asar`，**没有对外解析路径** |
+
+**失败长这样**（不是配置错，是路线错）：
+
+```
+Error: Cannot find package '@deepseek-ai/dsh-compaction-basic'
+       imported from .../profiles/desktop/node_modules/my-plugin/index.js
+```
+
+**为什么偶尔「有人能跑」—— 那是运气，不是机制。**
+
+2026-10-30 在报告人的四条证据之外补了一条实测：
+
+```
+profiles/desktop/node_modules/@deepseek-ai/   ← 这台机器上【存在】
+  cosmokit  dsh-atomic-write  dsh-client-ui-primitives  dsh-home-paths
+  dsh-lsp   dsh-lsp-stdio     dsh-tool-lsp             dsh-util-values
+  schemastery
+```
+
+**9 个包，没有 `dsh-compaction` / `dsh-compaction-basic`。**
+
+它为什么存在：这个 profile 的 `dependencies` 里**恰好声明了 `@deepseek-ai/dsh-client-ui-primitives`**，
+npm 装它时把 8 个传递依赖一起拽了进来。
+
+★ 所以「桌面版能不能 import `@deepseek-ai/*`」的真实答案是：
+**取决于那个包有没有恰好被别的依赖拽进 profile 的 `node_modules`。**
+`dsh-client-ui-primitives` 被拽进来了，`dsh-compaction-basic` 从来没被拽进来过。
+
+**→ 要顶掉 preset 内置条目的零件（`compaction` / `pruner`），在桌面版上不存在可行路线。
+   装不上去不是你的问题，别再试了。** 详见 `#5`、`#23`。
+
+---
+
 ## 一句话
 
 **cordis 的服务注册是先到先得。** 谁先注册 `compaction` 这个名字，谁就占住它；

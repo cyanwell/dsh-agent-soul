@@ -22,14 +22,14 @@
 
 | # | 标题（缩写） | 报告人 | 开于 | 已有回复 | 状态判断 |
 |---|---|---|---|---|---|
-| 23 | 桌面版 asar 下外部插件无法 import `@deepseek-ai/*` | JSON-LI-ai | 15h | 无 | **设计限制**，需回复 + 文档加适用范围 |
+| 23 | 桌面版 asar 下外部插件无法 import `@deepseek-ai/*` | JSON-LI-ai | 15h | **1 条（我，10-30）** | **已答 + 已加适用范围**（`HOW-TO-TAKEOVER.md` 开头）；`echo-doctor` 提示待分支 |
 | 22 | mnemon 探针 逐字重复 | Akashyc | 2d | 无 | **待查** |
 | 21 | 换气插件面板参数修改不生效 | kksnowny | 3d | 无 | **待查**（可能与 #2/#4 同类） |
 | 20 | scaffold 在 soul 目录生成 AGENTS.md | JSON-LI-ai | 3d | 无 | **待查** |
-| 19 | memq 时区写死 Asia/Shanghai | JSON-LI-ai | 3d | 无 | **待查**（改起来简单） |
+| 19 | memq 时区写死 Asia/Shanghai | JSON-LI-ai | 3d | **1 条（我，10-30）** | **已修**（`88df108`） |
 | 18 | install-kit 不生成 echo.config.json | JSON-LI-ai | 3d | 1 条 | 需读回复 |
 | 17 | SELF 注入不按 cwd 过滤 | JSON-LI-ai | 3d | 无 | **待查**（可能是真 bug） |
-| 14 | 书房代码注释作者名没删干净 | Akashyc | 4d | 无 | **待查**（大概率能直接改） |
+| 14 | 代码里作者名没删干净 | Akashyc | 4d | **1 条（我，10-30）** | **部分修**（`a56c501`：preset 已清 0 处；README/注释待做） |
 | 12 | compaction/pruner 在 preset isolate 下无法接管 | BravoHunter558 | 5d | 无 | **待查**（架构级） |
 | 11 | 「过去」有口径，「现在」没有 | AzureHalcyon | 5d | 无 | 概念性建议 |
 | 9 | plugin-inventory 把 patch insert 的插件标成「未启动」 | jing-hy | 5d | 1 条 | 需读回复 |
@@ -88,6 +88,8 @@ dsh-client-ui-primitives / dsh-home-paths / dsh-lsp 等），**没有 `dsh-compa
 |---|---|
 | #6 ~ #22 的 13 条 | **全部未读**。其中 #19（时区写死）、#14（注释作者名）、#20（scaffold）看起来是能直接改的 |
 | #3 的 `ledgerPath` 后续 | 知道阻塞点（两种安装形态下事件流落盘位置不同），未做 |
+| #23 的 `echo-doctor` 提示 | 那行「确认压缩插件是带门牌的版本」在桌面版是死路，要按分发形态分支 |
+| #14 的 README / 代码注释 | README 7 处、插件 README 3 处、代码注释约 50 处 |
 | 关闭已修的 issue | #1/#2/#3/#4/#5 主问题都修了，但因为还有后续或没回复，**都还开着** |
 
 ---

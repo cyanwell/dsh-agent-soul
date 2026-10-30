@@ -748,6 +748,30 @@ console.log(`现在是 ${iso(d)}（星期${wd}，${tz}）`);
 
 ---
 
+### 2026-10-30 深夜十二 · 兑现对 #23 的承诺：写清适用范围
+
+上一轮回复 #23 时我说「能，我来加适用范围说明」。**这一轮把它做掉了**，没有留成空话。
+
+`plugins/compaction/HOW-TO-TAKEOVER.md` 开头新增一节：
+
+| 形态 | 能不能用 | 为什么 |
+|---|---|---|
+| **`dsh` CLI** | ✅ 能 | `@deepseek-ai/*` 是普通 `node_modules` 依赖 |
+| **桌面版**（asar 分发） | ❌ **必然失败** | 宿主私有包打进 `app.asar`，**没有对外解析路径** |
+
+**★ 顺手补了一条报告人没看到的证据。** 他的四条证据说「`profiles/desktop/node_modules/@deepseek-ai` 不存在」，
+**而我这台机器上它存在**（9 个包）。差异的原因查清了：
+
+> 这个 profile 的 `dependencies` 里**恰好声明了 `@deepseek-ai/dsh-client-ui-primitives`**，
+> npm 装它时把 8 个传递依赖一起拽了进来。
+
+**所以「桌面版能不能 import `@deepseek-ai/*`」的答案是「取决于有没有恰好被别的依赖拽进来」——
+是运气，不是机制。** 那 9 个包里**没有** `dsh-compaction` / `dsh-compaction-basic`。
+
+**自检**：`node tools/verify-packaging.mjs` → **122 / 123**。
+
+---
+
 ### 2026-10-28 午后 · doctor 补两条「白名单漏一项」检查（来自用户反馈）
 
 **背景**：用户的 bug 反馈里有一条反复出现三次的模式 ——
