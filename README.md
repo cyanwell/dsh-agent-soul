@@ -365,6 +365,38 @@ client-modules 对不上注册表，整个 web boot 批次不激活，桌面端�
 **doctor 实测**：`node tools/soul-doctor.mjs --layer L1` → `4/4 都在`
 （本机装的是 `dsh-yanqing-*`，双前缀改动生效）。
 
+### 2026-10-30 深夜二 · `agent_soul_install plan` 补上了 huanqi 的安装形态限制（GitHub #5）
+
+**起点**：issue #5（TaoCultivator）报「桌面打包版下 compaction / pruner / huanqi 三个零件
+import 阶段就失败」。核对源码后确认他的根因分析成立，但要把它拆成两半 ——
+**这三个里有两个有绕路，一个没有。**
+
+| 零件 | 为什么失败 | 有绕路吗 |
+|---|---|---|
+| `compaction` | 要 import `@deepseek-ai/dsh-compaction`、`dsh-compaction-basic` | ✅ 有：realm 内同 id 换 name（替换内置） |
+| `pruner` | 要 import `@deepseek-ai/dsh-compaction-tool-result-pruner` | ✅ 同上 |
+| **`huanqi`** | 要 import `cordis` / `schemastery` / `dsh-llm` / `dsh-compaction` | ❌ **没有** —— 它是新增，不顶掉任何内置条目 |
+
+**改了什么**：`install.js` 的 `plan` 输出里，原来只有 `if (s.step === 1)` 提示
+「compaction/pruner 别走路 A、走路 B」；`huanqi` 在 step 2，**从来没被提示过**。
+现在补了 `if (s.step === 2 && isDesktop)` 一段，说清三件事：
+
+1. huanqi 没有绕路（不是替换、是新增）
+2. 它要 import 哪四个包（已核对 `lib/index.js` 第 176-179 行）
+3. 要装它得换一种能解析到内部包的 DSH 安装形态（源码 / CLI）
+
+同时声明**本步其余零件不受影响**（clock / model-statusbar / huanqi-panel 照常装）。
+
+**没做的两件（诚实记下）：**
+
+- **没能减掉依赖**：`Context`（cordis）和 `createUserMessage`（dsh-llm）在源码里只作类型用，
+  本该是 `import type` —— 但仓库和本机都**没有 tsc**，改 `src/index.ts` 会造成 src/lib 不一致。
+  **宁可不改，也不留一个编不出来的源。**
+- **没验证 `createRequire` 方案**（issue-5 建议 2）：本机是源码形态，没有打包版环境可测。
+  **没验证的事不写进文档当结论。**
+
+**自检**：`node tools/verify-packaging.mjs` → **121 / 122**。
+
 ---
 
 ### 2026-10-28 午后 · doctor 补两条「白名单漏一项」检查（来自用户反馈）

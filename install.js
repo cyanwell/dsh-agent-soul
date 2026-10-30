@@ -615,7 +615,35 @@ export function registerInstallTool(ctx) {
               lines.push('         自动裁剪 5 条、手动 /compact 出了带门牌 seq=7371 的摘要。')
               lines.push('')
             }
-            lines.push('  ★ 注意：这一步里的 compaction 和 pruner 装上了 **不等于** 接管了。')
+            // ★★★ 2026-10-30 加（GitHub #5，TaoCultivator 报）：
+            //
+            //   **huanqi 和上面那两个不是一回事。**
+            //   compaction / pruner 是**替换**内置条目 —— 有「路 B」可走（realm 内部同 id 换 name）。
+            //   huanqi 是**新增**的思考预算管理器，不顶掉任何内置条目，**所以没有路 B**。
+            //
+            //   它要 import 四个宿主内部包（已核对 lib/index.js 第 176-179 行）：
+            //     @deepseek-ai/cordis            只用 Context 作类型标注
+            //     @deepseek-ai/schemastery       Config 定义（真用）
+            //     @deepseek-ai/dsh-llm           isAgentLoopRequest（真用）
+            //     @deepseek-ai/dsh-compaction    toolPairingBalancedBefore（真用）
+            //
+            //   桌面打包版把这些封在 resources/app.asar 里 —— 只有 Electron 的加载器能读 asar，
+            //   而插件的 import 走标准 ESM 解析 ⇒ 装上就报 ERR_MODULE_NOT_FOUND。
+            //   ★ 这不是配置错，是**安装形态的硬限制**。说清楚，比让用户反复试好。
+            if (s.step === 2 && isDesktop) {
+              lines.push('  ⚠ 这一步里的 **huanqi 在桌面打包版下装不上**，而且它没有绕路：')
+              lines.push('     compaction / pruner 能靠「realm 内同 id 换 name」接管既有条目 —— 那是替换；')
+              lines.push('     huanqi 是**新增**的零件，不顶掉任何内置条目，所以那条路对它不成立。')
+              lines.push('')
+              lines.push('     它要 import 宿主内部包（cordis / schemastery / dsh-llm / dsh-compaction），')
+              lines.push('     而打包版把它们封在 resources/app.asar 里 —— 插件的标准 ESM 解析读不进去。')
+              lines.push('     症状：启动日志里 `dsh-huanqi: failed to import: Cannot find package`。')
+              lines.push('')
+              lines.push('     ★ 要装 huanqi，得换一种**能解析到内部包**的 DSH 安装形态（源码 / CLI 安装）。')
+              lines.push('     ★ 本步其余零件（clock / model-statusbar / huanqi-panel）不受影响，照常装。')
+              lines.push('     ★ 这个问题有 GitHub issue #5 的记录，含完整的复现步骤。')
+              lines.push('')
+            }
             lines.push('    两个各自和内置的抢同一个服务名，而 cordis 是「先到先得」：')
             lines.push('      dsh-agent-compaction  ←→ 内置 compaction-basic')
             lines.push('      dsh-agent-pruner      ←→ 内置 tool-result-pruner')
