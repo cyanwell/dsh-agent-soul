@@ -37,7 +37,7 @@
 > 这一节嵌在 `- set:` 下面，兄弟项缩进 4 空格、子项（`config:`）6 空格。
 > 遇到缩进 ≤ 自己的 `- ` 就是本节结束。（同一套判据最早写在 dsh-huanqi 自带的 `set-quota.mjs` 里。）
 
-## 暴露的 7 个参数
+## 暴露的 10 个参数
 
 | 键 | 含义 | 范围 |
 |---|---|---|
@@ -47,10 +47,30 @@
 | `warnAtCredit` | 额度降到几时开始提示 | 1–10 |
 | `silentReasoningChars` | 流内早杀阈值（字）。★ 3000 曾误杀 7.9% 的正常长推理，2026-10-12 放宽到 8000 | 0–100000 |
 | `subagentPolicy` | **子 agent（含 Agent Teams 成员）适用哪一档**：`strict` 全局（默认）／`relaxed` 只保留流内早杀／`exempt` 完全豁免 | 三选一 |
+| `regionCompactAfterCuts` | 累计截断到几次做一次范围压缩（带门牌，可回取）。0 = 关闭 | 0–10 |
+| `fullCompactOnBreaker` | 熔断时彻底清空上下文 + 告知 + 不再延续。关掉它，熔断就只是「停下等人」 | 布尔 |
+| `postCompactRecallHint` | 压缩后让它拿 seq 指针去取一手原文，而不是读摘要 | 布尔 |
 | `ledgerPath` | 账本路径；留空 = `<DSH_HOME>/state/dsh-huanqi.json` | 文本 |
 
-**为什么只暴露 7 个**：`Config` 有 26 项，其余 19 项是循环检测的内部阈值（gram 大小、重复行覆盖率之类），
+**为什么只暴露 10 个**：`Config` 有 26 项，其余 16 项是循环检测的内部阈值（gram 大小、重复行覆盖率之类），
 调它们需要先读检测器实现，不该放进随手可改的表单。
+
+> ★ **2026-10-30 修正（GitHub #21）**：这张表原来写「7 个」，漏了
+> `regionCompactAfterCuts` / `fullCompactOnBreaker` / `postCompactRecallHint` 三项 —— 实际面板里一直是 10 个。
+> **是读者（kksnowny）对着面板数出来的，不是我自己发现的。**
+
+### ★ 布尔字段必须走 `bool` 类型（2026-10-30 修，GitHub #21）
+
+**`fullCompactOnBreaker` / `postCompactRecallHint` 这两项，2026-10-30 之前是 `type: 'enum'`、
+value 写成字符串 `'true'` / `'false'`。** 于是面板保存时按 enum 渲染，**写成带单引号的 `'true'`**；
+而 `dsh-huanqi` 的 Config 里它们是 `z.boolean()` —— **校验抛错，整个换气插件不装配，且界面上没有任何提示。**
+
+**现在它们是真 `bool` 类型**：`render()` 输出**不带引号的 YAML 布尔**，前端仍用 `<select>` 显示「开 / 关」。
+
+★★ **这张表和 `dsh-huanqi` 的 `Config` 是两份各自演化的类型声明** —— 中间没有任何断言把它们绑在一起。
+**这次只对齐了这两处，没解决「两份声明会再次漂移」这个结构问题。** 后续要做的是**一张明确的类型表**
+（key → schema 类型 → YAML 渲染规则）。
+
 
 ### `subagentPolicy`（2026-10-23 加）
 
