@@ -1,3 +1,5 @@
 - insert:
-    - id: mobile-adapt
+    # ★ 2026-10-25：entry id 与包名对齐（原来是 mobile-adapt）。
+    #   宿主插件清单按 entry 找存活 fiber，id 与包名不一致时更容易被标成「未启动」。
+    - id: dsh-agent-mobile-adapt
       name: dsh-agent-mobile-adapt

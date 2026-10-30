@@ -246,7 +246,9 @@ function locate(text) {
   const lines = text.split('\n')
   let start = -1, idIndent = 0
   for (let i = 0; i < lines.length; i++) {
-    if (/^\s*-\s*id:\s*huanqi\s*$/.test(lines[i])) { start = i; idIndent = lines[i].search(/\S/); break }
+    // ★ 2026-10-25：兼容两种 entry id —— 换气的 patch 里目前仍写 huanqi，
+    //   若将来与包名对齐成 dsh-huanqi，这里不必再改一次。
+    if (/^\s*-\s*id:\s*(huanqi|dsh-huanqi)\s*$/.test(lines[i])) { start = i; idIndent = lines[i].search(/\S/); break }
   }
   if (start < 0) return null
   let end = lines.length

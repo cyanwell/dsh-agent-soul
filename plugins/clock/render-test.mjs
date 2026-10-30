@@ -175,7 +175,10 @@ const expectClock = pad(now.getHours()) + ":" + pad(now.getMinutes()) + ":" + pa
 check("时分秒格式判据（HH:MM:SS）", /^\d{2}:\d{2}:\d{2}$/.test(expectClock), expectClock)
 check("样式含 monospace + tabular-nums（秒跳不抖）", injectedCss.includes("ui-monospace") && injectedCss.includes("tabular-nums"))
 check("样式含 position:fixed（不被 256×36 的窄槽位裁掉）", injectedCss.includes("position:fixed"))
-check("样式含 z-index（盖在侧栏之上）", /z-index:\s*300/.test(injectedCss))
+const zMatch = injectedCss.match(/z-index:\s*(\d+)/)
+check("样式含 z-index 且 >= 300（盖在侧栏之上）", !!zMatch && Number(zMatch[1]) >= 300, zMatch ? zMatch[1] : "缺失")
+check("样式兜底 max-width/max-height + overflow（面板永不溢出视口）",
+  /max-width:calc\(100vw - 16px\)/.test(injectedCss) && /max-height:calc\(100vh - 16px\)/.test(injectedCss) && /overflow:auto/.test(injectedCss))
 
 /* ── ⑦ 宿主半 ────────────────────────────────────────────── */
 

@@ -11,6 +11,12 @@
 #           escalate: steer
 #           cancelCause: thinking-loop
 
+# ★ 2026-10-25：这里的 entry id 仍是 huanqi，故意没对齐包名。
+#   原因：dsh-agent-huanqi-panel 是按「- id: huanqi」这一段做字节级定位来写配置的
+#   （plugins/huanqi-panel/index.js 的 locate()）。改 id 会让面板写入直接报错。
+#   面板那边已经把定位改成兼容 huanqi / dsh-huanqi 两种写法；
+#   真正对齐 id 时两边要同时发版，别只改这里。
+#   注意：插件页显示「未启动」不等于没在跑 —— 见 README 的「插件页显示未启动」一节。
 - insert:
     - id: huanqi
       name: 'dsh-huanqi'

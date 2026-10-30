@@ -86,19 +86,38 @@ window.__ModuleLoader__.load({
     const CSS = `
 .yq-root{
   --ok:#34d399; --warn:#fbbf24; --error:#f87171; --pending:#60a5fa;
-  --ink:#e8eef6; --dim:#8b9bb0; --faint:#5b6b80;
+  /* ★ 2026-10-25：配色不再写死深色主题。
+     宿主主题变量是成对赋值的（浅色主题给深字、深色主题给浅字），所以直接读它就对；
+     变量拿不到时退回**深色字** —— 至少浅色宿主可读（原来的写法是白字打白玻璃）。
+     深色宿主由下面的 [data-tone="dark"] 整套接管（JS 探测到之后加上这个属性）。 */
+  --ink:var(--dsw-alias-label-primary,#16202c);
+  --dim:var(--dsw-alias-label-secondary,#47576a);
+  --faint:var(--dsw-alias-label-tertiary,#5f6d7c);
   /* ★ 2026-10-18：玻璃配方改成和砚台同一套（去掉 backdrop-filter）。
      沿用砚台 client.js:28-45 那段的结论 —— 2026-10-02 实测「滚轮一动整个界面都在闪」，
      真凶就是 backdrop-filter：它让卡片成为 GPU 合成层，滚动时整卡连内容一起重绘。
      去掉之后视觉靠四样东西撑住：半透明底 / 有色散的内高光 / 厚度的上下边 / 大而散的外投影。 */
+  --glass:linear-gradient(148deg,rgba(255,255,255,.86),rgba(255,255,255,.62));
+  --edge:var(--dsw-alias-border-l2,rgba(16,32,52,.14));
+  --lift:inset 0 1px 0 rgba(255,255,255,.70),0 8px 26px rgba(16,32,52,.12),0 1px 2px rgba(16,32,52,.08);
+  --code-bg:rgba(16,32,52,.06);
+  --accent:#60a5fa;
+  position:relative; height:100%; overflow-y:auto; overflow-x:hidden;
+  padding:14px 14px 20px; color:var(--ink); font-size:13px; line-height:20px;
+  background:
+    radial-gradient(1200px 480px at 10% -14%, rgba(56,132,255,.10), transparent 62%),
+    radial-gradient(900px 420px at 92% 4%,  rgba(147,86,255,.08), transparent 58%),
+    radial-gradient(760px 360px at 60% 108%,rgba(52,211,153,.06), transparent 60%);
+}
+/* 深色宿主：整套回到原来的深色配方（2026-10-25 起由 JS 探测后设置 data-tone） */
+.yq-root[data-tone="dark"]{
+  --ink:#e8eef6; --dim:#8b9bb0; --faint:#5b6b80;
   --glass:linear-gradient(148deg,rgba(255,255,255,.075),rgba(255,255,255,.028));
   --edge:rgba(255,255,255,.15);
   --lift:inset 1.5px 0 0 rgba(255,122,122,.15),inset -1.5px 0 0 rgba(122,172,255,.17),
          inset 0 1px 0 rgba(255,255,255,.30),inset 0 -1px 0 rgba(0,0,0,.14),
          0 10px 34px rgba(0,0,0,.26),0 1px 2px rgba(0,0,0,.16);
-  --accent:#60a5fa;
-  position:relative; height:100%; overflow-y:auto; overflow-x:hidden;
-  padding:14px 14px 20px; color:var(--ink); font-size:13px; line-height:20px;
+  --code-bg:rgba(0,0,0,.30);
   background:
     radial-gradient(1200px 480px at 10% -14%, rgba(56,132,255,.17), transparent 62%),
     radial-gradient(900px 420px at 92% 4%,  rgba(147,86,255,.13), transparent 58%),
@@ -247,7 +266,8 @@ window.__ModuleLoader__.load({
 .yq-check:hover{ transform:translateX(2px) }
 .yq-check[data-s="error"]{ box-shadow:var(--lift),0 0 30px -12px var(--error) }
 .yq-check[data-s="warn"] { box-shadow:var(--lift),0 0 30px -12px var(--warn) }
-.yq-check-row{ display:flex; gap:9px; align-items:baseline }
+.yq-check-row{ display:flex; gap:9px; align-items:baseline; cursor:pointer; border-radius:8px }
+.yq-check-row:focus-visible{ outline:2px solid var(--accent); outline-offset:3px }
 .yq-dot{
   width:19px; height:19px; flex:0 0 19px; border-radius:50%;
   display:grid; place-items:center; font-size:11px; font-weight:700;
@@ -264,14 +284,15 @@ window.__ModuleLoader__.load({
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 .yq-check[data-s="error"] .yq-check-detail,
-.yq-check[data-s="warn"]  .yq-check-detail{ color:#cfd9e6; white-space:normal }
+.yq-check[data-s="warn"]  .yq-check-detail{ color:var(--ink); white-space:normal }
 .yq-caret{ flex:0 0 auto; color:var(--faint); font-size:10px; transition:transform .2s ease }
 .yq-caret[data-open="1"]{ transform:rotate(90deg) }
 .yq-evidence{
   margin:9px 0 0 28px; padding:9px 11px; border-radius:10px;
-  background:rgba(0,0,0,.30); border:1px solid rgba(255,255,255,.07);
+  /* 2026-10-25：底色/描边/文字都改成主题变量，浅色宿主不再是一块黑洞 */
+  background:var(--code-bg); border:1px solid var(--edge);
   font-family:ui-monospace,Consolas,monospace; font-size:11px; line-height:16.5px;
-  color:#9fb0c4; white-space:pre-wrap; word-break:break-word;
+  color:var(--dim); white-space:pre-wrap; word-break:break-word;
   max-height:260px; overflow:auto;
 }
 
@@ -341,14 +362,109 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /* ── 宿主主题探测（2026-10-25）─────────────────────────────────
+       宿主主题变量是成对赋值的：浅色主题给深字、深色主题给浅字 ——
+       所以读到正文色的亮度就能判断当前是哪种主题，不用去猜背景色。
+       ★ 坑一：getPropertyValue() 返回的是**未解析的 token**（例如 var(--dsw-static-neutral-bluish-50)），
+         它不会自动展开，必须递归解。
+       ★ 坑二：不要只看 document.body / html 的背景色 —— 桌面端这两个都是透明，
+         之前三次探测都栽在这里。 */
+
+    function resolveCssVar(name, depth) {
+      const d = depth || 0;
+      if (d > 6) return "";
+      let raw = "";
+      try {
+        raw = (window.getComputedStyle(document.documentElement).getPropertyValue(name) || "").trim();
+      } catch (e) { return ""; }
+      if (!raw) return "";
+      const m = /^var\(\s*(--[a-z0-9_-]+)\s*(?:,\s*([\s\S]+))?\)$/i.exec(raw);
+      if (!m) return raw;
+      return resolveCssVar(m[1], d + 1) || (m[2] || "").trim();
+    }
+
+    function rgbOf(value) {
+      const s = String(value || "").trim();
+      let m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(s);
+      if (m) {
+        let h = m[1];
+        if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+        return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+      }
+      m = /^rgba?\(([^)]+)\)$/i.exec(s);
+      if (m) {
+        const p = m[1].split(/[,\s\/]+/).filter(Boolean).map(Number);
+        if (p.length >= 3 && p.slice(0, 3).every((x) => !isNaN(x))) return [p[0], p[1], p[2]];
+      }
+      return null;
+    }
+
+    function luminance(rgb) {
+      return (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+    }
+
+    /** @returns {"dark"|"light"} */
+    function detectTone() {
+      // ① 宿主主题变量（成对赋值 ⇒ 正文色亮就是深色主题）
+      const rgb = rgbOf(resolveCssVar("--dsw-alias-label-primary"));
+      if (rgb) return luminance(rgb) > 0.5 ? "dark" : "light";
+
+      // ② 退化：向上找第一个非透明背景
+      try {
+        let el = document.body;
+        while (el) {
+          const bg = String(window.getComputedStyle(el).backgroundColor || "").replace(/\s+/g, "");
+          if (bg && bg !== "rgba(0,0,0,0)" && bg !== "transparent") {
+            const c = rgbOf(bg);
+            if (c) return luminance(c) > 0.5 ? "light" : "dark";
+          }
+          el = el.parentElement;
+        }
+      } catch (e) { /* 落到下一步 */ }
+
+      // ③ 最后才信系统偏好
+      try {
+        if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) return "dark";
+      } catch (e) { /* ignore */ }
+      return "light";
+    }
+
+    /* 折叠只认 header，且「正在选字」时不折叠。
+       click 是「按下 + 抬起」才派发 —— 拖选文字松手也会触发，
+       所以整卡 onClick 会把「选中一段 evidence 复制」变成「卡片收起」。 */
+    function selectionActive() {
+      try {
+        const sel = window.getSelection && window.getSelection();
+        return !!(sel && String(sel).length > 0);
+      } catch (e) { return false; }
+    }
+
+    function headClick(onToggle) {
+      return function () {
+        if (selectionActive()) return;   // 正在选字 → 不动
+        onToggle();
+      };
+    }
+
     function CheckCard(props) {
       const c = props.item;
+      const toggle = headClick(props.onToggle);
       return h("div", {
           className: "yq-glass yq-check",
           "data-s": c.status,
-          onClick: props.onToggle,
         },
-        h("div", { className: "yq-check-row" },
+        /* ★ 2026-10-25：onClick 从整张卡片移到 header 行。
+           整卡可点 ⇒ 想选中 evidence 里的文字也会折叠；拖选后松手同样派发 click。 */
+        h("div", {
+            className: "yq-check-row",
+            role: "button",
+            tabIndex: 0,
+            "aria-expanded": props.open ? "true" : "false",
+            onClick: toggle,
+            onKeyDown: (e) => {
+              if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+            },
+          },
           h("span", { className: "yq-dot", "data-s": c.status }, ICON[c.status] || "·"),
           h("span", { className: "yq-check-name" }, c.label),
           h("span", { className: "yq-check-detail" }, c.detail),
@@ -367,6 +483,29 @@ window.__ModuleLoader__.load({
       const [note, setNote] = react.useState(null);
       const [busy, setBusy] = react.useState(false);
       const [motion, setMotion] = react.useState(readMotion);
+      // ★ 2026-10-25：宿主主题探测。首帧就用真实主题，避免白字打白玻璃；
+      // 之后监听 html 的 class/style 变化（宿主切主题会动这些），节流 120ms 重算。
+      const [tone, setTone] = react.useState(detectTone);
+      react.useEffect(function () {
+        setTone(detectTone());
+        let t = 0;
+        const recheck = function () {
+          if (t) return;
+          t = setTimeout(function () { t = 0; setTone(detectTone()); }, 120);
+        };
+        let mo = null;
+        try {
+          mo = new MutationObserver(recheck);
+          mo.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ["class", "style", "data-theme", "data-tone", "data-mode"],
+          });
+        } catch (e) { mo = null; }
+        return function () {
+          if (t) clearTimeout(t);
+          if (mo) mo.disconnect();
+        };
+      }, []);
       // ★ 换气检测层（2026-10-19）：换气每一轮结束写一条判词，这里只负责显示。
       const [hq, setHq] = react.useState(null);
   const [showHq, setShowHq] = react.useState(false);
@@ -449,6 +588,7 @@ window.__ModuleLoader__.load({
           className: "yq-root",
           "data-accent": counts.error ? "error" : counts.warn ? "warn" : warming ? "pending" : "ok",
           "data-motion": motion ? "1" : "0",
+          "data-tone": tone || undefined,
         },
 
         // ── 顶部：状态球 + 结论 ──────────────────────────────
