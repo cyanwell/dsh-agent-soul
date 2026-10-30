@@ -21,7 +21,7 @@
  *
  * 边界（诚实）
  * ------------
- * - **装不了零件包**：那四个 dsh-yanqing-* 从哪来，取决于发行方式，本机是别人装的。
+ * - **装不了零件包**：那四个 dsh-agent-* 从哪来，取决于发行方式，本机是别人装的。
  *   apply 只负责「preset 那一层」。L1 不过时它会拒绝并说清楚。
  * - **update 只是 git pull**：它不知道你怎么拿到这个仓库的（clone / 下载 / fork）。
  *
@@ -50,7 +50,18 @@ const NODE = process.execPath
 const CMD = process.argv[2] || 'doctor'
 const argOf = (k) => { const i = process.argv.indexOf(k); return i > -1 ? process.argv[i + 1] : null }
 const WRITE = process.argv.includes('--write')
-const HOME = process.env.DSH_HOME || 'D:/AI/dsh/home'
+// ★ 不猜 home 在哪（AGENTS 里的铁律：不知道就报，不拿默认值顶）。
+//   原来这里兜底成 'D:/AI/dsh/home' —— 那是本机路径。别人机器上会去读一个
+//   不存在的目录，于是 doctor 报「全是红的」，而真实原因只是工具指错了地方。
+//   ★ 这种错不是崩溃，是「报出假的缺失」—— 比崩溃更难查。
+const HOME = process.env.DSH_HOME || argOf('--home')
+if (!HOME) {
+  console.error('\n\u2717 \u627e\u4e0d\u5230 DSH home\u3002\u8bf7\u4e8c\u9009\u4e00\uff1a\n' +
+    '  1) export DSH_HOME=<\u4f60\u7684 dsh home \u8def\u5f84>\n' +
+    '  2) \u52a0\u53c2\u6570 --home <\u8def\u5f84>\n' +
+    '  \uff08\u4e0d\u731c\uff0c\u662f\u56e0\u4e3a\u731c\u9519\u4f1a\u62a5\u51fa\u5047\u7684\u7f3a\u5931\uff09\n')
+  process.exit(2)
+}
 const PROFILE = argOf('--profile') || 'desktop'
 const profileDir = join(HOME, 'profiles', PROFILE)
 

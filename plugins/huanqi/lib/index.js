@@ -159,7 +159,7 @@
  *
  * @module dsh-loop-guard
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 /**
  * 家目录。
@@ -1489,6 +1489,147 @@ export function apply(ctx, config) {
      * ★ 任何失败都吞掉：检测层不许影响主流程。
      */
     const turnsFile = join(stateDir, 'huanqi-turns.jsonl');
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ★ 2026-10-27（砚青加）**测试触发口** —— 验证两段压缩能不能真的跑起来。
+    //
+    //   背景：huanqi-turns.jsonl 里 37 条 compact 全是
+    //   {ok:false, error:"compaction service not found"}，从没验证过成功是什么样。
+    //   compactOnce 是闭包函数、外面调不到；huanqi 没注册工具/命令；
+    //   DSH 的 HTTP API 要 token。所以只能从插件内部开一个口子。
+    //
+    //   用法：写 D:\AI\memory\hub\_huanqi-trigger.json
+    //     { "mode": "region" | "full" | "both" }
+    //   用最近一次真实事件里的会话（就是当前在跑的那条），**不模拟**。
+    //   执行完删文件，结果写 _plugin-diag.log。
+    // ══════════════════════════════════════════════════════════════════════
+    (() => {
+        const TRIGGER = 'D:\\AI\\memory\\hub\\_huanqi-trigger.json';
+        const DIAGF = 'D:\\AI\\memory\\hub\\_plugin-diag.log';
+        const diag = (line) => {
+            try { appendFileSync(DIAGF, new Date().toISOString() + ' ' + line + '\n'); } catch { /* */ }
+        };
+        setInterval(() => {
+            let raw = null;
+            try { raw = readFileSync(TRIGGER, 'utf8'); } catch { return; }
+            // ★ 2026-10-27（第 5 代修）：空文件 = 没指令。原来这两行紧挨着 ——
+            //   上面刚把文件清空、下面立刻去 parse，于是「文件存在且为空」时会
+            //   每 3 秒报一次 JSON 解析失败（实测累计 6588 条，自 10-26 17:37 起）。
+            //   读到空就静默跳过：不清空、不报错、不触发。
+            if (raw.trim() === '') return;
+            try { writeFileSync(TRIGGER, '', 'utf8'); } catch { /* 清空，避免重复触发 */ }
+            void (async () => {
+                let req = null;
+                try { req = JSON.parse(raw); } catch (e) {
+                    diag('[huanqi][trigger] JSON 解析失败: ' + String(e && e.message));
+                    return;
+                }
+                const mode = String(req.mode || 'region').trim();
+                diag('[huanqi][trigger] 收到 mode=' + mode
+                    + ' lastSid=' + (lastSeenSid || '(空)')
+                    + ' hasAgent=' + (lastSeenAgent === null ? '否' : '是'));
+                // ★ 兜底：lastSeenAgent 为空时，用请求里的 sid（或我们这条会话）直接取
+                let target = lastSeenAgent;
+                let targetSid = lastSeenSid;
+                if (target === null) {
+                    const wantSid = String(req.sid || 'session-1099f531-7cac-4989-a14c-7fd499ac1fc0').trim();
+                    try {
+                        target = ctx.agents.get(wantSid) ?? null;
+                        targetSid = wantSid;
+                        diag('[huanqi][trigger] 兜底 ctx.agents.get(' + wantSid + ') → '
+                            + (target === null ? '没拿到' : '拿到了'));
+                    } catch (e) {
+                        diag('[huanqi][trigger] 兜底取 agent 抛: ' + String(e && e.message));
+                    }
+                }
+                if (target === null) {
+                    diag('[huanqi][trigger] 取不到 agent，放弃');
+                    return;
+                }
+                /* ══════════════════════════════════════════════════════════
+                 * ★ 2026-10-27：只读探针。摸清自研压缩引擎缺的两样 API。
+                 *   绝不用 Object.keys（对 Cordis ctx 恒为空，上一轮就栽在这）。
+                 * ══════════════════════════════════════════════════════════ */
+                const __probeDump = (tag, obj, depth) => {
+                    const lines = [];
+                    const seen = new Set();
+                    let cur = obj;
+                    let level = 0;
+                    while (cur !== null && cur !== undefined && level < (depth === undefined ? 3 : depth)) {
+                        let names = [];
+                        try { names = Object.getOwnPropertyNames(cur); }
+                        catch { names = ['(读不到)']; }
+                        const fresh = names.filter((n) => !seen.has(n));
+                        fresh.forEach((n) => seen.add(n));
+                        if (fresh.length > 0) {
+                            lines.push(tag + ' [L' + level + '] ' + fresh.slice(0, 60).join(','));
+                        }
+                        try { cur = Object.getPrototypeOf(cur); }
+                        catch { cur = null; }
+                        level += 1;
+                        if (cur === null || cur === Object.prototype) break;
+                    }
+                    return lines;
+                };
+                if (mode === 'probe') {
+                    diag('[huanqi][probe] ===== 开始 =====');
+                    const put = (arr) => { arr.forEach((l) => diag('[huanqi][probe] ' + l)); };
+                    try { put(__probeDump('AGENT', target, 3)); } catch (e) { diag('[huanqi][probe] AGENT 抛: ' + e.message); }
+                    try {
+                        const sess = target !== null ? target.session : undefined;
+                        put(__probeDump('SESSION', sess, 4));
+                    } catch (e) { diag('[huanqi][probe] SESSION 抛: ' + e.message); }
+                    try {
+                        const surf = target !== null && target.session !== undefined ? target.session.surface : undefined;
+                        put(__probeDump('SURFACE', surf, 4));
+                        // 额外：surface 上有没有「写」类方法
+                        const wr = [];
+                        let c2 = surf;
+                        while (c2 !== null && c2 !== undefined) {
+                            try {
+                                Object.getOwnPropertyNames(c2).forEach((n) => {
+                                    if (/^(set|add|splice|replace|remove|delete|insert|push|append|truncate|compact|rewrite|put)/i.test(n)) wr.push(n);
+                                });
+                            } catch { /* */ }
+                            try { c2 = Object.getPrototypeOf(c2); } catch { c2 = null; }
+                        }
+                        diag('[huanqi][probe] SURFACE 上的写类方法: ' + (wr.length > 0 ? wr.join(',') : '(无)'));
+                    } catch (e) { diag('[huanqi][probe] SURFACE 抛: ' + e.message); }
+                    try {
+                        const sctx = target !== null && target.session !== undefined ? target.session.ctx : undefined;
+                        put(__probeDump('SESSION.CTX', sctx, 3));
+                    } catch (e) { diag('[huanqi][probe] SESSION.CTX 抛: ' + e.message); }
+                    try { put(__probeDump('ROOT.CTX', ctx, 2)); } catch (e) { diag('[huanqi][probe] ROOT.CTX 抛: ' + e.message); }
+                    // 关键：这些显式探测
+                    const probes2 = ['compaction', 'llm', 'model', 'modelAdapter', 'agents', 'sessionProjections'];
+                    probes2.forEach((n) => {
+                        let got;
+                        try { got = ctx.get(n); } catch { got = '(抛)'; }
+                        diag('[huanqi][probe] ctx.get(' + n + ') -> '
+                            + (got === undefined ? 'undefined' : (got === null ? 'null' : (got === '(抛)' ? '抛' : typeof got))));
+                    });
+                    diag('[huanqi][probe] ===== 结束 =====');
+                    return;
+                }
+                const tryOnce = async (m) => {
+                    try {
+                        const outcome = await compactOnce(target, m, targetSid);
+                        diag('[huanqi][trigger] compactOnce(' + m + ') → '
+                            + (outcome.ok ? 'OK' : 'FAILED: ' + String(outcome.error))
+                            + ' range=' + (outcome.range === null
+                                ? 'null'
+                                : String(outcome.range.start) + '–' + String(outcome.range.end)));
+                    } catch (e) {
+                        diag('[huanqi][trigger] compactOnce(' + m + ') 抛: ' + String(e && e.message));
+                    }
+                };
+                if (mode === 'region' || mode === 'both') await tryOnce('region');
+                if (mode === 'full' || mode === 'both') await tryOnce('full');
+                diag('[huanqi][trigger] 完成');
+            })();
+        }, 3000);
+    })();
+
     const recordTurn = (rec) => {
         try {
             mkdirSync(stateDir, { recursive: true });
@@ -1534,6 +1675,9 @@ export function apply(ctx, config) {
      * ══════════════════════════════════════════════════════════════════════ */
     /** 每个会话在当前 turn 内累计的截断次数。`turn/end` 时清零。 */
     const cutCounts = new Map();
+    // ★ 2026-10-27（砚青加）：记住最近一次事件里的会话与 agent，给下面的测试触发口用。
+    let lastSeenSid = '';
+    let lastSeenAgent = null;
     const lastCompact = new Map();
     /**
      * 取压缩服务。
@@ -1542,12 +1686,82 @@ export function apply(ctx, config) {
      *   （见 `readConfig` 那段注释：`ctx.get` 在没有该服务时返回 undefined，
      *    而属性访问在类型上存在、运行时可能没有，会抛）。
      */
-    function compactionService() {
+    function compactionService(agent) {
         const name = config.compactionService !== '' ? config.compactionService : 'compaction';
         try {
-            return ctx.get(name);
+            /* ★ 2026-10-27（砚青修）：**从离得最近的 ctx 找**，不再只看根层。
+             * 病（实测 _plugin-diag.log）：ctx.get(compaction) -> UNDEFINED ;
+             *   相关键（无）→ compactOnce 恒 FAILED，历史 37 条全是这个。
+             * 因：compaction 是 cordis:group + isolate:{compaction:true}，
+             *   服务只在该 group 内可见，而 huanqi 在 profile 根层。
+             * 修：agent 属 preset 内部，它的 ctx 与那个 group 同作用域。逐级退。 */
+            let svc;
+            {
+                const probes = [
+                    ['agent.ctx', agent !== undefined && agent !== null ? agent.ctx : undefined],
+                    ['agent.session.ctx', agent !== undefined && agent !== null && agent.session !== undefined && agent.session !== null
+                        ? agent.session.ctx
+                        : undefined],
+                    ['ctx(根层)', ctx],
+                ];
+                for (let i = 0; i < probes.length; i += 1) {
+                    const tag = probes[i][0];
+                    const holder = probes[i][1];
+                    if (holder === undefined || holder === null || typeof holder.get !== 'function')
+                        continue;
+                    let got;
+                    try { got = holder.get(name); }
+                    catch { continue; }
+                    if (got !== undefined && got !== null) {
+                        svc = got;
+                        try {
+                            appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+                                new Date().toISOString() + ' [huanqi][diag] ' + tag + '.get(' + name + ') -> OK\n');
+                        }
+                        catch { /* */ }
+                        break;
+                    }
+                }
+                if (svc === undefined) {
+                    try {
+                        appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+                            new Date().toISOString() + ' [huanqi][diag] 三级全落空：' + name + ' 在 agent.ctx / agent.session.ctx / ctx 都拿不到\n');
+                    }
+                    catch { /* */ }
+                }
+            }
+            // ★ 2026-10-27（砚青加诊断）：huanqi-turns.jsonl 里 37 条 compact 全是
+            //   {ok:false, error:"compaction service not found"}，
+            //   而 asar 里 dsh-compaction-basic 的 inject = ["commands","compaction"]
+            //   且它能正常加载（/compact 可用）—— 说明服务是存在的，是这里取不到。
+            // ★ 写文件，不走 console.error（主进程的 stderr 抓不到）
+            // ★★ 也别用 require —— 这个包是 ESM（package.json type=module），require 会抛，
+            //    被 catch 吃掉就变成「诊断装了但什么也没写」，比不装更坏。
+            try {
+                var __line = null;
+                if (!svc) {
+                    var keys = '?';
+                    try {
+                        keys = Object.keys(ctx).filter(function (k) {
+                            return /compact|compress|prune|service/i.test(k);
+                        }).join(',') || '(无相关键)';
+                    }
+                    catch (e2) { keys = '(读不到)'; }
+                    __line = '[huanqi][diag] ctx.get(' + name + ') -> UNDEFINED ; 相关键: ' + keys;
+                }
+                else {
+                    var sk = [];
+                    try { sk = Object.keys(svc).slice(0, 10); } catch (e3) { sk = ['(读不到)']; }
+                    __line = '[huanqi][diag] ctx.get(' + name + ') -> OK typeof=' + typeof svc + ' keys=' + sk.join(',');
+                }
+                appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+                    new Date().toISOString() + ' ' + __line + '\n');
+            }
+            catch (eX) { /* 诊断本身绝不许影响主流程 */ }
+            return svc;
         }
-        catch {
+        catch (e) {
+            console.error('[huanqi][diag] ctx.get(' + name + ') 抛了: ' + (e && e.message));
             return undefined;
         }
     }
@@ -1562,23 +1776,53 @@ export function apply(ctx, config) {
      * ★ 也就是说：**默认压「最后一条之前的所有东西」** —— 这正是「范围压缩」要的形态：
      *   保留最后一条（通常是刚产出/正在产出的那条），把前面这段换成摘要。
      */
-    function pickRegion(agent) {
+    /* ★★★ 2026-10-27 22:31（第 5 代）：把 7 个**静默 `return null`** 变成带原因。
+     *
+     *   病（14:26 那枪实测）：日志只有一行 `kind=full range=null`，
+     *   看不出是哪一步放弃的 —— 是拿不到 surface？节点太少？还是边界不平衡？
+     *   猜一次改一次，每次都得重启，成本高而信息量极低。
+     *
+     *   现在 `pickRegionEx` 返回 `{ range, why, info }`，`why` 是诊断码：
+     *     no-agent-session / surface-threw:<msg> / no-surface /
+     *     nodes-not-array:<typeof> / nodes-too-few:<n> / node-undefined@<i> /
+     *     unbalanced-to-zero / keep<=first:<keep>/<first> / edge-undefined /
+     *     start>=end:<s>~<e> / threw:<msg>
+     *   `pickRegion` 保留成薄包装 —— 另一处调用（`compactOnce` 后半段）不用动。
+     *
+     *   ★ 为什么要分 `surface-threw` 和 `no-surface`：`agent` 来自根层的
+     *     `ctx.agents.get(sid)`，而 `session.surface` 的 getter 在 isolate realm 外
+     *     可能抛 —— 这两种失败修法完全不同，不能混成同一个 null。
+     */
+    function pickRegionEx(agent) {
         try {
-            const surface = agent.session.surface;
+            if (agent === undefined || agent === null || agent.session === undefined || agent.session === null)
+                return { range: null, why: 'no-agent-session' };
+            let surface;
+            try {
+                surface = agent.session.surface;
+            }
+            catch (e) {
+                return { range: null, why: 'surface-threw:' + String(e && e.message) };
+            }
+            if (surface === undefined || surface === null)
+                return { range: null, why: 'no-surface' };
             const nodes = surface.nodes;
-            if (!Array.isArray(nodes) || nodes.length < 3)
-                return null;
+            if (!Array.isArray(nodes))
+                return { range: null, why: 'nodes-not-array:' + (nodes === null ? 'null' : typeof nodes) };
+            if (nodes.length < 3)
+                return { range: null, why: 'nodes-too-few:' + nodes.length };
             // 保留最后一个（`retainTokens = 0` 的等价形态）
             let keepFromIdx = nodes.length - 1;
             /* ★ 边界必须平衡：不满足就往前退，退到 0 就放弃。
              *   这里用 try/catch 包住 —— `toolPairingBalancedBefore` 是官方导出，
              *   但守卫不该因为它签名变了就整个挂掉。 */
+            let unbalanced = 0;
             let guard = 0;
             while (keepFromIdx > 0 && guard < 512) {
                 guard += 1;
                 const seq = nodes[keepFromIdx];
                 if (seq === undefined)
-                    return null;
+                    return { range: null, why: 'node-undefined@' + keepFromIdx };
                 let balanced = true;
                 try {
                     balanced = toolPairingBalancedBefore(agent.session, seq);
@@ -1588,14 +1832,15 @@ export function apply(ctx, config) {
                 }
                 if (balanced)
                     break;
+                unbalanced += 1;
                 keepFromIdx -= 1;
             }
             if (keepFromIdx <= 0)
-                return null;
+                return { range: null, why: 'unbalanced-to-zero', info: 'retreated=' + unbalanced + ' nodes=' + nodes.length };
             // system 头占首位的话要跳过（它不该被压进摘要）
             let firstIdx = 0;
             try {
-                const head = agent.session.surface.nodes[0];
+                const head = nodes[0];
                 if (head !== undefined) {
                     const ev = agent.session.eventAt(head);
                     if (ev !== null && ev !== undefined && ev.type === 'system/message')
@@ -1606,18 +1851,25 @@ export function apply(ctx, config) {
                 firstIdx = 0;
             }
             if (keepFromIdx <= firstIdx)
-                return null;
+                return { range: null, why: 'keep<=first', info: 'keep=' + keepFromIdx + ' first=' + firstIdx + ' nodes=' + nodes.length };
             const start = nodes[firstIdx];
             const end = nodes[keepFromIdx - 1];
             if (start === undefined || end === undefined)
-                return null;
+                return { range: null, why: 'edge-undefined', info: 'start=' + String(start) + ' end=' + String(end) };
             if (!(start < end))
-                return null;
-            return { start, end };
+                return { range: null, why: 'start>=end', info: String(start) + '~' + String(end) + ' nodes=' + nodes.length + ' first=' + firstIdx + ' keep=' + keepFromIdx };
+            return {
+                range: { start, end },
+                why: null,
+                info: 'nodes=' + nodes.length + ' first=' + firstIdx + ' keep=' + keepFromIdx + ' end=' + String(end),
+            };
         }
-        catch {
-            return null;
+        catch (e) {
+            return { range: null, why: 'threw:' + String(e && e.message) };
         }
+    }
+    function pickRegion(agent) {
+        return pickRegionEx(agent).range;
     }
     /**
      * 压缩一次。**永不抛** —— 失败只记录，绝不让守卫自己变成故障。
@@ -1626,10 +1878,200 @@ export function apply(ctx, config) {
      *             `full`   = 直接全量。
      */
     async function compactOnce(agent, mode, sid) {
-        const svc = compactionService();
+        const svc = compactionService(agent);
         if (svc === undefined) {
-            const out = { kind: mode, ok: false, range: null, error: 'compaction service not found' };
+            /* ★★ 2026-10-27（第 5 代加）：第二条路 —— 借 `commands` 执行 /compact。
+             *
+             *   为什么原来拿不到：`compaction` 被 isolate 关在 preset 的 realm 里
+             *   （profile 的 patch 里写着 `compaction: true` 是硬约束；01:14 删过一次，
+             *    被 `RemoteError: Preset services require isolate realms` 拒了）。
+             *   所以根层的 huanqi 无论从 agent.ctx / agent.session.ctx / 根 ctx 都够不到。
+             *
+             *   为什么这条路通：`/compact` 这条**命令**由 `@deepseek-ai/dsh-command-compact`
+             *   （inject: ['commands','compaction']，同样在 realm 内）注册进 `commands`
+             *   服务 —— 而 commands 是**根层服务**，这里 `ctx.get('commands')` 拿得到。
+             *   命令的 handler 自带 realm 内的 compaction，等于借道进去。
+             *
+             *   代价：命令只做全量压缩，没有 region。可接受 —— 原来 region 失败本来就
+             *   降级全量，而换气熔断时用的正是全量。
+             */
+            const viaCmd = await (async () => {
+                let commands;
+                try { commands = ctx.get('commands'); }
+                catch { commands = undefined; }
+                if (commands === undefined || commands === null || typeof commands.execute !== 'function')
+                    return { ok: false, kind: 'full', range: null, error: 'commands service not found' };
+                /* 每次都用新的 AbortController —— 复用一个会在第一次 abort 之后让后续调用立刻失败。 */
+                const runCommand = async (line) => {
+                    let ac;
+                    try { ac = new AbortController(); }
+                    catch { return { ok: false, error: 'AbortController unavailable' }; }
+                    try {
+                        const settled = await commands.execute(agent, line, [], ac.signal);
+                        if (settled === undefined)
+                            return { ok: false, error: line + ' not registered' };
+                        const r = settled.result;
+                        if (r !== undefined && r !== null && r.kind === 'success')
+                            return { ok: true };
+                        return {
+                            ok: false,
+                            error: 'command result: '
+                                + (r === undefined || r === null ? 'undefined' : String(r.kind) + ' ' + String(r.text || '')),
+                        };
+                    }
+                    catch (e) {
+                        return { ok: false, error: 'command threw: ' + String(e && e.message) };
+                    }
+                };
+                /* ★★★ 2026-10-27（第 5 代补）：**把「范围压缩」修回来。**
+                 *
+                 * 病（实测 _plugin-diag.log）：`compactOnce(region) → OK range=null`。
+                 * 因为唯一那条桥是官方 `/compact`，而它是**无参数 + 只做全量**
+                 * （dsh-command-compact/lib/index.js L49-52 拒任何参数、L54 调 compactNow）。
+                 * 于是 region 与 full 在桥上都塌成全量 —— 路 C 刚好够用，路 B 被带偏。
+                 *
+                 * 修：huanqi 自己算 range（`pickRegion` 只要 agent.session，根层够得到），
+                 * 再把 range 当参数交给**同在 realm 内注册**的 `/compact-region`
+                 * （dsh-yanqing-compact-region，与官方 command-compact 同构的那一扇门）。
+                 *
+                 * 三条退路，顺序不能换：
+                 *   ① 算得出 range → 先试范围压缩（这才是「初步治疗」的本意：只搬走脏的那段）
+                 *   ② 范围压缩失败（边界不平衡 / 区间被替换 / 忙）→ 降级全量
+                 *   ③ 算不出 range → 直接全量
+                 * ★ 无论走哪条，`kind` 记的是**实际做了什么**，不是**请求了什么** ——
+                 *   否则 recallHint 会一边说「范围压缩」一边说「全量压缩没有压了哪一段」。
+                 */
+                if (mode === 'region') {
+                    const picked = pickRegionEx(agent);
+                    const range = picked.range;
+                    /* ★ 2026-10-27 22:31：算不出范围就把**原因**写进日志，并顺手验一次
+                     *   `/compact-region` 到底注册上没有。
+                     *
+                     *   为什么用**非法参数**当探针：命令自己在门口挡（`parseRange` 拒 start<=0），
+                     *   所以 `/compact-region 0 0` 零副作用、绝不会真压。
+                     *   两种结果可区分：
+                     *     · 出现 `[compact-region] 参数无法解析` → 命令**注册了**（realm 内可达）
+                     *     · `not registered` → 命令**没注册**（包没加载 / inject 没满足）
+                     *   —— 这一枪同时回答「为什么算不出」和「命令在不在」两个问题。
+                     */
+                    if (range === null) {
+                        let probeNote = 'probe=skipped';
+                        try {
+                            const probe = await runCommand('/compact-region 0 0');
+                            probeNote = probe.ok ? 'probe=unexpected-ok' : 'probe=' + String(probe.error);
+                        }
+                        catch (e) {
+                            probeNote = 'probe-threw:' + String(e && e.message);
+                        }
+                        try {
+                            appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+                                new Date().toISOString() + ' [huanqi][region] pickRegion → null why='
+                                + String(picked.why) + ' info='
+                                + String(picked.info === undefined ? '-' : picked.info)
+                                + ' ' + probeNote + '\n');
+                        }
+                        catch { /* 诊断不许影响主流程 */ }
+                    }
+                    if (range !== null) {
+                        /* ★★★ 2026-10-27 23:05 定论（一手证据：会话事件 #1481–#1495）
+                         *
+                         *   **`/compact-region` 这条路废掉了 —— 不是它写错，是它接错了语义。**
+                         *
+                         *   `dsh-compaction-basic/lib/index.js:930-935`：
+                         *     compactRegion(start, end, agent, signal)
+                         *       → compactSurfaceRegion(..., { owner: 'current-turn', stability: 'whole-surface' })
+                         *   即：**必须在一个 open turn 里**，而且摘要的那一二十秒里
+                         *   **整个 surface 一个节点都不能变**（`assertWholeSurfaceUnchanged`，L581）。
+                         *   在 live 会话上这是不可能的 —— 实测 turn=17 时抛
+                         *   `compaction: session surface changed during summarization`。
+                         *   它本来是给「step 边界自动压缩」用的，不是给外部插件在熔断时用的。
+                         *
+                         *   官方 `/compact` 走 `compactNow`（L944-970）：
+                         *     { owner: null, stability: 'selected-span', flush }
+                         *   内部先 `agent.runMaintenance(...)` **排队等 turn 收尾**，
+                         *   校验只要求「被选中的那一段没变」，外面追加新节点不影响。
+                         *   ★ 实测它选的范围 = seq 943–1479（186 条 / 190,694 tokens），
+                         *     与 pickRegion 算出来的 943–1476 是同一段 ——
+                         *     **引擎本来就在做「部分压缩」，路 B 和路 C 在官方实现里是同一件事。**
+                         *
+                         *   所以：**不再调 /compact-region**。
+                         *   ★ 好处不只是能成功 —— 界面上只会留一条干净的
+                         *     `· compact · 已压缩 N 条历史记录（约 X tokens）`
+                         *     （文案在 dsh-client-ui-chat/lib/client.js:2671，
+                         *       数据来自 compaction/summary 的 shadowedSeqs/shadowedTokenCount），
+                         *     而不是先冒一条 `compact-region` 的失败命令块。
+                         */
+                        /* ★ 2026-10-27 23:21（第一次实测撞出来的第二个坑）：
+                         *   `/compact` 在**回合进行中**会被命令层直接拒绝，原话是
+                         *     `Compaction is unavailable because this process has an active compaction,
+                         *      or the agent is not idle.`
+                         *   —— 它**不像** compactNow 内部那样自己排队等 turn 结束：
+                         *   命令入口先做 idle 检查，忙就直接 return error。
+                         *
+                         *   而 huanqi 的触发时机恰恰是「我刚说完话」——那几十秒里回合还在收尾。
+                         *   22:53 那次之所以能成，纯属巧合：前面 compactRegion 白跑了 21 秒，
+                         *   到它出手时回合刚好结束。**不能靠时机撞。**
+                         *
+                         *   所以：忙就等，10 次 × 3 秒 = 30 秒，覆盖回合收尾那一段。
+                         *   只对「忙」这一种错误重试；别的错误（真失败）立刻返回，不掩盖。
+                         */
+                        /* ★★★ 2026-10-27 23:42（爀曦定）：**region 只走 /compact-region，失败绝不降级全量。**
+                         *
+                         *   为什么不能降级：降级把"只想压走最近这一段"变成"把整段 surface 压掉"。
+                         *   对一条刚开始换气、还没脏到底的会话，那是**加重**而不是治疗：
+                         *   本来只该搬走三个白烧的回合，结果把有用的上下文一起清了。
+                         *   而且用户在界面上看不出区别（两种都只显示一条 compact 提示）。
+                         *
+                         *   所以 region 失败就**如实失败**：why 进日志，交给 recallHint，
+                         *   下一次攒够截断再试。宁可这一轮不治，也不误伤整段历史。
+                         *
+                         *   ★ 熔断那条（full）不受影响 —— 那时候已经救不回来了，全量才是对的。
+                         */
+                        const span = String(range.start) + ' ' + String(range.end);
+                        let compact = await runCommand('/compact-region ' + span);
+                        for (let attempt = 0; attempt < 10 && !compact.ok
+                            && /not idle|active compaction|no open turn/i.test(String(compact.error)); attempt += 1) {
+                            await new Promise((resolve) => { setTimeout(resolve, 3000); });
+                            compact = await runCommand('/compact-region ' + span);
+                        }
+                        return {
+                            ok: compact.ok,
+                            /* ★ 现在 range 是真的用了：它既是这次调用的参数，也是 recallHint 要念的那段。 */
+                            kind: 'region',
+                            range,
+                            error: compact.ok ? null : String(compact.error),
+                        };
+                    }
+                    /* ★ 算不出范围 → 如实失败，**同样不降级全量**（理由同上）。
+                     *   落到下面那句 `runCommand('/compact')` 就是误伤，所以这里必须 return。 */
+                    return {
+                        ok: false,
+                        kind: 'region',
+                        range: null,
+                        error: 'no balanced range: ' + String(picked.why),
+                    };
+                }
+                const full = await runCommand('/compact');
+                return { ok: full.ok, kind: 'full', range: null, error: full.ok ? null : full.error };
+            })();
+            const out = {
+                kind: viaCmd.kind === undefined ? mode : viaCmd.kind,
+                ok: viaCmd.ok,
+                range: viaCmd.range === undefined ? null : viaCmd.range,
+                error: viaCmd.ok ? null : viaCmd.error,
+            };
             lastCompact.set(sid, out);
+            try {
+                appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+                    new Date().toISOString() + ' [huanqi][compact] 走 commands 桥 → kind='
+                    + String(viaCmd.kind) + ' range='
+                    + (viaCmd.range === null || viaCmd.range === undefined
+                        ? 'null'
+                        : String(viaCmd.range.start) + '-' + String(viaCmd.range.end))
+                    + ' / '
+                    + (viaCmd.ok ? 'OK' : 'FAILED: ' + String(viaCmd.error)) + '\n');
+            }
+            catch { /* 诊断不许影响主流程 */ }
             return out;
         }
         /* ★★ 2026-10-26（砚青落）：`compactNow` 要 `ManualCompactAgentContext`，
@@ -2364,6 +2806,8 @@ export function apply(ctx, config) {
                  *    这不是偷懒，是唯一既能 await 又不阻塞宿主的写法。
                  * ══════════════════════════════════════════════════════════════ */
                 void (async () => {
+                    lastSeenSid = sid;
+                    lastSeenAgent = agent;
                     const cuts = (cutCounts.get(sid) ?? 0) + 1;
                     cutCounts.set(sid, cuts);
                     let notice = strings.continueNotice(left, ledger.creditMax, config.normalTurnThreshold);

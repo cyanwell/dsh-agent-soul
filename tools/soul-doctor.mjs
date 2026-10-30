@@ -36,7 +36,18 @@ import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createRequire } from 'node:module'
 
-const HOME = process.env.DSH_HOME || 'D:/AI/dsh/home'
+// ★ 不猜 home 在哪（AGENTS 里的铁律：不知道就报，不拿默认值顶）。
+//   原来这里兜底成 'D:/AI/dsh/home' —— 那是本机路径。别人机器上会去读一个
+//   不存在的目录，于是 doctor 报「全是红的」，而真实原因只是工具指错了地方。
+//   ★ 这种错不是崩溃，是「报出假的缺失」—— 比崩溃更难查。
+const HOME = process.env.DSH_HOME || argOf('--home')
+if (!HOME) {
+  console.error('\n\u2717 \u627e\u4e0d\u5230 DSH home\u3002\u8bf7\u4e8c\u9009\u4e00\uff1a\n' +
+    '  1) export DSH_HOME=<\u4f60\u7684 dsh home \u8def\u5f84>\n' +
+    '  2) \u52a0\u53c2\u6570 --home <\u8def\u5f84>\n' +
+    '  \uff08\u4e0d\u731c\uff0c\u662f\u56e0\u4e3a\u731c\u9519\u4f1a\u62a5\u51fa\u5047\u7684\u7f3a\u5931\uff09\n')
+  process.exit(2)
+}
 const argOf = (k) => { const i = process.argv.indexOf(k); return i > -1 ? process.argv[i + 1] : null }
 const PROFILE = argOf('--profile') || 'desktop'
 const JSON_OUT = process.argv.includes('--json')
@@ -110,7 +121,13 @@ check('L0', 'bundles', 'dsh.profile.bundles 是纯字符串数组', () => {
 // L1 能力 —— 零件能不能被解析到
 // ═══════════════════════════════════════════════════════════════
 
-const SOUL_PARTS = ['dsh-yanqing-compaction', 'dsh-yanqing-compact-region', 'dsh-yanqing-pruner', 'dsh-yanqing-memory']
+// ★★ 双命名兼容（2026-10-30）：本机装的是 dsh-yanqing-*（专属命名空间），
+//   发布版装的是 dsh-agent-*。两套都必须认，否则换一台机器就报「缺件」。
+//   ★ 只列前缀、不拼全名 —— huanqi 的真名是 dsh-huanqi（没有 agent），
+//   拼出来的 dsh-agent-huanqi 既不是它、也不在 bundles 里。
+const SOUL_PARTS = ['compaction', 'compact-region', 'pruner', 'memory']
+const PART_PREFIXES = ['dsh-agent-', 'dsh-yanqing-']
+const partNames = (dir) => PART_PREFIXES.map((p) => p + dir)
 const resolve = (name) => {
   // 和 soul-preset.mjs 保持同一口径：pnpm 的 @a/b 可能落成 @a+b
   const cands = [join(nmDir, name), join(nmDir, name.replace(/^@([^/]+)\/(.*)$/, '@$1+$2'))]
@@ -119,8 +136,9 @@ const resolve = (name) => {
 
 check('L1', 'parts', '四个砚青零件都能 resolve', () => {
   if (!existsSync(nmDir)) return { ok: false, detail: `没有 node_modules（${nmDir}）`, hint: '先 `dsh plugin add` 装零件，或检查 profile 是否初始化过' }
-  const miss = SOUL_PARTS.filter((n) => !resolve(n))
-  if (miss.length) return { ok: false, detail: `解析不到：${miss.join(', ')}`, hint: '这些包没装进这个 profile。装法见 AGENT-INSTALL.md 的 L1 一节' }
+  // ★ 每个目录只要有**任一前缀**的版本就够 —— 不要求两个前缀同时存在。
+  const miss = SOUL_PARTS.filter((n) => !partNames(n).some((full) => resolve(full)))
+  if (miss.length) return { ok: false, detail: `解析不到：${miss.map((m) => partNames(m).join(' / ')).join(', ')}`, hint: '这些包没装进这个 profile。装法见 AGENT-INSTALL.md 的 L1 一节' }
   return { ok: true, detail: `4/4 都在 ${nmDir}` }
 })
 
@@ -258,7 +276,7 @@ check('L1', 'nodever', 'node 版本够', () => {
 // L2 装配 —— preset 装对了没
 // ═══════════════════════════════════════════════════════════════
 
-const REQUIRED = ['dsh-yanqing-compaction', 'dsh-yanqing-compact-region', 'dsh-yanqing-pruner']
+const REQUIRED = ['compaction', 'compact-region', 'pruner'].flatMap(partNames)
 
 function scanPresets(lines) {
   const out = []

@@ -100,7 +100,19 @@ const ORDER = [
     // ★ 第 6 个是外部件（dsh-mnemon），不在本仓库。它照样要进 ORDER ——
     //   因为 plan 只沿着 ORDER 生成安装清单，不收录就等于永远不提示装。
     //   它和 mnemon-probe 是两样东西：一个是引擎（别人的），一个是仪表（我们的）。
-    parts: ['compaction', 'pruner', 'memory', 'echo', 'mnemon-probe', 'dsh-mnemon'],
+    //
+    // ★★★ 2026-10-30 补 mcp-hub（第九个洞）：
+    //   ECHO 的记忆召回现在走 MCP 服务 —— 没有 mcp-hub，echo 的召回是静默空的。
+    //   原来 ORDER 里一次都没出现过它，于是 plan 永远不提示装，
+    //   而「不装」不会报错，只会让人觉得「ECHO 好像没生效」。
+    //   ★ 静默失效比报错难查得多：它不是坏了，是根本没接线。
+    //
+    // ★★★ 同日补 compact-region（第十个洞）：
+    //   它给 compaction realm 开一扇「能指定范围」的门（注册 /compact-region <s> <e>），
+    //   让换气的「范围压缩」真的只压那一段，而不是退化成全量。
+    //   presets 里一直在引用它，但它从来不在本仓库、也不在 ORDER —— 
+    //   于是新用户装完，范围压缩静默降级成全量，谁也不报错。
+    parts: ['mcp-hub', 'compaction', 'pruner', 'compact-region', 'memory', 'echo', 'mnemon-probe', 'dsh-mnemon'],
   },
   {
     step: 2,

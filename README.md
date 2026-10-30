@@ -283,6 +283,90 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-30 晚 · 安装层补两个静默洞 + 包名统一到 `dsh-agent-*`
+
+**背景**：`dsh-yanqing-*` 是本机专属插件的命名空间，对外发布不该带这个名字。
+但仓库里 `echo` / `huanqi-panel` 两个包已经改成了 `dsh-yanqing-*`，
+而 `presets/` 引用的又是另一套名字 —— **装了但 preset 找不到包，静默降级。**
+
+**这一版统一到 `dsh-agent-*`，并补两个「不装也不报错」的缺口：**
+
+| # | 缺口 | 症状 | 修法 |
+|---|---|---|---|
+| 1 | `mcp-hub` 不在 `ORDER` | ECHO 的 MCP 召回没有底座，**召回静默空** | `ORDER` step 1 补 `mcp-hub` |
+| 2 | `compact-region` 本仓库没有 | 换气的范围压缩退化成全量，**谁都不报错** | 补 `plugins/compact-region`，并入 `ORDER` |
+
+**包名统一（4 处）：**
+
+| 位置 | 改前 | 改后 |
+|---|---|---|
+| `plugins/echo/package.json` | `dsh-yanqing-echo` | `dsh-agent-echo` |
+| `plugins/echo/client.js`（`load({id})`） | 同上 | 同上 |
+| `plugins/huanqi-panel/package.json` | `dsh-yanqing-huanqi-panel` | `dsh-agent-huanqi-panel` |
+| `plugins/huanqi-panel/client.js` | 同上 | 同上 |
+
+★ `client.js` 那一行**必须跟着改** —— `id` 与 `package.json.name` 不等时，
+client-modules 对不上注册表，整个 web boot 批次不激活，桌面端直接起不来。
+`node --check` 查不出这种错，它只查语法，不查配对。
+
+**写死路径（3 处）：**
+
+`install.mjs` / `tools/soul-doctor.mjs` / `tools/soul-preset.mjs` 原来都兜底成
+`'D:/AI/dsh/home'`。别人机器上会去读一个不存在的目录，于是 doctor 报「全是红的」，
+真实原因却只是工具指错了地方。现在改成 **`DSH_HOME` 或 `--home`，都没有就明确报错** ——
+按 `install.mjs` 自己写的铁律：不猜。
+
+**同时修**：`plugins/compact-region/index.js` 的诊断日志从写死
+`D:\AI\memory\hub\_plugin-diag.log` 改成 `DSH_PLUGIN_DIAG` 或系统临时目录。
+
+**自检**：`node tools/verify-packaging.mjs` → **121 / 122**。
+
+### 2026-10-30 深夜 · 清掉旧口径与两处会误导人的本机路径
+
+**做这件事的起点**：这台机器上装的包叫 `dsh-yanqing-*`（专属命名空间），
+而仓库发布的是 `dsh-agent-*`。两套名字并存久了，**文档和代码开始各说各话**。
+
+**扫出来三类，性质完全不同 —— 分开处理：**
+
+| 类 | 例子 | 处理 |
+|---|---|---|
+| **会让用户照着做错** | `AGENT-INSTALL.md` 全文用 `dsh-yanqing-*`；`AGENT-INSTALL.md` 的 `"home": "D:/AI/dsh/home"` 示例 | **必改** |
+| **代码里写死只认一套** | `soul-doctor.mjs` / `soul-preset.mjs` 的 `REQUIRED` 只列 `dsh-yanqing-*` | **必改（会误报缺件）** |
+| **历史记录 / 审计对象** | `docs/audit-2026-10-22-*.md`、`.gh-issues/*` | **不动**（改了就篡改历史） |
+
+**具体修了：**
+
+1. **`AGENT-INSTALL.md`** —— 10 处旧包名改成 `dsh-agent-*`；
+   `"home"` 示例从本机路径改成通用占位符。
+   ★ 这份是**安装向导**，用户照着它装 —— 写错名字等于让人装一个不存在的包。
+2. **`tools/soul-doctor.mjs` / `tools/soul-preset.mjs`** —— `REQUIRED` 改成**双前缀都认**：
+   ```js
+   const PART_PREFIXES = ['dsh-agent-', 'dsh-yanqing-']
+   const partNames = (dir) => PART_PREFIXES.map((p) => p + dir)
+   ```
+   判据是**任一前缀存在即可**，不要求两套同时装。
+   ★ 不这么改的话，doctor 在发布版机器上会对着装好的包喊「缺件」。
+3. **`plugins/echo/client.js` 的注释** —— 它写着「包名是 `dsh-yanqing-echo`」，
+   而代码里 `id` 早已是 `dsh-agent-echo`。**注释和代码对不上比没有注释更坏**，改了。
+4. **`plugins/huanqi/cordis.patch.yml` / `package.json`** —— 从 organs 迁入时它写的是
+   `dsh-agent-huanqi`，而正确名字是 `dsh-huanqi`（本机 profile 与 install.js 注释两边都证实）。
+5. **`docs/安装常见问题汇总与解决方法.md` / `HOW-TO-TAKEOVER.md`** —— 排错手册里的旧包名，同步。
+
+**顺手做对的一件事：把两个导出快照移出版本库。**
+
+`presets/_manifest.json` 和 `soul-version.json` 是 `tools/soul-preset.mjs --export`
+生成的**安装状态快照**，里面带着 `"source": "D:\\AI\\dsh\\home\\..."` 这种本机路径。
+它们记录的是「某台机器某时刻装了什么」，**不是仓库内容**。已加进 `.gitignore` 并从 git 移除
+（本地文件保留）。全库确认过：没有任何代码读这两个文件。
+
+**自检**：`node tools/verify-packaging.mjs` → **121 / 122**
+（最后一项 `README 有 2026-10-22 的更新记录` 是历史项，非本次引入）。
+
+**doctor 实测**：`node tools/soul-doctor.mjs --layer L1` → `4/4 都在`
+（本机装的是 `dsh-yanqing-*`，双前缀改动生效）。
+
+---
+
 ### 2026-10-28 午后 · doctor 补两条「白名单漏一项」检查（来自用户反馈）
 
 **背景**：用户的 bug 反馈里有一条反复出现三次的模式 ——

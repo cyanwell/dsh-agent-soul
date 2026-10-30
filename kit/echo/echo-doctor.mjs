@@ -931,7 +931,7 @@ function checkSelf(logs, deep) {
     // ★★★ 2026-10-23 四修：这里**不许报 error** —— 因为「日志里没有」不等于「没注入」。
     //
     //   两条推送通道，只有一条落日志：
-    //     ① runtime-context 快照的 sections[]  —— 落日志（本机 dsh-yanqing-memory 走这条）
+    //     ① runtime-context 快照的 sections[]  —— 落日志（本机 dsh-agent-memory 走这条）
     //     ② ctx.systemPrompt.context()          —— **不落日志**
     //        （agent-soul 自带的 plugins/memory 就是走这条：name: 'agent:self'）
     //   实测依据：本会话日志里 system/message 0 条、request/header 只有

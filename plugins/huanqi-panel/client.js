@@ -13,7 +13,7 @@ window.__ModuleLoader__.load({
    *   写成 dsh-agent-huanqi-panel 会和部署包名对不上 →
    *   client-modules 报 "loaded without registering" → 整个 web boot 批次不激活 →
    *   界面弹「应用无法启动」。package.json 的 name 已同步成同一个值。 */
-  id: "dsh-yanqing-huanqi-panel",
+  id: "dsh-agent-huanqi-panel",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;

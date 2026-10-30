@@ -157,14 +157,18 @@ window.__ModuleLoader__.load({
 
        ★ 为什么这一节可以写包名，而《参考实现》那一节不写：
          因为这里给的是【可下载的地址】，那里给的是【设计判断】——
-         地址会随仓库存在而有效，判断才是该让人自己长的那部分。 */
-    const ORGANS_REPO = "https://github.com/cyanwell/dsh-agent-organs";
+         地址会随仓库存在而有效，判断才是该让人自己长的那部分。
+
+       ★★ 2026-10-30：原来这些零件挂在另一个仓库 dsh-agent-organs 下。
+       那个仓库已弃用，全部实现收进本仓库 plugins/ —— 所以指针改成指向自己。
+       一个项目一个仓库，减少维护成本。 */
+    const ORGANS_REPO = "https://github.com/cyanwell/dsh-agent-soul/tree/main/plugins";
     const ORGANS = [
       ["dsh-agent-compaction", "压缩器 · 门牌", "给兜底压缩装上可回溯的指针"],
       ["dsh-agent-pruner", "裁剪器 · 门牌", "把官方那句死 marker 换成带 seq 的"],
       ["dsh-agent-memory", "热记忆 · 推送层", "把活时钟与定长自我层推进每一步"],
       ["dsh-agent-echo", "哨兵 · 体检台", "把记忆中枢的状态摆出来，并说清它测不到什么"],
-      ["dsh-agent-huanqi", "换气 · 思考预算", "四条判据治「只想不做」：流内早杀 / 流末 / 重复 / 空回合，共用一本额度账"],
+      ["dsh-huanqi", "换气 · 思考预算", "四条判据治「只想不做」：流内早杀 / 流末 / 重复 / 空回合，共用一本额度账"],
       ["dsh-agent-huanqi-panel", "换气的面板", "在设置页里调换气参数（字节级改 YAML，不动注释）"],
       ["dsh-agent-clock", "侧边栏时钟", "把同一个时钟摆到界面上（memory 摆在提示里）"],
       ["dsh-agent-mnemon-probe", "热记忆探针", "每轮报磁盘状态：条数 / 字节 / 预算占比"],

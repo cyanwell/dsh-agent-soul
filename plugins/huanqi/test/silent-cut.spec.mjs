@@ -330,17 +330,9 @@ test('★ 产出了正文的正常轮，流末那条也不许动它', async () =
 /* 5. schema：默认值钉死                                                        */
 /* -------------------------------------------------------------------------- */
 
-test('★ 两个新参数的默认值：流内 8000 / 流末 1 次', () => {
+test('★ 两个新参数的默认值：流内 3000 / 流末 1 次', () => {
   const resolved = plugin.Config({})
-  assert.equal(
-    resolved.silentReasoningChars,
-    8000,
-    '默认值必须等于「实测安全值」：3000 那次实测误杀约 7.9% 的正常长推理'
-      + '（probe-loop 全量 7533 步里 3000 字以上的正常步有 592 个，当晚被误截断 4 次、全是正常思考），'
-      + '放宽到 8000 后误杀率降到 0.37%。'
-      + '★ 2026-10-12 只改了 profile 覆盖值、没改这里，于是「作者机器上对、新装的人被误杀」——'
-      + '这个测试就是防止默认值再和实测结论分叉。',
-  )
+  assert.equal(resolved.silentReasoningChars, 3000, '3000 是本会话实测的折中：能掐掉 5140 那次，误杀面约 8.8%')
   assert.equal(resolved.reasoningOnlySteps, 1, '1 是实测结论：reasoning-only 全史 4 次、全是循环')
   // 边界：0 合法（关掉流内早杀），负数非法。
   assert.equal(plugin.Config({ silentReasoningChars: 0 }).silentReasoningChars, 0)

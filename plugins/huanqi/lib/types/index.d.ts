@@ -371,13 +371,18 @@ export interface Config {
     resumeAfterBreak?: boolean;
     /** 空回合也续一轮（吸收自 dsh-stalled-turn-continue）。默认 true。 */
     emptyTurnContinue?: boolean;
-    /** 累计截断多少次后做一次范围压缩。0 = 关闭范围压缩。默认 3。 */
+    /**
+     * 累计截断多少次后做一次范围压缩。0 = 关闭。默认 `3`。
+     *
+     * ★ 为什么不在第一次截断就压：单次截断是正常呼吸（`normalTurnThreshold: 20`，
+     *   一轮能截断几十次）。每次都压等于每轮都在换容器。
+     */
     regionCompactAfterCuts?: number;
-    /** 熔断时是否做全量压缩。默认 true。 */
+    /** 熔断时是否做全量压缩。默认 `true`。 */
     fullCompactOnBreaker?: boolean;
-    /** 压缩后是否注入「取回一手原文」的指引（不让它读摘要）。默认 true。 */
+    /** 压缩后是否注入「取回一手原文」的指引。默认 `true`。 */
     postCompactRecallHint?: boolean;
-    /** 要接的压缩服务名。留空 = `compaction`（本机默认）。 */
+    /** 要接的压缩服务名。留空 = `compaction`。 */
     compactionService?: string;
 }
 /** Resolved config: every field carries its validated default. */

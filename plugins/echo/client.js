@@ -32,15 +32,18 @@
 // ============================================================================
 
 window.__ModuleLoader__.load({
-  /* ★★ 2026-10-26（砚青落）：这个 id 必须等于**包名**，而包名是 dsh-yanqing-echo。
-   *   2026-10-26 00:39 我部署时把它写成了 dsh-agent-echo（= 当时的 package.json name），
+  /* ★★ 这个 id 必须等于**包名**，而包名是 dsh-agent-echo。
+   *   2026-10-26 00:39 我部署时把它写成了 dsh-agent-echo，
+   *   而当时部署目录叫 dsh-yanqing-echo（本机专属命名）—— 两边对不上，
    *   client-modules 拿包名当 key 去对注册表，对不上就报
    *   "loaded without registering ... via __ModuleLoader__.load"，
    *   整个 web boot 批次随之不激活，界面直接弹「应用无法启动」。
    *   ★ 教训：改 client.js 或 package.json 的**任何一边**之前，
    *     先确认 `package.json.name === __ModuleLoader__.load({id})`，两边是一对。
-   *   已把 package.json 的 name 也统一成 dsh-yanqing-echo，两边同源。 */
-  id: "dsh-yanqing-echo",
+   *   ★★ 2026-10-30：发布版统一回 dsh-agent-* 命名空间，本机部署目录
+   *     dsh-yanqing-* 是安装时拷的副本 —— 仓库名与部署名可以不同，
+   *     但**同一个包内** package.json.name 与 id 必须相等。 */
+  id: "dsh-agent-echo",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;

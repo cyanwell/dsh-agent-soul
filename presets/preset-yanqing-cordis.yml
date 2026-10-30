@@ -4,7 +4,7 @@
         id: yanqing-cordis
         name: 砚青创造
         description: '砚青 × 创造模式。功能与「砚青」完全一致 ——
-          同样的门牌压缩（dsh-yanqing-compaction）、同样的记忆架构、同样的全套工具与权限。在此之上加了两样：运行时检查自身
+          同样的门牌压缩（dsh-agent-compaction）、同样的记忆架构、同样的全套工具与权限。在此之上加了两样：运行时检查自身
           Cordis 环境的能力（tool-cordis），以及随 preset
           一起走的创造指导技能（cordis-plugin-development /
           editing-cordis-compositions）。可以让 Agent

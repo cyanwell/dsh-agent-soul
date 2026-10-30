@@ -21,7 +21,7 @@ node tools/soul-doctor.mjs --json       # 你读
 {
   "ok": false,
   "profile": "desktop",
-  "home": "D:/AI/dsh/home",
+  "home": "<你的 DSH_HOME，如 /home/you/.dsh>",
   "layers": {
     "L0": { "ok": true,  "checks": [{ "id": "...", "ok": true, "detail": "..." }] },
     "L1": { "ok": true,  "checks": [...] },
@@ -94,7 +94,7 @@ node -e "const f=require('fs');const p=process.argv[1];let s=f.readFileSync(p,'u
 必须是：
 
 ```json
-{ "dsh": { "profile": { "bundles": ["dsh-riji", "dsh-yanqing-memory"] } } }
+{ "dsh": { "profile": { "bundles": ["dsh-riji", "dsh-agent-memory"] } } }
 ```
 
 **改之前先备份这个文件。** 改完重跑 doctor 确认条数没少。
@@ -108,10 +108,10 @@ node -e "const f=require('fs');const p=process.argv[1];let s=f.readFileSync(p,'u
 需要在目标 profile 的 `node_modules` 里能找到这四个：
 
 ```
-dsh-yanqing-compaction
-dsh-yanqing-compact-region
-dsh-yanqing-pruner
-dsh-yanqing-memory
+dsh-agent-compaction
+dsh-agent-compact-region
+dsh-agent-pruner
+dsh-agent-memory
 ```
 
 **★ 装法取决于它们的来源**（本地路径 / npm / 打包），本机是别人装的，
@@ -120,7 +120,7 @@ dsh-yanqing-memory
 **装完的判据**（不是「命令跑成功」）：
 
 ```bash
-node -e "console.log(require.resolve('dsh-yanqing-compaction'))"
+node -e "console.log(require.resolve('dsh-agent-compaction'))"
 ```
 
 > ⚠️ `require.resolve` 要在 **profile 目录下**跑，否则解析到别处。
@@ -191,9 +191,9 @@ node tools/soul-preset.mjs build --profile desktop --write   # 确认后写
 
 | 级 | 零件 | 缺了会怎样 |
 |---|---|---|
-| L1 压缩本身 | `dsh-yanqing-compaction` | 摘要没有门牌，压缩完回不去 |
-| L2 裁剪带门牌 | `dsh-yanqing-pruner` | 被裁的工具结果回不去 |
-| **L3 范围压缩** | `dsh-yanqing-compact-region` | **换气第二档治疗失效**（只压最近一段然后继续） |
+| L1 压缩本身 | `dsh-agent-compaction` | 摘要没有门牌，压缩完回不去 |
+| L2 裁剪带门牌 | `dsh-agent-pruner` | 被裁的工具结果回不去 |
+| **L3 范围压缩** | `dsh-agent-compact-region` | **换气第二档治疗失效**（只压最近一段然后继续） |
 
 **★ 缺 `compact-region` 时压缩仍然可用**，所以这个问题最容易被忽略 ——
 表现出来是「能压缩，但遇到上下文快满时救不回思考」。
@@ -254,7 +254,7 @@ node tools/soul-doctor.mjs; echo "exit=$?"
 4. **它被识别成一个命令**（出现在补全里）→ 成了
 
 ★ **不需要真的开这条会话、也不需要跑一次压缩。** 命令能被识别，
-就说明 preset 加载成功、`dsh-yanqing-compact-region` 注册上了。
+就说明 preset 加载成功、`dsh-agent-compact-region` 注册上了。
 
 ★ 这个方法比「开新会话跑一次」好：**更快，而且不消耗额度、不产生压缩副作用。**
 

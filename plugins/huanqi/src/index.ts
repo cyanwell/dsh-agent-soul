@@ -159,7 +159,7 @@
  *
  * @module dsh-loop-guard
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 /**
@@ -178,14 +178,11 @@ import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, AgentCancelCause } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
-import type { ContextFormed, LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm'
-/* ★ 2026-10-26（砚青落）：压缩服务与边界检查。
- *   ★★ 这两个 import 让 huanqi **在类型上**依赖 dsh-compaction，
- *   但运行时是可选的（`ctx.get('compaction')` 拿不到就整层跳过）——
- *   所以换气仍然能在没有 compaction 的宿主上加载，只是「治疗」那层不生效。 */
-import type { CompactionAgentContext, CompactionEngine } from '@deepseek-ai/dsh-compaction'
+/* ★ 2026-10-28（源同步）：范围压缩要判「这个切点两侧的工具调用配不配对」。
+ *   它是宿主自带的导出（`dsh-compaction/tool-pairing`），本包的 dependencies 里没有 ——
+ *   与 `ctx.get('compaction')` 同一个前提：**运行时由宿主提供**。 */
 import { toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
-import type { SessionSeq } from '@deepseek-ai/dsh-session'
+import type { ContextFormed, LlmFailure, StreamChunk } from '@deepseek-ai/dsh-llm'
 
 type UserMessage = ReturnType<typeof createUserMessage>
 
@@ -583,27 +580,22 @@ export interface Config {
   /** 空回合也续一轮（吸收自 dsh-stalled-turn-continue）。默认 true。 */
   emptyTurnContinue?: boolean
 
-  /* ★ 2026-10-26（砚青落）：思考退化「治疗」三件套。
+  /* ── 思考退化「治疗」层（2026-10-26 落，2026-10-28 从 lib 同步回源） ──────
+   *  ★ 这四个是打断之外的**清创**参数：打断只是止血，把那段循环留在历史里，
+   *    下一次更容易被激活。压缩才是把污染搬到磁盘上 + 留门牌。 */
+
+  /**
+   * 累计截断多少次后做一次范围压缩。0 = 关闭。默认 `3`。
    *
-   * 打断（ReasoningLoopBreaker）只结束当前这一轮，但那段「做。做。做。」已经进了历史 ——
-   * 下一次模型读到「刚才是这样做出来的」，更容易被激活，这是**复利**。
-   * 所以配上压缩：**把污染搬到磁盘上、留门牌，需要时再取回**。
-   *
-   * 三级阶梯（按代价递增）：
-   *   ① 打断（已有，流级）
-   *   ② 范围压缩：累计截断 N 次后做一次，压走「最近这一段循环」，**继续对话**
-   *   ③ 全量压缩：熔断时做，彻底清空 + 告知用户 + **不再延续**
-   *
-   * ★ 为什么范围压缩不在第一次截断就做 —— 单次截断是正常呼吸。
-   *   `normalTurnThreshold: 20` 意味着一轮能截断几十次，每次都压缩等于每轮都在换容器。
+   * ★ 为什么不在第一次截断就压：单次截断是正常呼吸（`normalTurnThreshold: 20`，
+   *   一轮能截断几十次）。每次都压等于每轮都在换容器。
    */
-  /** 累计截断多少次后做一次范围压缩。0 = 关闭范围压缩。默认 3。 */
   regionCompactAfterCuts?: number
-  /** 熔断时是否做全量压缩。默认 true。 */
+  /** 熔断时是否做全量压缩。默认 `true`。 */
   fullCompactOnBreaker?: boolean
-  /** 压缩后是否注入「取回一手原文」的指引（不让它读摘要）。默认 true。 */
+  /** 压缩后是否注入「取回一手原文」的指引。默认 `true`。 */
   postCompactRecallHint?: boolean
-  /** 要接的压缩服务名。留空 = `compaction`（本机默认）。 */
+  /** 要接的压缩服务名。留空 = `compaction`。 */
   compactionService?: string
 }
 
@@ -2119,7 +2111,152 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
    * 同时限制保留最近 2000 行，避免无限长。
    * ★ 任何失败都吞掉：检测层不许影响主流程。
    */
-  const turnsFile = join(stateDir, 'huanqi-turns.jsonl')
+  /* ★ 这一行的 `;` 不是风格，是 ASI 必需：本文件不带分号，而紧接着的 IIFE 以 `(`
+   *   开头 —— 没有分号时 JS 会把 `join(...)` 的返回值当成函数再调一次（tsc 报 TS2349）。
+   *   lib 里本来就带分号（tsc 输出时补的），这里写出来反而正好对齐它。 */
+  const turnsFile = join(stateDir, 'huanqi-turns.jsonl');
+
+  // ══════════════════════════════════════════════════════════════════════
+  // ★ 2026-10-27（砚青加）**测试触发口** —— 验证两段压缩能不能真的跑起来。
+  //
+  //   背景：huanqi-turns.jsonl 里 37 条 compact 全是
+  //   {ok:false, error:"compaction service not found"}，从没验证过成功是什么样。
+  //   compactOnce 是闭包函数、外面调不到；huanqi 没注册工具/命令；
+  //   DSH 的 HTTP API 要 token。所以只能从插件内部开一个口子。
+  //
+  //   用法：写 D:\AI\memory\hub\_huanqi-trigger.json
+  //     { "mode": "region" | "full" | "both" }
+  //   用最近一次真实事件里的会话（就是当前在跑的那条），**不模拟**。
+  //   执行完删文件，结果写 _plugin-diag.log。
+  // ══════════════════════════════════════════════════════════════════════
+  ((): void => {
+    const TRIGGER = 'D:\\AI\\memory\\hub\\_huanqi-trigger.json'
+    const DIAGF = 'D:\\AI\\memory\\hub\\_plugin-diag.log'
+    const diag = (line: string): void => {
+      try { appendFileSync(DIAGF, new Date().toISOString() + ' ' + line + '\n') } catch { /* */ }
+    }
+    setInterval(() => {
+      /* ★ 声明成 `string | null` 是为了产物与 lib 逐字一致（lib 里是 `let raw = null`）；
+       *   后面用 `as string` 断言收窄 —— `catch { return }` 已保证初值永不被读到，
+       *   而 `as` 在 tsc 擦掉类型后就消失了，运行时与 lib 完全相同。 */
+      let raw: string | null = null
+      try { raw = readFileSync(TRIGGER, 'utf8') } catch { return }
+      // ★ 2026-10-27（第 5 代修）：空文件 = 没指令。原来这两行紧挨着 ——
+      //   上面刚把文件清空、下面立刻去 parse，于是「文件存在且为空」时会
+      //   每 3 秒报一次 JSON 解析失败（实测累计 6588 条，自 10-26 17:37 起）。
+      //   读到空就静默跳过：不清空、不报错、不触发。
+      if ((raw as string).trim() === '') return
+      try { writeFileSync(TRIGGER, '', 'utf8') } catch { /* 清空，避免重复触发 */ }
+      void (async () => {
+        let req: any = null
+        try { req = JSON.parse(raw as string) } catch (e: any) {
+          diag('[huanqi][trigger] JSON 解析失败: ' + String(e && e.message))
+          return
+        }
+        const mode = String(req.mode || 'region').trim()
+        diag('[huanqi][trigger] 收到 mode=' + mode
+          + ' lastSid=' + (lastSeenSid || '(空)')
+          + ' hasAgent=' + (lastSeenAgent === null ? '否' : '是'))
+        // ★ 兜底：lastSeenAgent 为空时，用请求里的 sid（或我们这条会话）直接取
+        let target: any = lastSeenAgent
+        let targetSid: string = lastSeenSid
+        if (target === null) {
+          const wantSid = String(req.sid || 'session-1099f531-7cac-4989-a14c-7fd499ac1fc0').trim()
+          try {
+            target = ctx.agents.get(wantSid as never) ?? null
+            targetSid = wantSid
+            diag('[huanqi][trigger] 兜底 ctx.agents.get(' + wantSid + ') → '
+              + (target === null ? '没拿到' : '拿到了'))
+          } catch (e: any) {
+            diag('[huanqi][trigger] 兜底取 agent 抛: ' + String(e && e.message))
+          }
+        }
+        if (target === null) {
+          diag('[huanqi][trigger] 取不到 agent，放弃')
+          return
+        }
+        /* ══════════════════════════════════════════════════════════
+         * ★ 2026-10-27：只读探针。摸清自研压缩引擎缺的两样 API。
+         *   绝不用 Object.keys（对 Cordis ctx 恒为空，上一轮就栽在这）。
+         * ══════════════════════════════════════════════════════════ */
+        const __probeDump = (tag: string, obj: any, depth?: number): string[] => {
+          const lines: string[] = []
+          const seen = new Set<string>()
+          let cur = obj
+          let level = 0
+          while (cur !== null && cur !== undefined && level < (depth === undefined ? 3 : depth)) {
+            let names: string[] = []
+            try { names = Object.getOwnPropertyNames(cur) } catch { names = ['(读不到)'] }
+            const fresh = names.filter((n) => !seen.has(n))
+            fresh.forEach((n) => seen.add(n))
+            if (fresh.length > 0) {
+              lines.push(tag + ' [L' + level + '] ' + fresh.slice(0, 60).join(','))
+            }
+            try { cur = Object.getPrototypeOf(cur) } catch { cur = null }
+            level += 1
+            if (cur === null || cur === Object.prototype) break
+          }
+          return lines
+        }
+        if (mode === 'probe') {
+          diag('[huanqi][probe] ===== 开始 =====')
+          const put = (arr: string[]): void => { arr.forEach((l) => diag('[huanqi][probe] ' + l)) }
+          try { put(__probeDump('AGENT', target, 3)) } catch (e: any) { diag('[huanqi][probe] AGENT 抛: ' + e.message) }
+          try {
+            const sess = target !== null ? target.session : undefined
+            put(__probeDump('SESSION', sess, 4))
+          } catch (e: any) { diag('[huanqi][probe] SESSION 抛: ' + e.message) }
+          try {
+            const surf = target !== null && target.session !== undefined ? target.session.surface : undefined
+            put(__probeDump('SURFACE', surf, 4))
+            // 额外：surface 上有没有「写」类方法
+            const wr: string[] = []
+            let c2 = surf
+            while (c2 !== null && c2 !== undefined) {
+              try {
+                Object.getOwnPropertyNames(c2).forEach((n) => {
+                  if (/^(set|add|splice|replace|remove|delete|insert|push|append|truncate|compact|rewrite|put)/i.test(n)) wr.push(n)
+                })
+              } catch { /* */ }
+              try { c2 = Object.getPrototypeOf(c2) } catch { c2 = null }
+            }
+            diag('[huanqi][probe] SURFACE 上的写类方法: ' + (wr.length > 0 ? wr.join(',') : '(无)'))
+          } catch (e: any) { diag('[huanqi][probe] SURFACE 抛: ' + e.message) }
+          try {
+            const sctx = target !== null && target.session !== undefined ? target.session.ctx : undefined
+            put(__probeDump('SESSION.CTX', sctx, 3))
+          } catch (e: any) { diag('[huanqi][probe] SESSION.CTX 抛: ' + e.message) }
+          try { put(__probeDump('ROOT.CTX', ctx, 2)) } catch (e: any) { diag('[huanqi][probe] ROOT.CTX 抛: ' + e.message) }
+          // 关键：这些显式探测
+          const probes2 = ['compaction', 'llm', 'model', 'modelAdapter', 'agents', 'sessionProjections']
+          probes2.forEach((n) => {
+            let got: any
+            try { got = (ctx as any).get(n) } catch { got = '(抛)' }
+            diag('[huanqi][probe] ctx.get(' + n + ') -> '
+              + (got === undefined ? 'undefined' : (got === null ? 'null' : (got === '(抛)' ? '抛' : typeof got))))
+          })
+          diag('[huanqi][probe] ===== 结束 =====')
+          return
+        }
+        const tryOnce = async (m: string): Promise<void> => {
+          try {
+            const outcome = await compactOnce(target, m, targetSid)
+            diag('[huanqi][trigger] compactOnce(' + m + ') → '
+              + (outcome.ok ? 'OK' : 'FAILED: ' + String(outcome.error))
+              + ' range=' + (outcome.range === null
+                ? 'null'
+                : String(outcome.range.start) + '–' + String(outcome.range.end)))
+          } catch (e: any) {
+            diag('[huanqi][trigger] compactOnce(' + m + ') 抛: ' + String(e && e.message))
+          }
+        }
+        if (mode === 'region' || mode === 'both') await tryOnce('region')
+        if (mode === 'full' || mode === 'both') await tryOnce('full')
+        diag('[huanqi][trigger] 完成')
+      })()
+    }, 3000)
+  })()
+
   const recordTurn = (rec: Record<string, unknown>): void => {
     try {
       mkdirSync(stateDir, { recursive: true })
@@ -2140,7 +2277,6 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
   }
 
   const detectors = new WeakMap<object, LoopDetector>()
-
   /* ══════════════════════════════════════════════════════════════════════
    * ★★ 2026-10-26（砚青落）：思考退化「治疗」层 —— 压缩
    *
@@ -2163,21 +2299,14 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
    *   如果压缩后去读摘要，**摘要就成了新的输入** —— 那是摘要复利，压了等于白压。
    *   所以注入的是一张地图（seq 指针），不是一段转述。
    * ══════════════════════════════════════════════════════════════════════ */
-
   /** 每个会话在当前 turn 内累计的截断次数。`turn/end` 时清零。 */
-  const cutCounts = new Map<string, number>()
-
-  /** 最近一次压缩的结果 —— 判词要写进去，面板才看得见「它到底有没有动手」。 */
-  interface CompactOutcome {
-    kind: 'region' | 'full'
-    ok: boolean
-    /** 压掉的 seq 范围（拿不到就 null —— ★ 宁可没有门牌，也不写一个错的）。 */
-    range: { start: number; end: number } | null
-    /** 失败原因（ok=false 时有）。 */
-    error?: string
-  }
-  const lastCompact = new Map<string, CompactOutcome>()
-
+  const cutCounts = new Map<any, number>()
+  // ★ 2026-10-27（砚青加）：记住最近一次事件里的会话与 agent，给下面的测试触发口用。
+  let lastSeenSid = ''
+  /* ★ any：测试触发口与压缩层都直接摸 agent 的 `session` / `runMaintenance`，
+   *   而那些成员不在本包声明的 Agent 面上 —— 和本文件其余「够不到就用 any」一致。 */
+  let lastSeenAgent: any = null
+  const lastCompact = new Map<any, any>()
   /**
    * 取压缩服务。
    *
@@ -2185,15 +2314,93 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
    *   （见 `readConfig` 那段注释：`ctx.get` 在没有该服务时返回 undefined，
    *    而属性访问在类型上存在、运行时可能没有，会抛）。
    */
-  function compactionService(): CompactionEngine | undefined {
+  function compactionService(agent: any): any {
     const name = config.compactionService !== '' ? config.compactionService : 'compaction'
     try {
-      return ctx.get(name as never) as CompactionEngine | undefined
-    } catch {
+      /* ★ 2026-10-27（砚青修）：**从离得最近的 ctx 找**，不再只看根层。
+       * 病（实测 _plugin-diag.log）：ctx.get(compaction) -> UNDEFINED ;
+       *   相关键（无）→ compactOnce 恒 FAILED，历史 37 条全是这个。
+       * 因：compaction 是 cordis:group + isolate:{compaction:true}，
+       *   服务只在该 group 内可见，而 huanqi 在 profile 根层。
+       * 修：agent 属 preset 内部，它的 ctx 与那个 group 同作用域。逐级退。 */
+      let svc: any
+      {
+        const probes: Array<[string, any]> = [
+          ['agent.ctx', agent !== undefined && agent !== null ? agent.ctx : undefined],
+          ['agent.session.ctx', agent !== undefined && agent !== null && agent.session !== undefined && agent.session !== null
+            ? agent.session.ctx
+            : undefined],
+          ['ctx(根层)', ctx],
+        ]
+        for (let i = 0; i < probes.length; i += 1) {
+          const tag = probes[i]![0]
+          const holder = probes[i]![1]
+          if (holder === undefined || holder === null || typeof holder.get !== 'function')
+            continue
+          let got
+          try { got = holder.get(name) }
+          catch { continue }
+          if (got !== undefined && got !== null) {
+            svc = got
+            try {
+              appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+                new Date().toISOString() + ' [huanqi][diag] ' + tag + '.get(' + name + ') -> OK\n')
+            }
+            catch { /* */ }
+            break
+          }
+        }
+        if (svc === undefined) {
+          try {
+            appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+              new Date().toISOString() + ' [huanqi][diag] 三级全落空：' + name + ' 在 agent.ctx / agent.session.ctx / ctx 都拿不到\n')
+          }
+          catch { /* */ }
+        }
+      }
+      // ★ 2026-10-27（砚青加诊断）：huanqi-turns.jsonl 里 37 条 compact 全是
+      //   {ok:false, error:"compaction service not found"}，
+      //   而 asar 里 dsh-compaction-basic 的 inject = ["commands","compaction"]
+      //   且它能正常加载（/compact 可用）—— 说明服务是存在的，是这里取不到。
+      // ★ 写文件，不走 console.error（主进程的 stderr 抓不到）
+      // ★★ 也别用 require —— 这个包是 ESM（package.json type=module），require 会抛，
+      //    被 catch 吃掉就变成「诊断装了但什么也没写」，比不装更坏。
+      try {
+        var __line: string | null = null
+        if (!svc) {
+          var keys = '?'
+          try {
+            keys = Object.keys(ctx).filter(function (k) {
+              return /compact|compress|prune|service/i.test(k)
+            }).join(',') || '(无相关键)'
+          }
+          catch (e2: any) { keys = '(读不到)' }
+          __line = '[huanqi][diag] ctx.get(' + name + ') -> UNDEFINED ; 相关键: ' + keys
+        }
+        else {
+          var sk: string[] = []
+          try { sk = Object.keys(svc).slice(0, 10) } catch (e3: any) { sk = ['(读不到)'] }
+          __line = '[huanqi][diag] ctx.get(' + name + ') -> OK typeof=' + typeof svc + ' keys=' + sk.join(',')
+        }
+        appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+          new Date().toISOString() + ' ' + __line + '\n')
+      }
+      catch (eX: any) { /* 诊断本身绝不许影响主流程 */ }
+      return svc
+    }
+    catch (e: any) {
+      console.error('[huanqi][diag] ctx.get(' + name + ') 抛了: ' + (e && e.message))
       return undefined
     }
   }
-
+  /* ★ `type` 声明要放在那两段 JSDoc **之前** —— 否则 tsc 把注释归给这个纯类型声明，
+   *   擦掉声明时注释一起消失（lib 里留着这两段注释，产物就与它对不上了）。 */
+  /** `pickRegionEx` 的返回值形状。`info` 只在诊断分支出现（可选）。 */
+  type RegionPick = {
+    range: { start: number; end: number } | null
+    why: string | null
+    info?: string
+  }
   /**
    * 算一个「可以安全压」的 seq 范围 —— 从末尾往前找，直到工具调用配对平衡。
    *
@@ -2205,71 +2412,304 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
    * ★ 也就是说：**默认压「最后一条之前的所有东西」** —— 这正是「范围压缩」要的形态：
    *   保留最后一条（通常是刚产出/正在产出的那条），把前面这段换成摘要。
    */
-  function pickRegion(agent: Agent): { start: number; end: number } | null {
+  /* ★★★ 2026-10-27 22:31（第 5 代）：把 7 个**静默 `return null`** 变成带原因。
+   *
+   *   病（14:26 那枪实测）：日志只有一行 `kind=full range=null`，
+   *   看不出是哪一步放弃的 —— 是拿不到 surface？节点太少？还是边界不平衡？
+   *   猜一次改一次，每次都得重启，成本高而信息量极低。
+   *
+   *   现在 `pickRegionEx` 返回 `{ range, why, info }`，`why` 是诊断码：
+   *     no-agent-session / surface-threw:<msg> / no-surface /
+   *     nodes-not-array:<typeof> / nodes-too-few:<n> / node-undefined@<i> /
+   *     unbalanced-to-zero / keep<=first:<keep>/<first> / edge-undefined /
+   *     start>=end:<s>~<e> / threw:<msg>
+   *   `pickRegion` 保留成薄包装 —— 另一处调用（`compactOnce` 后半段）不用动。
+   *
+   *   ★ 为什么要分 `surface-threw` 和 `no-surface`：`agent` 来自根层的
+   *     `ctx.agents.get(sid)`，而 `session.surface` 的 getter 在 isolate realm 外
+   *     可能抛 —— 这两种失败修法完全不同，不能混成同一个 null。
+   */
+  function pickRegionEx(agent: any): RegionPick {
     try {
-      const surface = agent.session.surface
+      if (agent === undefined || agent === null || agent.session === undefined || agent.session === null)
+        return { range: null, why: 'no-agent-session' }
+      let surface: any
+      try {
+        surface = agent.session.surface
+      }
+      catch (e: any) {
+        return { range: null, why: 'surface-threw:' + String(e && e.message) }
+      }
+      if (surface === undefined || surface === null)
+        return { range: null, why: 'no-surface' }
       const nodes = surface.nodes
-      if (!Array.isArray(nodes) || nodes.length < 3) return null
-
+      if (!Array.isArray(nodes))
+        return { range: null, why: 'nodes-not-array:' + (nodes === null ? 'null' : typeof nodes) }
+      if (nodes.length < 3)
+        return { range: null, why: 'nodes-too-few:' + nodes.length }
       // 保留最后一个（`retainTokens = 0` 的等价形态）
       let keepFromIdx = nodes.length - 1
-
       /* ★ 边界必须平衡：不满足就往前退，退到 0 就放弃。
        *   这里用 try/catch 包住 —— `toolPairingBalancedBefore` 是官方导出，
        *   但守卫不该因为它签名变了就整个挂掉。 */
+      let unbalanced = 0
       let guard = 0
       while (keepFromIdx > 0 && guard < 512) {
         guard += 1
         const seq = nodes[keepFromIdx]
-        if (seq === undefined) return null
+        if (seq === undefined)
+          return { range: null, why: 'node-undefined@' + keepFromIdx }
         let balanced = true
         try {
           balanced = toolPairingBalancedBefore(agent.session, seq)
-        } catch {
+        }
+        catch {
           balanced = true // 判不了就当它平衡 —— 不能被一个辅助判据卡死
         }
-        if (balanced) break
+        if (balanced)
+          break
+        unbalanced += 1
         keepFromIdx -= 1
       }
-      if (keepFromIdx <= 0) return null
-
+      if (keepFromIdx <= 0)
+        return { range: null, why: 'unbalanced-to-zero', info: 'retreated=' + unbalanced + ' nodes=' + nodes.length }
       // system 头占首位的话要跳过（它不该被压进摘要）
       let firstIdx = 0
       try {
-        const head = agent.session.surface.nodes[0]
+        const head = nodes[0]
         if (head !== undefined) {
           const ev = agent.session.eventAt(head)
-          if (ev !== null && ev !== undefined && ev.type === 'system/message') firstIdx = 1
+          if (ev !== null && ev !== undefined && ev.type === 'system/message')
+            firstIdx = 1
         }
-      } catch {
+      }
+      catch {
         firstIdx = 0
       }
-      if (keepFromIdx <= firstIdx) return null
-
+      if (keepFromIdx <= firstIdx)
+        return { range: null, why: 'keep<=first', info: 'keep=' + keepFromIdx + ' first=' + firstIdx + ' nodes=' + nodes.length }
       const start = nodes[firstIdx]
       const end = nodes[keepFromIdx - 1]
-      if (start === undefined || end === undefined) return null
-      if (!(start < end)) return null
-      return { start, end }
-    } catch {
-      return null
+      if (start === undefined || end === undefined)
+        return { range: null, why: 'edge-undefined', info: 'start=' + String(start) + ' end=' + String(end) }
+      if (!(start < end))
+        return { range: null, why: 'start>=end', info: String(start) + '~' + String(end) + ' nodes=' + nodes.length + ' first=' + firstIdx + ' keep=' + keepFromIdx }
+      return {
+        range: { start, end },
+        why: null,
+        info: 'nodes=' + nodes.length + ' first=' + firstIdx + ' keep=' + keepFromIdx + ' end=' + String(end),
+      }
+    }
+    catch (e: any) {
+      return { range: null, why: 'threw:' + String(e && e.message) }
     }
   }
-
+  function pickRegion(agent: any): { start: number; end: number } | null {
+    return pickRegionEx(agent).range
+  }
   /**
    * 压缩一次。**永不抛** —— 失败只记录，绝不让守卫自己变成故障。
    *
    * @param mode `region` = 尽量只压最近这一段（失败降级全量）；
    *             `full`   = 直接全量。
    */
-  async function compactOnce(agent: Agent, mode: 'region' | 'full', sid: string): Promise<CompactOutcome> {
-    const svc = compactionService()
+  async function compactOnce(agent: any, mode: string, sid: string): Promise<any> {
+    const svc = compactionService(agent)
     if (svc === undefined) {
-      const out: CompactOutcome = { kind: mode, ok: false, range: null, error: 'compaction service not found' }
+      /* ★★ 2026-10-27（第 5 代加）：第二条路 —— 借 `commands` 执行 /compact。
+       *
+       *   为什么原来拿不到：`compaction` 被 isolate 关在 preset 的 realm 里
+       *   （profile 的 patch 里写着 `compaction: true` 是硬约束；01:14 删过一次，
+       *    被 `RemoteError: Preset services require isolate realms` 拒了）。
+       *   所以根层的 huanqi 无论从 agent.ctx / agent.session.ctx / 根 ctx 都够不到。
+       *
+       *   为什么这条路通：`/compact` 这条**命令**由 `@deepseek-ai/dsh-command-compact`
+       *   （inject: ['commands','compaction']，同样在 realm 内）注册进 `commands`
+       *   服务 —— 而 commands 是**根层服务**，这里 `ctx.get('commands')` 拿得到。
+       *   命令的 handler 自带 realm 内的 compaction，等于借道进去。
+       *
+       *   代价：命令只做全量压缩，没有 region。可接受 —— 原来 region 失败本来就
+       *   降级全量，而换气熔断时用的正是全量。
+       */
+      const viaCmd: any = await (async () => {
+        let commands: any
+        try { commands = (ctx as any).get('commands') }
+        catch { commands = undefined }
+        if (commands === undefined || commands === null || typeof commands.execute !== 'function')
+          return { ok: false, kind: 'full', range: null, error: 'commands service not found' }
+        /* 每次都用新的 AbortController —— 复用一个会在第一次 abort 之后让后续调用立刻失败。 */
+        const runCommand = async (line: string): Promise<any> => {
+          let ac: any
+          try { ac = new AbortController() }
+          catch { return { ok: false, error: 'AbortController unavailable' } }
+          try {
+            const settled = await commands.execute(agent, line, [], ac.signal)
+            if (settled === undefined)
+              return { ok: false, error: line + ' not registered' }
+            const r = settled.result
+            if (r !== undefined && r !== null && r.kind === 'success')
+              return { ok: true }
+            return {
+              ok: false,
+              error: 'command result: '
+                + (r === undefined || r === null ? 'undefined' : String(r.kind) + ' ' + String(r.text || '')),
+            }
+          }
+          catch (e: any) {
+            return { ok: false, error: 'command threw: ' + String(e && e.message) }
+          }
+        }
+        /* ★★★ 2026-10-27（第 5 代补）：**把「范围压缩」修回来。**
+         *
+         * 病（实测 _plugin-diag.log）：`compactOnce(region) → OK range=null`。
+         * 因为唯一那条桥是官方 `/compact`，而它是**无参数 + 只做全量**
+         * （dsh-command-compact/lib/index.js L49-52 拒任何参数、L54 调 compactNow）。
+         * 于是 region 与 full 在桥上都塌成全量 —— 路 C 刚好够用，路 B 被带偏。
+         *
+         * 修：huanqi 自己算 range（`pickRegion` 只要 agent.session，根层够得到），
+         * 再把 range 当参数交给**同在 realm 内注册**的 `/compact-region`
+         * （dsh-yanqing-compact-region，与官方 command-compact 同构的那一扇门）。
+         *
+         * 三条退路，顺序不能换：
+         *   ① 算得出 range → 先试范围压缩（这才是「初步治疗」的本意：只搬走脏的那段）
+         *   ② 范围压缩失败（边界不平衡 / 区间被替换 / 忙）→ 降级全量
+         *   ③ 算不出 range → 直接全量
+         * ★ 无论走哪条，`kind` 记的是**实际做了什么**，不是**请求了什么** ——
+         *   否则 recallHint 会一边说「范围压缩」一边说「全量压缩没有压了哪一段」。
+         */
+        if (mode === 'region') {
+          const picked = pickRegionEx(agent)
+          const range = picked.range
+          /* ★ 2026-10-27 22:31：算不出范围就把**原因**写进日志，并顺手验一次
+           *   `/compact-region` 到底注册上没有。
+           *
+           *   为什么用**非法参数**当探针：命令自己在门口挡（`parseRange` 拒 start<=0），
+           *   所以 `/compact-region 0 0` 零副作用、绝不会真压。
+           *   两种结果可区分：
+           *     · 出现 `[compact-region] 参数无法解析` → 命令**注册了**（realm 内可达）
+           *     · `not registered` → 命令**没注册**（包没加载 / inject 没满足）
+           *   —— 这一枪同时回答「为什么算不出」和「命令在不在」两个问题。
+           */
+          if (range === null) {
+            let probeNote = 'probe=skipped'
+            try {
+              const probe = await runCommand('/compact-region 0 0')
+              probeNote = probe.ok ? 'probe=unexpected-ok' : 'probe=' + String(probe.error)
+            }
+            catch (e: any) {
+              probeNote = 'probe-threw:' + String(e && e.message)
+            }
+            try {
+              appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+                new Date().toISOString() + ' [huanqi][region] pickRegion → null why='
+                + String(picked.why) + ' info='
+                + String(picked.info === undefined ? '-' : picked.info)
+                + ' ' + probeNote + '\n')
+            }
+            catch { /* 诊断不许影响主流程 */ }
+          }
+          if (range !== null) {
+            /* ★★★ 2026-10-27 23:05 定论（一手证据：会话事件 #1481–#1495）
+             *
+             *   **`/compact-region` 这条路废掉了 —— 不是它写错，是它接错了语义。**
+             *
+             *   `dsh-compaction-basic/lib/index.js:930-935`：
+             *     compactRegion(start, end, agent, signal)
+             *       → compactSurfaceRegion(..., { owner: 'current-turn', stability: 'whole-surface' })
+             *   即：**必须在一个 open turn 里**，而且摘要的那一二十秒里
+             *   **整个 surface 一个节点都不能变**（`assertWholeSurfaceUnchanged`，L581）。
+             *   在 live 会话上这是不可能的 —— 实测 turn=17 时抛
+             *   `compaction: session surface changed during summarization`。
+             *   它本来是给「step 边界自动压缩」用的，不是给外部插件在熔断时用的。
+             *
+             *   官方 `/compact` 走 `compactNow`（L944-970）：
+             *     { owner: null, stability: 'selected-span', flush }
+             *   内部先 `agent.runMaintenance(...)` **排队等 turn 收尾**，
+             *   校验只要求「被选中的那一段没变」，外面追加新节点不影响。
+             *   ★ 实测它选的范围 = seq 943–1479（186 条 / 190,694 tokens），
+             *     与 pickRegion 算出来的 943–1476 是同一段 ——
+             *     **引擎本来就在做「部分压缩」，路 B 和路 C 在官方实现里是同一件事。**
+             *
+             *   所以：**不再调 /compact-region**。
+             *   ★ 好处不只是能成功 —— 界面上只会留一条干净的
+             *     `· compact · 已压缩 N 条历史记录（约 X tokens）`
+             *     （文案在 dsh-client-ui-chat/lib/client.js:2671，
+             *       数据来自 compaction/summary 的 shadowedSeqs/shadowedTokenCount），
+             *     而不是先冒一条 `compact-region` 的失败命令块。
+             */
+            /* ★ 2026-10-27 23:21（第一次实测撞出来的第二个坑）：
+             *   `/compact` 在**回合进行中**会被命令层直接拒绝，原话是
+             *     `Compaction is unavailable because this process has an active compaction,
+             *      or the agent is not idle.`
+             *   —— 它**不像** compactNow 内部那样自己排队等 turn 结束：
+             *   命令入口先做 idle 检查，忙就直接 return error。
+             *
+             *   而 huanqi 的触发时机恰恰是「我刚说完话」——那几十秒里回合还在收尾。
+             *   22:53 那次之所以能成，纯属巧合：前面 compactRegion 白跑了 21 秒，
+             *   到它出手时回合刚好结束。**不能靠时机撞。**
+             *
+             *   所以：忙就等，10 次 × 3 秒 = 30 秒，覆盖回合收尾那一段。
+             *   只对「忙」这一种错误重试；别的错误（真失败）立刻返回，不掩盖。
+             */
+            /* ★★★ 2026-10-27 23:42（爀曦定）：**region 只走 /compact-region，失败绝不降级全量。**
+             *
+             *   为什么不能降级：降级把"只想压走最近这一段"变成"把整段 surface 压掉"。
+             *   对一条刚开始换气、还没脏到底的会话，那是**加重**而不是治疗：
+             *   本来只该搬走三个白烧的回合，结果把有用的上下文一起清了。
+             *   而且用户在界面上看不出区别（两种都只显示一条 compact 提示）。
+             *
+             *   所以 region 失败就**如实失败**：why 进日志，交给 recallHint，
+             *   下一次攒够截断再试。宁可这一轮不治，也不误伤整段历史。
+             *
+             *   ★ 熔断那条（full）不受影响 —— 那时候已经救不回来了，全量才是对的。
+             */
+            const span = String(range.start) + ' ' + String(range.end)
+            let compact = await runCommand('/compact-region ' + span)
+            for (let attempt = 0; attempt < 10 && !compact.ok
+              && /not idle|active compaction|no open turn/i.test(String(compact.error)); attempt += 1) {
+              await new Promise((resolve) => { setTimeout(resolve, 3000) })
+              compact = await runCommand('/compact-region ' + span)
+            }
+            return {
+              ok: compact.ok,
+              /* ★ 现在 range 是真的用了：它既是这次调用的参数，也是 recallHint 要念的那段。 */
+              kind: 'region',
+              range,
+              error: compact.ok ? null : String(compact.error),
+            }
+          }
+          /* ★ 算不出范围 → 如实失败，**同样不降级全量**（理由同上）。
+           *   落到下面那句 `runCommand('/compact')` 就是误伤，所以这里必须 return。 */
+          return {
+            ok: false,
+            kind: 'region',
+            range: null,
+            error: 'no balanced range: ' + String(picked.why),
+          }
+        }
+        const full = await runCommand('/compact')
+        return { ok: full.ok, kind: 'full', range: null, error: full.ok ? null : full.error }
+      })()
+      const out = {
+        kind: viaCmd.kind === undefined ? mode : viaCmd.kind,
+        ok: viaCmd.ok,
+        range: viaCmd.range === undefined ? null : viaCmd.range,
+        error: viaCmd.ok ? null : viaCmd.error,
+      }
       lastCompact.set(sid, out)
+      try {
+        appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+          new Date().toISOString() + ' [huanqi][compact] 走 commands 桥 → kind='
+          + String(viaCmd.kind) + ' range='
+          + (viaCmd.range === null || viaCmd.range === undefined
+            ? 'null'
+            : String(viaCmd.range.start) + '-' + String(viaCmd.range.end))
+          + ' / '
+          + (viaCmd.ok ? 'OK' : 'FAILED: ' + String(viaCmd.error)) + '\n')
+      }
+      catch { /* 诊断不许影响主流程 */ }
       return out
     }
-
     /* ★★ 2026-10-26（砚青落）：`compactNow` 要 `ManualCompactAgentContext`，
      *   它比 `CompactionAgentContext` 多一个 `runMaintenance` —— 因为**手动压缩必须在
      *   agent 空闲时跑**（它是非 turn 维护任务，不能和正在跑的回合抢史）。
@@ -2288,58 +2728,53 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
       /* ★ 不注解 `signal` 的类型 —— 本项目的 tsconfig 只开了 `lib: ["ES2022"]`，
        *   没有 DOM，所以 `AbortSignal` 是**不存在的名字**。
        *   让 TS 从 `agent.runMaintenance` 的签名里推断即可（那是权威来源）。 */
-      runMaintenance: <T>(task: Parameters<typeof agent.runMaintenance<T>>[0]): Promise<T> =>
-        agent.runMaintenance(task),
+      runMaintenance: (task: any): any => agent.runMaintenance(task),
     }
-    let out: CompactOutcome
-
+    let out: any
     if (mode === 'region') {
       const range = pickRegion(agent)
       if (range === null) {
         out = { kind: 'region', ok: false, range: null, error: 'no balanced range' }
-      } else {
+      }
+      else {
         try {
           /* ★ SessionSeq 是 branded type（`{ readonly [BRAND]: 'SessionSeq' }`），
            *   运行时就一个 number —— 所以这里必须显式过一道。
            *   不 cast 的话 strict 模式直接拒绝。 */
-          await svc.compactRegion(
-            range.start as unknown as SessionSeq,
-            range.end as unknown as SessionSeq,
-            manualCtx,
-          )
+          await svc.compactRegion(range.start, range.end, manualCtx)
           out = { kind: 'region', ok: true, range }
-        } catch (err) {
+        }
+        catch (err) {
           /* ★ 边界不平衡 / 区间被替换 / 正在压缩 —— 都退到全量。
            *   这和熔断时的动作是同一个，所以共用一个 outcome 形态。 */
           out = { kind: 'region', ok: false, range, error: describeError(err) }
         }
       }
-    } else {
+    }
+    else {
       out = { kind: 'full', ok: false, range: null, error: 'not attempted' }
     }
-
     // 范围压缩失败（或本来就是全量）→ 走 compactNow
     if (!out.ok) {
       try {
-        await agent.runMaintenance(async (signal) => {
+        await agent.runMaintenance(async (signal: any) => {
           await svc.compactNow(manualCtx, signal)
         })
         out = { kind: 'full', ok: true, range: out.range }
-      } catch (err) {
+      }
+      catch (err) {
         out = { kind: 'full', ok: false, range: null, error: describeError(err) }
       }
     }
-
     lastCompact.set(sid, out)
     return out
   }
-
   /** 把任意 throw 值变成一行可读的字。 */
   function describeError(err: unknown): string {
-    if (err instanceof Error) return err.name + ': ' + err.message
+    if (err instanceof Error)
+      return err.name + ': ' + err.message
     return String(err)
   }
-
   /**
    * 压缩之后的「取回指引」。
    *
@@ -2347,7 +2782,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
    *   **不能让 agent 去读摘要** —— 摘要会变成新的输入，回到摘要复利。
    *   所以给的是一张地图（seq 指针）+ 明确的「去取一手原文」。
    */
-  function recallHint(outcome: CompactOutcome, cuts: number, sid: string): string {
+  function recallHint(outcome: any, cuts: number, sid: string): string {
     /* ★★ 2026-10-26（砚青落·仿真抓出来的真 bug）：
      *   这里原来写的是 `const sid = ...; void sid;` 然后直接用字面量 `log:<会话>` ——
      *   也就是说**发出去的门牌是坏的**（`log:<会话>#seq=1–5`，那个 `<会话>` 是字面量）。
@@ -2375,8 +2810,6 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
       '  取回一手原文，再继续。你要的不是「我记得当时怎样」，是「原文写着什么」。',
     ].join('\n')
   }
-
-
   /**
    * 已经收到过「落盘指令」的 agent。
    *
@@ -2978,7 +3411,6 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
          * 而本轮熔断压缩通过 inject 的告知直接给人看。
          * 硬把两者绑在一起，反而会让判词说一个当时还没发生的事。 */
         compact: lastCompact.get(sid) ?? null,
-
         /* ★ 诊断（2026-10-23 第三版）：**写进 JSONL，不走 logger** ——
          *   这台 Electron 上 logger 输出看不到，前两版就死在这里。
          *   一条命令就能读出真相：
@@ -3033,22 +3465,23 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
          *    这不是偷懒，是唯一既能 await 又不阻塞宿主的写法。
          * ══════════════════════════════════════════════════════════════ */
         void (async () => {
+          lastSeenSid = sid
+          lastSeenAgent = agent
           const cuts = (cutCounts.get(sid) ?? 0) + 1
           cutCounts.set(sid, cuts)
           let notice = strings.continueNotice(left, ledger.creditMax, config.normalTurnThreshold)
           const cutThreshold = config.regionCompactAfterCuts
           if (cutThreshold > 0 && cuts >= cutThreshold && !subagentExempt) {
             cutCounts.set(sid, 0) // 攒够了 —— 归零重计
-            const agentFull = ctx.agents.get(sid as never) as unknown as Agent | undefined
+            /* ★ as any：`session` 不在本包声明的 Agent 面上，压缩层却必须摸它。 */
+            const agentFull = ctx.agents.get(sid as never) as any
             if (agentFull !== undefined && agentFull.session !== undefined) {
               const outcome = await compactOnce(agentFull, 'region', sid)
-              ctx.logger.warn(
-                'dsh-huanqi: region compaction after ' + String(cuts) + ' cuts → ' +
-                  (outcome.ok ? 'ok' : 'failed(' + String(outcome.error) + ')') +
-                  (outcome.range === null
-                    ? ''
-                    : ' range=' + String(outcome.range.start) + '–' + String(outcome.range.end)),
-              )
+              ctx.logger.warn('dsh-huanqi: region compaction after ' + String(cuts) + ' cuts → '
+                + (outcome.ok ? 'ok' : 'failed(' + String(outcome.error) + ')')
+                + (outcome.range === null
+                  ? ''
+                  : ' range=' + String(outcome.range.start) + '–' + String(outcome.range.end)))
               /* ★ 压缩成功 → 换成「取回指引」而不是普通续跑提示。
                *   压缩把上下文清了一大块，普通提示会让它「不知道为什么变干净了」。 */
               if (outcome.ok && config.postCompactRecallHint !== false) {
@@ -3056,14 +3489,8 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
               }
             }
           }
-
-          scheduleResume(
-            agent,
-            notice,
-            `huanqi: empty-turn continuation, credit ${left}/${ledger.creditMax}`,
-          )
+          scheduleResume(agent, notice, `huanqi: empty-turn continuation, credit ${left}/${ledger.creditMax}`)
         })()
-
         if (left <= config.warnAtCredit) {
           agent.inject(message(
             strings.creditWarning(left, ledger.creditMax, config.normalTurnThreshold),
@@ -3075,7 +3502,6 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
         ledger.noteCircuitBreak()
         ledger.save(ledgerPath, warnLedger)
         ctx.logger.warn('dsh-huanqi: empty turn and continuation budget exhausted; circuit-breaking')
-
         /* ══════════════════════════════════════════════════════════════
          * ★★ 2026-10-26（砚青落）：熔断 → 全量压缩（彻底清空）
          *
@@ -3087,20 +3513,19 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
          *
          * ★ 告知必须写清三件事（circuitBreakNotice 里补不上，所以单独组装）：
          *   ① 做了什么（全量压缩）② 原文在哪（seq 指针）③ 不再延续。
-         *   少了任何一条，用户都会以为是崩溃 —— 那可能让他直接重开，整轮工作就真丢了。
+         * 少了任何一条，用户都会以为是崩溃 —— 那可能让他直接重开，整轮工作就真丢了。
          *
          * ★ 同样包 async IIFE：处理器是同步的（见上面范围压缩那段的说明）。
          * ══════════════════════════════════════════════════════════════ */
         void (async () => {
           let fullNote: string | null = null
           if (config.fullCompactOnBreaker !== false && !subagentExempt) {
-            const agentFull = ctx.agents.get(sid as never) as unknown as Agent | undefined
+            /* ★ as any：同上 —— `session` 不在本包声明的 Agent 面上。 */
+            const agentFull = ctx.agents.get(sid as never) as any
             if (agentFull !== undefined && agentFull.session !== undefined) {
               const outcome = await compactOnce(agentFull, 'full', sid)
-              ctx.logger.warn(
-                'dsh-huanqi: circuit break → full compaction ' +
-                  (outcome.ok ? 'ok' : 'failed(' + String(outcome.error) + ')'),
-              )
+              ctx.logger.warn('dsh-huanqi: circuit break → full compaction '
+                + (outcome.ok ? 'ok' : 'failed(' + String(outcome.error) + ')'))
               if (outcome.ok) {
                 /* ★ 2026-10-26（砚青落）：全量压缩没有「压了哪一段」，所以给不出 seq 门牌。
                  *   但不能就此只说「seq 未算准」—— 那样它连去哪找都不知道。
@@ -3119,12 +3544,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
               }
             }
           }
-
-          agent.inject(message(
-            fullNote === null ? strings.circuitBreakNotice(ledger.creditMax) : fullNote,
-            'notice',
-            'huanqi: circuit break (empty turn)',
-          ))
+          agent.inject(message(fullNote === null ? strings.circuitBreakNotice(ledger.creditMax) : fullNote, 'notice', 'huanqi: circuit break (empty turn)'))
         })()
         /* ★ 2026-10-23（砚青落）：inject 只是让人**看见**；要它真的去落盘，必须 steer ——
          * steer 是一条真正的用户消息，会进下一轮被模型读到并执行。

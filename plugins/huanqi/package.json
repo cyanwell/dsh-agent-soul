@@ -10,12 +10,14 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./src/*": "./src/*",
     "./tools/*": "./tools/*",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
     "lib/types/**/*.d.ts",
+    "src/**/*.ts",
     "tools/analyze-session.mjs",
     "cordis.patch.yml",
     "README.md",
@@ -42,8 +44,8 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-agent": ">=0.1.2-rc.1 <0.1.3 || >=0.1.3-alpha.2 <0.1.4 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-alpha.1 <0.2.0 || >=0.1.7-alpha.1 <0.2.0 || >=0.2.1-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-llm": ">=0.1.2-rc.1 <0.1.3 || >=0.1.3-alpha.2 <0.1.4 || >=0.1.5-alpha.1 <0.2.0 || >=0.1.6-alpha.1 <0.2.0 || >=0.1.7-alpha.1 <0.2.0 || >=0.2.1-rc.2 <0.3.0"
+    "@deepseek-ai/dsh-agent": ">=0.1.2-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-llm": ">=0.1.2-rc.1 <0.3.0"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.1"

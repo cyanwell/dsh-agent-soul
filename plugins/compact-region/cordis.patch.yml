@@ -1,0 +1,17 @@
+# dsh bundle patch: 本零件**不能**作为顶层 bundle 插进 profile。
+#
+# ★★★ 为什么：它必须活在 compaction 的 isolate realm 里面。
+#
+#   `/compact-region` 的 handler 要调 `ctx.compaction.compactRegion(...)`，
+#   而 compaction 在 profile 的 patch 里标着 `isolate: { compaction: true }`
+#   —— 那是 preset 的硬约束，删掉会让所有会话直接 resume failed：
+#       RemoteError: Preset services require isolate realms: compaction (gateway/internal)
+#
+#   所以它只能写在 preset 的 compaction group 的 config 数组里。
+#   正确装法见 README.md「装法」一节。
+#
+# 下面这条 insert 只是为了让本仓库「每个零件都有 cordis.patch.yml」的形状统一。
+# ★ 单独拿它装是拿不到 compaction 服务的 —— 会注册出一个调不动 compactRegion 的空命令。
+- insert:
+    - id: command-compact-region
+      name: 'dsh-agent-compact-region'

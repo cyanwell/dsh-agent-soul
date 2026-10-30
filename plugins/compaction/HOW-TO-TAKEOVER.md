@@ -124,7 +124,7 @@ ownKeys:   [..., "__yqRange"]
     toolResultPruner: true
   config:
     - id: compaction-basic              # ★ id 保持原名
-      name: 'dsh-yanqing-compaction'    # ★ 只换 name
+      name: 'dsh-agent-compaction'    # ★ 只换 name
 ```
 
 ★ **关键在「id 不变、只换 name」**：这一行是**替换**，不是新增 ——

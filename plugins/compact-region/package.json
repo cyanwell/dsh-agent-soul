@@ -1,0 +1,16 @@
+{
+  "name": "dsh-agent-compact-region",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "在 compaction realm 内部注册 /compact-region <start> <end> —— 让换气插件的「范围压缩」真的只压那一段，而不是退化成全量",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "package.json"
+  ]
+}

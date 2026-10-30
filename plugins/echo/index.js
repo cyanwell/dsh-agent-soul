@@ -103,6 +103,15 @@ function resolveHub() {
   push(process.env.ECHO_HUB)
   push(path.join(DSH_HOME, 'hub'))
   push(path.join(os.homedir(), '.dsh', 'hub'))
+  // ★ 2026-10-27（砚青修）：本机布局是 D:\AI\dsh\home 与 D:\AI\memory 并列，
+  //   而 hub 在 D:\AI\memory\hub —— 上三个候选全落空，doctor 指向空气，
+  //   面板报「退出码 1 | Cannot find module」。
+  //   实测证据：diagnose 日志 script=D:\AI\dsh\home\hub\echo-doctor.mjs。
+  //   这条按「DSH_HOME 往上两级 + memory/hub」推，找不到会有后续的文件存在性检查挡着。
+  try {
+    const up2 = path.dirname(path.dirname(DSH_HOME))
+    push(path.join(up2, 'memory', 'hub'))
+  } catch { /* 推不出来就算了 */ }
   // echo.config.json —— 和 echo-config.mjs 共用同一个约定（放在 hub 目录里）
   for (const c of cands.slice()) {
     try {
@@ -265,6 +274,35 @@ function runNode(script, args, timeoutMs) {
       try { errTxt = fs.readFileSync(errFile, 'utf8') } catch { /* */ }
       try { fs.unlinkSync(out) } catch { /* */ }
       try { fs.unlinkSync(errFile) } catch { /* */ }
+      // ★ 2026-10-27（砚青加）失败时把「真正跑的是什么」一起报出来。
+      //   起因：面板报「退出码 1 | stderr: Node.js v24.21.0」，
+      //   而在 shell 里用同样的 node、同样的参数跑 exit=0 —— 复现不出来。
+      //   差别只剩环境（spawn 没设 cwd/env，继承 DSH 进程）。
+      if (!r.ok) {
+        const L = []
+        L.push('')
+        L.push('[diag] NODE=' + NODE)
+        L.push('[diag] script=' + script)
+        L.push('[diag] args=' + JSON.stringify(args || []))
+        L.push('[diag] cwd=' + (function () { try { return process.cwd() } catch (e) { return '?' } })())
+        L.push('[diag] ECHO_HUB=' + (process.env.ECHO_HUB || '(未设)'))
+        L.push('[diag] ECHO_NODE=' + (process.env.ECHO_NODE || '(未设)'))
+        L.push('[diag] DSH_HOME=' + (process.env.DSH_HOME || '(未设)'))
+        errTxt = String(errTxt || '') + L.join('\n')
+        // ★ 同时写进固定文件，免得只在界面上闪一下
+        try {
+          fs.appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+            new Date().toISOString() + ' [echo][diag] ' + JSON.stringify({
+              node: NODE, script: script, args: args || [],
+              cwd: (function () { try { return process.cwd() } catch (e) { return '?' } })(),
+              hub: process.env.ECHO_HUB || '',
+              echoNode: process.env.ECHO_NODE || '',
+              dshHome: process.env.DSH_HOME || '',
+              error: r.error || '',
+              stderr: String(errTxt || '').slice(0, 3000),
+            }) + '\n')
+        } catch (eW) { /* ignore */ }
+      }
       resolve(Object.assign(r, { text: txt, stderr: errTxt }))
     }
     let child

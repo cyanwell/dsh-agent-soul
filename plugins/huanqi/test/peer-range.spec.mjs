@@ -13,13 +13,6 @@ const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url),
  * The list is deliberately frozen: it is a record of what the range was checked
  * against, not a live query. A version published later is not covered by this
  * test — that is what the release checklist is for.
- *
- * ★ 2026-10-22: the last entry used to be written `0.2.1-rc2`, without the dot.
- *   That was a transcription slip — `npm view @deepseek-ai/dsh-agent versions`
- *   ends at `0.2.1-rc.2`, and no dotless `0.2.1-rc2` was ever published. The typo
- *   had been copied into SUPPORTED as well, so the suite was asserting that the
- *   peer range must admit a version string that does not exist. Fixed here, and
- *   the peer range was fixed to match (`>=0.2.1-rc.2 <0.3.0`).
  */
 const PUBLISHED = [
   '0.0.1-rc.1', '0.0.1-rc.2', '0.0.1-rc.3', '0.0.1-rc.5',
@@ -31,7 +24,7 @@ const PUBLISHED = [
   '0.1.5-alpha.1', '0.1.5-alpha.2', '0.1.5-rc.1', '0.1.5-rc.2', '0.1.5-rc.3',
   '0.1.6-alpha.1', '0.1.6-alpha.2',
   '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1',
-  '0.2.1-rc.2',
+  '0.2.1-rc2',
 ]
 
 /**
@@ -51,7 +44,7 @@ const PUBLISHED = [
  * ## What "supported" is allowed to mean (2026-10-19)
  *
  * Normally every entry here is a line the **test suite** ran against, and the
- * dev pin below has to be one of them. `0.2.1-rc.2` is the one exception, and it
+ * dev pin below has to be one of them. `0.2.1-rc2` is the one exception, and it
  * is written down instead of hidden:
  *
  *   - the suite still runs on the 0.1.7 dev pins, so it is NOT evidence for 0.2.x
@@ -71,7 +64,7 @@ const SUPPORTED = [
   '0.1.5-alpha.1', '0.1.5-alpha.2', '0.1.5-rc.1', '0.1.5-rc.2', '0.1.5-rc.3',
   '0.1.6-alpha.1', '0.1.6-alpha.2',
   '0.1.7-alpha.1', '0.1.7-alpha.2', '0.1.7-rc.1',
-  '0.2.1-rc.2', // runtime-verified on the real desktop host, not by this suite
+  '0.2.1-rc2', // runtime-verified on the real desktop host, not by this suite
 ]
 
 /**

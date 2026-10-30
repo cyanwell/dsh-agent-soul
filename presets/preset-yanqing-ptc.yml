@@ -4,7 +4,7 @@
         id: yanqing-ptc
         name: 砚青 PTC
         description: '砚青 × PTC 模式。功能与「砚青」完全一致 ——
-          同样的门牌压缩（dsh-yanqing-compaction）、同样的记忆架构、同样的全套工具与权限。唯一区别是工具呈现方式：工具以
+          同样的门牌压缩（dsh-agent-compaction）、同样的记忆架构、同样的全套工具与权限。唯一区别是工具呈现方式：工具以
           Code Mode SDK 呈现，模型写一段 TypeScript 程序、在一次 run_code
           里组合多步操作，把读/搜/筛/并行调用压进一次执行，中间数据不回上下文 —— 往返更少、注意力更集中、更省
           token。适合批量读写、跨文件检索、结果汇总与去重。'
