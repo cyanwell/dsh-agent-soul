@@ -711,3 +711,36 @@ Issues (6) · 6 results
 
 和我这一场反复踩的那个形状是同一条：**判据和它声称要判的东西，不是同一个东西。**
 这里是：**「我改好了」和「它在跑的是这份」不是同一件事。**
+
+---
+
+## ★★★ 重启 + 端到端验证（2026-10-31 00:42）
+
+### 完整链路
+
+| 步 | 做了什么 | 证据 |
+|---|---|---|
+| 1 | 仓库改 `bool` | `8524b67` |
+| 2 | 同步到部署 | `index.js` bool 分支 1 / `type: bool` 2；`client.js` bool 渲染 1 |
+| 3 | 重启 DSH | 端口 `58905` → **`49415`**（新实例）；`restart-desktop.log` 出现 `task start` |
+| 4 | **发现 patch 文件里还是坏值** | `fullCompactOnBreaker: 'true'` / `postCompactRecallHint: 'true'` |
+| 5 | 修 patch | 去掉引号 → 裸布尔 |
+| 6 | **端到端验证** | `api/preview` 返回 `from: fullCompactOnBreaker: true` / `to: fullCompactOnBreaker: false`，**都不带引号** |
+
+### 第 4 步是意外收获
+
+**重启后 preview 的 `from` 字段暴露了：本机的 `cordis.patch.yml` 里那两项**还是 `'true'`**。**
+也就是说 —— **在修 patch 之前，`dsh-huanqi` 一直是没装配的**，`tsx` 那条校验一直在抛错。
+
+★ 这正是 #21 描述的症状：**「界面上没有任何提示，只能靠 boot log 里没有新的 apply() entered 才看得出来」。**
+
+### 判据（作者在 #5 里给的，我改用 preview 版）
+
+> 返回裸 `fullCompactOnBreaker: false` → 已是修复版；返回带引号的 `'false'` → 还是旧代码。
+
+**实测结果：裸布尔。修复版确认生效。**
+
+### 备份清单
+
+- `D:/AI/dsh-tools/_backup-huanqi-panel-20261031/`（index.js + client.js）
+- `D:/AI/dsh-tools/_backup-cordis.patch.yml-20261031`（patch 文件）
