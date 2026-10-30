@@ -366,3 +366,23 @@ Electron 把内核打进 asar 之后，`node_modules` 的解析链断了。这�
 
 `#1` `#2` `#3` `#4` `#14` `#19` —— **都有实质回复、都修过，但没关。**
 ★ 这是我自己拖的账：**回复了不等于收尾。** 下一轮该把它们逐一关掉（各带一句「修法 + commit」）。
+
+---
+
+## ★ 六条「已修已回但未关」的关闭依据（2026-10-30 23:31）
+
+**这六条都修过、都回过，只是没关。** 关闭依据逐条列在这里，然后同一次提交带 `Closes`。
+
+| # | 症状 | 修法与证据 | 回复状态 |
+|---|---|---|---|
+| **#1** | echo-doctor「门牌回取」「压缩机制」在外部压缩策略托管时恒报 warn | `detectExternalCompaction()`：显式配置 `ECHO_EXTERNAL_COMPACTION` 优先于自动探测；**反过来加了「两套并存才 warn」** | 有 2 条评论 |
+| **#2** | `client.js` 的 `ModuleLoader` id 与包名不一致 → web boot 崩在 duplicate factory registration | 已修 | 有 2 条评论 |
+| **#3** | 「换气」判据读 `turn/end.reason.kind`，该项恒报 warn | **两层**：`3ad6572`（10-24）读账本 `stats`；`9b25bd9`（PR #10）补观察日志 `huanqi-turns.jsonl` | 有 2 条评论 |
+| **#4** | 客户端插件 id 命名空间导致启动崩溃并清空 profile + 包名映射漂移 | 已修 | 有 1 条评论 |
+| **#14** | 书房的代码注释作者名称没删干净 | **三刀**：`a56c501` / `136ed1e` / `d3262f7`（preset / README / 43 行代码注释） | 有 1 条评论 |
+| **#19** | `memq` 的时区标签写死 `Asia/Shanghai` | `88df108`：改 `Intl.DateTimeFormat().resolvedOptions().timeZone`，拿不到退「本地时区」（`memq.mjs:271`） | 有 1 条评论 |
+
+**★ 为什么用 `Closes` 而不是逐个点 Close**：关闭的理由是「已修」，而修法已经写在回复里了；
+`Closes` 会把「这个 commit 关闭了 #N」挂到 issue 上，**比手动关闭多一条可追溯的链接**。
+
+**★ 这批之后，open 应该从 13 掉到 7。**
