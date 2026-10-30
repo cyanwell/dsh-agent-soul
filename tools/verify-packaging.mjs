@@ -486,6 +486,67 @@ check('README 有 2026-10-22 的更新记录', (readme.match(/### 2026-10-22/g) 
   check('warn 状态明说「还没开始用，不是坏了」', diag.includes('还没开始用，不是坏了'))
 }
 
+// ── 写死的本机路径（2026-10-30 加）──────────────
+//   为什么要有这条：2026-10-30 全库扫了一遍，发现三处在**真代码**里写死了作者机器路径
+//   （`huanqi-panel/verify-panel-read.mjs` 是纯写死、`mcp-hub/_probe.mjs` 在可选校验里）。
+//   只靠人眼扫，下一次还会漏 —— 所以写成断言。
+//
+//   ★ 两类**不算错**，白名单跳过：
+//     ① **注释行**里提本机路径（「原来写死 X，现在改成 DSH_HOME」这类历史留档）—— 那是正确的
+//     ② **兜底候选**（git.exe 的本机路径，前面已经试过 GIT_BIN 和 PATH）
+//   ★ 只扫 js/mjs/json/yml —— docs/*.md 里的示例路径不算。
+{
+  const SKIP_FILES = new Set([
+    'tools/install-hooks.mjs',                      // git 兜底候选
+    'tools/pre-commit-changelog.mjs',               // 同上
+    'plugins/huanqi/test/subagent-exempt.spec.mjs', // 测试夹具的 cwd，不参与运行
+    // ★ probe-kit-tools.mjs 的四个 ROOTS 是**journey 沙箱夹具**，
+    //   四个全部能用 PROBE_SOUL / PROBE_MEMORY / PROBE_SESSIONS / PROBE_RUNTIME 覆盖，
+    //   注释里也明说了「换台机器读不到，请设环境变量」。判据和白名单条目一致。
+    'probe-kit-tools.mjs',
+    // ★ 本文件自己 —— 这条检查的**模式串**里必然含那两段路径文本（正则字符类），
+    //   不排除的话它会永远举报自己。这是自指检查器的固定处理，不是放水：
+    //   这个文件里除了那两行模式，没有任何地方**真的去读**本机路径。
+    'tools/verify-packaging.mjs',
+  ])
+  //   ★ 正则里用 [\\/] 同时匹配两种分隔符；D:/AI 和 D:\AI 都要抓。
+  const PATTERNS = [/\bD:[\\/]AI[\\/]/, /\bC:[\\/]Users[\\/]pc[\\/]/i]
+  const isComment = (l) => /^\s*(\/\/|\/\*|\*|#|<!--)/.test(l)
+  const hits = []
+  const walk = (dir) => {
+    let ents
+    try {
+      ents = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of ents) {
+      if (e.name === 'node_modules' || e.name === '.git' || e.name === 'pnpm-lock.yaml') continue
+      if (e.name.includes('.bak')) continue
+      const p = dir === '.' ? e.name : dir + '/' + e.name
+      if (e.isDirectory()) {
+        walk(p)
+        continue
+      }
+      if (!/\.(js|mjs|cjs|json|yml|yaml)$/.test(e.name)) continue
+      if (SKIP_FILES.has(p)) continue
+      let text
+      try {
+        text = fs.readFileSync(p, 'utf8')
+      } catch {
+        continue
+      }
+      const lines = text.split('\n')
+      for (let i = 0; i < lines.length; i++) {
+        if (isComment(lines[i])) continue
+        if (PATTERNS.some((r) => r.test(lines[i]))) hits.push(p + ':' + (i + 1))
+      }
+    }
+  }
+  walk('.')
+  check('代码里没有写死的本机路径', hits.length === 0, hits.slice(0, 3).join(', '))
+}
+
 // ── 输出 ────────────────────────────────────────
 console.log('=== 自检结果 ===')
 for (const c of checks) {

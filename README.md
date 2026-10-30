@@ -508,6 +508,50 @@ issue 页面上一个字没有，别人看还是 5 个 open。**
 
 **自检**：`node tools/verify-packaging.mjs` → **121 / 122**。
 
+### 2026-10-30 深夜六 · 「无写死本机路径」从人眼检查变成断言
+
+**先说为什么做这个**：objective 里有一条硬判据是「仓库内无写死本机路径」，
+但它一直是**靠人眼扫**的 —— 而人眼扫过之后，还是会漏。
+
+这次全库扫了一遍，**真代码里有三处**（注释里的历史留档不算）：
+
+| 文件 | 是什么 |
+|---|---|
+| `plugins/huanqi-panel/verify-panel-read.mjs:15` | **纯写死**：`const YML = 'D:/AI/dsh/home/profiles/desktop/cordis.patch.yml'`，别人跑第一行就 ENOENT |
+| `plugins/mcp-hub/_probe.mjs:121` | 可选校验里的人写死 `file:///D:/AI/...` |
+| `probe-kit-tools.mjs:33-36` | journey 沙箱夹具（四个都能 env 覆盖，**这条不算错**） |
+
+**改法**：
+
+- `verify-panel-read.mjs` → `HUANQI_PANEL_YML`（直接给文件）> `DSH_HOME`（推 `profiles/desktop/`）> 报错退出
+- `_probe.mjs` → 从 `DSH_HOME` 推，推不到就 `throw`（那个 `catch` 会吞掉，等于跳过这个可选校验）
+- 两个 git 候选（`install-hooks.mjs` / `pre-commit-changelog.mjs`）→ **不改逻辑**，加注释说清
+  「这是本机兜底，前面已经试过 `GIT_BIN` 和 PATH」
+- `probe-kit-tools.mjs` → 不动，进白名单
+
+**然后把它写成断言**（`verify-packaging.mjs` 新增一条）：
+
+```
+代码里没有写死的本机路径
+```
+
+判据设计，两类不算错：
+
+1. **注释行**（`//` / `/*` / `*` / `#`）—— 讲「原来写死 X，现在改了」的历史是**正确留档**，不该删
+2. **白名单** —— 兜底候选、env 可覆盖的夹具、**以及这个检查文件自己**
+
+★ **第 2 类里「自己」那一条值得单说**：这条检查的模式串里必然含那两段路径文本（正则字符类），
+不排除的话它会**永远举报自己**。这是自指检查器的固定处理 —— 排除它不等于放水，
+因为那个文件里除了两行模式，没有任何地方**真的去读**本机路径。
+
+**断言一上线就抓到两处**：
+
+- `probe-kit-tools.mjs`（人眼扫描时**漏了**，因为它不在我之前 `--include` 的组合里）
+- `verify-packaging.mjs` 自己（自指）
+
+**自检**：`node tools/verify-packaging.mjs` → **122 / 123**
+（通过项从 121 涨到 122，因为多了这条；剩下那个是 `README 有 2026-10-22 的更新记录`，历史项）。
+
 ---
 
 ### 2026-10-28 午后 · doctor 补两条「白名单漏一项」检查（来自用户反馈）

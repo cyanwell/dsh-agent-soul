@@ -90,6 +90,9 @@ function findGit() {
   const cands = [
     process.env.GIT_BIN,
     'git',
+    // ★ 下面两条是**本机兜底**，不是硬性依赖 —— 前面已经试过 GIT_BIN 和 PATH 里的 git。
+    //   为什么留：这台机器的 git 不在 PATH 里（2026-10-26 实测），不注进去闸门会静默放行。
+    //   别人机器上这两条路径不存在 → 试下一个 → 不影响。
     'C:/Users/pc/AppData/Local/Programs/Git/cmd/git.exe',
     'D:/AI/dsh-tools/mingit/cmd/git.exe',
   ].filter(Boolean)

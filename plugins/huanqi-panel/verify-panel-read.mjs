@@ -8,11 +8,21 @@
  * 测的是真函数、真文件 —— 不是复制一份逻辑再自称验过。
  */
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 // ★ Windows 上 ESM 的 import 不接受裸盘符路径（会报 ERR_UNSUPPORTED_ESM_URL_SCHEME），
 //   用相对路径最省事 —— 这个脚本和 index.js 同目录。
 import { readValues, FIELDS } from './index.js'
 
-const YML = 'D:/AI/dsh/home/profiles/desktop/cordis.patch.yml'
+// ★ 不写死本机路径（2026-10-30）：原来这里写着 D:/AI/dsh/home/... ——
+//   别人 clone 下来跑这个脚本，第一行就 ENOENT。
+//   优先级：HUANQI_PANEL_YML（直接给文件）> DSH_HOME（推 profiles/desktop/）> 报错退出。
+const YML =
+  process.env.HUANQI_PANEL_YML ||
+  (process.env.DSH_HOME ? join(process.env.DSH_HOME, 'profiles', 'desktop', 'cordis.patch.yml') : null)
+if (!YML) {
+  console.error('✗ 找不到 cordis.patch.yml —— 设 HUANQI_PANEL_YML=<文件路径> 或 DSH_HOME=<根目录>')
+  process.exit(2)
+}
 const text = readFileSync(YML, 'utf8')
 const r = readValues(text)
 
