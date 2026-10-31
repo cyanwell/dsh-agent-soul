@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ECHO 系统设计图 · 架构基线 v1.0</title>
+<style>
+  :root{
+    --bg:#0f1216; --bg2:#161b22; --card:#1a2029; --line:#2b333e;
+    --fg:#e6edf3; --muted:#8b949e; --dim:#57606a;
+    --l0:#f0883e; --l1:#d29922; --l2:#7ee787; --l3:#58a6ff; --l4:#bc8cff; --l5:#ff7b72;
+    --ok:#3fb950; --warn:#d29922; --bad:#f85149; --plan:#58a6ff;
+    --mono:"SF Mono","Cascadia Code",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);line-height:1.65;
+    font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;font-size:15px}
+  .wrap{max-width:1120px;margin:0 auto;padding:40px 28px 100px}
+
+  header{border-bottom:2px solid var(--line);padding-bottom:22px;margin-bottom:0}
+  h1{font-size:2em;margin:0 0 10px;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:.9em;line-height:1.9}
+  .sub b{color:var(--fg)}
+
+  /* 导航 tabs */
+  nav{display:flex;gap:2px;margin:26px 0 40px;border-bottom:1px solid var(--line)}
+  nav button{background:none;border:none;border-bottom:2px solid transparent;
+    color:var(--muted);font-size:.95em;font-weight:600;padding:12px 22px;cursor:pointer;
+    font-family:inherit;transition:color .15s,border-color .15s}
+  nav button:hover{color:var(--fg)}
+  nav button.active{color:var(--fg);border-bottom-color:var(--l3)}
+  nav button .cnt{display:inline-block;margin-left:6px;padding:0 7px;border-radius:9px;
+    background:var(--line);font-size:.72em;color:var(--muted);vertical-align:middle}
+
+  .page{display:none}
+  .page.active{display:block}
+
+  .frozen{display:inline-block;margin-top:14px;padding:6px 14px;border-radius:6px;
+    background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.35);
+    color:#ff9d95;font-size:.85em;font-weight:600}
+
+  h2{font-size:1.35em;margin:46px 0 18px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:1.05em;margin:28px 0 12px;color:var(--muted);font-weight:600}
+  p{margin:11px 0}
+  .muted{color:var(--muted)}
+  code{font-family:var(--mono);font-size:.9em;background:#0d1117;padding:1px 6px;border-radius:3px;color:#79c0ff}
+  pre{background:#0d1117;border:1px solid var(--line);padding:16px 18px;border-radius:8px;
+    overflow-x:auto;font-family:var(--mono);font-size:.82em;line-height:1.65;margin:16px 0}
+  pre code{background:none;padding:0;color:#c9d1d9}
+
+  /* 层卡片 */
+  .layers{display:flex;flex-direction:column;gap:10px;margin:26px 0}
+  .layer{display:grid;grid-template-columns:76px 1fr;border-radius:10px;overflow:hidden;
+    background:var(--card);border:1px solid var(--line)}
+  .layer .tag{display:flex;flex-direction:column;align-items:center;justify-content:center;
+    font-weight:800;font-size:1.15em;letter-spacing:.02em;color:#0d1117;padding:16px 8px}
+  .layer .body{padding:14px 18px}
+  .layer .name{font-weight:700;font-size:1.02em;margin-bottom:4px}
+  .layer .desc{color:var(--muted);font-size:.88em}
+  .layer .path{font-family:var(--mono);font-size:.78em;color:var(--dim);margin-top:6px;word-break:break-all}
+  .layer.l0 .tag{background:var(--l0)} .layer.l0{border-color:rgba(240,136,62,.35)}
+  .layer.l1 .tag{background:var(--l1)} .layer.l1{border-color:rgba(210,153,34,.35)}
+  .layer.l2 .tag{background:var(--l2)} .layer.l2{border-color:rgba(126,231,135,.4)}
+  .layer.l3 .tag{background:var(--l3)} .layer.l3{border-color:rgba(88,166,255,.35)}
+  .layer.l4 .tag{background:var(--l4)} .layer.l4{border-color:rgba(188,140,255,.35)}
+  .layer.l5 .tag{background:var(--l5)} .layer.l5{border-color:rgba(255,123,114,.35)}
+  .layer.only-drop{border-width:2px;border-color:var(--l2);box-shadow:0 0 0 1px rgba(126,231,135,.15)}
+  .drop-badge{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:10px;
+    background:rgba(126,231,135,.15);color:var(--l2);font-size:.72em;font-weight:700;vertical-align:middle}
+
+  .flow{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:22px 26px;margin:22px 0}
+  .flow pre{margin:0;background:none;border:none;padding:0;font-size:.8em;line-height:1.85;color:#c9d1d9}
+
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:.88em}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line)}
+  th{background:#0d1117;color:var(--muted);font-size:.82em;font-weight:600;letter-spacing:.03em}
+  td.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+  tr.hl td{background:rgba(88,166,255,.07)}
+  tr.hl td:first-child{border-left:3px solid var(--l3)}
+
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 16px}
+  .kpi .k{font-size:.74em;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:7px}
+  .kpi .v{font-size:1.7em;font-weight:800;font-family:var(--mono);font-variant-numeric:tabular-nums;line-height:1.15}
+  .kpi .v small{font-size:.4em;font-weight:600;color:var(--muted);margin-left:3px}
+  .kpi .x{font-size:.75em;color:var(--dim);margin-top:5px}
+
+  .callout{border-left:4px solid var(--l3);background:rgba(88,166,255,.08);
+    padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0;font-size:.92em}
+  .callout.warn{border-left-color:var(--warn);background:rgba(210,153,34,.09)}
+  .callout.bad{border-left-color:var(--bad);background:rgba(248,81,73,.09)}
+  .callout.ok{border-left-color:var(--ok);background:rgba(63,185,80,.09)}
+  .callout .t{font-weight:700;margin-bottom:5px}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:22px 0}
+  .box{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px 20px}
+  .box.freeze{border-color:rgba(248,81,73,.4)}
+  .box.flex{border-color:rgba(63,185,80,.4)}
+  .box h4{margin:0 0 12px;font-size:.95em;display:flex;align-items:center;gap:8px}
+  .box.freeze h4{color:#ff9d95}
+  .box.flex h4{color:#7ee787}
+  .box ul{margin:0;padding-left:20px;font-size:.88em;line-height:1.9;color:var(--muted)}
+  .box li b{color:var(--fg)}
+
+  .redlines{display:flex;flex-direction:column;gap:8px;margin:22px 0}
+  .rl{display:grid;grid-template-columns:30px 1fr;gap:12px;align-items:start;
+    background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 16px}
+  .rl .n{color:var(--bad);font-weight:800;font-family:var(--mono);font-size:.95em}
+  .rl .t{font-size:.9em}
+
+  /* ── 改动记录专用 ── */
+  .changelog{position:relative;margin:30px 0;padding-left:30px}
+  .changelog::before{content:"";position:absolute;left:7px;top:6px;bottom:6px;width:2px;
+    background:linear-gradient(to bottom,var(--l3),var(--line) 30%,var(--line) 70%,var(--dim))}
+  .entry{position:relative;margin-bottom:34px}
+  .entry::before{content:"";position:absolute;left:-29px;top:7px;width:12px;height:12px;
+    border-radius:50%;background:var(--bg);border:2px solid var(--dim)}
+  .entry.done::before{border-color:var(--ok);background:var(--ok);box-shadow:0 0 0 3px rgba(63,185,80,.18)}
+  .entry.plan::before{border-color:var(--plan);background:var(--bg);box-shadow:0 0 0 3px rgba(88,166,255,.15)}
+  .entry.freeze2::before{border-color:var(--bad);background:var(--bad);box-shadow:0 0 0 3px rgba(248,81,73,.18)}
+  .entry .date{font-family:var(--mono);font-size:.8em;color:var(--muted);letter-spacing:.02em}
+  .entry .title{font-weight:700;font-size:1.02em;margin:3px 0 6px;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+  .entry .meta{color:var(--muted);font-size:.86em;line-height:1.75}
+  .badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.72em;font-weight:700;
+    letter-spacing:.02em;white-space:nowrap}
+  .badge.done{background:rgba(63,185,80,.15);color:#7ee787;border:1px solid rgba(63,185,80,.3)}
+  .badge.plan{background:rgba(88,166,255,.15);color:#79c0ff;border:1px solid rgba(88,166,255,.3)}
+  .badge.arch{background:rgba(248,81,73,.15);color:#ff9d95;border:1px solid rgba(248,81,73,.3)}
+  .badge.layer{background:rgba(188,140,255,.13);color:#d2a8ff;border:1px solid rgba(188,140,255,.28);font-family:var(--mono)}
+  .entry details{margin-top:8px}
+  .entry summary{cursor:pointer;color:var(--muted);font-size:.84em;outline:none;user-select:none}
+  .entry summary:hover{color:var(--fg)}
+  .entry details .inner{background:#0d1117;border:1px solid var(--line);border-radius:8px;
+    padding:12px 16px;margin-top:8px;font-size:.85em;line-height:1.8}
+  .entry details .inner table{font-size:.95em;margin:8px 0}
+  .entry details .inner td,.entry details .inner th{padding:6px 9px}
+
+  /* 预算条 */
+  .budget{margin:22px 0}
+  .brow{display:grid;grid-template-columns:180px 1fr 90px;gap:12px;align-items:center;margin-bottom:9px;font-size:.85em}
+  .brow .lbl{color:var(--muted)}
+  .brow .bar{height:20px;background:#0d1117;border-radius:4px;overflow:hidden;border:1px solid var(--line)}
+  .brow .bar div{height:100%;border-radius:3px 0 0 3px}
+  .brow .amt{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.92em}
+  .btotal{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);
+    display:flex;justify-content:space-between;font-size:.9em}
+  .btotal b{font-family:var(--mono)}
+
+  footer{margin-top:60px;padding-top:22px;border-top:1px solid var(--line);
+    color:var(--dim);font-size:.82em;line-height:1.9}
+
+  @media(max-width:820px){
+    .wrap{padding:26px 16px 70px}
+    h1{font-size:1.45em}
+    .kpis{grid-template-columns:1fr 1fr}
+    .two{grid-template-columns:1fr}
+    .layer{grid-template-columns:58px 1fr}
+    .layer .tag{font-size:.95em;padding:12px 4px}
+    table{font-size:.78em}
+    th,td{padding:7px 6px}
+    nav button{padding:10px 12px;font-size:.85em}
+    .brow{grid-template-columns:110px 1fr 70px;font-size:.78em}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>ECHO 系统设计图</h1>
+  <div class="sub">
+    <b>架构基线 v1.0</b> · 2026-10-31<br>
+    依据：<code>20-档案\回声ECHO\ECHO-权威口径.md</code>（2026-10-23 爀曦拍板定稿）<br>
+    原则：<b>架构冻结，只做优化和增减内容 —— 不再动六层的划分与职责。</b>
+  </div>
+  <div class="frozen">🔒 六层编号 / 名字 / 职责：已冻结</div>
+</header>
+
+<nav>
+  <button class="active" data-page="p-arch">架构</button>
+  <button data-page="p-log">改动、升级记录<span class="cnt">9</span></button>
+</nav>
+
+<!-- ══════════════════ 页 1：架构 ══════════════════ -->
+<div class="page active" id="p-arch">
+
+<h2>一、六层总览</h2>
+
+<div class="layers">
+  <div class="layer l0">
+    <div class="tag">L0</div>
+    <div class="body">
+      <div class="name">时钟 + 心跳</div>
+      <div class="desc">现在几点 / 距上轮多久 / 当前 lead / 未结。每天 04:00 自动跑索引重建 + 四项自检</div>
+      <div class="path">hub\state.json · hub\heartbeat\ · memq now</div>
+    </div>
+  </div>
+  <div class="layer l1">
+    <div class="tag">L1</div>
+    <div class="body">
+      <div class="name">自我 + 热记忆</div>
+      <div class="desc">① SELF.md 定长骨架，每轮注入　② USER.md 用户画像　③ MEMORY.md 工作参考<br>
+      <span style="color:var(--warn)">⚠ 有独立预算：SELF 12288B · USER 4096B · MEMORY 10240B</span></div>
+      <div class="path">hub\SELF.md · C:\Users\pc\.mnemon\runtime\</div>
+    </div>
+  </div>
+  <div class="layer l2 only-drop">
+    <div class="tag">L2</div>
+    <div class="body">
+      <div class="name">工作台 <span class="drop-badge">唯一允许丢东西</span></div>
+      <div class="desc">当前对话上下文。换气 / 压缩 / 裁剪 <b>只动这一层</b></div>
+      <div class="path">会话本身（不在磁盘）</div>
+    </div>
+  </div>
+  <div class="layer l3">
+    <div class="tag">L3</div>
+    <div class="body">
+      <div class="name">一手层</div>
+      <div class="desc">① 会话日志 2061 文件 / 761 MB（zstd）　② 《墨》 02-墨.jsonl　③ 书房 3568 文件 / 164 目录　④ 留底库<br>
+      <span style="color:var(--bad)">★★ 这一层丢了 = 事故，不是设计</span></div>
+      <div class="path">D:\AI\dsh\home\sessions\ · D:\AI\yanqing-soul\ · D:\AI\memory\</div>
+    </div>
+  </div>
+  <div class="layer l4">
+    <div class="tag">L4</div>
+    <div class="body">
+      <div class="name">索引 + 图记忆</div>
+      <div class="desc">① 索引：摘要 1151 / 原话 51749（<b>每条带 srcSeqs 指针</b>）　② 图记忆：mnemon 洞察 + 关系边<br>
+      <span style="color:var(--warn)">★★ 没有指针的摘要不许进这一层</span></div>
+      <div class="path">hub\index\ (summaries / words / files.jsonl) · mnemon</div>
+    </div>
+  </div>
+  <div class="layer l5">
+    <div class="tag">L5</div>
+    <div class="body">
+      <div class="name">检索 + 门牌</div>
+      <div class="desc">memq 一扇门四动词：<code>now</code> / <code>&lt;词&gt;</code> / <code>timeline</code> / <code>open</code><br>
+      门牌：<code>log:&lt;会话&gt;#seq=&lt;n&gt;</code> · <code>idx:&lt;id&gt;</code> · <code>file:&lt;路径&gt;:&lt;行&gt;</code></div>
+      <div class="path">hub\memq.mjs · hub\echo-mcp.mjs（MCP 入口）</div>
+    </div>
+  </div>
+</div>
+
+<div class="callout">
+  <div class="t">观测面不是第七层</div>
+  哨兵 <code>echo-doctor.mjs</code> 十项体检 —— 它测「这六层哪一层坏了」，<b>不产出记忆、不决定保留什么</b>。
+</div>
+
+<h2>二、写入路径</h2>
+<div class="flow">
+<pre>  ┌────────────┐
+  │  L2 工作台  │  ← 换气 / 压缩 / 裁剪 在这里工作
+  └─────┬──────┘
+        │ turn/end
+        ▼
+  ┌─────────────────────┐
+  │  宿主写会话日志        │  session.v&lt;N&gt;.jsonl.zstd（多帧 zstd）
+  └─────┬───────────────┘
+        │ 每天 04:00 心跳
+        ▼
+  ┌─────────────────────┐
+  │  memindex build     │  逐帧解码 → 按行切 → 提摘要 + 原话
+  └─────┬───────────────┘
+        ▼
+  ┌─────────────────────┐
+  │  L4 索引             │  summaries · words · files
+  └─────────────────────┘
+
+  ── 并行的写路径（不经索引）──
+  我写 → 02-墨.jsonl（只追加）  → 直接进 L3
+  我写 → 书房文件               → 直接进 L3，被 C.soul 缓存</pre>
+</div>
+
+<h2>三、读取路径</h2>
+
+<h3>两条入口</h3>
+<div class="two">
+  <div class="box flex">
+    <h4>🟢 MCP（默认）</h4>
+    <ul>
+      <li><b>18–57 ms</b> 中位数</li>
+      <li>mcp-hub 随 DSH 启动 spawn 一次，<b>常驻</b></li>
+      <li>每次调用只是 stdin/stdout 一行 JSON</li>
+    </ul>
+  </div>
+  <div class="box freeze">
+    <h4>🟡 CLI（MCP 不通时才用）</h4>
+    <ul>
+      <li><b>773 ms</b>（有 svc）</li>
+      <li>每次起 node：<b>450–500ms 硬底噪</b></li>
+      <li>无 svc 时 <b>3121 ms</b></li>
+    </ul>
+  </div>
+</div>
+
+<h3>一次 search 的六步</h3>
+<div class="flow">
+<pre>① refresh()        检查索引文件 mtime，变了才重读
+       │
+② 扫 C.mo          616 条墨
+       │
+③ 扫 C.sums        1151 条摘要
+       │
+④ 判 idxTotal &lt; 5？
+       ├── 是 → 扫书房（C.soul，5 秒 TTL）      ← 737ms 的代价在这里
+       └── 否 → 跳过书房
+       │
+⑤ 扫 C.words       51749 条原话                 ← 66ms（命中）或 547ms（未命中）
+       │
+⑥ hits.sort()      L3 优先 → 按时间倒序
+       │
+       └→ hits[]（带 ptr 门牌）
+
+★ near=true 且未命中：第⑤步额外对每条做 norm() → +547ms</pre>
+</div>
+
+<h3>门牌的三种形态</h3>
+<table>
+  <thead><tr><th>门牌</th><th>指向</th></tr></thead>
+  <tbody>
+    <tr><td><code>log:session-xxx#seq=123</code></td><td>会话日志的某一行</td></tr>
+    <tr><td><code>idx:cmp-8f3a2b</code></td><td>索引摘要</td></tr>
+    <tr><td><code>file:D:\path\x.md:42</code></td><td>书房文件的某一行</td></tr>
+  </tbody>
+</table>
+
+<h2>四、实测基线（2026-10-31）</h2>
+<div class="kpis">
+  <div class="kpi"><div class="k">MCP 中位数</div><div class="v">18<small>ms</small></div><div class="x">中文命中</div></div>
+  <div class="kpi"><div class="k">norm 全库</div><div class="v">547<small>ms</small></div><div class="x">near 未命中时</div></div>
+  <div class="kpi"><div class="k">书房全扫</div><div class="v">737<small>ms</small></div><div class="x">3568 文件 walk+stat</div></div>
+  <div class="kpi"><div class="k">echo-mcp RSS</div><div class="v">250<small>MB</small></div><div class="x">预算 1 GB</div></div>
+</div>
+
+<h3>各层体积</h3>
+<table>
+  <thead><tr><th>层</th><th>项</th><th class="num">体积 / 数量</th></tr></thead>
+  <tbody>
+    <tr><td>L1</td><td>SELF.md</td><td class="num">10721 B / 12288（87.2%）</td></tr>
+    <tr><td>L1</td><td>USER.md</td><td class="num">3300 B / 4096（80.6%）</td></tr>
+    <tr><td>L1</td><td>MEMORY.md</td><td class="num">9898 B / 10240（96.7%）</td></tr>
+    <tr><td>L3</td><td>会话日志</td><td class="num">2061 文件 / 761 MB（压缩态）</td></tr>
+    <tr><td>L3</td><td>《墨》</td><td class="num">616 条</td></tr>
+    <tr><td>L3</td><td>书房</td><td class="num">3568 文件 / 164 目录</td></tr>
+    <tr class="hl"><td>L4</td><td>摘要</td><td class="num">1151 条 / 14.6 MB</td></tr>
+    <tr class="hl"><td>L4</td><td>原话</td><td class="num">51749 条 / 50.6 MB</td></tr>
+    <tr><td>L4</td><td>files</td><td class="num">0.9 MB</td></tr>
+  </tbody>
+</table>
+
+<h3>各操作耗时</h3>
+<table>
+  <thead><tr><th>操作</th><th class="num">耗时</th><th>备注</th></tr></thead>
+  <tbody>
+    <tr class="hl"><td>MCP 查询（中文命中）</td><td class="num">18–57 ms</td><td>中位数</td></tr>
+    <tr><td>MCP 查询（英文/冷门）</td><td class="num">260–380 ms</td><td>触发书房全扫</td></tr>
+    <tr><td>CLI + svc</td><td class="num">773 ms</td><td>起 node 的底噪</td></tr>
+    <tr><td>CLI 无 svc</td><td class="num">3121 ms</td><td>每次重建</td></tr>
+    <tr><td><code>norm()</code> 51749 条</td><td class="num">547.8 ms</td><td>near 未命中的全部开销</td></tr>
+    <tr><td><code>includes</code> 51749 条</td><td class="num">66.4 ms</td><td>命中路径</td></tr>
+    <tr><td>书房全扫</td><td class="num">737 ms</td><td>soul=auto 命中&lt;5 时</td></tr>
+    <tr><td>索引全量重建</td><td class="num">42 s</td><td>心跳每天 04:00</td></tr>
+  </tbody>
+</table>
+
+<h2>五、演进路线（可以改的部分）</h2>
+<h3>已确认三条（按顺序）</h3>
+<table>
+  <thead><tr><th class="num">#</th><th>改什么</th><th>在哪层</th><th>收益</th></tr></thead>
+  <tbody>
+    <tr class="hl"><td class="num">1</td><td><b>排序加权</b>（用上已有的 <code>m</code> 字段）</td><td>L5</td><td>排序更准，<b>零成本</b></td></tr>
+    <tr class="hl"><td class="num">2</td><td><b><code>norm</code> 预计算</b></td><td>L4/L5</td><td>near <b>547 → 131 ms</b></td></tr>
+    <tr class="hl"><td class="num">3</td><td><b>会话日志 3 天常驻内存</b></td><td>L3/L5</td><td>3 天内查询 ms 级</td></tr>
+  </tbody>
+</table>
+<h3>中期</h3>
+<table>
+  <thead><tr><th class="num">#</th><th>改什么</th><th>在哪层</th><th>收益</th></tr></thead>
+  <tbody>
+    <tr><td class="num">4</td><td>2-gram 倒排索引</td><td>L4</td><td>查询 <b>66 → 1.9 ms</b></td></tr>
+    <tr><td class="num">5</td><td>分层短路（摘要够就跳原话）</td><td>L5</td><td>常见查询 → 30 ms</td></tr>
+    <tr><td class="num">6</td><td><b>ECHO 设置面板</b>（缺的那个）</td><td>新</td><td>天数 / 预算 / 检索行为可调</td></tr>
+  </tbody>
+</table>
+<h3>长期（可选）</h3>
+<table>
+  <thead><tr><th class="num">#</th><th>改什么</th><th>在哪层</th><th>边界</th></tr></thead>
+  <tbody>
+    <tr><td class="num">7</td><td>向量兜底</td><td>L4</td><td><b>只做路由，不生成</b></td></tr>
+    <tr><td class="num">8</td><td>记忆评分 / 权重</td><td>L4/L5</td><td>优先级最低</td></tr>
+  </tbody>
+</table>
+
+<h2>六、冻结边界</h2>
+<div class="two">
+  <div class="box freeze">
+    <h4>🔒 不能动</h4>
+    <ul>
+      <li><b>六层编号</b> L0–L5，一个不多一个不少</li>
+      <li><b>每层职责</b></li>
+      <li><b>L2 是唯一可丢的层</b></li>
+      <li><b>门牌格式</b></li>
+      <li><b>原文路线</b>（只追加不删、100% 可回源）</li>
+      <li><b>哨兵不是层</b></li>
+    </ul>
+  </div>
+  <div class="box flex">
+    <h4>✅ 可以改</h4>
+    <ul>
+      <li>每层内部的<b>实现</b></li>
+      <li>每层的<b>容量 / 预算</b></li>
+      <li>新增<b>内容</b></li>
+      <li><b>性能</b>优化</li>
+    </ul>
+  </div>
+</div>
+
+<h3>七条红线</h3>
+<div class="redlines">
+  <div class="rl"><div class="n">01</div><div class="t"><b>L2 之外不许丢东西</b> —— 这是六层的地基</div></div>
+  <div class="rl"><div class="n">02</div><div class="t"><b>没有指针的摘要不许进 L4</b> —— 门牌失效 = ECHO 的唯一失败形状</div></div>
+  <div class="rl"><div class="n">03</div><div class="t"><b>检索只回指针 + 逐字片段，不做转述</b> —— 转述是二手污染</div></div>
+  <div class="rl"><div class="n">04</div><div class="t"><b>拿不到精确 seq 就给检索入口，绝不猜</b> —— 错的门牌比没有更坏</div></div>
+  <div class="rl"><div class="n">05</div><div class="t"><b>原文只追加，永不删改</b> —— 847/847 可回源的来源</div></div>
+  <div class="rl"><div class="n">06</div><div class="t"><b>哨兵只跟口径，不改布局</b> —— 它是观测面，不是层</div></div>
+  <div class="rl"><div class="n">07</div><div class="t"><b>别让两个地方同时是真相</b> —— 权威口径存在的全部意义</div></div>
+</div>
+
+<h2>七、这张图和权威口径的关系</h2>
+<table>
+  <thead><tr><th></th><th>权威口径</th><th>本设计图</th></tr></thead>
+  <tbody>
+    <tr><td><b>管什么</b></td><td>「哪一层是什么」</td><td>「这一层怎么跑」</td></tr>
+    <tr><td><b>变动频率</b></td><td><b>极低</b>（10-23 定，至今没动）</td><td>可随实现更新</td></tr>
+    <tr class="hl"><td><b>冲突时</b></td><td colspan="2"><b>以口径为准</b> —— 设计图服从口径</td></tr>
+  </tbody>
+</table>
+
+</div>
+
+<!-- ══════════════════ 页 2：改动记录 ══════════════════ -->
+<div class="page" id="p-log">
+
+<h2>改动、升级记录</h2>
+
+<div class="callout warn">
+  <div class="t">★ 维护规矩（2026-10-31 立）</div>
+  <b>以后每一次动刀 ECHO，都必须在这里加一条。</b><br>
+  格式：<b>日期 + 改了什么 + 在哪层 + 状态（已落地 / 待实施 / 架构变更）</b>。<br>
+  ★ 只追加，不删旧条 —— 推翻的东西也要留着，标「已被 X 取代」。
+</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="k">总条目</div><div class="v">9</div><div class="x">只追加，不删旧条</div></div>
+  <div class="kpi"><div class="k">已落地</div><div class="v">6</div><div class="x">代码已改并在跑</div></div>
+  <div class="kpi"><div class="k">待实施</div><div class="v">1</div><div class="x">方案已定，代码未动</div></div>
+  <div class="kpi"><div class="k">架构变更</div><div class="v">3</div><div class="x">动过六层口径的</div></div>
+</div>
+
+<div class="changelog">
+
+  <!-- 2026-10-31 内存常驻方案 -->
+  <div class="entry plan">
+    <div class="date">2026-10-31</div>
+    <div class="title">
+      内存常驻方案：一手层解码进内存
+      <span class="badge plan">待实施</span>
+      <span class="badge layer">L3 · L4 · L5</span>
+    </div>
+    <div class="meta">
+      爀曦提出：把会话日志 / 一手层部分解码常驻内存，默认最近 <b>3 天</b>，预算 <b>768 MB</b>；
+      常驻天数与预算做进 ECHO 设置面板。<br>
+      <b>实测结论</b>：3 天 = 212 MB（压缩比 3.2x），768MB 预算还剩 556 MB —— 装得下，而且宽松。
+    </div>
+    <details>
+      <summary>展开：768MB 怎么分 + 实测数据</summary>
+      <div class="inner">
+        <div class="budget">
+          <div class="brow"><div class="lbl">索引层（现有）</div><div class="bar"><div style="width:24%;background:var(--l3)"></div></div><div class="amt">183 MB</div></div>
+          <div class="brow"><div class="lbl">会话日志 3 天</div><div class="bar"><div style="width:28%;background:var(--l4)"></div></div><div class="amt">212 MB</div></div>
+          <div class="brow"><div class="lbl">预计算 norm</div><div class="bar"><div style="width:14.5%;background:var(--l1)"></div></div><div class="amt">111 MB</div></div>
+          <div class="brow"><div class="lbl">2-gram 倒排</div><div class="bar"><div style="width:29.4%;background:var(--l0)"></div></div><div class="amt">226 MB</div></div>
+          <div class="brow"><div class="lbl" style="color:var(--dim)">余量</div><div class="bar"><div style="width:4.1%;background:var(--dim)"></div></div><div class="amt" style="color:var(--dim)">36 MB</div></div>
+          <div class="btotal"><span>合计</span><b>732 / 768 MB</b></div>
+        </div>
+        <table>
+          <thead><tr><th>常驻天数</th><th class="num">文件</th><th class="num">压缩态</th><th class="num">解压后</th><th>768MB</th></tr></thead>
+          <tbody>
+            <tr><td>1 天</td><td class="num">36</td><td class="num">65.4 MB</td><td class="num">206 MB</td><td>✅ 余 562</td></tr>
+            <tr class="hl"><td><b>3 天</b></td><td class="num">43</td><td class="num">67.2 MB</td><td class="num"><b>212 MB</b></td><td>✅ 余 556</td></tr>
+            <tr><td>7 天</td><td class="num">210</td><td class="num">393.3 MB</td><td class="num">1239 MB</td><td>❌ 超 471</td></tr>
+          </tbody>
+        </table>
+        <p style="margin:10px 0 0">
+          <b>关键纠正</b>：索引层（183MB）<b>早就常驻在内存里了</b> —— 真正的缺口是
+          「会话日志原文」和「派生结构（norm / 倒排）」。<br>
+          <b>超预算策略</b>：先砍倒排 → 再砍 norm → <b>绝不砍日志和索引</b>。
+        </p>
+      </div>
+    </details>
+  </div>
+
+  <!-- 2026-10-31 设计图冻结 -->
+  <div class="entry freeze2">
+    <div class="date">2026-10-31</div>
+    <div class="title">
+      架构基线 v1.0 冻结 · 设计图建立
+      <span class="badge arch">架构变更</span>
+    </div>
+    <div class="meta">
+      以 2026-10-23 的《ECHO-权威口径》为唯一依据，把「哪一层是什么」落成「这一层怎么跑」。<br>
+      <b>冻结六层编号 / 名字 / 职责</b>；此后只做优化和增减内容，<b>不再动架构</b>（除非到边际）。
+    </div>
+  </div>
+
+  <!-- 2026-10-31 MCP 性能优化 -->
+  <div class="entry done">
+    <div class="date">2026-10-31</div>
+    <div class="title">
+      ECHO MCP 性能优化（4 处）
+      <span class="badge done">已落地</span>
+      <span class="badge layer">L5</span>
+    </div>
+    <div class="meta">
+      ① 报文分帧（大响应可切块）　② `refreshSoul` 加 <b>5 秒 TTL</b>（书房全扫 737ms 不重扫）<br>
+      ③ 书房 `text.split("\n")` 缓存进 `C.soul`（那 700ms 的大头）　④ `echo-mcp` 启动时顺手拉起 `echo-svc`
+    </div>
+    <details>
+      <summary>展开：实测收益</summary>
+      <div class="inner">
+        <table>
+          <thead><tr><th>路径</th><th class="num">优化前</th><th class="num">优化后</th></tr></thead>
+          <tbody>
+            <tr class="hl"><td>MCP 中位数</td><td class="num">31 ms</td><td class="num"><b>18 ms</b></td></tr>
+            <tr><td>英文/冷门词</td><td class="num">670 ms</td><td class="num">260–380 ms</td></tr>
+            <tr><td>p95</td><td class="num">456 ms</td><td class="num"><b>290 ms</b></td></tr>
+            <tr><td>CLI（有 svc）</td><td class="num">—</td><td class="num">773 ms</td></tr>
+            <tr><td>CLI（无 svc）</td><td class="num">—</td><td class="num">3121 ms</td></tr>
+          </tbody>
+        </table>
+        <p style="margin:8px 0 0">★ 50 词 0 失败。MCP 比 CLI+svc 快 <b>13.5×</b>，比 CLI 无 svc 快 <b>54.7×</b>。</p>
+      </div>
+    </details>
+  </div>
+
+  <!-- 2026-10-23 哨兵修复 -->
+  <div class="entry done">
+    <div class="date">2026-10-23</div>
+    <div class="title">
+      哨兵四处覆盖洞修复
+      <span class="badge done">已落地</span>
+      <span class="badge layer">观测面</span>
+    </div>
+    <div class="meta">
+      ① <b>换气错判</b>：痕迹源从日志 `reason.kind` 改成账本 `state/dsh-huanqi.json` 的 stats
+      （原来明明干预 243 次、熔断 99 次，却报「零介入痕迹」）<br>
+      ② <b>L0 时钟不覆盖</b>：新增第 11 项 `checkClock`，读 `lastSelfAt`，&gt;26 小时没更新报警<br>
+      ③ <b>L4 定位不覆盖</b>：`checkIndex` 加轻量断言，无指针摘要超 5% 报 warn<br>
+      ④ <b>知道了不说</b>：`checkIdentity` 的 `staleNote` 从「只放 evidence」提升为 `status: "warn"`
+    </div>
+    <details>
+      <summary>展开：复验</summary>
+      <div class="inner">
+        <p>修前：<b>0 错 / 3 警 / 8 好</b>　→　修后：<b>0 错 / 2 警 / 10 好</b></p>
+        <p style="margin:6px 0 0;color:var(--muted)">★ 剩余 2 警是另一类问题（宿主的网络错误 + MEMORY.md 97% 是设计内状态），不是覆盖洞。</p>
+      </div>
+    </details>
+  </div>
+
+  <!-- 2026-10-23 逐帧解码 -->
+  <div class="entry done">
+    <div class="date">2026-10-23</div>
+    <div class="title">
+      L4 逐帧解码 —— 修掉「整个会话没进索引」
+      <span class="badge done">已落地</span>
+      <span class="badge layer">L4</span>
+    </div>
+    <div class="meta">
+      <b>现象</b>：`memindex audit` 报 159 条摘要定位不完整，原因一律「日志解不开」；
+      `verify` 直接抛 <code>ERR_STRING_TOO_LONG</code>。<br>
+      <b>根因</b>：`decodeZstd()` 把全部帧 `Buffer.concat()` 成一个大 Buffer 再 `toString("utf8")` ——
+      而某个日志压缩后 212.5 MB，解压后**远超 Node 的 512 MB 字符串上限**。<br>
+      <b>真正代价</b>：那个日志就是会话 session-1099f531 从 09-29 至今的完整记录，<b>一直没进索引</b>。
+    </div>
+    <details>
+      <summary>展开：修法与复验</summary>
+      <div class="inner">
+        <p><b>修法</b>：改成「逐帧解码 → 逐帧按行切 → 累积行」，内存里永远不出现完整的巨串；
+        单行超 8 MB 丢弃并计数，单帧解不开跳过并计数。</p>
+        <table>
+          <thead><tr><th>指标</th><th class="num">修前</th><th class="num">修后</th></tr></thead>
+          <tbody>
+            <tr><td>解码失败</td><td class="num">1</td><td class="num"><b>0</b></td></tr>
+            <tr class="hl"><td>摘要</td><td class="num">688</td><td class="num"><b>975</b>（+41%）</td></tr>
+            <tr class="hl"><td>原话</td><td class="num">23607</td><td class="num"><b>40379</b>（+71%）</td></tr>
+            <tr><td>定位不完整</td><td class="num">159</td><td class="num"><b>0</b></td></tr>
+            <tr><td>verify</td><td class="num">崩溃</td><td class="num"><b>10 通 / 0 不通</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+
+  <!-- 2026-10-23 L0 时钟 -->
+  <div class="entry done">
+    <div class="date">2026-10-23</div>
+    <div class="title">
+      L0 时钟权威源修复（`state.json` 停更一个月）
+      <span class="badge done">已落地</span>
+      <span class="badge layer">L0</span>
+    </div>
+    <div class="meta">
+      <b>现象</b>：`hub\state.json` 的 `lastTurnAt` 停在 2026-09-27，而 SELF.md「距上轮 37076 分钟」正是从它读的。<br>
+      <b>根因</b>：<b>没有任何东西在写这个文件</b>（`memq mark` 没人跑），而 `echo-doctor` 算出不一致却把 `status` 硬写成 <code>"ok"</code>。<br>
+      <b>修法</b>：`self.mjs` 每次装配写 `lastSelfAt` + `selfRuns` 递增；SELF.md 那行改成
+      「最后一条手写状态距今：N 天（★ 这不是时钟）」。
+    </div>
+    <details>
+      <summary>展开：一个读法的坑</summary>
+      <div class="inner">
+        <p>★ <b>关键判断</b>：`lastTurnAt` 的语义是「最后一条手写状态」，<b>不是时钟</b>。
+        之前它被读成「系统停了一个月」，是<b>读法错</b>，不是数据错。</p>
+        <p>★ 另一个：`lastSelfAt` 原来用 `toISOString()` 写成 UTC，+08 下会显示 05:03 而本地 13:03 —— 已改本地时间。</p>
+      </div>
+    </details>
+  </div>
+
+  <!-- 2026-10-23 六层口径合并 -->
+  <div class="entry freeze2">
+    <div class="date">2026-10-23</div>
+    <div class="title">
+      ECHO 六层权威口径定稿（三套口径合并为一份）
+      <span class="badge arch">架构变更</span>
+    </div>
+    <div class="meta">
+      爀曦拍板：「我们着手更新 ECHO 架构的权威口径吧……不然会乱」。<br>
+      <b>合并前有三套口径同时存在，两套都用 L0–L5 编号却指的不是同一件事。</b><br>
+      <b>拍板方式</b>：以 v2 设计稿（10-09）的 L0–L5 为骨架，把热记忆 / 图记忆 / 留底 / 心跳并进对应层。
+    </div>
+    <details>
+      <summary>展开：撞车点与解法</summary>
+      <div class="inner">
+        <table>
+          <thead><tr><th>出处处</th><th>六层写成</th><th>问题</th></tr></thead>
+          <tbody>
+            <tr><td>00-灵魂.md（10-14）</td><td>L1 热记忆 / L2 图记忆 / L3 一手 / L4 索引 / 留底 / 心跳</td><td>和 v2 编号正面撞车</td></tr>
+            <tr><td>v2 设计稿（10-09）</td><td>L0 时钟 / L1 自我 / L2 工作台 / L3 一手 / L4 索引 / L5 检索</td><td>缺后成型的热记忆等</td></tr>
+            <tr><td>README（10-13）</td><td>只画机制面 / 观测面</td><td>不完整</td></tr>
+          </tbody>
+        </table>
+        <p><b>根因不是谁写错了，是两个视角被塞进了一套编号</b>：
+        v2 讲「引擎怎么跑」，灵魂目录讲「记忆存在哪」。两者不冲突，<b>错在共用了 L 编号</b>。</p>
+        <p style="margin:8px 0 0">★ 解法：<b>ECHO 只保留一套 L 编号</b>。仓储视角不再单独编号，一律用名字挂在对应层下。</p>
+      </div>
+    </details>
+  </div>
+
+  <!-- 2026-10-08 -->
+  <div class="entry done">
+    <div class="date">2026-10-08</div>
+    <div class="title">
+      索引层版本无感（`session.v<N>.jsonl.zstd`）
+      <span class="badge done">已落地</span>
+      <span class="badge layer">L4</span>
+    </div>
+    <div class="meta">
+      <b>现象</b>：宿主升到 v4 之后，<b>新会话一个都进不了索引</b>，表现是「索引停在 10-04 就再也不更新了」。<br>
+      <b>根因</b>：文件名写死成 <code>session.v3.jsonl.zstd</code>。<br>
+      <b>修法</b>：改成 <code>/^session\.v\d+\.jsonl\.zstd$/</code> 版本无感。
+    </div>
+  </div>
+
+  <!-- 更早：v2 实装 -->
+  <div class="entry done">
+    <div class="date">2026-10-09</div>
+    <div class="title">
+      ECHO V2 全面实装（六层骨架成型）
+      <span class="badge done">已落地</span>
+      <span class="badge arch">架构变更</span>
+    </div>
+    <div class="meta">
+      v2 设计稿落地：L0 时钟 / L1 自我 / L2 工作台 / L3 一手 / L4 索引 / L5 检索 的六层结构成型。<br>
+      ★ 这一版是 2026-10-23 权威口径的骨架来源。
+    </div>
+  </div>
+
+</div>
+
+<div class="callout ok">
+  <div class="t">★ 下次动刀 ECHO 时，照这个格式加一条</div>
+  <code>日期</code> · <code>改了什么（一句话）</code> · <code>在哪层</code> · <code>状态</code><br>
+  如果是<b>架构变更</b>（动了六层本身），要单独标红，并同步改《ECHO-权威口径》。<br>
+  如果只是<b>优化 / 修 bug</b>，改这里就行。
+</div>
+
+</div>
+
+<footer>
+  2026-10-31 · 砚青 · 数据全部实测<br>
+  一句话：<b>ECHO 六层 = L0 时钟心跳 / L1 自我加热记忆 / L2 工作台 / L3 一手 / L4 索引加图记忆 / L5 检索。<br>
+  只有 L2 允许丢东西。哨兵是观测面，不是层。</b>
+</footer>
+
+</div>
+
+<script>
+(function(){
+  var btns = document.querySelectorAll('nav button');
+  var pages = document.querySelectorAll('.page');
+  function show(id){
+    pages.forEach(function(p){ p.classList.toggle('active', p.id === id); });
+    btns.forEach(function(b){ b.classList.toggle('active', b.dataset.page === id); });
+    if (history.replaceState) history.replaceState(null, '', '#' + id);
+  }
+  btns.forEach(function(b){
+    b.addEventListener('click', function(){ show(b.dataset.page); });
+  });
+  // 初始：看 hash
+  var h = (location.hash || '').replace('#','');
+  if (h === 'p-log') show('p-log');
+})();
+</script>
+
+</body>
+</html>
