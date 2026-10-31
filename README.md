@@ -364,6 +364,47 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-31 · ECHO 召回提速：书房时间窗 + 行数组缓存 + svc 随 MCP 生命周期
+
+**实测（`kit/echo/echo-mcp.mjs`，50 次 0 失败）**：
+
+| 指标 | 改前 | 改后 |
+|---|---:|---:|
+| MCP 中位数 | 31 ms | **18 ms** |
+| 英文/冷门词（`python`/`asar`/`powershell`/`node`） | 670 ms | **260-380 ms** |
+| p95 | 456 ms | 290 ms |
+
+**四条路径对照**（同机同日实测）：
+
+| 路径 | 中位数 |
+|---|---:|
+| MCP | **57 ms**（一次冷启后；TTL 命中时 18 ms） |
+| CLI + svc | 773 ms |
+| CLI 无 svc | 3121 ms |
+
+**改了四处**：
+
+1. **书房扫描加 5 秒时间窗**（`SOUL_WALK_TTL`，env `ECHO_SOUL_TTL`，默认 5000）
+   —— 书房 **3568 文件 / 164 目录**，全量 walk+stat 实测 **737 ms**。
+   `soul=auto` 的触发条件是「索引命中 < 5」，所以**英文/冷门词全吃这 737 ms**。
+   ★ 代价：刚写的文件 5 秒内搜不到（可接受 —— 检索都是往回看）。`ECHO_SOUL_TTL=0` 可关。
+2. **行数组缓存**：`f.lines || (f.lines = f.text.split("
+"))`
+   —— 每次搜索都重建 3568 个文件的行数组，是那 700 ms 的大头。
+3. **`echo-mcp` 启动时顺手拉起 `echo-svc`**
+   —— mcp-hub 随 DSH 启动 spawn 它一次，这是现成的「DSH 生命周期锚点」。
+   让 CLI 那条路也有 pipe 快车道，不用每次手动起服务。
+4. **stdin 断时显式 kill 子进程** —— 不留孤儿。
+
+**三条保证**（③ 最重要）：已经在监听 pipe → 子进程 bind 失败自己退出，无害；
+stdin 一断（DSH 关）→ 父退出 → 显式 kill；**拉起失败绝不影响 MCP 本身**，整段包死只写 stderr。
+
+**判据**：stderr 出现 `echo-svc 已随 echo-mcp 拉起 pid=N`，且 `memq` 单次召回 < 1 s。
+
+**为什么这条重要**：`memq` 每次调用付 **~450-500 ms node 启动**硬底噪，
+那是 CLI 形态的天花板。**MCP 不是让 memq 更快，是让门换一种开法** —— 不启动进程。
+
+
 ### 2026-10-31 · 补两条 FAQ（`mnemon` 装不上 / 阈值配置的生效时机）
 
 来自一份外部 bug 报告的启发，两条都补进 `docs/安装常见问题汇总与解决方法.md`。

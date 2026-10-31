@@ -80,8 +80,20 @@ const loadSyn = () => {
 const SOUL_SKIP = /(\.mp3|\.mp4|\.mov|\.avi|\.mkv|\.wav|\.flac|\.m4a|\.ogg|\.aac|\.webm|\.png|\.jpg|\.jpeg|\.webp|\.gif|\.bmp|\.ico|\.svg|\.tif|\.tiff|\.pdf|\.zip|\.7z|\.rar|\.gz|\.zst|\.zstd|\.tar|\.exe|\.dll|\.bin|\.pyc|\.pyo|\.pyd|\.so|\.gguf|\.safetensors|\.onnx|\.pt|\.pth|\.ckpt|\.wasm|node_modules|\.git)/i;
 const SOUL_MAX = 512 * 1024;
 
+// ★★★ 2026-10-31 加时间窗：书房现在 **3568 个文件 / 164 个目录**，
+//   全量 walk+stat 实测 **737 ms**。而 `soul=auto` 的触发条件是「索引命中 < 5」——
+//   所以凡是**冷门词 / 英文词**都会吃这 737 ms（实测 powershell/asar/python/node 全在 530-670 ms）。
+//   方法：书房是「我自己在写」的地方、不会频繁变，所以 ★ **5 秒内不重扫**。
+//   代价：刚写的文件 5 秒内搜不到 —— 可接受（检索基本都是往回看）。
+//   要关掉：ECHO_SOUL_TTL=0。默认 5000 ms。
+const SOUL_WALK_TTL = Number(process.env.ECHO_SOUL_TTL ?? 5000);
+let soulWalkAt = 0;
+
 /** 书房：只读「变了」的文件内容；stat 仍是逐个（目录 mtime 发现不了内容改） */
 const refreshSoul = () => {
+  const now = Date.now();
+  if (SOUL_WALK_TTL > 0 && now - soulWalkAt < SOUL_WALK_TTL) return 0;
+  soulWalkAt = now;
   let reads = 0;
   const walk = (dir, depth) => {
     if (depth > 4) return;
@@ -96,7 +108,9 @@ const refreshSoul = () => {
       const old = C.soul.get(p);
       if (old && old.mtimeMs === st.mtimeMs && old.size === st.size) continue;
       let txt; try { txt = fs.readFileSync(p, "utf8"); } catch { continue; }
-      C.soul.set(p, { mtimeMs: st.mtimeMs, size: st.size, text: txt });
+      // ★ 2026-10-31：行数组缓存（懒建）。每次搜索都 split("\n") 重建 3568 个文件的行数组，
+      //   是书房那 700ms 的大头。文件没变（mtime+size 相同）就复用。
+      C.soul.set(p, { mtimeMs: st.mtimeMs, size: st.size, text: txt, lines: null });
       reads++;
     }
   };
@@ -199,7 +213,7 @@ const search = ({ terms = [], near = false, since = null, until = null, limit = 
   if (wantSoul) {
     soulReads = refreshSoul();
     for (const [p, f] of C.soul) {
-      const lines = f.text.split("\n");
+      const lines = f.lines || (f.lines = f.text.split("\n"));
       for (let i = 0; i < lines.length; i++) {
         const ln = lines[i];
         if (!ln.trim()) continue;
@@ -366,4 +380,39 @@ process.stdin.on("data", (d) => {
     handle(req);
   }
 });
-process.stdin.on("end", () => process.exit(0));
+// ★★★ 顺手拉起 echo-svc（2026-10-31 加）=================================
+//
+// 为什么是这里：
+//   echo-mcp 由 dsh-mcp-hub **随 DSH 启动** spawn 一次，然后常驻 ——
+//   这是现成的「DSH 生命周期锚点」。让它在同一个生命周期里把 svc 带起来，
+//   CLI 的 `memq` 才拿得到快车道（pipe），不用每次手动起服务。
+//
+// 三条保证：
+//   ① 已经在监听 pipe（比如手动起过一个 svc）→ 子进程 bind 失败自己退出，无害
+//   ② stdin 一断（DSH 关）→ 父进程退出 → 显式 kill 子进程，不留孤儿
+//   ③ 拉起失败绝不影响 MCP 本身 —— 整段包死，只写 stderr
+//
+// 判据：stderr 出现 `echo-svc 已随 echo-mcp 拉起 pid=N`，且 `memq` 单次召回 < 1 s。
+let echoSvcKid = null;
+try {
+  const { spawn } = await import('node:child_process');
+  echoSvcKid = spawn(process.execPath, [path.join(HUB, "echo-svc.mjs")], {
+    detached: false,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  echoSvcKid.on("error", (e) => process.stderr.write(`echo-svc spawn 失败: ${e && e.message}\n`));
+  echoSvcKid.on("exit", (code) => {
+    // code 0/non-0 都只是「svc 没了」——不拖累 MCP
+    process.stderr.write(`echo-svc 退出 code=${code}\n`);
+  });
+  process.stderr.write(`echo-svc 已随 echo-mcp 拉起 pid=${echoSvcKid.pid}\n`);
+} catch (e) {
+  process.stderr.write(`echo-svc spawn 异常: ${(e && e.message) || e}\n`);
+}
+// =========================================================================
+
+process.stdin.on("end", () => {
+  try { if (echoSvcKid && !echoSvcKid.killed) echoSvcKid.kill(); } catch {}
+  process.exit(0);
+});
