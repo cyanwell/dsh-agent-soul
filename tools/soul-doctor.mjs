@@ -223,9 +223,12 @@ check('L1', 'pkgintegrity', '已装插件的 package.json 自洽（files 覆盖�
 })
 
 check('L1', 'peerdeps', '插件包的 peerDependencies 覆盖了宿主包', () => {
-  // ★★ 这条来自同一个反馈的第二次「白名单漏一项」：
-  //   package.json 没声明 @deepseek-ai/* 时，宿主按白名单拦截 ⇒ 插件不加载、且无 crash 日志。
-  //   实测我们仓库里 compaction 已声明 @deepseek-ai/dsh-compaction-basic，这条用来防回归。
+  // ★★ 这条来自同一个反馈的第二次「白名单漏一项」。
+  //   ★ 2026-10-31 更正：原来这里写「缺声明 ⇒ 插件不加载、且无 crash 日志」——
+  //     外部实测把它推翻了：缺 peer 声明的 compaction **照常加载、而且接管成功了**
+  //     （探针 ctor: YanqingCompaction）。所以后果不是「装不上」，
+  //     而是「**装上了、直到某个分支真要 resolve 那个模块时才炸**」——
+  //     这更隐蔽，所以才更值得查。这条用来防回归。
   if (!existsSync(nmDir)) return { ok: false, detail: '跳过（没有 node_modules）', hint: '' }
 
   const problems = []
@@ -259,7 +262,7 @@ check('L1', 'peerdeps', '插件包的 peerDependencies 覆盖了宿主包', () =
     return {
       ok: false,
       detail: problems.join('；'),
-      hint: '宿主按 peerDependencies 白名单拦截 —— 缺声明时插件不加载、且没有 crash 日志。补进该包的 peerDependencies。',
+      hint: '缺 peer 声明**不会**让插件装不上 —— 它会照常加载，直到某条分支真要 resolve 那个模块时才炸（更隐蔽）。补进该包的 peerDependencies。',
     }
   }
   return { ok: true, detail: `扫描 ${scanned} 个零件，peerDependencies 齐全` }
@@ -276,7 +279,11 @@ check('L1', 'nodever', 'node 版本够', () => {
 // L2 装配 —— preset 装对了没
 // ═══════════════════════════════════════════════════════════════
 
-const REQUIRED = ['compaction', 'compact-region', 'pruner'].flatMap(partNames)
+// ★ 三件套指的是**三个目录**，不是六个包名 —— 和 L1/parts 同口径：任一前缀即可。
+//   原来这里是 `.flatMap(partNames)` 展开成 6 个名字、下游用 `includes` 要求【全部】出现，
+//   而一个 preset 只会装一套命名空间（要么 dsh-agent-* 要么 dsh-yanqing-*），
+//   于是这条路按设计**永远红**。（2026-10-31 外部实测报告指出，核实属实。）
+const REQUIRED = ['compaction', 'compact-region', 'pruner']
 
 function scanPresets(lines) {
   const out = []
@@ -314,7 +321,8 @@ check('L2', 'threeparts', '每个 preset 的三件套齐', () => {
   const namesIn = (body) => [...new Set([...body.join('\n').matchAll(/name:\s*['"]?(dsh-[\w.@/-]+)['"]?/g)].map((m) => m[1]))]
   const bad = []
   for (const p of presets) {
-    const miss = REQUIRED.filter((r) => !namesIn(p.body).includes(r))
+    const have = namesIn(p.body)
+    const miss = REQUIRED.filter((dir) => !partNames(dir).some((full) => have.includes(full)))
     if (miss.length) bad.push(`${p.id} 缺 ${miss.join('+')}`)
   }
   if (bad.length) return { ok: false, detail: bad.join('；'), hint: '缺 compact-region 时压缩仍可用（L1/L2），但换气救不回思考（L3）。用 soul-preset.mjs build --write 补' }

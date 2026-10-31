@@ -364,6 +364,44 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-31 · 外部实测报告的两条修正（`L2/threeparts` 真 bug + `peerdeps` 后果描述错）
+
+**来源**：一位测试者的桌面版实测报告。他报了 `soul-doctor.mjs` 两条红，我们逐条核过。
+
+#### 修 1：`L2/threeparts` 判据要求两套命名空间同时存在 —— 真 bug
+
+同一个文件里两种口径：
+
+```js
+// L2/threeparts（原来，有 bug）
+const REQUIRED = ['compaction','compact-region','pruner'].flatMap(partNames)   // → 6 个名字
+const miss = REQUIRED.filter((r) => !namesIn(p.body).includes(r))              // 要求【全部】出现
+
+// L1/parts（一直是对的）
+const miss = SOUL_PARTS.filter((n) => !partNames(n).some((full) => resolve(full)))  // 任一即可
+```
+
+而 `L1` 那句注释写得很明白：「每个目录只要有**任一前缀**的版本就够 —— 不要求两个前缀同时存在。」
+**`L2` 却在同一份文件里要求两套同时存在** ⇒ 一个 preset 只装一套命名空间，这条路**按设计永远红**。
+
+**已改成 `.some()` 同口径**，实测：
+
+```
+✅ 每个 preset 的三件套齐    4/4 全齐
+```
+
+#### 修 2：`peerdeps` 的后果描述是错的
+
+原 hint 写「缺声明 ⇒ 插件不加载、且没有 crash 日志」。**但测试者实测：缺 peer 声明的 compaction 照常加载、而且接管成功了**（探针 `ctor: YanqingCompaction`）。
+
+⇒ 后果不是「装不上」，而是「**装上了、直到某条分支真要 resolve 那个模块时才炸**」—— 这更隐蔽。
+hint 与注释都已改。
+
+★ 顺带查出一处**部署与仓库不一致**：仓库的 `plugins/compaction/package.json` 早就声明了两行，
+但部署副本 `dsh-yanqing-compaction` 只有一行（`index.js` 的 md5 也不同）。
+**说明部署时拷的是旧版。** 已把部署那份补齐 —— 这可能是测试者看到「只有一行」的真正原因。
+
+
 ### 2026-10-31 · `compact-region` 从安装清单移除（三处口径终于一致）
 
 **三处说法互相矛盾**，这次对齐成一套：
