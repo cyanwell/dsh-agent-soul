@@ -320,7 +320,7 @@ cat "${SOUL_PROBE_LOG:-<tmp>/dsh-soul-probe-compaction.log}" | tail -2
 
 **能力半出去了，身份半没出去。**
 
-- 出去的：五层模型、四条判据、14 个通用零件、安装指引、体检工具
+- 出去的：五层模型、四条判据、15 个通用零件、安装指引、体检工具
 - 没出去的：某个具体 agent 的主壳、人格档案、语音、形象、对外通道
 
 道理很简单：**身份可以复制，责任不能。** 这套东西给你的是「怎么搭自己的」，
@@ -338,7 +338,7 @@ agent-soul/
 ├── soul/
 │   ├── 01..05            五层文档 + 装配顺序 + 体检
 │   └── 04-manifest.json  该装哪些零件的机器可读清单
-├── plugins/              13 个零件包（每个都是独立 DSH 包）+ tools/（三个脚本目录，不是包）
+├── plugins/              15 个零件包（每个都是独立 DSH 包）+ tools/（三个脚本目录，不是包）
 ├── tools/
 │   ├── init.mjs          生成骨架
 │   ├── verify-live.mjs   静态全量校验
@@ -437,7 +437,7 @@ foreach ($d in @('kit','soul','skeleton','tools'))
 ```
 
 `client.js` 不在里面。更糟的是 **`plugins/` 也不在里面** ——
-也就是说走桌面路径装出来的东西，不但会崩，连那 13 个零件包都一个没有。
+也就是说走桌面路径装出来的东西，不但会崩，连那 15 个零件包都一个没有。
 
 **已修**：`$files` 补 `client.js` / `probe-kit-tools.mjs` / `install-desktop.ps1`，
 `$dirs` 补 `plugins`。并且加了一步**硬自检**：

@@ -1,5 +1,5 @@
 > ★ 时间标注（2026-10-18 加）：**这一份是 2026-10-17 的实测快照，不是现状。**
-> 那时候 12 个零件，现在 14 个（加了 `dsh-mnemon` 记忆空间）；那时候 7 个工具，现在 8 个。
+> 那时候 12 个零件，现在本仓库 15 个（装齐后含外部件 `dsh-mnemon` 共 16 件）；那时候 7 个工具，现在 8 个。
 > 数字不改 —— 改了就不是那天的记录了。要知道现在什么状态，跑 `agent_soul_verify`。
 
 # 沙箱验证实录：一个新 DSH 能不能靠这套插件把自己长出来
@@ -36,7 +36,7 @@
 
 ---
 
-## 二、撞出来的七个洞
+## 二、撞出来的八个洞
 
 排在前面的更基础。**每一个都不是读源码读出来的，都是真装才现形的。**
 
@@ -49,7 +49,7 @@
 
 ### 洞二 · `declares no dsh.bundle`
 
-> ★★ **2026-10-22 已修**：13 个零件包现在全部有 `dsh.bundle`，`compaction` 和 `pruner` 也补上了。
+> ★★ **2026-10-22 已修**：当时 13 个零件包全部有 `dsh.bundle`，`compaction` 和 `pruner` 也补上了。（★ 2026-10-31 补：现在 15 个包里 14 个有 —— `compact-region` 没有。）
 > 下面这段是当时的记录。
 
 当时：13 个零件里 11 个有 `dsh.bundle`，只有 `compaction` 和 `pruner` 没有
@@ -61,7 +61,7 @@
 
 ### 洞三 · 缺 `cordis.patch.yml`
 
-`plugins/compaction` 只有 3 个文件，没有 patch。
+`plugins/compaction` 只有 3 个文件，没有 patch。（★ 2026-10-31 补：现在 5 个文件，已含 `cordis.patch.yml`。）
 
 ### 洞四 · `cannot resolve profile bundle "dsh-agent-soul"`
 

@@ -7,7 +7,7 @@
     "装之前先读 skeleton/00-authority.md —— 不先定权威源，装什么都双重记账"
   ],
   "repo": {
-    "url": "https://github.com/cyanwell/dsh-agent-organs",
+    "url": "https://github.com/cyanwell/dsh-agent-soul",
     "kind": "monorepo",
     "note": "一个仓库里放了多个独立的 DSH 插件，每个子目录是一个完整的包（各自有 package.json / cordis.patch.yml / index.js / client.js）。"
   },
@@ -319,6 +319,25 @@
         }
       ],
       "依赖说明": "★ 它的空不是故障，是「还没开始用」。判据：账本里有几条，它就该显示几条。"
+    },
+    {
+      "dir": "mcp-hub",
+      "name": "MCP 服务入口",
+      "layer": "III-capability",
+      "manages": "速度 —— 让该快的机制走常驻连接，而不是每次起进程",
+      "provides": "本机所有 MCP 服务器的唯一入口：接入、卸载、检索、调用",
+      "required": true,
+      "check": "它挂上的 MCP 服务器，工具能不能出现在 agent 工具列表里（`mcp__<server>__<tool>`）？侧边栏两行状态是不是都 `ready`？",
+      "depends": [],
+      "needs": [
+        {
+          "what": "echo-mcp",
+          "why": "ECHO 的快车道 —— 挂上后一次召回 46 ms，不挂走 CLI 650 ms",
+          "missing": "ECHO 仍能用，但退到慢速路径"
+        }
+      ],
+      "reads": [],
+      "依赖说明": "★ 2026-10-31 定为**全局必装**：以后很多机制为了更快响应必须注册成 MCP 服务，它是唯一入口。清单里标 ○ 是「层内口径」，不影响全局必装。"
     },
     {
       "dir": "dsh-mnemon",

@@ -50,7 +50,7 @@ node tools/soul-preset.mjs build --write   # 缺的补上
 ```
 presets/
   _shared/
-    compaction.yml          ← ★ 压缩段（34 行）唯一的源，四个 preset 共用
+    compaction.yml          ← ★ 压缩段（38 行）唯一的源，四个 preset 共用
   preset-yanqing.yml        ← 标准
   preset-yanqing-cordis.yml ← 创造
   preset-yanqing-ptc.yml    ← PTC
@@ -150,6 +150,6 @@ node tools/soul-preset.mjs build --write              # 补上
 
 ## 已知的没做的
 
-- **`soul-version.json` 还没有** —— 所以「现在装的是哪一版」仍然读不出来。
+- **`soul-version.json` 本机有、仓库没有** —— 它在根目录（`soulVersion` 2.0.0），但被 `.gitignore` 排除。所以「现在装的是哪一版」只有在装过它的机器上读得出来。
 - **`build --write` 会重写整份 patch**（虽然只插一处）。大文件上应该改成精确插入。
 - **没测过 Windows 以外的环境。**

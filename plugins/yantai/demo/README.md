@@ -3,7 +3,7 @@
 **`intro-v3.mp4`** —— 7 分 15 秒。
 
 📥 直接下载（不进页面、点了就下）：
-https://github.com/cyanwell/dsh-agent-organs/raw/main/yantai/demo/intro-v3.mp4
+https://github.com/cyanwell/dsh-agent-soul/raw/main/plugins/yantai/demo/intro-v3.mp4
 
 ---
 
@@ -38,5 +38,5 @@ jumpTo(ms) 纯函数 → playwright 逐帧截图 → ffmpeg 接成片段 → 合
 
 ## 相关
 
-- 插件与工具本体：[../../](https://github.com/cyanwell/dsh-agent-organs)
+- 插件与工具本体：[../../](https://github.com/cyanwell/dsh-agent-soul)
 - 设计说明书与其中的论文：[dsh-agent-soul](https://github.com/cyanwell/dsh-agent-soul)

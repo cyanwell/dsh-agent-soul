@@ -71,6 +71,26 @@
 
 ---
 
+## 全局必装
+
+> ★ 2026-10-31 定。这一节和 `soul/04-manifest.json` 的「必需/可选」是**两把尺子**：
+> 那份说的是「这一类能力该满足什么」，这里说的是「**这几个具体实现，缺一个这套架构就不成立**」。
+
+| # | 声明 | 范围 | 为什么 |
+|---|---|---|---|
+| 1 | **压缩机制必装** | `compaction` + `pruner` | 上下文是唯一的硬稀缺资源；没有压缩就没有长时间工作 |
+| 2 | **ECHO 架构必须实现** | **整套**：`plugins/echo`（面板）+ `kit/echo/` 的 22 个脚本（`echo.mjs` / `echo-svc` / `echo-mcp` / `echo-doctor` / `memindex` / `memq` / `mo` / `self` …）。口径以 [`docs/ECHO-权威口径.md`](docs/ECHO-权威口径.md) 为准 | 不可视的装置等于不存在。ECHO 不是一块面板，是「引擎 + 仓储 + 观测 + 检索门」一整层。★ `echo-mcp` 也是它的一部分（快车道：挂上 46 ms，不挂走 CLI 650 ms） |
+| 3 | **换气插件必须实装** | `huanqi` + `huanqi-panel` | 思考退化是常态；没有它，会话会卡死在循环里而不自知 |
+| 4 | **墨账本必须实装** | `plugins/tools/ledger` | 整套架构的脊柱 —— 双写者不倒，记忆才不会散成文件。「墨」是本机实例的名字，通用件叫 ledger |
+| 5 | **MCP hub 必装** | `mcp-hub`（+ `kit/echo/echo-mcp.mjs`） | **以后很多机制为了更快响应必须注册成 MCP 服务**，它是唯一入口 |
+
+★ **两个「必」不是一回事，别读混**：
+
+- `plugins/清单.md` 的 `✓/○` 是「**层内**必选」——Ⅲ 层按定义没有必选项，所以 mcp-hub 在那里标 `○` 是对的。
+- **这一节是「全局必装」**——mcp-hub 在这里是必装。**层内可选 ≠ 整体可选。**
+
+---
+
 ## 五层
 
 | 层 | 管哪种稀缺资源 |
@@ -343,6 +363,49 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+
+### 2026-10-31 · 全仓旧口径核查与修正（30 处）+ 全局必装声明
+
+**起因**：`soul/07-bundle.json` 的 `repo.url` 还指着已弃用的 `dsh-agent-organs`。
+顺藤摸下去，发现**一整批**文档与磁盘不符。
+
+**核查方式**：派子 agent 只读审计 `soul/` / `plugins/` / `skeleton/` / `docs/` / `INSTALL.md` 等 80 个 md，
+主会话并行读根 `README.md`（123 KB），两边结论交叉复核。**每条判定都带行号与实际值。**
+
+#### 最重要的一条：ECHO 被压成了一个零件
+
+`07-bundle.json` 的 `parts` 里，ECHO 只占「**哨兵**」一项 ——
+实际它是 `plugins/echo`（面板）+ `kit/echo/` **22 个脚本**（`echo.mjs` / `echo-svc` / `echo-mcp` / `echo-doctor` / `memindex` / `memq` / `mo` / `self` / `framestore` / `session-store` …）。
+**它是「引擎 + 仓储 + 观测 + 检索门」一整层**，`docs/ECHO-权威口径.md` 自己写着「本仓库唯一的权威口径」。
+
+#### 修正清单（30 处）
+
+| 类 | 处数 | 例子 |
+|---|---|---|
+| 指向 organs | 6 | `07-bundle.json` 的 `repo.url`、3 处「原仓库保留作为开发源头」、yantai demo 两个链接、archive 架构图 |
+| 包数 13/14 → 15 | 9 | `INSTALL.md` 三处、`SANDBOX-VERIFICATION.md` 两处、`plugins/README.md` 两处、`清单.md` 层表、`parts` |
+| `compact-region` 假判据 | 4 | `plugins/README.md` 三处说「`selftest.mjs` 没迁进来」—— **三份都在磁盘上**；`dsh.bundle` 说「13 个包全部有」—— **`compact-region` 没有** |
+| 其他可数事实 | 5 | 「七个洞」→ 八个、compaction 3 文件 → 5、doctor 14 项 → 15、compaction.yml 34 行 → 38 行、`soul-version.json`「还没有」→ 本机有 |
+| 换气主路径 | 2 | `docs/ECHO-权威口径.md` 与 `compact-region/README` 仍把 `compactRegion` 写成现役主路径 |
+| 全局必装声明 | 1 | 根 README 新增一节 |
+
+#### 新声明：全局必装五条
+
+> 压缩机制 · **ECHO 整套**（含 `echo-mcp`） · 换气 · 墨账本 · MCP hub
+
+**和 `清单.md` 的 `✓/○` 是两把尺子**：那两列是「层内必选」，这五条是「整体必装」。
+`mcp-hub` 在 Ⅲ 层标 `○` 是对的（那层按定义没有必选项），但它属于全局必装。
+★ 并明确：**以后很多机制为了更快响应必须注册成 MCP 服务**，所以 `mcp-hub` 是核心组件。
+
+#### `compact-region` 的定性
+
+它**不是废弃件，是「没有 `dsh.bundle`」** —— 装进去也不会自动进 cordis，所以不进装配清单。
+它的能力（带范围的 `/compact-region`）仍在注册，但换气 2026-10-31 起主路径已改为
+「LLM 诊断 + `surfaceOp` 定点清除」，它**降为 fallback**。README 与清单都已写明。
+
+#### 没改的（是历史记录，不是旧口径）
+
+带「当时」「此前」标注的段落、迁移纪要、10-17 快照、issue 台账的当时实测 —— 一律保留原样。
 
 ### 2026-10-31 · 换气：调试触发口去掉写死的旧会话 id
 

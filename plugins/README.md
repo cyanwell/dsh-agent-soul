@@ -5,7 +5,7 @@
 ## 三件事
 
 **一、这些零件是从 `dsh-agent-organs` 迁过来的。**
-原仓库保留作为开发源头。迁进来的是**源码**：不含 `node_modules`，不含演示视频（`yantai/demo/`），不含本机调试产物。
+原仓库已于 2026-10-30 **弃用** —— 只留本仓库作为唯一项目仓库；这里记录的是迁移来源，不是现在的开发源头。迁进来的是**源码**：不含 `node_modules`，不含演示视频（`yantai/demo/`），不含本机调试产物。
 
 **二、每个子目录是一个完整的 DSH 插件包。**
 通常是 `package.json` / `cordis.patch.yml` / `index.js`；带界面的再加 `client.js`。
@@ -61,16 +61,16 @@ dsh plugin --profile <名字> add file:<本仓库>/plugins/<目录>
 **一、四个 README 还在让你跑一个已被排除的文件。**
 
 `huanqi-panel` / `model-statusbar` / `riji` / `yantai` 的 README 里写着
-`node selftest.mjs`，但那个文件**没有迁进来**（`.gitignore` 规则排除本机自测脚本）。
+`node selftest.mjs`，那个文件**随包提供** —— `model-statusbar` / `riji` / `yantai` 三份都在仓库里（`.gitignore` 里那条排除规则已于 2026-10-23 删掉）。
 
-★ 这不影响插件运行 —— `selftest.mjs` 只是开发时的手动自测，装插件不需要它。
+★ 它不参与插件运行 —— `selftest.mjs` 只是开发时的手动自测，装插件不需要它，但想验证时可以 `node selftest.mjs` 直接跑。
 你看到「文件不存在」是对的，不是你拷漏了。
 
 **二、`model-statusbar/package.json` 的 `files` 列了两个不存在的文件。**
 
 ```json
 "files": ["index.js", "client.js", "cordis.patch.yml", "probe.ps1",
-          "selftest.mjs",        // ← 迁移时排除
+          "selftest.mjs",        // ← 随包发布，别排除
           "verify-gui.expr.js",  // ← ★ 源仓库里本来就没有这个文件
           "README.md"]
 ```
@@ -118,12 +118,12 @@ dsh: pnpm failed in profile directory <profile>
 **二、`compaction` 和 `pruner` 装完是死的 —— 它们没有 `dsh.bundle`。**
 
 > ★★ **2026-10-22 已修，下面这段是历史记录。**
-> 现在 13 个零件包**全部**都有 `dsh.bundle`，这两个也补上了壳层
+> 现在 15 个零件包里 **14 个有 `dsh.bundle`** —— 唯一没有的是 `compact-region`（它不注册 bundle，装它不会自动进 cordis）。`compaction` 和 `pruner` 也补上了壳层
 > （`cordis.patch.yml` + 一个 `apply()` 去替换引擎）。
 > 实测：`plugins/compaction/package.json` 与 `plugins/pruner/package.json` 的
 > `dsh.bundle.patch` 都指向 `./cordis.patch.yml`，文件都在。
 > `node tools/verify-packaging.mjs` 会逐包核对 `main` / `client.js` / `bundle.patch`
-> 是否都被 `files` 清单覆盖（当前 13/13 通过）。
+> 是否都被 `files` 清单覆盖（当前 **14/15** 通过；`compact-region` 没有 bundle）。
 > **所以「装了、退出码 0、但不会被加载」不再成立** —— 保留这段是为了说明当初为什么是那个形状。
 
 **当时**的情况：13 个零件包里 11 个有 `dsh.bundle`，这两个没有。装的时候 DSH 会明确警告：
@@ -176,6 +176,6 @@ installed as a plain dependency, not a profile layer
 
 ## 来源
 
-这部分在重构时从 `dsh-agent-organs` 迁入，原仓库保留作为开发源头。
+这部分在重构时从 `dsh-agent-organs` 迁入；原仓库已于 2026-10-30 **弃用** —— 只留本仓库作为唯一项目仓库；这里记录的是迁移来源，不是现在的开发源头。
 迁入的是**源码**：不含 `node_modules`、不含演示视频、不含本机调试产物。
 98 个文件的 SHA-256 与源逐一对得上。

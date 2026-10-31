@@ -319,7 +319,7 @@ cp package.json     "package.json.bak-$(date +%Y%m%d%H%M%S)"
 
 | 这里写的 | 可靠性 |
 |---|---|
-| doctor 的 **14 项**检查 | **本机真跑过**（2026-10-28，见 `30-状态/调研.../21-分层doctor首跑记录.md`） |
+| doctor 的 **15 项**检查 | **本机真跑过**（2026-10-28，见 `30-状态/调研.../21-分层doctor首跑记录.md`） |
 | 「命令能被识别就算成」的验证法 | **真验过**（四个 preset 全部识别） |
 | 每条失败的处理办法 | 逐条对应 doctor 的 `hint`，都来自实测 |
 | `install.mjs` 的 doctor / apply / rollback | **三个都实跑过**（apply 的路径 bug 是实跑才发现的） |
