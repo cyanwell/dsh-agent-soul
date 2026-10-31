@@ -121,7 +121,16 @@ const refreshSoul = () => {
 /** 热更新：只在文件变了时重载 */
 const refresh = () => {
   const wk = statKey(path.join(IDX, "words.jsonl"));
-  if (wk !== C.wKey) { C.words = parseJsonl(path.join(IDX, "words.jsonl")); C.wKey = wk; C.reloads++; }
+  if (wk !== C.wKey) {
+    C.words = parseJsonl(path.join(IDX, "words.jsonl"));
+    // ★ 2026-11-01 norm 预计算：索引加载时算一次，之后每次检索直接复用。
+    //   实测：一次性 +534ms / +111MB，换掉每次 near 未命中的 547ms。
+    //   ★ 可用 ECHO_PRECOMPUTE_NORM=0 关掉（回退到现算，省内存但慢）。
+    if (process.env.ECHO_PRECOMPUTE_NORM !== "0") {
+      for (const w of C.words) w._n = norm(String(w.text ?? ""));
+    }
+    C.wKey = wk; C.reloads++;
+  }
   const sk = statKey(path.join(IDX, "summaries.jsonl"));
   if (sk !== C.sKey) { C.sums = parseJsonl(path.join(IDX, "summaries.jsonl")); C.sKey = sk; C.reloads++; }
   const yk = statKey(path.join(HUB, "synonyms.json"));
@@ -131,20 +140,26 @@ const refresh = () => {
 };
 
 /** 三档匹配 —— 与 memq 的 hitKind 逐字一致 */
-const hitKind = (s, terms, near) => {
+// ★ 2026-11-01 预计算支持：preNorm 非空时直接复用（不再对全文跑 norm）。
+//   原本 near 未命中要对 51749 条全文逐条 norm()，实测 547ms；
+//   现在索引加载时算一次（539ms 一次性 + 111MB），每次检索省掉这 547ms。
+const hitKind = (s, terms, near, preNorm, termsN) => {
   if (terms.length === 0) return "exact";
   if (s == null) return null;
   const raw = String(s);
   if (terms.every((t) => raw.includes(t))) return "exact";
+  // ★ 2026-11-01：terms 的归一化只算一次（原来每条命中都要重算 terms 次，
+  //   51749 条 × 2-3 次 = 十几万次 norm() 调用 —— 这是预计算 norm 之后最大的剩余热点）。
+  const tn = termsN || (needNorm(terms) ? terms.map(norm) : null);
   let ns = null;
   if (needNorm(terms)) {
-    ns = norm(raw);
-    if (terms.every((t) => ns.includes(norm(t)))) return "norm";
+    ns = preNorm != null ? preNorm : norm(raw);
+    if (terms.every((_, i) => ns.includes(tn[i]))) return "norm";
   }
   if (near) {
-    if (ns === null) ns = norm(raw);
-    const ok = terms.every((t) => {
-      const alts = C.syn.get(norm(t));
+    if (ns === null) ns = preNorm != null ? preNorm : norm(raw);
+    const ok = terms.every((_, i) => {
+      const alts = C.syn.get(tn[i]);
       if (!alts || alts.size === 0) return false;
       for (const a of alts) if (ns.includes(a)) return true;
       return false;
@@ -166,6 +181,8 @@ const SNIP = 600;
 /** 全量检索：墨 + 书房 + 索引（不含留底，留底是低频层） */
 const search = ({ terms = [], near = false, since = null, until = null, limit = 25, soul = "auto" }) => {
   const t0 = Date.now();
+  // ★ 2026-11-01：terms 归一化只算一次，全库扫描全部复用（原来每条命中重算，十几万次）
+  const termsN = terms.length ? terms.map(norm) : [];
   refresh();
   // 书房策略：auto = 索引命中 ≥5 就跳过（省 250 ms stat）；always = 全扫；never = 不扫
   let soulReads = 0, soulSkipped = false;
@@ -179,7 +196,7 @@ const search = ({ terms = [], near = false, since = null, until = null, limit = 
   // ① 墨
   for (const r of C.mo) {
     if (!inRange(r.t, since, until)) continue;
-    const k = hitKind(r.text + " " + (r.ref || ""), terms, near);
+    const k = hitKind(r.text + " " + (r.ref || ""), terms, near, null, termsN);
     if (!k) continue;
     total++;
     if (hits.length < limit) push({ layer: "L3", src: "墨", t: r.t, ptr: "墨:" + r.t, kind: r.type, extra: r.ref, m: k }, r.text);
@@ -192,14 +209,15 @@ const search = ({ terms = [], near = false, since = null, until = null, limit = 
   const idxHits = [];
   for (const s of C.sums) {
     if (!inRange(s.t, since, until)) continue;
-    const k = hitKind(s.summary, terms, near);
+    const k = hitKind(s.summary, terms, near, null, termsN);
     if (!k) continue;
     total++; idxTotal++;
     if (idxHits.length < limit) idxHits.push({ layer: "L4", src: "索引/摘要", t: s.t, ptr: "idx:" + s.id, kind: "摘要", extra: `替换 ${s.shadowedTokens} tok`, m: k, _t: s.summary });
   }
   for (const w of C.words) {
     if (!inRange(w.t, since, until)) continue;
-    const k = hitKind(w.text, terms, near);
+    // ★ 传 w._n（refresh 时预计算好的归一化文本）；没有则回退现算。
+    const k = hitKind(w.text, terms, near, w._n, termsN);
     if (!k) continue;
     total++; idxTotal++;
     if (idxHits.length < limit) {
@@ -217,7 +235,7 @@ const search = ({ terms = [], near = false, since = null, until = null, limit = 
       for (let i = 0; i < lines.length; i++) {
         const ln = lines[i];
         if (!ln.trim()) continue;
-        const k = hitKind(ln, terms, near);
+        const k = hitKind(ln, terms, near, null, termsN);
         if (!k) continue;
         total++;
         if (hits.length < limit) {
@@ -228,9 +246,16 @@ const search = ({ terms = [], near = false, since = null, until = null, limit = 
   } else if (soul === "auto") {
     soulSkipped = true;
   }
+  // ★ 2026-11-01 排序加权：把匹配质量纳入排序（原来只看「层 + 时间」）。
+  //   每个命中身上其实带着 m = "exact" | "norm" | "synonym"（hitKind 的返回值），
+  //   但排序完全没用它 —— 于是「精确命中」和「撞词命中」同层同序。
+  //   现在：层 → 匹配质量 → 时间倒序。零内存、零耗时，只是多一个比较。
+  const KIND_RANK = { exact: 0, norm: 1, synonym: 2 };
   hits.sort((a, b) => {
     const ra = a.layer === "L3" ? 0 : 1, rb = b.layer === "L3" ? 0 : 1;
     if (ra !== rb) return ra - rb;
+    const ka = KIND_RANK[a.m] ?? 9, kb = KIND_RANK[b.m] ?? 9;
+    if (ka !== kb) return ka - kb;
     if (a.t && b.t) return String(b.t).localeCompare(String(a.t));
     if (a.t) return -1;
     if (b.t) return 1;

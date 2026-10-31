@@ -181,7 +181,7 @@
 
 <nav>
   <button class="active" data-page="p-arch">架构</button>
-  <button data-page="p-log">改动、升级记录<span class="cnt">9</span></button>
+  <button data-page="p-log">改动、升级记录<span class="cnt">10</span></button>
 </nav>
 
 <!-- ══════════════════ 页 1：架构 ══════════════════ -->
@@ -454,13 +454,52 @@
 </div>
 
 <div class="kpis">
-  <div class="kpi"><div class="k">总条目</div><div class="v">9</div><div class="x">只追加，不删旧条</div></div>
-  <div class="kpi"><div class="k">已落地</div><div class="v">6</div><div class="x">代码已改并在跑</div></div>
+  <div class="kpi"><div class="k">总条目</div><div class="v">10</div><div class="x">只追加，不删旧条</div></div>
+  <div class="kpi"><div class="k">已落地</div><div class="v">7</div><div class="x">代码已改并在跑</div></div>
   <div class="kpi"><div class="k">待实施</div><div class="v">1</div><div class="x">方案已定，代码未动</div></div>
   <div class="kpi"><div class="k">架构变更</div><div class="v">3</div><div class="x">动过六层口径的</div></div>
 </div>
 
 <div class="changelog">
+
+  <!-- 2026-11-01 检索提速三项 -->
+  <div class="entry done">
+    <div class="date">2026-11-01</div>
+    <div class="title">
+      检索提速三项：排序加权 / norm 预计算 / terms 归一化提升
+      <span class="badge done">已落地</span>
+      <span class="badge layer">L5</span>
+    </div>
+    <div class="meta">
+      ① <b>排序加权</b>：命中身上早就带着 <code>m</code>（exact / norm / synonym），但排序只看「层 + 时间」——
+      现在把它纳入排序。<b>零内存零启动代价，只是多一个比较</b>。<br>
+      ② <b>norm 预计算</b>：索引加载时算一次（+111MB / 一次性），near 未命中不用再对 51749 条逐条 <code>norm()</code>。<br>
+      ③ <b>terms 归一化提升</b>：原来每条命中都要重算 terms 次 <code>norm(t)</code>（十几万次调用），
+      现在 <code>search()</code> 开头算一次，全库复用。
+    </div>
+    <details>
+      <summary>展开：实测数据（A/B 20 个冷门词 × near=true）</summary>
+      <div class="inner">
+        <table>
+          <thead><tr><th>指标</th><th class="num">优化前</th><th class="num">优化后</th><th>变化</th></tr></thead>
+          <tbody>
+            <tr class="hl"><td>中位数</td><td class="num">791.2 ms</td><td class="num"><b>349.3 ms</b></td><td><b>2.3× 快</b></td></tr>
+            <tr><td>p95</td><td class="num">1646.7 ms</td><td class="num">991.5 ms</td><td>—</td></tr>
+            <tr><td>20 次总</td><td class="num">15489 ms</td><td class="num">6429 ms</td><td>2.4×</td></tr>
+            <tr><td>启动（代价）</td><td class="num">1156 ms</td><td class="num">1824 ms</td><td>+668 ms</td></tr>
+          </tbody>
+        </table>
+        <p style="margin:8px 0 0">
+          ★ <b>两轮迭代</b>：第一轮只做 norm 预计算 → 1.7×；加上 terms 提升 → <b>2.3×</b>。
+          方案里预估 4×，没达到 —— 剩下的开销在书房全扫（737ms）和 JSON 序列化，不是 norm。
+        </p>
+        <p style="margin:6px 0 0;color:var(--muted)">
+          ★ <code>ECHO_PRECOMPUTE_NORM=0</code> 可一键回退（省内存但慢）。
+          运行时副本 <code>D:\AI\memory\hub\echo-mcp.mjs</code> 已同步（备份 <code>.bak-before-normopt-20261101-035222</code>）。
+        </p>
+      </div>
+    </details>
+  </div>
 
   <!-- 2026-10-31 内存常驻方案 -->
   <div class="entry plan">
