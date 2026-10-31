@@ -21,6 +21,7 @@
 //   ③ 不碰凭据、不执行外部内容
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 import * as CFG from "./echo-config.mjs";
 
 const HUB = process.env.ECHO_HUB || CFG.HUB;   // ★ 发布版：从 echo-config 读
@@ -44,6 +45,7 @@ const C = {
   syn: new Map(), yKey: null,
   soul: new Map(), soulKey: null,
   mo: [], moKey: null,
+  logs: [], logsKey: null,   // ★ 2026-11-01 会话日志常驻（截断到 600）
   reloads: 0, calls: 0, bootAt: Date.now(),
 };
 
@@ -119,6 +121,126 @@ const refreshSoul = () => {
 };
 
 /** 热更新：只在文件变了时重载 */
+// ── 2026-11-01 会话日志常驻（爀曦的思路：一手层部分解码进内存） ──────────
+//   ★ 只存「截断到 600 的对话消息」，不存完整行 —— 实测 3 天完整行要 1033MB，
+//     截断后只要 ~26MB（见 docs/ECHO-阶段0-会话日志常驻实验.md）。
+//   ★ 截断完全无损：search() 返回的 text 本来就只取 SNIP = 600。
+//   ★ 过滤 <system-reminder> / Current runtime context —— 那些是每轮注入的样板，
+//     存进来只会把真对话淹掉。
+const LOG_DAYS = Number(process.env.ECHO_LOG_DAYS || 3);
+const LOG_SNIP = 600;
+// ★ DSH_HOME 本身就是 D:/AI/dsh/home，会话日志在它下面的 sessions/
+const SESS_DIR = process.env.ECHO_SESSIONS
+  || path.join(process.env.DSH_HOME || "D:/AI/dsh/home", "sessions");
+const ZMAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
+
+/** 从一条消息里抽出可检索的正文（兼容 user/message 与 assistant/message 两种结构） */
+const messageText = (j) => {
+  const d = j.data || {};
+  if (j.type === "user/message") {
+    const c = d.content;
+    if (typeof c === "string") return c;
+    if (Array.isArray(c)) return c.map((x) => (x && typeof x.text === "string" ? x.text : "")).join("");
+    return "";
+  }
+  const m = d.message;   // assistant/message: 文本在 data.message
+  if (typeof m === "string") return m;
+  if (m && typeof m === "object") {
+    if (typeof m.text === "string") return m.text;
+    if (Array.isArray(m.content)) return m.content.map((x) => (x && typeof x.text === "string" ? x.text : "")).join("");
+  }
+  return "";
+};
+
+/** 逐帧解压（多帧 zstd，只用 zstdDecompressSync 只能解第一帧） */
+const decodeFramesOf = (file) => {
+  let buf;
+  try { buf = fs.readFileSync(file); } catch { return []; }
+  const out = [];
+  let base = 0;
+  while (base < buf.length) {
+    let end = buf.indexOf(ZMAGIC, base + 4);
+    if (end < 0) end = buf.length;
+    try { out.push(zlib.zstdDecompressSync(buf.subarray(base, end))); } catch { /* 坏帧跳过 */ }
+    base = end;
+  }
+  return out;
+};
+
+/** 把最近 N 天的会话日志解进内存（阻塞版，由预热器在后台调用） */
+const buildLogs = () => {
+  if (!LOG_DAYS) return [];
+  const cutoff = Date.now() - LOG_DAYS * 86400000;
+  const out = [];
+  const walk = (dir, depth) => {
+    if (depth > 3) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(p, depth + 1); continue; }
+      if (!/^session\.v\d+\.jsonl\.zstd$/.test(e.name)) continue;
+      let st;
+      try { st = fs.statSync(p); } catch { continue; }
+      if (st.mtimeMs < cutoff) continue;
+      const sid = path.basename(path.dirname(p));
+      const parts = decodeFramesOf(p);
+      if (parts.length === 0) continue;
+      const txt = Buffer.concat(parts).toString("utf8");
+      for (const line of txt.split("\n")) {
+        const s = line.trim();
+        if (!s || s.length > 8 * 1024 * 1024) continue;
+        let j;
+        try { j = JSON.parse(s); } catch { continue; }
+        if (j.type !== "user/message" && j.type !== "assistant/message") continue;
+        let body = messageText(j);
+        if (!body) continue;
+        body = body.trim();
+        // ★ 过滤每轮注入的样板，否则会把真对话淹掉
+        if (body.startsWith("<system-reminder>") || body.startsWith("Current runtime context")) continue;
+        const full = body.length;
+        const text = full > LOG_SNIP ? body.slice(0, LOG_SNIP) : body;
+        out.push({
+          text,
+          fullLen: full,
+          t: j.time ? new Date(j.time).toISOString() : "",
+          sid,
+          seq: j.seq,
+          ptr: "log:" + sid + "#seq=" + j.seq,
+          role: j.type === "user/message" ? "user" : "assistant",
+          _n: null,   // 懒算：第一次命中时才 norm（省启动时间）
+        });
+      }
+    }
+  };
+  walk(SESS_DIR, 0);
+  return out;
+};
+
+let logsState = "idle";   // idle | loading | ready | off
+const startLogsLoad = () => {
+  if (logsState !== "idle") return;
+  if (process.env.ECHO_LOGS_RESIDENT === "0") { logsState = "off"; return; }
+  logsState = "loading";
+  const t0 = Date.now();
+  // 丢到下一轮事件循环，不阻塞 MCP 握手
+  setTimeout(() => {
+    try {
+      const arr = buildLogs();
+      arr.sort((a, b) => String(b.t).localeCompare(String(a.t)));   // 时间倒序
+      C.logs = arr;
+      C.logsKey = Date.now();
+      logsState = "ready";
+      process.stderr.write("echo-mcp logs ready  " + arr.length + " 条 / "
+        + ((process.memoryUsage().rss) / 1048576).toFixed(0) + "MB  " + (Date.now() - t0) + "ms\n");
+
+    } catch (e) {
+      logsState = "idle";
+      process.stderr.write("echo-mcp logs failed  " + (e && e.message) + "\n");
+    }
+  }, 0);
+};
+
 const refresh = () => {
   const wk = statKey(path.join(IDX, "words.jsonl"));
   if (wk !== C.wKey) {
@@ -213,6 +335,17 @@ const search = ({ terms = [], near = false, since = null, until = null, limit = 
     if (!k) continue;
     total++; idxTotal++;
     if (idxHits.length < limit) idxHits.push({ layer: "L4", src: "索引/摘要", t: s.t, ptr: "idx:" + s.id, kind: "摘要", extra: `替换 ${s.shadowedTokens} tok`, m: k, _t: s.summary });
+  }
+
+  // ★ 2026-11-01 会话日志层：最近 N 天的对话原文（截断到 600），带 log: 门牌
+  for (const g of C.logs) {
+    const k = hitKind(g.text, terms, near, g._n, termsN);
+    if (!k) continue;
+    hits.push({
+      layer: "L3", src: "日志", t: g.t,
+      ptr: g.ptr, role: g.role, fullLen: g.fullLen,
+      text: g.text, m: k,
+    });
   }
   for (const w of C.words) {
     if (!inRange(w.t, since, until)) continue;
@@ -389,6 +522,7 @@ const handle = (req) => {
 // 预热（在等 stdin 之前就把索引读进来）
 const boot0 = Date.now();
 refresh();
+startLogsLoad();   // ★ 会话日志后台预热（不阻塞握手）
 process.stderr.write(`echo-mcp ready  words=${C.words.length} sums=${C.sums.length} mo=${C.mo.length}  预热 ${Date.now() - boot0}ms  rss=${Math.round(process.memoryUsage().rss / 1048576)}MB\n`);
 
 let buf = "";
