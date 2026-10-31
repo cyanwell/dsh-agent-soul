@@ -364,6 +364,62 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-01 · huanqi v1.2.2：定点清除为什么清不掉
+
+**现象**：爀曦报「截断压缩触发的还是 compact-region，不是 LLM 诊断 + 定点清除」。
+界面那条失败是 `region compaction failed: Error: compactRegion: no open turn`。
+熔断（全量）那条是通的 —— 只有截断这条没修好。
+
+**根因不在「没走 purge」，而在 purge 走了、却一条都采纳不了。**
+
+一手证据（`_plugin-diag.log` 2026-10-31T21:26–21:27）：
+
+```
+[huanqi][purge] LLM 诊断 ok=true 采纳=0 扫描=299
+   raw={"items":[{"seq":33912,"reason":"超长的日志检索 JSON 输出…已用完的大段输出","safe":false},
+                 {"seq":34275,"reason":"重复输出 startLogsLoad 定义行…形成重复前缀","safe":false},
+                 {"seq":34231,"reason":"handle 函数签名连续重复…重复前缀残留","safe":false}]}
+[huanqi][purge] 扫描 299/299 个节点，没有污染源候选 → 落回全量
+[compact-region] compactRegion(33935–34342) → FAILED: no open turn
+```
+
+三条理由**精确命中了我们自己列的「典型诱因」**，然后三条全被判 `safe:false`。
+
+**两个错误**：
+
+1. **「删」这个词用错了。** `purgeOne` 不是删除，是 `surfaceOp: replace` —— 在可见面上换成
+   一个带 `log:<sid>#seq=<n>` 门牌的占位符，原文永久留在事件日志里。所以「它是唯一记录」
+   根本不是风险。旧提示词却写着「safe 要保守，拿不准就 false，删错比不删更坏」——
+   等于亲手喂给模型一个**不存在的风险**，它当然全程保守。
+2. **问法默认了「别动」。** 问「遮这个安全吗」，模型天然答「不安全」；
+   问「哪些该遮」，同一个模型会照着诱因清单选。
+
+**改了什么（四处，源码与运行副本同步）**：
+
+| # | 位置 | 改动 |
+|---|---|---|
+| ① | `PURGE_DIAG_INSTRUCTION` | 重写：说清是**遮罩**不是删除、原文可回取、**默认该遮**；否决理由收窄到唯一真实的一条 ——「后面还要靠它的正文继续干活」。字段 `safe` → `purge` |
+| ② | `diagnosePurge` 解析 | 接受 `purge`（兼容旧 `safe`）；把候选表一并带出（`cands`），供调用方兜底 |
+| ③ | `compactOnce` 空手分支 | 诊断器采纳 0 条时**不再落回压缩**。机械兜底：候选里 ≥ 2000 字符的，遮最长一条。兜底也不成立 → 如实返回 `purged: []`，**不压缩** |
+| ④ | region 降级分支 | **删掉 `/compact-region` 调用**，连同「10 次 × 3 秒」重试循环（它专门重试 `no open turn`，实测白跑 21 秒） |
+
+**为什么第 ④ 条是删不是修**：`compactRegion` 的语义是 `owner: 'current-turn'`，**必须有 open turn**；
+而换气所有动作都在 `turn/end` 之后。两个要求结构上互斥，不存在「调对时机」的解法。
+`/compact`（`owner: null` + `selected-span`）不需要 open turn，但它等于全量压缩 ——
+而爀曦 2026-10-27 23:42 已明确定性：region 失败**绝不降级全量**（那是误伤）。
+
+于是两条路各自归位：**截断 = 只做定点清除，清不到就不动**；**熔断 = 全量压缩**。
+
+**怎么验的**：源码 `tsc` 通过（唯一报错 `clearTimeout` 是既有问题，HEAD 里就有）；
+两份产物 `node --check` 通过；三个关键标记在仓库产物与运行副本里各命中
+（`PURGE_FALLBACK_MIN = 2000` / `raw.purge === true` / `purge produced nothing this round`）。
+
+**还没验到的**：下一轮真实截断触发时诊断器是否真的开始采纳。这条只能等真实场景。
+
+**顺带记一笔（未修）**：运行副本 `dsh-huanqi/lib/index.js` 与仓库产物有约 239 行非注释差异 ——
+部署副本里残留着 `probe2` 调试探针代码，仓库里没有。这是更早的调试遗留，不在本次范围，
+但下次重装插件会用仓库版覆盖掉它。要么把探针清理掉、要么补齐，别一直悬着。
+
 ### 2026-11-01 · ECHO MCP 握手修复 + 面板现状回显
 
 **为什么改**：日志常驻上线后，ECHO MCP 连不上（桌面端一直显示「echo · 连接中 · 0 tools」）。

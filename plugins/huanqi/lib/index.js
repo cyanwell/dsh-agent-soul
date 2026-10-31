@@ -201,21 +201,20 @@ export const Config = z.object({
     recallPrompt: z.string().default(''),
     /** 两次范围压缩之间至少隔多少轮。0 = 不限制。默认 18。 */
     regionCompactEveryTurns: z.number().step(1).min(0).max(200).default(18),
-
-    /* ===== 定点清除（2026-10-31 新增） =====
-     *
-     * 截断触发的「范围压缩」不再走 /compact-region（它要 open turn，时机上不可用），
-     * 改成：找污染源候选 → surfaceOp 定向替换工具结果。
-     *
-     * purgeOnCuts        —— 截断后是否执行定点清除。关掉就完全退回全量 /compact。
-     * purgeMaxItems      —— 一次最多清几条（保守起见默认 3）。
-     * purgeMaxChars      —— 多大的工具结果算「沙袋」（超过就清）。
-     */
-    purgeOnCuts: z.boolean().default(true),
-    purgeMaxItems: z.number().step(1).min(1).max(20).default(3),
-    purgeMaxChars: z.number().step(1000).min(2000).max(200000).default(20000),
     /** 两次熔断救援之间至少隔多少轮。0 = 不限制。默认 18。 */
     breakerRescueEveryTurns: z.number().step(1).min(0).max(200).default(18),
+    /**
+     * 截断压缩是否改走「定点清除」（2026-10-31 加）。默认 true。
+     *
+     * 背景：`/compact-region` 内在矛盾 —— 它要 open turn + 整面静止，
+     * 而换气只能在 turn 外行动，两个要求不能同时满足（六次尝试全败）。
+     * 改走 surfaceOp 直接替换 tool/result，不需要 open turn。
+     */
+    purgeOnCuts: z.boolean().default(true),
+    /** 一次最多清几条（保守起见默认 3）。 */
+    purgeMaxItems: z.number().step(1).min(1).max(20).default(3),
+    /** 多大的工具结果算「沙袋」（字符数）。默认 20000。 */
+    purgeMaxChars: z.number().step(1000).min(2000).max(200000).default(20000),
     /** 要接的压缩服务名。留空 = `compaction`。 */
     compactionService: z.string().default(''),
     /** 子 agent（含 Agent Teams 成员）的严格程度。默认 `strict` = 现在的行为。 */
@@ -1698,17 +1697,21 @@ export function apply(ctx, config) {
                 }
                 const tryOnce = async (m) => {
                     try {
-                        /* ★★★ 2026-10-31（砚青·修正）：**这里绝对不能等 idle。**
+                        /* ★★★ 2026-10-31（砚青补）：**调试通道也必须先等 agent 静下来。**
                          *
-                         *   `compactRegion` 要三件事同时成立：
-                         *     ① 在事件事务外（否则 cannot reenter）
-                         *     ② **调用那一刻 turn 还开着**（否则 no open turn）
-                         *     ③ 摘要那 20 秒里 surface 不动（否则 surface changed）
+                         *   实测（03:20:19，那一次我已经结束了回合、确实 idle）：
+                         *     11:20:16 回合结束 → 11:20:19 trigger 启动 → 11:20:32 失败
+                         *     FAILED: compaction: session surface changed during summarization
                          *
-                         *   而 waitUntilQuiet 等的正是 turn 结束 —— 等完 ② 就没了。
-                         *   所以 trigger 必须**立即调**：它本来就跑在事务外（定时器），
-                         *   只要此刻还有 turn 开着，三个条件就齐了。
-                         *   这也正是 2026-10-27 16:10 那次成功（OK n=95 tok=130302）的条件。 */
+                         *   ★ 3 秒的间隔不够 —— `compactRegion` 要求摘要那十几秒里
+                         *     整个 surface 一个节点都不许变，而回合收尾的写入可能还没落完。
+                         *   ★ 主路径（早杀 / 熔断）靠 `waitUntilQuiet` 静 3 秒再动；
+                         *     原来这个调试口直接调 `compactOnce`，所以它测出来的失败
+                         *     **不能代表主路径的真实情况** —— 这也是它必须改的原因。 */
+                        diag('[huanqi][trigger] 等 agent 静下来 …');
+                        const quiet = await waitUntilQuiet(target);
+                        diag('[huanqi][trigger] agent=' + quiet.how + ' 静 '
+                            + String(Math.round(quiet.quietMs / 1000)) + 's → 开始压缩');
                         const outcome = await compactOnce(target, m, targetSid);
                         diag('[huanqi][trigger] compactOnce(' + m + ') → '
                             + (outcome.ok ? 'OK' : 'FAILED: ' + String(outcome.error))
@@ -1720,111 +1723,6 @@ export function apply(ctx, config) {
                         diag('[huanqi][trigger] compactOnce(' + m + ') 抛: ' + String(e && e.message));
                     }
                 };
-                /* ★★★ 2026-10-31（砚青加）：**purge —— 定点清除的冒烟测试口。**
-                 *
-                 * 用 `surfaceOp` 直接替换一段 seq，不经过 compactRegion。
-                 * 要验三件事：① 会话不坏 ② surface.nodes 不断档 ③ 占位能被读到。
-                 *
-                 * trigger JSON：
-                 *   {"mode":"probe"}                  只报告 session 结构，不动
-                 *   {"mode":"purge","from":A,"to":B}  真替换
-                 */
-                if (mode === 'probe2' || mode === 'purge') {
-                    const sess = target !== null && target.session !== undefined ? target.session : undefined;
-                    if (sess === undefined) { diag('[huanqi][purge] 取不到 session'); return; }
-                    const nodes = sess.surface === undefined ? undefined : sess.surface.nodes;
-                    const countOf = (n) => {
-                        if (n === undefined || n === null) return -1;
-                        if (typeof n.size === 'number') return n.size;
-                        if (Array.isArray(n)) return n.length;
-                        return Object.keys(n).length;
-                    };
-                    const nodeCount = countOf(nodes);
-                    diag('[huanqi][purge] probe: append=' + typeof sess.append
-                        + ' surface=' + (sess.surface === undefined ? 'undefined' : 'ok')
-                        + ' nodes=' + Object.prototype.toString.call(nodes)
-                        + ' count=' + String(nodeCount));
-                    if (mode === 'probe2') {
-                        try {
-                            const arr = [];
-                            const it = nodes !== undefined && nodes !== null && typeof nodes[Symbol.iterator] === 'function' ? nodes : undefined;
-                            if (it !== undefined) { for (const v of it) arr.push(v); }
-                            if (arr.length > 0) {
-                                diag('[huanqi][purge] seq 首=' + String(arr[0]) + ' 尾=' + String(arr[arr.length - 1]) + ' 共=' + String(arr.length));
-                            } else {
-                                diag('[huanqi][purge] surface.nodes 不可迭代或为空');
-                            }
-                        } catch (e) { diag('[huanqi][purge] 迭代抛: ' + String(e && e.message)); }
-                        diag('[huanqi][trigger] 完成');
-                        return;
-                    }
-                    const from = Number(req.from);
-                    const to = Number(req.to);
-                    if (!Number.isFinite(from) || !Number.isFinite(to) || from > to || from < 1) {
-                        diag('[huanqi][purge] 参数不合法 from=' + String(req.from) + ' to=' + String(req.to));
-                        return;
-                    }
-                    /* ★★★ 2026-10-31（砚青）：**只有 surface-eligible 的类型能带 surfaceOp。**
-                     *
-                     * 实测错误：
-                     *   session event "compaction/purge" is not surface-eligible and cannot carry surfaceOp
-                     *
-                     * 所以不能自己造类型。照 pruner 的做法：
-                     *   取原事件 → 复制 ...orig.data → 只换 message → 用同一个 type 写回去。
-                     * 当前只允许对 tool/result 做这件事（污染的主要载体就是它）。 */
-                    const orig = sess.eventAt(from);
-                    if (orig === undefined || orig === null) {
-                        diag('[huanqi][purge] eventAt(' + String(from) + ') 拿不到事件');
-                        return;
-                    }
-                    const etype = String(orig.type);
-                    const dataPreview = (() => {
-                        try { return JSON.stringify(orig.data).slice(0, 400); } catch (e) { return '<stringify failed>'; }
-                    })();
-                    diag('[huanqi][purge] seq ' + String(from) + ' type=' + etype + ' data=' + dataPreview);
-                    if (etype !== 'tool/result') {
-                        const cands = [];
-                        try {
-                            const it = sess.surface.nodes;
-                            for (const sn of it) {
-                                const e = sess.eventAt(sn);
-                                if (e !== undefined && e !== null && String(e.type) === 'tool/result') cands.push(sn);
-                            }
-                        } catch (e) { diag('[huanqi][purge] 扫候选抛: ' + String(e && e.message)); }
-                        diag('[huanqi][purge] 目标不是 tool/result（是 ' + etype + '）。'
-                            + '可用 tool/result 候选：' + cands.slice(0, 12).join(',')
-                            + ' 共 ' + String(cands.length) + ' 个');
-                        diag('[huanqi][trigger] 完成');
-                        return;
-                    }
-                    try {
-                        const note = '[huanqi] 定点清除 ' + String(from) + '-' + String(to)
-                            + '（原因：' + String(req.why || '污染') + '）\n'
-                            + '原文可取回：log:' + targetSid + '#seq=' + String(from) + '-' + String(to) + '\n'
-                            + '（这是清除留下的占位，不是压缩摘要。）';
-                        const od = orig.data || {};
-                        const omsg = od.message || {};
-                        const nm = Object.assign({}, omsg, {
-                            content: [{ type: 'text', text: note }]
-                        });
-                        /* ★ 只能改 message.content（实测：tool/result surface replacement may change only content）
-                         *   所以不加任何额外字段，也不改 message 的其它键。 */
-                        const r = sess.append('tool/result', Object.assign({}, od, {
-                            message: nm
-                        }), {
-                            surfaceOp: { op: 'replace', startSeq: from, endSeq: to },
-                            sourceEventSeqs: from === to ? [from] : [from, to],
-                        });
-                        diag('[huanqi][purge] OK ' + String(from) + '-' + String(to)
-                            + ' 新seq=' + String(r && r.seq)
-                            + ' 节点 ' + String(nodeCount) + '->' + String(countOf(sess.surface === undefined ? undefined : sess.surface.nodes)));
-                    } catch (e) {
-                        diag('[huanqi][purge] 抛: ' + String(e && e.message));
-                        diag('[huanqi][purge] 堆栈: ' + String(e && e.stack ? String(e.stack).split('\n').slice(0, 3).join(' | ') : ''));
-                    }
-                    diag('[huanqi][trigger] 完成');
-                    return;
-                }
                 if (mode === 'region' || mode === 'both')
                     await tryOnce('region');
                 if (mode === 'full' || mode === 'both')
@@ -1979,6 +1877,366 @@ export function apply(ctx, config) {
             return undefined;
         }
     }
+    /* ===== 定点清除（2026-10-31 新增） =====
+     *
+     * 背景：`/compact-region` 要 open turn + 整面静止，在换气的时机上不可用。
+     * 改用 surfaceOp 直接替换 tool/result（已实测通过，见 30-状态/设计-换气定点清除.md）。
+     *
+     *   collectPurgeCandidates —— 找「污染源」候选（启发式，不依赖 LLM）
+     *   purgeOne              —— 替换一条（四条硬约束都已满足）
+     *   purgeMany             —— 批量替换
+     *
+     * ★ 本段在 compactOnce 作用域外，`diag` / `targetSid` 不可见 —— 用 appendFileSync 直接写。
+     */
+    const PURGE_LOG = 'D:\\AI\\memory\\hub\\_plugin-diag.log';
+    const purgeLog = (line) => {
+        try {
+            appendFileSync(PURGE_LOG, new Date().toISOString() + ' ' + line + '\n');
+        }
+        catch { /* 诊断不许影响主流程 */ }
+    };
+    /** 候选：找「超大工具结果」和「重复前缀的工具结果」。 */
+    function collectPurgeCandidates(agent, opts) {
+        const sess = agent !== null && agent !== undefined && agent.session !== undefined ? agent.session : undefined;
+        if (sess === undefined)
+            return { ok: false, error: 'no session', items: [] };
+        const nodes = sess.surface === undefined ? undefined : sess.surface.nodes;
+        if (nodes === undefined || nodes === null)
+            return { ok: false, error: 'no surface', items: [] };
+        const maxChars = Number(opts && opts.maxChars ? opts.maxChars : 20000);
+        const maxItems = Number(opts && opts.maxItems ? opts.maxItems : 3);
+        const arr = [];
+        try {
+            for (const v of nodes)
+                arr.push(v);
+        }
+        catch (e) {
+            return { ok: false, error: 'iter: ' + String(e && e.message), items: [] };
+        }
+        /* 只看尾巴：动太老的历史风险大、收益小。 */
+        const tail = arr.slice(-400);
+        const items = [];
+        const seen = new Map();
+        for (const seq of tail) {
+            let ev;
+            try {
+                ev = sess.eventAt(seq);
+            }
+            catch (e) {
+                continue;
+            }
+            if (ev === undefined || ev === null)
+                continue;
+            if (String(ev.type) !== 'tool/result')
+                continue;
+            const d = ev.data || {};
+            const msg = d.message || {};
+            const content = Array.isArray(msg.content) ? msg.content : [];
+            let text = '';
+            for (const c of content) {
+                if (c !== null && typeof c === 'object' && typeof c.text === 'string')
+                    text += c.text;
+            }
+            if (text.length === 0)
+                continue;
+            const key = text.slice(0, 200);
+            if (!seen.has(key))
+                seen.set(key, []);
+            seen.get(key).push({ seq: seq, len: text.length });
+            const preview = text.slice(0, 300).replace(/\s+/g, ' ');
+            items.push({ seq: seq, len: text.length, preview: preview, reason: 'candidate' });
+        }
+        /* 重复前缀：保留最后一条，前面的都算候选。 */
+        for (const entry of seen) {
+            const list = entry[1];
+            if (list.length < 2)
+                continue;
+            for (let i = 0; i < list.length - 1; i += 1) {
+                items.push({ seq: list[i].seq, len: list[i].len, reason: 'duplicate x' + String(list.length) });
+            }
+        }
+        const uniq = new Map();
+        for (const it of items)
+            if (!uniq.has(it.seq))
+                uniq.set(it.seq, it);
+        /* 送诊断的候选：先取最长的 maxCandidates 条（沙袋优先），再由 LLM 挑。 */
+        const maxCandidates = Number(opts && opts.maxCandidates ? opts.maxCandidates : 12);
+        const byLen = Array.from(uniq.values()).sort((a, b) => b.len - a.len).slice(0, maxCandidates);
+        const out = byLen.sort((a, b) => a.seq - b.seq);
+        return { ok: true, items: out, scanned: tail.length, total: arr.length };
+    }
+    /** 替换一条 tool/result。四条硬约束：类型、去重、只改 content、不加额外字段。 */
+    function purgeOne(sess, seq, note) {
+        const ev = sess.eventAt(seq);
+        if (ev === undefined || ev === null)
+            return { ok: false, seq: seq, error: 'no event' };
+        if (String(ev.type) !== 'tool/result')
+            return { ok: false, seq: seq, error: 'type=' + String(ev.type) };
+        const od = ev.data || {};
+        const omsg = od.message || {};
+        const nm = Object.assign({}, omsg, { content: [{ type: 'text', text: note }] });
+        const r = sess.append('tool/result', Object.assign({}, od, { message: nm }), {
+            surfaceOp: { op: 'replace', startSeq: seq, endSeq: seq },
+            sourceEventSeqs: [seq],
+        });
+        return { ok: true, seq: seq, newSeq: r === undefined || r === null ? null : r.seq };
+    }
+    /** 批量：逐条替换，任何一条失败都不影响其它条。 */
+    function purgeMany(agent, items, sid) {
+        const sess = agent !== null && agent !== undefined && agent.session !== undefined ? agent.session : undefined;
+        if (sess === undefined)
+            return { ok: false, error: 'no session', purged: [] };
+        const purged = [];
+        for (const it of items) {
+            const note = '[huanqi] 定点清除 seq ' + String(it.seq) + '（原因：' + String(it.reason) + '）\n'
+                + '原文可取回：log:' + String(sid) + '#seq=' + String(it.seq) + '\n'
+                + '（这是清除留下的占位，不是压缩摘要。）';
+            try {
+                const one = purgeOne(sess, it.seq, note);
+                if (one.ok) {
+                    purged.push(one);
+                    purgeLog('[huanqi][purge] OK ' + String(it.seq) + ' 新seq=' + String(one.newSeq) + ' 原因=' + String(it.reason));
+                }
+                else {
+                    purgeLog('[huanqi][purge] 跳过 seq ' + String(it.seq) + ': ' + String(one.error));
+                }
+            }
+            catch (e) {
+                purgeLog('[huanqi][purge] seq ' + String(it.seq) + ' 抛: ' + String(e && e.message));
+            }
+        }
+        return { ok: purged.length > 0, purged: purged };
+    }
+    /* ===== LLM 诊断（2026-10-31 加） =====
+     *
+     * 爀曦定的口径：「让 LLM 检查上下文有哪些地方导致了污染，造成思考退化」。
+     * 启发式（collectPurgeCandidates）只负责**筛出可疑段**，
+     * 真正判断「哪几段是诱因、删了安不安全」交给模型。
+     *
+     * 调用方式照官方 compaction 的 summarizeWithLlm：
+     *   ctx.get('llm').stream({ provider, model, messages, maxTokens, sessionId, purpose })
+     *   for await (chunk) assembler.push(chunk)
+     */
+    /* ★★★ 2026-11-01（砚青·重写）：**问题问错了，答案必然是错的。**
+     *
+     * 旧版问的是：「删掉它对因果链无损吗？safe 要保守，拿不准就 false，删错比不删更坏。」
+     * 于是诊断器把三条**明确命中我们自己的「典型诱因」清单**的大 dump 全判了 false，
+     * 理由写的却是「属于已用完的大段输出，容易造成重复读取和上下文污染」——
+     * 理由说该清，标志说别动。一手证据（_plugin-diag.log 2026-10-31T21:26–21:27）：
+     *   seq 33912 / 34275 / 34231 → 采纳=0 → 落回 /compact-region → `no open turn`
+     *
+     * 两个错误叠在一起：
+     *   ① **「删」这个词用错了**。purgeOne 不是删除，是 `surfaceOp: replace` ——
+     *      在可见面上换成一个带 `log:<sid>#seq=<n>` 门牌的占位符，原文永久留在事件日志里。
+     *      所以「它是唯一记录」根本不是风险：遮了照样取回。等于给 LLM 喂了一个假风险。
+     *   ② **问法默认了「别动」**。问「遮这个安全吗」，模型天然答「不安全」；
+     *      问「哪些该遮」，同一个模型会照着诱因清单选。
+     *
+     * 所以：说清这是遮罩、原文可回取、默认该遮；否决理由收窄到唯一真实的一条 ——
+     * 「后面还要靠它的正文继续干活」。
+     */
+    const PURGE_DIAG_INSTRUCTION = [
+        '你是一个上下文污染诊断器。下面列出当前会话里若干条工具结果（tool/result）的 seq、长度和开头片段。',
+        '',
+        '背景：这个 agent 出现了「思考退化」——重复推理、重复输出、空回合。',
+        '统计上，退化最常由这几类工具结果诱发：',
+        '- 超长的、已经用完就不再需要的输出（整份文件 dump、大段日志、长列表）',
+        '- 同一内容被反复读取/输出的残留（重复前缀）',
+        '- 失败的循环留下的错误刷屏',
+        '',
+        '★★ 重要：你选择的是什么 —— 不是「删除」，是「遮罩」。',
+        '   被选中的条目，在可见上下文里会被换成一个占位符，占位符里带着门牌',
+        '   log:<会话>#seq=<n>。原文永久保存在事件日志里，随时可以原样取回。',
+        '   所以「它是唯一记录 / 删了就没了」**不是**否决理由 —— 遮掉之后照样取得到。',
+        '',
+        '★ 真正的、也是唯一的否决理由：**后面还要靠它的正文继续干活**。',
+        '  例如它正是当前正在修改的那份代码的唯一引用，遮掉之后下一步立刻要找它的全文。',
+        '  除此之外，一律判该遮。',
+        '',
+        '对每条候选给出：',
+        '- seq：原样返回',
+        '- reason：一句话（中文）说明为什么该遮 / 为什么后面还要用',
+        '- purge：true 表示「遮掉它，后面干活不受影响」；false 表示「后面还要用它的正文」',
+        '',
+        '★ 问法是「哪些该遮」，不是「遮哪个安全」。默认该遮，除非它确实还要被用到。',
+        '★ 优先挑：最长的、明显已经用完的、内容互相重复的。最多 3 条。',
+        '★ 一条都不该遮就返回空数组 —— 但请先确认你否决的理由是「还要用」，而不是「怕丢」。',
+        '',
+        '只输出 JSON，不要解释、不要 markdown 围栏：',
+        '{"items":[{"seq":123,"reason":"...","purge":true}]}'
+    ].join('\n');
+    /** 从模型输出里抠出 JSON 对象。四层退让：直解析 → 剥围栏 → 括号配平 → 截断抢救。 */
+    function extractJsonObject(text) {
+        const s = String(text === null || text === undefined ? '' : text);
+        if (s.length === 0)
+            return null;
+        try {
+            const o = JSON.parse(s.trim());
+            if (o !== null && typeof o === 'object' && Array.isArray(o.items))
+                return o;
+        }
+        catch { /* 退下一层 */ }
+        const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        if (fence !== null && fence[1] !== undefined) {
+            try {
+                const o = JSON.parse(fence[1].trim());
+                if (o !== null && typeof o === 'object' && Array.isArray(o.items))
+                    return o;
+            }
+            catch { /* 退下一层 */ }
+        }
+        for (let start = 0; start < s.length; start += 1) {
+            if (s[start] !== '{')
+                continue;
+            let depth = 0;
+            let inStr = false;
+            let esc = false;
+            for (let i = start; i < s.length; i += 1) {
+                const ch = s[i];
+                if (inStr) {
+                    if (esc)
+                        esc = false;
+                    else if (ch === '\\')
+                        esc = true;
+                    else if (ch === '"')
+                        inStr = false;
+                    continue;
+                }
+                if (ch === '"') {
+                    inStr = true;
+                    continue;
+                }
+                if (ch === '{')
+                    depth += 1;
+                else if (ch === '}') {
+                    depth -= 1;
+                    if (depth === 0) {
+                        try {
+                            const o = JSON.parse(s.slice(start, i + 1));
+                            if (o !== null && typeof o === 'object' && Array.isArray(o.items))
+                                return o;
+                        }
+                        catch { /* 换下一个起点 */ }
+                        break;
+                    }
+                }
+            }
+        }
+        const re = /\{\s*"seq"\s*:\s*(-?\d+)[\s\S]*?\}/g;
+        const kept = [];
+        let m;
+        while ((m = re.exec(s)) !== null) {
+            try {
+                const o = JSON.parse(m[0]);
+                if (o !== null && typeof o === 'object')
+                    kept.push(o);
+            }
+            catch { /* 跳过坏片 */ }
+        }
+        if (kept.length > 0)
+            return { items: kept, __salvaged: true };
+        return null;
+    }
+    /** LLM 诊断：返回 { ok, items:[{seq, reason, safe}], raw }。失败时 items 为空。 */
+    async function diagnosePurge(agent, sid, opts) {
+        const llm = ctx.get('llm');
+        if (llm === undefined || llm === null || typeof llm.stream !== 'function') {
+            return { ok: false, error: 'llm service unavailable', items: [] };
+        }
+        const cands = collectPurgeCandidates(agent, opts);
+        if (cands.ok !== true)
+            return { ok: false, error: String(cands.error), items: [] };
+        if (cands.items.length === 0)
+            return { ok: true, items: [], scanned: cands.scanned, total: cands.total, raw: '(no candidates)' };
+        /* 目标 provider/model：优先会话最近一次路由的 config，其次 agent.options。 */
+        let target;
+        try {
+            const head = agent.session.requestHeader === undefined ? undefined : agent.session.requestHeader();
+            if (head !== undefined && head !== null && head.config !== undefined && head.config !== null) {
+                if (typeof head.config.provider === 'string' && typeof head.config.model === 'string') {
+                    target = { provider: head.config.provider, model: head.config.model };
+                }
+            }
+        }
+        catch { /* 拿不到就退下一步 */ }
+        if (target === undefined) {
+            const o = agent.options === undefined ? {} : agent.options;
+            if (typeof o.provider === 'string' && o.provider.length > 0 && typeof o.model === 'string' && o.model.length > 0) {
+                target = { provider: o.provider, model: o.model };
+            }
+        }
+        if (target === undefined)
+            return { ok: false, error: 'no provider/model for diagnosis', items: [] };
+        const lines = cands.items.map((it) => 'seq=' + String(it.seq) + ' len=' + String(it.len) + ' preview=' + String(it.preview));
+        const body = PURGE_DIAG_INSTRUCTION + '\n\n候选（共 ' + String(cands.items.length) + ' 条）：\n' + lines.join('\n');
+        const assembler = new BlockAssembler();
+        try {
+            const message = createUserMessage({
+                content: [{ type: 'text', text: body }],
+                source: { kind: 'plugin', plugin: 'dsh-huanqi' }
+            });
+            const options = {
+                provider: target.provider,
+                model: target.model,
+                messages: [message],
+                maxTokens: 24000,
+                sessionId: agent.session.id,
+                purpose: 'purge-diagnose'
+            };
+            for await (const chunk of llm.stream(options))
+                assembler.push(chunk);
+        }
+        catch (e) {
+            return { ok: false, error: 'llm stream threw: ' + String(e && e.message), items: [] };
+        }
+        let text = '';
+        let blockSig = '(none)';
+        try {
+            const blocks = assembler.blocks();
+            const parts = [];
+            for (const b of blocks) {
+                if (b === null || typeof b !== 'object') {
+                    parts.push('?');
+                    continue;
+                }
+                parts.push(String(b.type) + ':' + (typeof b.text === 'string' ? String(b.text.length) : '-'));
+                if (b.type === 'text')
+                    text += String(b.text);
+            }
+            blockSig = 'n=' + String(blocks.length) + '[' + parts.join(',') + ']';
+        }
+        catch (e) {
+            return { ok: false, error: 'assembler.blocks threw: ' + String(e && e.message), items: [] };
+        }
+        const parsed = extractJsonObject(text);
+        if (parsed !== null && parsed.__salvaged === true) {
+            return { ok: false, error: 'output truncated (salvaged ' + String(parsed.items.length) + ')', items: [], diag: blockSig + ' SALVAGED textLen=' + String(text.length), raw: text.slice(0, 800) };
+        }
+        if (parsed === null || !Array.isArray(parsed.items)) {
+            return { ok: false, error: 'model output not parseable', items: [], diag: blockSig + ' textLen=' + String(text.length), raw: text.slice(0, 800) };
+        }
+        const known = new Map();
+        for (const it of cands.items)
+            known.set(Number(it.seq), it);
+        const picked = [];
+        for (const raw of parsed.items) {
+            const seq = Number(raw === null || raw === undefined ? NaN : raw.seq);
+            if (!Number.isFinite(seq))
+                continue;
+            if (!known.has(seq))
+                continue; /* 模型编的 seq 一律不认 */
+            /* ★ 2026-11-01：字段从 `safe` 改成 `purge`（语义是「该遮」而不是「删了安全」）。
+             * 同时兼容旧字段 —— 提示词缓存、模型串味、手工回放都可能带 safe。 */
+            const yes = (raw.purge === true) || (raw.safe === true);
+            if (!yes)
+                continue;
+            picked.push({ seq: seq, len: known.get(seq).len, reason: String(raw.reason === undefined ? 'llm' : raw.reason), safe: true });
+        }
+        /* ★ 2026-11-01：把候选一并带出去。
+         * 诊断器有「保守偏好」，可能一条都不采纳；调用方需要候选表才能做机械兜底。
+         * 不带出去，空手时只能落回必然失败的 /compact-region（实测 `no open turn`）。 */
+        return { ok: true, items: picked.slice(0, 3), cands: cands.items, scanned: cands.scanned, total: cands.total, diag: blockSig, raw: text.slice(0, 500) };
+    }
     /**
      * 算一个「可以安全压」的 seq 范围 —— 从末尾往前找，直到工具调用配对平衡。
      *
@@ -2007,314 +2265,6 @@ export function apply(ctx, config) {
      *     `ctx.agents.get(sid)`，而 `session.surface` 的 getter 在 isolate realm 外
      *     可能抛 —— 这两种失败修法完全不同，不能混成同一个 null。
      */
-
-    /* ===== 定点清除（2026-10-31 新增） =====
-     *
-     * 背景：`/compact-region` 要 open turn + 整面静止，在换气的时机上不可用。
-     * 改用 surfaceOp 直接替换 tool/result（已实测通过，见 30-状态/设计-换气定点清除.md）。
-     *
-     *   collectPurgeCandidates —— 找「污染源」候选（启发式，不依赖 LLM）
-     *   purgeOne              —— 替换一条（四条硬约束都已满足）
-     *   purgeMany             —— 批量替换
-     *
-     * ★ 本段在 compactOnce 作用域外，`diag` / `targetSid` 不可见 —— 用 appendFileSync 直接写。
-     */
-
-    const PURGE_LOG = 'D:\\AI\\memory\\hub\\_plugin-diag.log';
-    const purgeLog = (line) => {
-        try {
-            appendFileSync(PURGE_LOG, new Date().toISOString() + ' ' + line + '\n');
-        }
-        catch { /* 诊断不许影响主流程 */ }
-    };
-
-    /** 候选：找「超大工具结果」和「重复前缀的工具结果」。 */
-    function collectPurgeCandidates(agent, opts) {
-        const sess = agent !== null && agent !== undefined && agent.session !== undefined ? agent.session : undefined;
-        if (sess === undefined) return { ok: false, error: 'no session', items: [] };
-        const nodes = sess.surface === undefined ? undefined : sess.surface.nodes;
-        if (nodes === undefined || nodes === null) return { ok: false, error: 'no surface', items: [] };
-
-        const maxChars = Number(opts && opts.maxChars ? opts.maxChars : 20000);
-        const maxItems = Number(opts && opts.maxItems ? opts.maxItems : 3);
-
-        const arr = [];
-        try {
-            for (const v of nodes) arr.push(v);
-        }
-        catch (e) {
-            return { ok: false, error: 'iter: ' + String(e && e.message), items: [] };
-        }
-
-        /* 只看尾巴：动太老的历史风险大、收益小。 */
-        const tail = arr.slice(-400);
-        const items = [];
-        const seen = new Map();
-
-        for (const seq of tail) {
-            let ev;
-            try { ev = sess.eventAt(seq); }
-            catch (e) { continue; }
-            if (ev === undefined || ev === null) continue;
-            if (String(ev.type) !== 'tool/result') continue;
-
-            const d = ev.data || {};
-            const msg = d.message || {};
-            const content = Array.isArray(msg.content) ? msg.content : [];
-            let text = '';
-            for (const c of content) {
-                if (c !== null && typeof c === 'object' && typeof c.text === 'string') text += c.text;
-            }
-            if (text.length === 0) continue;
-
-            const key = text.slice(0, 200);
-            if (!seen.has(key)) seen.set(key, []);
-            seen.get(key).push({ seq: seq, len: text.length });
-
-            const preview = text.slice(0, 300).replace(/\s+/g, ' ');
-            items.push({ seq: seq, len: text.length, preview: preview, reason: 'candidate' });
-        }
-
-        /* 重复前缀：保留最后一条，前面的都算候选。 */
-        for (const entry of seen) {
-            const list = entry[1];
-            if (list.length < 2) continue;
-            for (let i = 0; i < list.length - 1; i += 1) {
-                items.push({ seq: list[i].seq, len: list[i].len, reason: 'duplicate x' + String(list.length) });
-            }
-        }
-
-        const uniq = new Map();
-        for (const it of items) if (!uniq.has(it.seq)) uniq.set(it.seq, it);
-        /* 送诊断的候选：先取最长的 maxCandidates 条（沙袋优先），再由 LLM 挑。 */
-        const maxCandidates = Number(opts && opts.maxCandidates ? opts.maxCandidates : 12);
-        const byLen = Array.from(uniq.values()).sort((a, b) => b.len - a.len).slice(0, maxCandidates);
-        const out = byLen.sort((a, b) => a.seq - b.seq);
-
-        return { ok: true, items: out, scanned: tail.length, total: arr.length };
-    }
-
-    /** 替换一条 tool/result。四条硬约束：类型、去重、只改 content、不加额外字段。 */
-    function purgeOne(sess, seq, note) {
-        const ev = sess.eventAt(seq);
-        if (ev === undefined || ev === null) return { ok: false, seq: seq, error: 'no event' };
-        if (String(ev.type) !== 'tool/result') return { ok: false, seq: seq, error: 'type=' + String(ev.type) };
-        const od = ev.data || {};
-        const omsg = od.message || {};
-        const nm = Object.assign({}, omsg, { content: [{ type: 'text', text: note }] });
-        const r = sess.append('tool/result', Object.assign({}, od, { message: nm }), {
-            surfaceOp: { op: 'replace', startSeq: seq, endSeq: seq },
-            sourceEventSeqs: [seq],
-        });
-        return { ok: true, seq: seq, newSeq: r === undefined || r === null ? null : r.seq };
-    }
-
-    /** 批量：逐条替换，任何一条失败都不影响其它条。 */
-    function purgeMany(agent, items, sid) {
-        const sess = agent !== null && agent !== undefined && agent.session !== undefined ? agent.session : undefined;
-        if (sess === undefined) return { ok: false, error: 'no session', purged: [] };
-        const purged = [];
-        for (const it of items) {
-            const note = '[huanqi] 定点清除 seq ' + String(it.seq) + '（原因：' + String(it.reason) + '）\n'
-                + '原文可取回：log:' + String(sid) + '#seq=' + String(it.seq) + '\n'
-                + '（这是清除留下的占位，不是压缩摘要。）';
-            try {
-                const one = purgeOne(sess, it.seq, note);
-                if (one.ok) {
-                    purged.push(one);
-                    purgeLog('[huanqi][purge] OK ' + String(it.seq) + ' 新seq=' + String(one.newSeq) + ' 原因=' + String(it.reason));
-                }
-                else {
-                    purgeLog('[huanqi][purge] 跳过 seq ' + String(it.seq) + ': ' + String(one.error));
-                }
-            }
-            catch (e) {
-                purgeLog('[huanqi][purge] seq ' + String(it.seq) + ' 抛: ' + String(e && e.message));
-            }
-        }
-        return { ok: purged.length > 0, purged: purged };
-    }
-
-
-    /* ===== LLM 诊断（2026-10-31 加） =====
-     *
-     * 爀曦定的口径：「让 LLM 检查上下文有哪些地方导致了污染，造成思考退化」。
-     * 启发式（collectPurgeCandidates）只负责**筛出可疑段**，
-     * 真正判断「哪几段是诱因、删了安不安全」交给模型。
-     *
-     * 调用方式照官方 compaction 的 summarizeWithLlm：
-     *   ctx.get('llm').stream({ provider, model, messages, maxTokens, sessionId, purpose })
-     *   for await (chunk) assembler.push(chunk)
-     */
-
-    const PURGE_DIAG_INSTRUCTION = [
-        '你是一个上下文污染诊断器。下面列出当前会话里若干条工具结果（tool/result）的 seq、长度和开头片段。',
-        '',
-        '背景：这个 agent 出现了「思考退化」——重复推理、重复输出、空回合。',
-        '你的任务：判断哪些工具结果**最可能是导致退化的诱因**。',
-        '',
-        '典型诱因：',
-        '- 同一内容被反复读取/输出的残留（重复前缀）',
-        '- 超长的、已经用完的工具输出（整份文件 dump、大段日志）',
-        '- 失败的循环留下的错误刷屏',
-        '',
-        '对每条候选给出：',
-        '- seq：原样返回',
-        '- reason：一句话（中文）说明为什么它是诱因，或为什么不是',
-        '- safe：true 表示「删掉它对因果链无损」；false 表示「它可能是唯一记录，别动」',
-        '',
-        '★ safe 要保守：拿不准就 false。删错比不删更坏。',
-        '★ 最多挑 3 条 safe=true。没有真正的诱因就返回空数组。',
-        '',
-        '只输出 JSON，不要解释、不要 markdown 围栏：',
-        '{"items":[{"seq":123,"reason":"...","safe":true}]}'
-    ].join('\n');
-
-    /** 从模型输出里抠出 JSON 对象。四层退让：直解析 → 剥围栏 → 括号配平 → 截断抢救。 */
-    function extractJsonObject(text) {
-        const s = String(text === null || text === undefined ? '' : text);
-        if (s.length === 0) return null;
-        try {
-            const o = JSON.parse(s.trim());
-            if (o !== null && typeof o === 'object' && Array.isArray(o.items)) return o;
-        } catch { /* 退下一层 */ }
-        const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
-        if (fence !== null && fence[1] !== undefined) {
-            try {
-                const o = JSON.parse(fence[1].trim());
-                if (o !== null && typeof o === 'object' && Array.isArray(o.items)) return o;
-            } catch { /* 退下一层 */ }
-        }
-        for (let start = 0; start < s.length; start += 1) {
-            if (s[start] !== '{') continue;
-            let depth = 0;
-            let inStr = false;
-            let esc = false;
-            for (let i = start; i < s.length; i += 1) {
-                const ch = s[i];
-                if (inStr) {
-                    if (esc) esc = false;
-                    else if (ch === '\\') esc = true;
-                    else if (ch === '"') inStr = false;
-                    continue;
-                }
-                if (ch === '"') { inStr = true; continue; }
-                if (ch === '{') depth += 1;
-                else if (ch === '}') {
-                    depth -= 1;
-                    if (depth === 0) {
-                        try {
-                            const o = JSON.parse(s.slice(start, i + 1));
-                            if (o !== null && typeof o === 'object' && Array.isArray(o.items)) return o;
-                        } catch { /* 换下一个起点 */ }
-                        break;
-                    }
-                }
-            }
-        }
-        const re = /\{\s*"seq"\s*:\s*(-?\d+)[\s\S]*?\}/g;
-        const kept = [];
-        let m;
-        while ((m = re.exec(s)) !== null) {
-            try {
-                const o = JSON.parse(m[0]);
-                if (o !== null && typeof o === 'object') kept.push(o);
-            } catch { /* 跳过坏片 */ }
-        }
-        if (kept.length > 0) return { items: kept, __salvaged: true };
-        return null;
-    }
-
-    /** LLM 诊断：返回 { ok, items:[{seq, reason, safe}], raw }。失败时 items 为空。 */
-    async function diagnosePurge(agent, sid, opts) {
-        const llm = ctx.get('llm');
-        if (llm === undefined || llm === null || typeof llm.stream !== 'function') {
-            return { ok: false, error: 'llm service unavailable', items: [] };
-        }
-
-        const cands = collectPurgeCandidates(agent, opts);
-        if (cands.ok !== true) return { ok: false, error: String(cands.error), items: [] };
-        if (cands.items.length === 0) return { ok: true, items: [], scanned: cands.scanned, total: cands.total, raw: '(no candidates)' };
-
-        /* 目标 provider/model：优先会话最近一次路由的 config，其次 agent.options。 */
-        let target;
-        try {
-            const head = agent.session.requestHeader === undefined ? undefined : agent.session.requestHeader();
-            if (head !== undefined && head !== null && head.config !== undefined && head.config !== null) {
-                if (typeof head.config.provider === 'string' && typeof head.config.model === 'string') {
-                    target = { provider: head.config.provider, model: head.config.model };
-                }
-            }
-        }
-        catch { /* 拿不到就退下一步 */ }
-        if (target === undefined) {
-            const o = agent.options === undefined ? {} : agent.options;
-            if (typeof o.provider === 'string' && o.provider.length > 0 && typeof o.model === 'string' && o.model.length > 0) {
-                target = { provider: o.provider, model: o.model };
-            }
-        }
-        if (target === undefined) return { ok: false, error: 'no provider/model for diagnosis', items: [] };
-
-        const lines = cands.items.map((it) => 'seq=' + String(it.seq) + ' len=' + String(it.len) + ' preview=' + String(it.preview));
-        const body = PURGE_DIAG_INSTRUCTION + '\n\n候选（共 ' + String(cands.items.length) + ' 条）：\n' + lines.join('\n');
-
-        const assembler = new BlockAssembler();
-        try {
-            const message = createUserMessage({
-                content: [{ type: 'text', text: body }],
-                source: { kind: 'plugin', plugin: 'dsh-huanqi' }
-            });
-            const options = {
-                provider: target.provider,
-                model: target.model,
-                messages: [message],
-                maxTokens: 24000,
-                sessionId: agent.session.id,
-                purpose: 'purge-diagnose'
-            };
-            for await (const chunk of llm.stream(options)) assembler.push(chunk);
-        }
-        catch (e) {
-            return { ok: false, error: 'llm stream threw: ' + String(e && e.message), items: [] };
-        }
-
-        let text = '';
-        let blockSig = '(none)';
-        try {
-            const blocks = assembler.blocks();
-            const parts = [];
-            for (const b of blocks) {
-                if (b === null || typeof b !== 'object') { parts.push('?'); continue; }
-                parts.push(String(b.type) + ':' + (typeof b.text === 'string' ? String(b.text.length) : '-'));
-                if (b.type === 'text') text += String(b.text);
-            }
-            blockSig = 'n=' + String(blocks.length) + '[' + parts.join(',') + ']';
-        }
-        catch (e) {
-            return { ok: false, error: 'assembler.blocks threw: ' + String(e && e.message), items: [] };
-        }
-
-        const parsed = extractJsonObject(text);
-        if (parsed !== null && parsed.__salvaged === true) {
-            return { ok: false, error: 'output truncated (salvaged ' + String(parsed.items.length) + ')', items: [], diag: blockSig + ' SALVAGED textLen=' + String(text.length), raw: text.slice(0, 800) };
-        }
-        if (parsed === null || !Array.isArray(parsed.items)) {
-            return { ok: false, error: 'model output not parseable', items: [], diag: blockSig + ' textLen=' + String(text.length), raw: text.slice(0, 800) };
-        }
-
-        const known = new Map();
-        for (const it of cands.items) known.set(Number(it.seq), it);
-        const picked = [];
-        for (const raw of parsed.items) {
-            const seq = Number(raw === null || raw === undefined ? NaN : raw.seq);
-            if (!Number.isFinite(seq)) continue;
-            if (!known.has(seq)) continue;                 /* 模型编的 seq 一律不认 */
-            if (raw.safe !== true) continue;               /* 只采纳明确 safe 的 */
-            picked.push({ seq: seq, len: known.get(seq).len, reason: String(raw.reason === undefined ? 'llm' : raw.reason), safe: true });
-        }
-        return { ok: true, items: picked.slice(0, 3), scanned: cands.scanned, total: cands.total, diag: blockSig, raw: text.slice(0, 500) };
-    }
-
     function pickRegionEx(agent) {
         try {
             if (agent === undefined || agent === null || agent.session === undefined || agent.session === null)
@@ -2400,19 +2350,6 @@ export function apply(ctx, config) {
      *             `full`   = 直接全量。
      */
     async function compactOnce(agent, mode, sid) {
-        /* ★★★ 2026-10-31（砚青·删掉拦截）：这里原来有个 `openTurn` 检查，已删。
-         *
-         * 它的原意是「turn 还开着就先不压」，理由是担心写坏会话日志。
-         * 但实测证明它和目标直接矛盾：`compactRegion` 要的就是
-         * 「turn 还开着」（owner: 'current-turn'）。它一拦，两边都死：
-         *   · 拦住 → skipped: turn still open
-         *   · 等 turn 关了 → no open turn
-         *
-         * 而「写坏日志」那条是推断、不是实测：
-         *   2026-10-27T16:10:07  compactRegion(1847–2108) → OK n=95 tok=130302
-         * 那一次就是在 turn 里开的，日志没坏。
-         *
-         * 所以：不拦，让它在 turn 内开；失败就如实返回。 */
         /* ★★★ 2026-10-31：**region 改走「定点清除」**，不再碰 /compact-region。
          *
          * 原因（一手的四次实测，见 30-状态/设计-换气定点清除.md）：
@@ -2445,11 +2382,48 @@ export function apply(ctx, config) {
                 picked = { ok: false, error: 'diagnose threw: ' + String(e && e.message), items: [] };
             }
             if (picked.ok !== true) {
-                purgeLog('[huanqi][purge] 收集候选失败: ' + String(picked.error) + ' → 落回全量');
+                purgeLog('[huanqi][purge] 收集候选失败: ' + String(picked.error) + ' → 机械兜底');
             }
             else if (picked.items.length === 0) {
+                /* ★★★ 2026-11-01（砚青）：诊断器空手时，**不再落回压缩**。
+                 *
+                 * 一手证据（_plugin-diag.log 2026-10-31T21:26–21:27）：
+                 *   LLM 把三条明确的大 dump 全判 false，理由写的却是「已用完的大段输出」；
+                 *   采纳=0 → 落回 /compact-region → `no open turn`（换气在 turn/end 之后行动，
+                 *   而 compactRegion 要 owner='current-turn'）→ 白跑 21 秒 → 界面冒一条失败。
+                 *
+                 * 三件事一起改：
+                 *   ① **机械兜底**：候选里只要有 ≥ PURGE_FALLBACK_MIN 字符的，
+                 *      就遮最长的那一条。它有门牌可回取，代价只是「后面可能重读一次」，
+                 *      比「什么都不做、让退化继续到熔断」轻得多。
+                 *   ② 兜底也不成立 → 说明这一轮确实没有大块可清。如实返回 ok（purged=[]），
+                 *      **不压缩** —— 强行全量才是误伤（爀曦 2026-10-27 23:42 定的）。
+                 *   ③ 无论如何**不再落回 /compact-region** —— 那条路在换气的时机上必然失败。 */
+                const PURGE_FALLBACK_MIN = 2000; /* ≈ 一次正常工具输出的量级，低于它遮了没意义 */
+                const all = Array.isArray(picked.cands) ? picked.cands : [];
+                const big = all
+                    .filter((it) => Number(it.len) >= PURGE_FALLBACK_MIN)
+                    .sort((a, b) => Number(b.len) - Number(a.len));
                 purgeLog('[huanqi][purge] 扫描 ' + String(picked.scanned) + '/' + String(picked.total)
-                    + ' 个节点，没有污染源候选 → 落回全量');
+                    + ' 个节点，诊断器采纳 0 条；候选 ' + String(all.length)
+                    + ' 条中 ≥' + String(PURGE_FALLBACK_MIN) + ' 字符的有 ' + String(big.length) + ' 条');
+                if (big.length > 0) {
+                    const pick = big[0];
+                    purgeLog('[huanqi][purge] 机械兜底 → 遮最长一条 seq=' + String(pick.seq) + ' len=' + String(pick.len));
+                    const forced = purgeMany(agent, [{
+                            seq: pick.seq,
+                            len: pick.len,
+                            reason: '诊断器未采纳；按规则遮最长一条（' + String(pick.len) + ' 字符，超兜底阈值 ' + String(PURGE_FALLBACK_MIN) + '）',
+                        }], sid);
+                    if (forced.ok) {
+                        lastCompact.set(sid, { kind: 'purge', ok: true, range: null, purged: forced.purged, error: null });
+                        return { ok: true, kind: 'purge', range: null, purged: forced.purged, error: null };
+                    }
+                    purgeLog('[huanqi][purge] 机械兜底也失败 → 本轮不动');
+                }
+                /* 没有可遮的大块：如实说「没清东西」，但不压缩。 */
+                lastCompact.set(sid, { kind: 'purge', ok: true, range: null, purged: [], error: null });
+                return { ok: true, kind: 'purge', range: null, purged: [], error: null };
             }
             else {
                 const why = picked.items.map((it) => String(it.seq) + '(' + String(it.reason) + ')').join(' ');
@@ -2458,7 +2432,7 @@ export function apply(ctx, config) {
                 const done = purgeMany(agent, picked.items, sid);
                 purgeLog('[huanqi][purge] 清除 ' + String(done.purged.length) + '/' + String(picked.items.length) + ' 条');
                 if (done.ok) {
-                    lastCompact.set(sid, { kind: 'purge', ok: true, range: null, purged: done.purged, error: null })
+                    lastCompact.set(sid, { kind: 'purge', ok: true, range: null, purged: done.purged, error: null });
                     return { ok: true, kind: 'purge', range: null, purged: done.purged, error: null };
                 }
                 purgeLog('[huanqi][purge] 全部失败 → 落回全量');
@@ -2609,6 +2583,7 @@ export function apply(ctx, config) {
                          *   只对「忙」这一种错误重试；别的错误（真失败）立刻返回，不掩盖。
                          */
                         /* ★★★ 2026-10-27 23:42（爀曦定）：**region 只走 /compact-region，失败绝不降级全量。**
+                         *   ★ 2026-10-31 补：这句现在只在**降级分支内部**成立 —— 主路径已改走定点清除。
                          *
                          *   为什么不能降级：降级把"只想压走最近这一段"变成"把整段 surface 压掉"。
                          *   对一条刚开始换气、还没脏到底的会话，那是**加重**而不是治疗：
@@ -2620,42 +2595,32 @@ export function apply(ctx, config) {
                          *
                          *   ★ 熔断那条（full）不受影响 —— 那时候已经救不回来了，全量才是对的。
                          */
-                        /* ★★★ 2026-10-31（爀曦定）：**放弃 /compact-region，改用官方 /compact。**
+                        /* ★★★ 2026-11-01（砚青）：**不再调 /compact-region —— 拆掉这条必然失败的路。**
                          *
-                         * 原因：`compactRegion(start, end, ctx, signal)` 的语义是
-                         *   `owner: 'current-turn'` —— **它要求有 open turn**。
-                         *   而换气恰好相反：必须等 turn/end 之后才能压（否则写入顺序非法、
-                         *   会写坏整条会话）。
-                         *   实测 12:00 连报 11 次 `compactRegion: no open turn` —— 死结，
-                         *   而原来那个 10 次重试循环专门重试这个错误，等于空转 30 秒。
+                         * `compactRegion` 的实现在 dsh-compaction-basic：
+                         *   compactRegion(start, end, ...) → compactSurfaceRegion(..., { owner: 'current-turn' })
+                         * 也就是**必须有一个 open turn**。而换气的所有动作都在 turn/end 之后
+                         * （不然后续写入顺序非法，会写坏整条会话）。两个要求结构上互斥。
                          *
-                         * `compactNow`（官方 /compact）是 `owner: null` + `selected-span`，
-                         *   **不需要 open turn**，它自己用 `selectCompactableRange` 选可压范围。
-                         * 代价：区间不再由我们指定（`pickRegionEx` 的结果只作日志参考）。
-                         * 门牌由 `dsh-yanqing-compaction` 的 hook 报告实际压了哪段，不会瞎说。
+                         * 一手实测：
+                         *   2026-10-31T21:27:35  compactRegion(33935–34342) → FAILED: no open turn
+                         *   界面随之冒一条 `region compaction failed: ...`
+                         *   2026-10-27T16:10:07 那次能成，是因为恰好有 turn 在跑，不是这条路可用。
+                         *   原来那段「10 次 × 3 秒」的重试循环，专门重试这个错误 —— 实测白跑 21 秒。
                          *
-                         * 于是 region 与 full 共用同一条命令，区别只在**压完之后做什么**：
-                         *   region → 普通续跑 + recallHint；full → 熔断续跑。 */
-                        /* ★★★ 2026-10-31（砚青·修正）：**改回 /compact-region。**
+                         * 而「失败降级全量」已经被爀曦 2026-10-27 23:42 明确否掉
+                         * （region 只是想搬走最近这一小段，降级成整面压缩是误伤）。
                          *
-                         * 证据（_plugin-diag.log）：
-                         *   2026-10-27T16:10:07 compactRegion(1847–2108) → OK n=95 tok=130302
-                         *   2026-10-27T14:53:24 compactRegion(943–1476) → FAILED: surface changed
-                         * 同一条路，一次成一次败 —— **它能用**，只是对时机敏感。
-                         *
-                         * `compactRegion` 要三件事同时成立：
-                         *   ① 在事件事务外（否则 `cannot reenter`）
-                         *   ② 调用那一刻 turn 还开着（否则 `no open turn`）
-                         *   ③ 摘要那 20 秒里 surface 不动（否则 `surface changed`）
-                         * 所以**不能在 `turn/end` 里等 idle 再调** —— 等完 turn 就关了。
-                         * 正确的时机在调用方（trigger / 正在跑的那一轮），不在这里改。 */
-                        const span = String(range.start) + ' ' + String(range.end);
-                        const compact = await runCommand('/compact-region ' + span);
+                         * 所以这里只剩一种诚实做法：**如实报告「这一轮没治」**，
+                         * 把 range 和原因交回给 recallHint，下次攒够再来。
+                         * 真正干活的是上面那条 purge 分支 —— 它现在有机械兜底，不会空手。 */
                         return {
-                            ok: compact.ok,
+                            ok: false,
+                            /* ★ range 仍然带出去：它既是这次想压的那段，也是 recallHint 要念的那段。 */
                             kind: 'region',
                             range,
-                            error: compact.ok ? null : String(compact.error),
+                            error: 'skipped: /compact-region requires an open turn (owner=current-turn), '
+                                + 'huanqi acts after turn/end; purge produced nothing this round',
                         };
                     }
                     /* ★ 算不出范围 → 如实失败，**同样不降级全量**（理由同上）。
@@ -3273,11 +3238,6 @@ export function apply(ctx, config) {
     // 任何绕过解析的路径（测试夹具、配置注入、旧版本升级）拿到的都是 `undefined`，
     // 而 `undefined` 在做真值判断时等于「关掉」—— 那条判据就会静默失效，没人知道。
     // 默认开 = 只有显式写 false 才关。
-    /* ★★★ 2026-10-31（砚青修）：这两个表原来声明在下面那个 if 块**内部**，
-     *   而 `compactOnce` 定义在块**外** —— 它一进去就 `openTurn is not defined`。
-     *   作用域错位，整个「turn 开着禁止压缩」的检查从未生效过。提到块外。 */
-    const turnStartedAt = new Map();
-    const openTurn = new Set();
     if (config.emptyTurnContinue !== false && config.maxContinuations > 0) {
         /**
          * sessionId → **最后一条** assistant 消息有没有出现 text / tool-call。
@@ -3299,27 +3259,13 @@ export function apply(ctx, config) {
         /** sessionId → 最后一条 assistant 消息的形状（如 "text" / "reasoning" / "reasoning+tool-call"） */
         const lastMessageShape = new Map();
         /** sessionId → 本轮 turn/start 的时间戳（毫秒），用来算「卡了多久」 */
-        /* ★ 2026-10-31：声明已提到本 if 块外 —— compactOnce 在块外定义。 */
+        const turnStartedAt = new Map();
         /** sessionId → 累计开过多少轮（2026-10-31 加；两套压缩冷却都按它算） */
         const turnSeq = new Map();
         /** sessionId → 上次范围压缩时的轮次号（配合 `regionCompactEveryTurns`） */
         const lastRegionCompactAt = new Map();
         /** sessionId → 上次熔断救援时的轮次号（配合 `breakerRescueEveryTurns`） */
         const lastBreakerRescueAt = new Map();
-        /**
-         * ★★★ 2026-10-31（爀曦定）：**turn 结束后才允许开压缩。**
-         *
-         * 起因：`/compact-region` 的语义是 `owner: 'current-turn'`，它天生要求
-         * 「在一个 open turn 里」。但在 turn 内开压缩，摘要失败时引擎的写入顺序是
-         *   ① turn/end  ② compaction/end(error)
-         * —— 先结束回合、再关压缩。这条顺序非法（`turn/end crosses an open compaction`），
-         * 下一次读取整条会话直接判 "stored log is corrupt"。
-         * 2026-10-27（seq 1486/1487）与 2026-10-31（seq 27493/27494）各坏一次。
-         *
-         * 所以这里记着哪些会话还有 open turn；`compactOnce` 见到就**如实跳过**，
-         * 等 `turn/end` 把它清掉，下一个 tick（3 秒）再压。
-         * 宁可晚压一轮，不能写坏日志。
-         */
         ctx.on('session/event', ((session, event) => {
             const sid = session === undefined || session === null ? undefined : session.id;
             if (typeof sid !== 'string')
@@ -3331,8 +3277,6 @@ export function apply(ctx, config) {
                 turnStartedAt.set(sid, Date.now());
                 // ★ 2026-10-31：每条会话自己的轮次序号 —— 两套压缩冷却都按它算。
                 turnSeq.set(sid, (turnSeq.get(sid) ?? 0) + 1);
-                // ★ 2026-10-31：turn 开着 = 禁止开压缩（理由见 openTurn 的注释）
-                openTurn.add(sid);
                 return;
             }
             if (type === 'assistant/message') {
@@ -3357,8 +3301,6 @@ export function apply(ctx, config) {
             }
             if (type !== 'turn/end')
                 return;
-            // ★ 2026-10-31：回合结束，解除「禁止开压缩」。
-            openTurn.delete(sid);
             const data = event === undefined ? undefined : event.data;
             const kind = data === undefined ? undefined : data.reason?.kind;
             // ★★ 诊断（2026-10-19 第二次加，改成 warn 级必定可见）：

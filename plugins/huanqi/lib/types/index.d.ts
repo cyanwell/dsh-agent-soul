@@ -382,6 +382,40 @@ export interface Config {
     fullCompactOnBreaker?: boolean;
     /** 压缩后是否注入「取回一手原文」的指引。默认 `true`。 */
     postCompactRecallHint?: boolean;
+    /**
+     * 压缩成功后是否**再延续一次**（2026-10-31 爀曦定）。
+     *
+     * ★ 与 `postCompactRecallHint` 的分工：那个管**早杀后的范围压缩**，
+     *   这个管**熔断后的全量压缩** —— `false` 时压缩完就停下等人。
+     */
+    resumeAfterCompact?: boolean;
+    /** 压缩后注入的「召回提示」正文。留空 = 用内置默认（{@link recallPromptText}）。 */
+    recallPrompt?: string;
+    /**
+     * 两次**范围压缩**之间至少隔多少轮（2026-10-31 加）。0 = 不限制。默认 18。
+     *
+     * ★ 「几次截断」量的是单轮内强度，「几轮」才是时间尺度 ——
+     *   一轮里截断三十次会让 `regionCompactAfterCuts` 反复满足。
+     */
+    regionCompactEveryTurns?: number;
+    /**
+     * 两次**熔断救援**（全量压缩 + 续跑召回）之间至少隔多少轮。0 = 不限制。默认 18。
+     *
+     * ★★★ 防死循环的主保险。没到间隔就只停下提示手动 /compact ——
+     *   「依靠熔断机制来终结循环」。
+     */
+    breakerRescueEveryTurns?: number;
+    /**
+     * 截断压缩是否改走「定点清除」（2026-10-31 加）。默认 `true`。
+     *
+     * ★ 关掉就完全退回老路：`compactRegion` / 全量 `/compact`。
+     *   留这个开关是因为定点清除会**改写工具结果**，出问题时得能一键停。
+     */
+    purgeOnCuts?: boolean;
+    /** 一次最多清几条（保守起见默认 3）。 */
+    purgeMaxItems?: number;
+    /** 多大的工具结果算「沙袋」（超过这个字符数就进候选）。默认 20000。 */
+    purgeMaxChars?: number;
     /** 要接的压缩服务名。留空 = `compaction`。 */
     compactionService?: string;
 }
