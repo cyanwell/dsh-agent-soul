@@ -403,6 +403,12 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 它的能力（带范围的 `/compact-region`）仍在注册，但换气 2026-10-31 起主路径已改为
 「LLM 诊断 + `surfaceOp` 定点清除」，它**降为 fallback**。README 与清单都已写明。
 
+#### 一条核实不了的
+
+ 的「17 条 issue」—— **本机读不到 GitHub**：`github.com` 和 `api.github.com`
+都解析到非公网 IP，`web_fetch` 直接报错、`curl` 返回空。仓库内 10-30 台账记 15 个 open。
+已在原文标注「核实不了 + 为什么」，没有拍一个数上去。
+
 #### 没改的（是历史记录，不是旧口径）
 
 带「当时」「此前」标注的段落、迁移纪要、10-17 快照、issue 台账的当时实测 —— 一律保留原样。

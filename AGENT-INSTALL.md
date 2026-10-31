@@ -305,7 +305,7 @@ cp package.json     "package.json.bak-$(date +%Y%m%d%H%M%S)"
 
 ### 已知问题
 
-- `https://github.com/cyanwell/dsh-agent-soul/issues` —— 17 条，按类型分：
+- `https://github.com/cyanwell/dsh-agent-soul/issues` —— 17 条（★ 2026-10-31 核查：**这个数核实不了**。本机 `github.com` / `api.github.com` 解析到非公网 IP，`web_fetch` 与 `curl` 都读不到 issue 列表；仓库内 10-30 23:22 的台账记 15 个 open。手上没有 gh 令牌，所以以哪个为准留给能联网的人定），按类型分：
   **装不上**（#18 / #5 / #12）、**装上了崩**（#4 / #2）、**功能不符预期**（9 条）、**文档不清**（2 条）
 - 本仓库 `README.md` 的「更新记录」—— 每条都写了「为什么改、怎么验的」
 
