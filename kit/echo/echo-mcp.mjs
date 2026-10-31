@@ -127,7 +127,24 @@ const refreshSoul = () => {
 //   ★ 截断完全无损：search() 返回的 text 本来就只取 SNIP = 600。
 //   ★ 过滤 <system-reminder> / Current runtime context —— 那些是每轮注入的样板，
 //     存进来只会把真对话淹掉。
-const LOG_DAYS = Number(process.env.ECHO_LOG_DAYS || 3);
+// ── 2026-11-01 ECHO 设置文件（面板可写，环境变量优先） ─────────────
+//   优先级：环境变量 > echo-settings.json > 默认值
+//   ★ 为什么用文件：面板是浏览器端，改不了进程的环境变量。
+const SETTINGS_PATH = path.join(HUB, "echo-settings.json");
+const readSettings = () => {
+  try { return JSON.parse(fs.readFileSync(SETTINGS_PATH, "utf8")); } catch { return {}; }
+};
+const SETTINGS = readSettings();
+const cfgNum = (envKey, fileKey, def) => {
+  const e = Number(process.env[envKey]);
+  if (Number.isFinite(e) && e > 0) return e;
+  const f = Number(SETTINGS[fileKey]);
+  if (Number.isFinite(f) && f > 0) return f;
+  return def;
+};
+const LOG_DAYS = cfgNum("ECHO_LOG_DAYS", "logDays", 3);
+const MEM_BUDGET_MB = cfgNum("ECHO_MEM_BUDGET_MB", "memBudgetMB", 768);
+
 const LOG_SNIP = 600;
 // ★ DSH_HOME 本身就是 D:/AI/dsh/home，会话日志在它下面的 sessions/
 const SESS_DIR = process.env.ECHO_SESSIONS
@@ -186,8 +203,20 @@ const buildLogs = () => {
       const sid = path.basename(path.dirname(p));
       const parts = decodeFramesOf(p);
       if (parts.length === 0) continue;
-      const txt = Buffer.concat(parts).toString("utf8");
-      for (const line of txt.split("\n")) {
+      // ★ 不拼成一个大字符串 —— 7 天时单文件解压可超 512MB（V8 字符串上限）
+      const rows = [];
+      {
+        let carry = "";
+        for (const pb of parts) {
+          let chunk;
+          try { chunk = pb.toString("utf8"); } catch { continue; }
+          const segs = (carry + chunk).split(String.fromCharCode(10));
+          carry = segs.pop() || "";
+          for (const sg of segs) rows.push(sg);
+        }
+        if (carry) rows.push(carry);
+      }
+      for (const line of rows) {
         const s = line.trim();
         if (!s || s.length > 8 * 1024 * 1024) continue;
         let j;
@@ -478,6 +507,13 @@ const callTool = (name, args) => {
     const mem = process.memoryUsage();
     return textResult({
       words: C.words.length, sums: C.sums.length, mo: C.mo.length, soulFiles: C.soul.size,
+      // ★ 2026-11-01 会话日志常驻的实时状态（面板读这些）
+      logs: C.logs.length,
+      logsState,
+      logDays: LOG_DAYS,
+      memBudgetMB: MEM_BUDGET_MB,
+      rssMB: Math.round(process.memoryUsage().rss / 1048576),
+      logsMB: Math.round(C.logs.reduce(function (a, g) { return a + g.text.length; }, 0) * 2 / 1048576 * 10) / 10,
       reloads: C.reloads, calls: C.calls,
       uptimeSec: Math.round((Date.now() - C.bootAt) / 1000),
       rssMB: Math.round(mem.rss / 1048576),

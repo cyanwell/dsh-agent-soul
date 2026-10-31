@@ -477,6 +477,43 @@ export function apply(ctx) {
       try {
         if (p === '/api/status' || p === '/') return json(res, 200, merged())
 
+
+        // ★ 2026-11-01 ECHO 设置（常驻天数 / 内存预算）
+        //   ★ 用 query 参数而不是 body —— 与本路由现有的 /api/level 保持一致，
+        //     也避开各端 body 解析差异。
+        if (p === '/api/settings') {
+          const HUBDIR = process.env.ECHO_HUB || 'D:/AI/memory/hub'
+          const SFILE = path.join(HUBDIR, 'echo-settings.json')
+          const DEFAULTS = { logDays: 3, memBudgetMB: 768 }
+          if (req.method === 'POST') {
+            let cur = {}
+            try { cur = JSON.parse(fs.readFileSync(SFILE, 'utf8')) } catch { /* 第一次写 */ }
+            const ld = Number(url.searchParams.get('logDays'))
+            const mb = Number(url.searchParams.get('memBudgetMB'))
+            if (Number.isFinite(ld) && ld >= 1 && ld <= 30) cur.logDays = Math.round(ld)
+            if (Number.isFinite(mb) && mb >= 64 && mb <= 8192) cur.memBudgetMB = Math.round(mb)
+            cur.updatedAt = new Date().toISOString()
+            try {
+              fs.mkdirSync(HUBDIR, { recursive: true })
+              fs.writeFileSync(SFILE, JSON.stringify(cur, null, 2) + '\n', 'utf8')
+            } catch (e) {
+              return json(res, 500, { error: '写入失败: ' + String(e && e.message || e) })
+            }
+            return json(res, 200, {
+              ok: true,
+              settings: Object.assign({}, DEFAULTS, cur),
+              note: '改了要重启 DSH 才生效（echo-mcp 在启动时读这个文件）',
+            })
+          }
+          let cur = {}
+          try { cur = JSON.parse(fs.readFileSync(SFILE, 'utf8')) } catch { /* 没有就用默认 */ }
+          return json(res, 200, {
+            settings: Object.assign({}, DEFAULTS, cur),
+            path: SFILE,
+            note: '常驻天数 1-30；内存预算 64-8192 MB',
+          })
+        }
+
         if (p === '/api/level' && req.method === 'POST') {
           const n = Number(url.searchParams.get('n'))
           if (LEVEL_MIN[n] === undefined) return json(res, 400, { error: 'level must be 1..4' })

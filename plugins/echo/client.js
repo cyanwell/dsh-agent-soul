@@ -650,6 +650,35 @@ window.__ModuleLoader__.load({
           }, motion ? "动效 开" : "动效 关")
         ),
 
+        // ── 记忆常驻（2026-11-01）──────────────────────────
+        //   常驻天数 / 内存预算；写 echo-settings.json，echo-mcp 启动时读。
+        //   ★ post() 是 POST 无 body，参数只能走 query。
+        h("div", { className: "yq-bar yq-glass", style: { marginTop: 8, flexWrap: "wrap" } },
+          h("span", { style: { fontSize: 11.5, fontWeight: 600 } }, "记忆常驻"),
+          h("span", { style: { fontSize: 11.5 } }, "天数"),
+          h("div", { className: "yq-seg" },
+            [1, 3, 7, 14, 30].map(function (n) {
+              return h("button", {
+                key: n,
+                onClick: function () { post("/settings?logDays=" + n, "常驻天数 → " + n + " 天（重启 DSH 生效）…") },
+                title: "常驻最近 " + n + " 天的会话日志（1-30）",
+              }, String(n))
+            })
+          ),
+          h("span", { className: "sp" }),
+          h("span", { style: { fontSize: 11.5 } }, "预算"),
+          h("div", { className: "yq-seg" },
+            [256, 512, 768, 1024].map(function (m) {
+              return h("button", {
+                key: m,
+                onClick: function () { post("/settings?memBudgetMB=" + m, "内存预算 → " + m + " MB（重启 DSH 生效）…") },
+                title: "常驻部分允许占用的内存上限",
+              }, String(m) + "M")
+            })
+          )
+        ),
+
+
         note ? h("div", { className: "yq-note" }, note) : null,
 
         // ── 趋势 ─────────────────────────────────────────────

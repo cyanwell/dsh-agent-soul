@@ -364,6 +364,33 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-01 · ECHO 设置面板 + 日志常驻加固
+
+**为什么改**：爀曦要「常驻天数 / 内存预算可调」的设置面板 —— ECHO 一直只有哨兵面板，
+缺一个能改参数的地方。同时把上一轮刚落的会话日志常驻做了加固。
+
+**改了什么**：
+
+| # | 改哪 | 内容 |
+|---|---|---|
+| ① | `kit/echo/echo-mcp.mjs` | 读 `echo-settings.json`（环境变量 > 文件 > 默认 3 天 / 768MB）；`echo_stats` 多返回 6 项实时状态 |
+| ② | `plugins/echo/index.js` | `GET/POST /api/settings`（query 传参，与现有 `/api/level` 一致） |
+| ③ | `plugins/echo/client.js` | 面板加「记忆常驻」条：天数 1/3/7/14/30、预算 256/512/768/1024 |
+| ④ | `kit/echo/echo-mcp.mjs` | **修 V8 字符串上限 bug**：7 天配置实测报 `Cannot create a string longer than 0x1fffffe8`。原 `Buffer.concat(parts).toString()` 会把整个文件拼成一个字符串，单文件解压后可超 512MB。改成逐帧 decode + carry 跨帧行 |
+
+**怎么验的**：
+
+```
+logs=4336  logsState=ready  logDays=3  logsMB=3.7  rssMB=181(GC后)
+搜「容器被撑爆」→ 日志层 4 条，带 log: 门牌
+7 天配置修复后不再崩
+```
+
+**设置文件**：`D:/AI/memory/hub/echo-settings.json`（改了要重启 DSH 生效）
+
+**边界**：日志只存每条前 600 字符 —— 关键词在长消息后半段搜不到。门牌仍可回原文。
+
+
 ### 2026-11-01 · ECHO 检索提速三项（按方案落地）
 
 **依据**：`ECHO-演进路线-检索提速与召回精度.md` 的「阶段 1」三条。
