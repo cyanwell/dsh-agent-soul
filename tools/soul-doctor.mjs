@@ -33,7 +33,7 @@
  * 4. 不解析 YAML —— 同 soul-preset.mjs，文件里有 !!js 这种 loader 专有写法
  */
 import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { createRequire } from 'node:module'
 
 // ★ 不猜 home 在哪（AGENTS 里的铁律：不知道就报，不拿默认值顶）。
@@ -200,8 +200,13 @@ check('L1', 'pkgintegrity', '已装插件的 package.json 自洽（files 覆盖�
     let src = ''
     try { src = readFileSync(entry, 'utf8') } catch { continue }
     const rels = [...new Set([...src.matchAll(/from\s+['"](\.\/[^'"]+)['"]/g)].map((m) => m[1]))]
+    // ★ 2026-10-31：相对 import 的基准是**入口文件所在目录**，不是包根。
+    //   实例：dsh-agent-plugins-market 的入口 lib/index.js 只有一行
+    //   `export * from './packages/market-bundle/src/index.js'`，正确位置是 <包>/lib/packages/...，
+    //   而旧代码去查 <包>/packages/... —— 明明存在却报「文件不存在」。纯误报。
+    const entryDir = dirname(entry)
     for (const r of rels) {
-      const target = join(nmDir, d, r.replace(/^\.\//, ''))
+      const target = join(entryDir, r.replace(/^\.\//, ''))
       if (!existsSync(target)) {
         // ★ 关键判断：files 里有没有可能漏了它所在的目录
         const dirOfRel = r.replace(/^\.\//, '').split('/')[0]
@@ -348,12 +353,31 @@ check('L2', 'registry', 'agent-preset-registry 有 default/selectedDefault', () 
   return { ok: true, detail: near.join(' · ') }
 })
 
-check('L2', 'deadpresets', '.agent-presets/ 里没有残留（F1）', () => {
+check('L2', 'deadpresets', '.agent-presets/ 里没有死目录（F1）', () => {
   const d = join(HOME, '.agent-presets')
   if (!existsSync(d)) return { ok: true, detail: '没有这个目录' }
-  const n = readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).length
-  if (!n) return { ok: true, detail: '目录存在但是空的' }
-  return { ok: false, detail: `有 ${n} 个目录`, hint: '0.2.0-rc.2 起不再扫描它们 —— 文件在，但永远不生效（2026-09-30 那次全绿然后一起消失就是它）' }
+  const dirs = readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)
+  if (!dirs.length) return { ok: true, detail: '目录存在但是空的' }
+
+  // ★★★ 判据修正（2026-10-31）：原来「只要有目录就红」，太粗。
+  //   .agent-presets/<名>/ 有两个用途，性质完全不同：
+  //     ① DSH 不再扫描它 —— 这是真的（0.2.0-rc.2 起 preset 走 profile 层声明）
+  //     ② 但 `soul-one-shot.mjs` 仍从 <名>/agent.cordis.yml 读 compactionName / prunerName
+  //   所以：profile patch 里**有同名 `preset-<名>` 块** = 这份是「现存 preset 的源」，不算残留；
+  //         没有同名块 = 那个 preset 早就不在了，目录是死文件。
+  let patchBody = ''
+  try {
+    const pf = join(HOME, 'profiles', process.env.DSH_PROFILE || 'desktop', 'cordis.patch.yml')
+    if (existsSync(pf)) patchBody = readFileSync(pf, 'utf8')
+  } catch {}
+
+  const dead = patchBody ? dirs.filter((n) => !patchBody.includes('preset-' + n)) : dirs
+  if (!dead.length) return { ok: true, detail: `${dirs.length} 个目录，都还有对应的 preset 块（是源文件，不是残留）` }
+  return {
+    ok: false,
+    detail: `死目录 ${dead.length} 个：${dead.join(', ')}`,
+    hint: '这些名字在 profile 的 cordis.patch.yml 里找不到对应的 preset-<名> 块 —— 那个 preset 已经不在了，目录是死文件。移走或删掉即可（它们不再被 DSH 扫描）。',
+  }
 })
 
 // ═══════════════════════════════════════════════════════════════

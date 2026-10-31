@@ -364,6 +364,57 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-31 · 清掉两个残留 + 又一个 doctor 判据 bug（`pkgintegrity` 基准错）
+
+接上一条（`1028779`）继续清 `soul-doctor` 剩下的两条红。**结果两条都不是环境问题，一条是残留、一条又是判据 bug。**
+
+#### 清掉：`.agent-presets/` 的两个死目录
+
+`qq-chat`（9-18）和 `qq-chat-v2`（9-27）—— profile 的 `cordis.patch.yml` 里**没有** `preset-qq-chat*` 块，
+说明那两个 preset 早就不在了。已移到 `D:\AI\dsh\home\.agent-presets.bak-20261031-183330\`（**备份，不是删**）。
+
+★ 同时**修正了 `L2/deadpresets` 的判据** —— 原来「只要有目录就红」，太粗：
+`.agent-presets/<名>/` 有两种性质，①DSH 不再扫描它（真的）②但 `soul-one-shot.mjs` 仍从
+`<名>/agent.cordis.yml` 读 `compactionName` / `prunerName`。
+所以新判据是：**profile patch 里有同名 `preset-<名>` 块 = 现存 preset 的源（不算残留）**；
+没有 = 死文件。改完：`✅ 5 个目录（qq-chat* 已移走），都还有对应的 preset 块`。
+
+#### 修：`L1/pkgintegrity` 查相对 import 时基准错了
+
+```
+❌ dsh-agent-plugins-market: 入口 import './packages/market-bundle/src/index.js'
+   但文件不存在（files 里也没列 "packages" → 装机必丢）
+```
+
+**这条是误报。** 那个包的 `lib/index.js` 只有一行 `export * from './packages/...'`，
+而 `lib/packages/` **确实存在** —— 相对 import 的基准是**入口文件所在目录**（`lib/`），不是包根。
+
+原代码：
+
+```js
+const target = join(nmDir, d, r.replace(/^\.\//, ''))   // ❌ 当成 <包>/packages/...
+```
+
+改成：
+
+```js
+const entryDir = dirname(entry)
+const target = join(entryDir, r.replace(/^\.\//, ''))   // ✅ <包>/lib/packages/...
+```
+
+**顺带两个坑**：① `dirname` 之前没 import（只 import 了 `join`）② 兜底那句「这是 doctor 的 bug，不是你的环境问题」是**对的**，检查本身抛错时它就派上了用场 —— 别删。
+
+#### 结果
+
+```
+✅ 三层全过
+```
+
+**⚠️ 但 `dsh-agent-plugins-market` 本身仍有问题**（与这条判据无关，实测 `import` 会炸）：
+`The requested module '@deepseek-ai/dsh-subprocess' does not provide an export named 'SubprocessExecutableNotFoundError'`
+—— 宿主 API 版本不匹配，属于**那个包要跟进的**，不是本仓库的责任。
+
+
 ### 2026-10-31 · 外部实测报告的两条修正（`L2/threeparts` 真 bug + `peerdeps` 后果描述错）
 
 **来源**：一位测试者的桌面版实测报告。他报了 `soul-doctor.mjs` 两条红，我们逐条核过。
