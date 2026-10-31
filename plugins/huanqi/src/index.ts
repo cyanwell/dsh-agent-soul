@@ -2358,7 +2358,8 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
    *
    * 三级阶梯：
    *   ① 打断（已有，流级，极轻）
-   *   ② 范围压缩：累计截断 N 次 → compactRegion，压走最近这一段，**继续对话**
+   *   ② 范围压缩：累计截断 N 次 → **先走定点清除**（表面替换，不动摘要）；
+   *      没有候选或全部失败才落回 compactRegion / `/compact-region`（旧路），压走最近这一段，**继续对话**
    *   ③ 全量压缩：熔断时 → compactNow，彻底清空 + 告知用户 + **不再延续**
    *
    * ★ 为什么②不在第一次截断就做：单次截断是正常呼吸（normalTurnThreshold: 20，
@@ -2730,7 +2731,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
               provider: target.provider,
               model: target.model,
               messages: [message],
-              maxTokens: 16000,
+              maxTokens: 24000,
               sessionId: agent.session.id,
               purpose: 'purge-diagnose' as any
           };
@@ -2900,6 +2901,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
      * `[huanqi][purge] OK 27815-27815 新seq=28423 节点 203->203`）。
      *
      * 顺序：先试定点清除（轻），没有候选或全失败 → 落回原来那条路（重）。 */
+    purgeLog('[huanqi][purge] config purgeOnCuts=' + String(config.purgeOnCuts) + ' purgeMaxItems=' + String(config.purgeMaxItems) + ' purgeMaxChars=' + String(config.purgeMaxChars))
     if (mode === 'region' && config.purgeOnCuts === true) {
         let picked;
         try {
@@ -3077,6 +3079,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
              *   只对「忙」这一种错误重试；别的错误（真失败）立刻返回，不掩盖。
              */
             /* ★★★ 2026-10-27 23:42（爀曦定）：**region 只走 /compact-region，失败绝不降级全量。**
+             *   ★ 2026-10-31 补：这句现在只在**降级分支内部**成立 —— 主路径已改走定点清除。
              *
              *   为什么不能降级：降级把"只想压走最近这一段"变成"把整段 surface 压掉"。
              *   对一条刚开始换气、还没脏到底的会话，那是**加重**而不是治疗：

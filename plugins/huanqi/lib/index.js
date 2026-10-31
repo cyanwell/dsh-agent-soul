@@ -1866,7 +1866,8 @@ export function apply(ctx, config) {
      *
      * 三级阶梯：
      *   ① 打断（已有，流级，极轻）
-     *   ② 范围压缩：累计截断 N 次 → compactRegion，压走最近这一段，**继续对话**
+     *   ② 范围压缩：累计截断 N 次 → **先走定点清除**（表面替换，不动摘要）；
+     *      没有候选或全部失败才落回 compactRegion / `/compact-region`（旧路），压走最近这一段，**继续对话**
      *   ③ 全量压缩：熔断时 → compactNow，彻底清空 + 告知用户 + **不再延续**
      *
      * ★ 为什么②不在第一次截断就做：单次截断是正常呼吸（normalTurnThreshold: 20，
@@ -2267,7 +2268,7 @@ export function apply(ctx, config) {
                 provider: target.provider,
                 model: target.model,
                 messages: [message],
-                maxTokens: 16000,
+                maxTokens: 24000,
                 sessionId: agent.session.id,
                 purpose: 'purge-diagnose'
             };
@@ -2422,6 +2423,7 @@ export function apply(ctx, config) {
          * `[huanqi][purge] OK 27815-27815 新seq=28423 节点 203->203`）。
          *
          * 顺序：先试定点清除（轻），没有候选或全失败 → 落回原来那条路（重）。 */
+        purgeLog('[huanqi][purge] config purgeOnCuts=' + String(config.purgeOnCuts) + ' purgeMaxItems=' + String(config.purgeMaxItems) + ' purgeMaxChars=' + String(config.purgeMaxChars));
         if (mode === 'region' && config.purgeOnCuts === true) {
             let picked;
             try {
