@@ -175,7 +175,10 @@ function homeDir() {
 }
 import { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
-import { createUserMessage, isAgentLoopRequest } from '@deepseek-ai/dsh-llm';
+import { BlockAssembler, createUserMessage, isAgentLoopRequest } from '@deepseek-ai/dsh-llm';
+/* ★ 2026-10-28（源同步）：范围压缩要判「这个切点两侧的工具调用配不配对」。
+ *   它是宿主自带的导出（`dsh-compaction/tool-pairing`），本包的 dependencies 里没有 ——
+ *   与 `ctx.get('compaction')` 同一个前提：**运行时由宿主提供**。 */
 import { toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction';
 export const Config = z.object({
     maxThinkingSteps: z.number().min(2).default(3),
@@ -192,6 +195,27 @@ export const Config = z.object({
     fullCompactOnBreaker: z.boolean().default(true),
     /** 压缩后是否注入「取回一手原文」的指引。默认 true。 */
     postCompactRecallHint: z.boolean().default(true),
+    /** 压缩成功后是否再延续一次（2026-10-31 加）。默认 true。 */
+    resumeAfterCompact: z.boolean().default(true),
+    /** 召回提示正文。留空 = 用内置默认。 */
+    recallPrompt: z.string().default(''),
+    /** 两次范围压缩之间至少隔多少轮。0 = 不限制。默认 18。 */
+    regionCompactEveryTurns: z.number().step(1).min(0).max(200).default(18),
+
+    /* ===== 定点清除（2026-10-31 新增） =====
+     *
+     * 截断触发的「范围压缩」不再走 /compact-region（它要 open turn，时机上不可用），
+     * 改成：找污染源候选 → surfaceOp 定向替换工具结果。
+     *
+     * purgeOnCuts        —— 截断后是否执行定点清除。关掉就完全退回全量 /compact。
+     * purgeMaxItems      —— 一次最多清几条（保守起见默认 3）。
+     * purgeMaxChars      —— 多大的工具结果算「沙袋」（超过就清）。
+     */
+    purgeOnCuts: z.boolean().default(true),
+    purgeMaxItems: z.number().step(1).min(1).max(20).default(3),
+    purgeMaxChars: z.number().step(1000).min(2000).max(200000).default(20000),
+    /** 两次熔断救援之间至少隔多少轮。0 = 不限制。默认 18。 */
+    breakerRescueEveryTurns: z.number().step(1).min(0).max(200).default(18),
     /** 要接的压缩服务名。留空 = `compaction`。 */
     compactionService: z.string().default(''),
     /** 子 agent（含 Agent Teams 成员）的严格程度。默认 `strict` = 现在的行为。 */
@@ -496,14 +520,14 @@ export function containment(a, b) {
  * ## 三条不能改的规则
  *
  * 1. **上限调高不充值。** 用户把 `maxContinuations` 从 4 调到 8，当前额度**不动**；
- *    要涨得靠正常对话攒。（2026-10-10 明确同意：「上限是天花板，不是充值。」）
+ *    要涨得靠正常对话攒。（爀曦 2026-10-10 明确同意：「上限是天花板，不是充值。」）
  * 2. **上限调低要压。** 额度高于新上限时立刻压到新上限。
  * 3. **额度最低 1。** 到 1 就不再降 —— 继续降等于彻底关掉这个功能，
  *    而那时恰恰最需要它把问题摆到用户面前。
  *
  * ## 全局，不按会话
  *
- * 额度是**跨会话共享**的（2026-10-10 定：「分会话管理会很麻烦」）。
+ * 额度是**跨会话共享**的（爀曦 2026-10-10 定：「分会话管理会很麻烦」）。
  * 所以一个会话把额度耗光，会影响其他会话 —— 这是有意的：
  * **上下文变脏通常是全局性的**（同一台机器、同一批模型、同样的用法）。
  */
@@ -1385,7 +1409,7 @@ const ZH = {
     continueNotice: (credit, max, threshold) => `〔换气〕本轮思考用尽了输出预算、正文没能产生，已截断这一轮并开新一轮。`
         + `延续额度剩 ${credit}/${max}（每 ${threshold} 个正常轮涨回一点）。`
         + '继续完成你原本的任务，不要复述这段思考。',
-    /* ★ 2026-10-23（作者定，砚青落）：熔断后的动作从「转达一句话」改成「自己去做」。
+    /* ★ 2026-10-23（爀曦定，砚青落）：熔断后的动作从「转达一句话」改成「自己去做」。
      *
      * 病因：原来这条只说「请对砚青说『保存当前进度』」——那是**要求它转达**，不是要求它落盘。
      * 而熔断恰恰发生在「它已经连续 N 轮只顾着推演、不肯动手」的时刻，
@@ -1398,7 +1422,7 @@ const ZH = {
         + '① 把当前进度落盘 —— 写一条《墨》或落一个文件，写清「做到哪、下一步是什么、卡在哪」；'
         + '② 在账本里加一条索引，带能回取的指针（`log:session-<会话id>#seq=<n>`；'
         + '拿不到精确 seq 就写检索词，**不许猜** —— 错的门牌比没有更坏）；'
-        + '③ 落完就停，告诉用户「需要手动压缩」。不要再开新任务、不要再探索。',
+        + '③ 落完就停，告诉爀曦「需要手动压缩」。不要再开新任务、不要再探索。',
     creditWarning: (credit, max, threshold) => `〔换气〕延续额度只剩 ${credit}/${max}：上下文可能已经变脏。`
         + `建议手动压缩上下文；正常对话每满 ${threshold} 轮会涨回一点。`,
     silentCutNotice: (chars, credit, max) => `〔换气〕本轮思考写了 ${chars} 字，正文和工具调用都还没产生，已在流中截断。`
@@ -1470,7 +1494,7 @@ export function apply(ctx, config) {
     };
     bootLog('apply() entered; config=' + JSON.stringify(config));
     /**
-     * ★★ 换气检测层（2026-10-19 加，作者定）：每一轮结束写一条 JSONL 到
+     * ★★ 换气检测层（2026-10-19 加，爀曦定）：每一轮结束写一条 JSONL 到
      * `<DSH_HOME>/state/huanqi-turns.jsonl`，给回声哨兵面板读。
      *
      * ## 为什么需要它
@@ -1488,8 +1512,10 @@ export function apply(ctx, config) {
      * 同时限制保留最近 2000 行，避免无限长。
      * ★ 任何失败都吞掉：检测层不许影响主流程。
      */
+    /* ★ 这一行的 `;` 不是风格，是 ASI 必需：本文件不带分号，而紧接着的 IIFE 以 `(`
+     *   开头 —— 没有分号时 JS 会把 `join(...)` 的返回值当成函数再调一次（tsc 报 TS2349）。
+     *   lib 里本来就带分号（tsc 输出时补的），这里写出来反而正好对齐它。 */
     const turnsFile = join(stateDir, 'huanqi-turns.jsonl');
-
     // ══════════════════════════════════════════════════════════════════════
     // ★ 2026-10-27（砚青加）**测试触发口** —— 验证两段压缩能不能真的跑起来。
     //
@@ -1507,20 +1533,38 @@ export function apply(ctx, config) {
         const TRIGGER = 'D:\\AI\\memory\\hub\\_huanqi-trigger.json';
         const DIAGF = 'D:\\AI\\memory\\hub\\_plugin-diag.log';
         const diag = (line) => {
-            try { appendFileSync(DIAGF, new Date().toISOString() + ' ' + line + '\n'); } catch { /* */ }
+            try {
+                appendFileSync(DIAGF, new Date().toISOString() + ' ' + line + '\n');
+            }
+            catch { /* */ }
         };
         setInterval(() => {
+            /* ★ 声明成 `string | null` 是为了产物与 lib 逐字一致（lib 里是 `let raw = null`）；
+             *   后面用 `as string` 断言收窄 —— `catch { return }` 已保证初值永不被读到，
+             *   而 `as` 在 tsc 擦掉类型后就消失了，运行时与 lib 完全相同。 */
             let raw = null;
-            try { raw = readFileSync(TRIGGER, 'utf8'); } catch { return; }
+            try {
+                raw = readFileSync(TRIGGER, 'utf8');
+            }
+            catch {
+                return;
+            }
             // ★ 2026-10-27（第 5 代修）：空文件 = 没指令。原来这两行紧挨着 ——
             //   上面刚把文件清空、下面立刻去 parse，于是「文件存在且为空」时会
             //   每 3 秒报一次 JSON 解析失败（实测累计 6588 条，自 10-26 17:37 起）。
             //   读到空就静默跳过：不清空、不报错、不触发。
-            if (raw.trim() === '') return;
-            try { writeFileSync(TRIGGER, '', 'utf8'); } catch { /* 清空，避免重复触发 */ }
+            if (raw.trim() === '')
+                return;
+            try {
+                writeFileSync(TRIGGER, '', 'utf8');
+            }
+            catch { /* 清空，避免重复触发 */ }
             void (async () => {
                 let req = null;
-                try { req = JSON.parse(raw); } catch (e) {
+                try {
+                    req = JSON.parse(raw);
+                }
+                catch (e) {
                     diag('[huanqi][trigger] JSON 解析失败: ' + String(e && e.message));
                     return;
                 }
@@ -1538,7 +1582,8 @@ export function apply(ctx, config) {
                         targetSid = wantSid;
                         diag('[huanqi][trigger] 兜底 ctx.agents.get(' + wantSid + ') → '
                             + (target === null ? '没拿到' : '拿到了'));
-                    } catch (e) {
+                    }
+                    catch (e) {
                         diag('[huanqi][trigger] 兜底取 agent 抛: ' + String(e && e.message));
                     }
                 }
@@ -1557,28 +1602,45 @@ export function apply(ctx, config) {
                     let level = 0;
                     while (cur !== null && cur !== undefined && level < (depth === undefined ? 3 : depth)) {
                         let names = [];
-                        try { names = Object.getOwnPropertyNames(cur); }
-                        catch { names = ['(读不到)']; }
+                        try {
+                            names = Object.getOwnPropertyNames(cur);
+                        }
+                        catch {
+                            names = ['(读不到)'];
+                        }
                         const fresh = names.filter((n) => !seen.has(n));
                         fresh.forEach((n) => seen.add(n));
                         if (fresh.length > 0) {
                             lines.push(tag + ' [L' + level + '] ' + fresh.slice(0, 60).join(','));
                         }
-                        try { cur = Object.getPrototypeOf(cur); }
-                        catch { cur = null; }
+                        try {
+                            cur = Object.getPrototypeOf(cur);
+                        }
+                        catch {
+                            cur = null;
+                        }
                         level += 1;
-                        if (cur === null || cur === Object.prototype) break;
+                        if (cur === null || cur === Object.prototype)
+                            break;
                     }
                     return lines;
                 };
                 if (mode === 'probe') {
                     diag('[huanqi][probe] ===== 开始 =====');
                     const put = (arr) => { arr.forEach((l) => diag('[huanqi][probe] ' + l)); };
-                    try { put(__probeDump('AGENT', target, 3)); } catch (e) { diag('[huanqi][probe] AGENT 抛: ' + e.message); }
+                    try {
+                        put(__probeDump('AGENT', target, 3));
+                    }
+                    catch (e) {
+                        diag('[huanqi][probe] AGENT 抛: ' + e.message);
+                    }
                     try {
                         const sess = target !== null ? target.session : undefined;
                         put(__probeDump('SESSION', sess, 4));
-                    } catch (e) { diag('[huanqi][probe] SESSION 抛: ' + e.message); }
+                    }
+                    catch (e) {
+                        diag('[huanqi][probe] SESSION 抛: ' + e.message);
+                    }
                     try {
                         const surf = target !== null && target.session !== undefined ? target.session.surface : undefined;
                         put(__probeDump('SURFACE', surf, 4));
@@ -1588,23 +1650,46 @@ export function apply(ctx, config) {
                         while (c2 !== null && c2 !== undefined) {
                             try {
                                 Object.getOwnPropertyNames(c2).forEach((n) => {
-                                    if (/^(set|add|splice|replace|remove|delete|insert|push|append|truncate|compact|rewrite|put)/i.test(n)) wr.push(n);
+                                    if (/^(set|add|splice|replace|remove|delete|insert|push|append|truncate|compact|rewrite|put)/i.test(n))
+                                        wr.push(n);
                                 });
-                            } catch { /* */ }
-                            try { c2 = Object.getPrototypeOf(c2); } catch { c2 = null; }
+                            }
+                            catch { /* */ }
+                            try {
+                                c2 = Object.getPrototypeOf(c2);
+                            }
+                            catch {
+                                c2 = null;
+                            }
                         }
                         diag('[huanqi][probe] SURFACE 上的写类方法: ' + (wr.length > 0 ? wr.join(',') : '(无)'));
-                    } catch (e) { diag('[huanqi][probe] SURFACE 抛: ' + e.message); }
+                    }
+                    catch (e) {
+                        diag('[huanqi][probe] SURFACE 抛: ' + e.message);
+                    }
                     try {
                         const sctx = target !== null && target.session !== undefined ? target.session.ctx : undefined;
                         put(__probeDump('SESSION.CTX', sctx, 3));
-                    } catch (e) { diag('[huanqi][probe] SESSION.CTX 抛: ' + e.message); }
-                    try { put(__probeDump('ROOT.CTX', ctx, 2)); } catch (e) { diag('[huanqi][probe] ROOT.CTX 抛: ' + e.message); }
+                    }
+                    catch (e) {
+                        diag('[huanqi][probe] SESSION.CTX 抛: ' + e.message);
+                    }
+                    try {
+                        put(__probeDump('ROOT.CTX', ctx, 2));
+                    }
+                    catch (e) {
+                        diag('[huanqi][probe] ROOT.CTX 抛: ' + e.message);
+                    }
                     // 关键：这些显式探测
                     const probes2 = ['compaction', 'llm', 'model', 'modelAdapter', 'agents', 'sessionProjections'];
                     probes2.forEach((n) => {
                         let got;
-                        try { got = ctx.get(n); } catch { got = '(抛)'; }
+                        try {
+                            got = ctx.get(n);
+                        }
+                        catch {
+                            got = '(抛)';
+                        }
                         diag('[huanqi][probe] ctx.get(' + n + ') -> '
                             + (got === undefined ? 'undefined' : (got === null ? 'null' : (got === '(抛)' ? '抛' : typeof got))));
                     });
@@ -1613,23 +1698,141 @@ export function apply(ctx, config) {
                 }
                 const tryOnce = async (m) => {
                     try {
+                        /* ★★★ 2026-10-31（砚青·修正）：**这里绝对不能等 idle。**
+                         *
+                         *   `compactRegion` 要三件事同时成立：
+                         *     ① 在事件事务外（否则 cannot reenter）
+                         *     ② **调用那一刻 turn 还开着**（否则 no open turn）
+                         *     ③ 摘要那 20 秒里 surface 不动（否则 surface changed）
+                         *
+                         *   而 waitUntilQuiet 等的正是 turn 结束 —— 等完 ② 就没了。
+                         *   所以 trigger 必须**立即调**：它本来就跑在事务外（定时器），
+                         *   只要此刻还有 turn 开着，三个条件就齐了。
+                         *   这也正是 2026-10-27 16:10 那次成功（OK n=95 tok=130302）的条件。 */
                         const outcome = await compactOnce(target, m, targetSid);
                         diag('[huanqi][trigger] compactOnce(' + m + ') → '
                             + (outcome.ok ? 'OK' : 'FAILED: ' + String(outcome.error))
                             + ' range=' + (outcome.range === null
-                                ? 'null'
-                                : String(outcome.range.start) + '–' + String(outcome.range.end)));
-                    } catch (e) {
+                            ? 'null'
+                            : String(outcome.range.start) + '–' + String(outcome.range.end)));
+                    }
+                    catch (e) {
                         diag('[huanqi][trigger] compactOnce(' + m + ') 抛: ' + String(e && e.message));
                     }
                 };
-                if (mode === 'region' || mode === 'both') await tryOnce('region');
-                if (mode === 'full' || mode === 'both') await tryOnce('full');
+                /* ★★★ 2026-10-31（砚青加）：**purge —— 定点清除的冒烟测试口。**
+                 *
+                 * 用 `surfaceOp` 直接替换一段 seq，不经过 compactRegion。
+                 * 要验三件事：① 会话不坏 ② surface.nodes 不断档 ③ 占位能被读到。
+                 *
+                 * trigger JSON：
+                 *   {"mode":"probe"}                  只报告 session 结构，不动
+                 *   {"mode":"purge","from":A,"to":B}  真替换
+                 */
+                if (mode === 'probe2' || mode === 'purge') {
+                    const sess = target !== null && target.session !== undefined ? target.session : undefined;
+                    if (sess === undefined) { diag('[huanqi][purge] 取不到 session'); return; }
+                    const nodes = sess.surface === undefined ? undefined : sess.surface.nodes;
+                    const countOf = (n) => {
+                        if (n === undefined || n === null) return -1;
+                        if (typeof n.size === 'number') return n.size;
+                        if (Array.isArray(n)) return n.length;
+                        return Object.keys(n).length;
+                    };
+                    const nodeCount = countOf(nodes);
+                    diag('[huanqi][purge] probe: append=' + typeof sess.append
+                        + ' surface=' + (sess.surface === undefined ? 'undefined' : 'ok')
+                        + ' nodes=' + Object.prototype.toString.call(nodes)
+                        + ' count=' + String(nodeCount));
+                    if (mode === 'probe2') {
+                        try {
+                            const arr = [];
+                            const it = nodes !== undefined && nodes !== null && typeof nodes[Symbol.iterator] === 'function' ? nodes : undefined;
+                            if (it !== undefined) { for (const v of it) arr.push(v); }
+                            if (arr.length > 0) {
+                                diag('[huanqi][purge] seq 首=' + String(arr[0]) + ' 尾=' + String(arr[arr.length - 1]) + ' 共=' + String(arr.length));
+                            } else {
+                                diag('[huanqi][purge] surface.nodes 不可迭代或为空');
+                            }
+                        } catch (e) { diag('[huanqi][purge] 迭代抛: ' + String(e && e.message)); }
+                        diag('[huanqi][trigger] 完成');
+                        return;
+                    }
+                    const from = Number(req.from);
+                    const to = Number(req.to);
+                    if (!Number.isFinite(from) || !Number.isFinite(to) || from > to || from < 1) {
+                        diag('[huanqi][purge] 参数不合法 from=' + String(req.from) + ' to=' + String(req.to));
+                        return;
+                    }
+                    /* ★★★ 2026-10-31（砚青）：**只有 surface-eligible 的类型能带 surfaceOp。**
+                     *
+                     * 实测错误：
+                     *   session event "compaction/purge" is not surface-eligible and cannot carry surfaceOp
+                     *
+                     * 所以不能自己造类型。照 pruner 的做法：
+                     *   取原事件 → 复制 ...orig.data → 只换 message → 用同一个 type 写回去。
+                     * 当前只允许对 tool/result 做这件事（污染的主要载体就是它）。 */
+                    const orig = sess.eventAt(from);
+                    if (orig === undefined || orig === null) {
+                        diag('[huanqi][purge] eventAt(' + String(from) + ') 拿不到事件');
+                        return;
+                    }
+                    const etype = String(orig.type);
+                    const dataPreview = (() => {
+                        try { return JSON.stringify(orig.data).slice(0, 400); } catch (e) { return '<stringify failed>'; }
+                    })();
+                    diag('[huanqi][purge] seq ' + String(from) + ' type=' + etype + ' data=' + dataPreview);
+                    if (etype !== 'tool/result') {
+                        const cands = [];
+                        try {
+                            const it = sess.surface.nodes;
+                            for (const sn of it) {
+                                const e = sess.eventAt(sn);
+                                if (e !== undefined && e !== null && String(e.type) === 'tool/result') cands.push(sn);
+                            }
+                        } catch (e) { diag('[huanqi][purge] 扫候选抛: ' + String(e && e.message)); }
+                        diag('[huanqi][purge] 目标不是 tool/result（是 ' + etype + '）。'
+                            + '可用 tool/result 候选：' + cands.slice(0, 12).join(',')
+                            + ' 共 ' + String(cands.length) + ' 个');
+                        diag('[huanqi][trigger] 完成');
+                        return;
+                    }
+                    try {
+                        const note = '[huanqi] 定点清除 ' + String(from) + '-' + String(to)
+                            + '（原因：' + String(req.why || '污染') + '）\n'
+                            + '原文可取回：log:' + targetSid + '#seq=' + String(from) + '-' + String(to) + '\n'
+                            + '（这是清除留下的占位，不是压缩摘要。）';
+                        const od = orig.data || {};
+                        const omsg = od.message || {};
+                        const nm = Object.assign({}, omsg, {
+                            content: [{ type: 'text', text: note }]
+                        });
+                        /* ★ 只能改 message.content（实测：tool/result surface replacement may change only content）
+                         *   所以不加任何额外字段，也不改 message 的其它键。 */
+                        const r = sess.append('tool/result', Object.assign({}, od, {
+                            message: nm
+                        }), {
+                            surfaceOp: { op: 'replace', startSeq: from, endSeq: to },
+                            sourceEventSeqs: from === to ? [from] : [from, to],
+                        });
+                        diag('[huanqi][purge] OK ' + String(from) + '-' + String(to)
+                            + ' 新seq=' + String(r && r.seq)
+                            + ' 节点 ' + String(nodeCount) + '->' + String(countOf(sess.surface === undefined ? undefined : sess.surface.nodes)));
+                    } catch (e) {
+                        diag('[huanqi][purge] 抛: ' + String(e && e.message));
+                        diag('[huanqi][purge] 堆栈: ' + String(e && e.stack ? String(e.stack).split('\n').slice(0, 3).join(' | ') : ''));
+                    }
+                    diag('[huanqi][trigger] 完成');
+                    return;
+                }
+                if (mode === 'region' || mode === 'both')
+                    await tryOnce('region');
+                if (mode === 'full' || mode === 'both')
+                    await tryOnce('full');
                 diag('[huanqi][trigger] 完成');
             })();
         }, 3000);
     })();
-
     const recordTurn = (rec) => {
         try {
             mkdirSync(stateDir, { recursive: true });
@@ -1677,6 +1880,8 @@ export function apply(ctx, config) {
     const cutCounts = new Map();
     // ★ 2026-10-27（砚青加）：记住最近一次事件里的会话与 agent，给下面的测试触发口用。
     let lastSeenSid = '';
+    /* ★ any：测试触发口与压缩层都直接摸 agent 的 `session` / `runMaintenance`，
+     *   而那些成员不在本包声明的 Agent 面上 —— 和本文件其余「够不到就用 any」一致。 */
     let lastSeenAgent = null;
     const lastCompact = new Map();
     /**
@@ -1700,8 +1905,8 @@ export function apply(ctx, config) {
                 const probes = [
                     ['agent.ctx', agent !== undefined && agent !== null ? agent.ctx : undefined],
                     ['agent.session.ctx', agent !== undefined && agent !== null && agent.session !== undefined && agent.session !== null
-                        ? agent.session.ctx
-                        : undefined],
+                            ? agent.session.ctx
+                            : undefined],
                     ['ctx(根层)', ctx],
                 ];
                 for (let i = 0; i < probes.length; i += 1) {
@@ -1710,13 +1915,16 @@ export function apply(ctx, config) {
                     if (holder === undefined || holder === null || typeof holder.get !== 'function')
                         continue;
                     let got;
-                    try { got = holder.get(name); }
-                    catch { continue; }
+                    try {
+                        got = holder.get(name);
+                    }
+                    catch {
+                        continue;
+                    }
                     if (got !== undefined && got !== null) {
                         svc = got;
                         try {
-                            appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
-                                new Date().toISOString() + ' [huanqi][diag] ' + tag + '.get(' + name + ') -> OK\n');
+                            appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log', new Date().toISOString() + ' [huanqi][diag] ' + tag + '.get(' + name + ') -> OK\n');
                         }
                         catch { /* */ }
                         break;
@@ -1724,8 +1932,7 @@ export function apply(ctx, config) {
                 }
                 if (svc === undefined) {
                     try {
-                        appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
-                            new Date().toISOString() + ' [huanqi][diag] 三级全落空：' + name + ' 在 agent.ctx / agent.session.ctx / ctx 都拿不到\n');
+                        appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log', new Date().toISOString() + ' [huanqi][diag] 三级全落空：' + name + ' 在 agent.ctx / agent.session.ctx / ctx 都拿不到\n');
                     }
                     catch { /* */ }
                 }
@@ -1746,16 +1953,22 @@ export function apply(ctx, config) {
                             return /compact|compress|prune|service/i.test(k);
                         }).join(',') || '(无相关键)';
                     }
-                    catch (e2) { keys = '(读不到)'; }
+                    catch (e2) {
+                        keys = '(读不到)';
+                    }
                     __line = '[huanqi][diag] ctx.get(' + name + ') -> UNDEFINED ; 相关键: ' + keys;
                 }
                 else {
                     var sk = [];
-                    try { sk = Object.keys(svc).slice(0, 10); } catch (e3) { sk = ['(读不到)']; }
+                    try {
+                        sk = Object.keys(svc).slice(0, 10);
+                    }
+                    catch (e3) {
+                        sk = ['(读不到)'];
+                    }
                     __line = '[huanqi][diag] ctx.get(' + name + ') -> OK typeof=' + typeof svc + ' keys=' + sk.join(',');
                 }
-                appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
-                    new Date().toISOString() + ' ' + __line + '\n');
+                appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log', new Date().toISOString() + ' ' + __line + '\n');
             }
             catch (eX) { /* 诊断本身绝不许影响主流程 */ }
             return svc;
@@ -1793,6 +2006,314 @@ export function apply(ctx, config) {
      *     `ctx.agents.get(sid)`，而 `session.surface` 的 getter 在 isolate realm 外
      *     可能抛 —— 这两种失败修法完全不同，不能混成同一个 null。
      */
+
+    /* ===== 定点清除（2026-10-31 新增） =====
+     *
+     * 背景：`/compact-region` 要 open turn + 整面静止，在换气的时机上不可用。
+     * 改用 surfaceOp 直接替换 tool/result（已实测通过，见 30-状态/设计-换气定点清除.md）。
+     *
+     *   collectPurgeCandidates —— 找「污染源」候选（启发式，不依赖 LLM）
+     *   purgeOne              —— 替换一条（四条硬约束都已满足）
+     *   purgeMany             —— 批量替换
+     *
+     * ★ 本段在 compactOnce 作用域外，`diag` / `targetSid` 不可见 —— 用 appendFileSync 直接写。
+     */
+
+    const PURGE_LOG = 'D:\\AI\\memory\\hub\\_plugin-diag.log';
+    const purgeLog = (line) => {
+        try {
+            appendFileSync(PURGE_LOG, new Date().toISOString() + ' ' + line + '\n');
+        }
+        catch { /* 诊断不许影响主流程 */ }
+    };
+
+    /** 候选：找「超大工具结果」和「重复前缀的工具结果」。 */
+    function collectPurgeCandidates(agent, opts) {
+        const sess = agent !== null && agent !== undefined && agent.session !== undefined ? agent.session : undefined;
+        if (sess === undefined) return { ok: false, error: 'no session', items: [] };
+        const nodes = sess.surface === undefined ? undefined : sess.surface.nodes;
+        if (nodes === undefined || nodes === null) return { ok: false, error: 'no surface', items: [] };
+
+        const maxChars = Number(opts && opts.maxChars ? opts.maxChars : 20000);
+        const maxItems = Number(opts && opts.maxItems ? opts.maxItems : 3);
+
+        const arr = [];
+        try {
+            for (const v of nodes) arr.push(v);
+        }
+        catch (e) {
+            return { ok: false, error: 'iter: ' + String(e && e.message), items: [] };
+        }
+
+        /* 只看尾巴：动太老的历史风险大、收益小。 */
+        const tail = arr.slice(-400);
+        const items = [];
+        const seen = new Map();
+
+        for (const seq of tail) {
+            let ev;
+            try { ev = sess.eventAt(seq); }
+            catch (e) { continue; }
+            if (ev === undefined || ev === null) continue;
+            if (String(ev.type) !== 'tool/result') continue;
+
+            const d = ev.data || {};
+            const msg = d.message || {};
+            const content = Array.isArray(msg.content) ? msg.content : [];
+            let text = '';
+            for (const c of content) {
+                if (c !== null && typeof c === 'object' && typeof c.text === 'string') text += c.text;
+            }
+            if (text.length === 0) continue;
+
+            const key = text.slice(0, 200);
+            if (!seen.has(key)) seen.set(key, []);
+            seen.get(key).push({ seq: seq, len: text.length });
+
+            const preview = text.slice(0, 300).replace(/\s+/g, ' ');
+            items.push({ seq: seq, len: text.length, preview: preview, reason: 'candidate' });
+        }
+
+        /* 重复前缀：保留最后一条，前面的都算候选。 */
+        for (const entry of seen) {
+            const list = entry[1];
+            if (list.length < 2) continue;
+            for (let i = 0; i < list.length - 1; i += 1) {
+                items.push({ seq: list[i].seq, len: list[i].len, reason: 'duplicate x' + String(list.length) });
+            }
+        }
+
+        const uniq = new Map();
+        for (const it of items) if (!uniq.has(it.seq)) uniq.set(it.seq, it);
+        /* 送诊断的候选：先取最长的 maxCandidates 条（沙袋优先），再由 LLM 挑。 */
+        const maxCandidates = Number(opts && opts.maxCandidates ? opts.maxCandidates : 12);
+        const byLen = Array.from(uniq.values()).sort((a, b) => b.len - a.len).slice(0, maxCandidates);
+        const out = byLen.sort((a, b) => a.seq - b.seq);
+
+        return { ok: true, items: out, scanned: tail.length, total: arr.length };
+    }
+
+    /** 替换一条 tool/result。四条硬约束：类型、去重、只改 content、不加额外字段。 */
+    function purgeOne(sess, seq, note) {
+        const ev = sess.eventAt(seq);
+        if (ev === undefined || ev === null) return { ok: false, seq: seq, error: 'no event' };
+        if (String(ev.type) !== 'tool/result') return { ok: false, seq: seq, error: 'type=' + String(ev.type) };
+        const od = ev.data || {};
+        const omsg = od.message || {};
+        const nm = Object.assign({}, omsg, { content: [{ type: 'text', text: note }] });
+        const r = sess.append('tool/result', Object.assign({}, od, { message: nm }), {
+            surfaceOp: { op: 'replace', startSeq: seq, endSeq: seq },
+            sourceEventSeqs: [seq],
+        });
+        return { ok: true, seq: seq, newSeq: r === undefined || r === null ? null : r.seq };
+    }
+
+    /** 批量：逐条替换，任何一条失败都不影响其它条。 */
+    function purgeMany(agent, items, sid) {
+        const sess = agent !== null && agent !== undefined && agent.session !== undefined ? agent.session : undefined;
+        if (sess === undefined) return { ok: false, error: 'no session', purged: [] };
+        const purged = [];
+        for (const it of items) {
+            const note = '[huanqi] 定点清除 seq ' + String(it.seq) + '（原因：' + String(it.reason) + '）\n'
+                + '原文可取回：log:' + String(sid) + '#seq=' + String(it.seq) + '\n'
+                + '（这是清除留下的占位，不是压缩摘要。）';
+            try {
+                const one = purgeOne(sess, it.seq, note);
+                if (one.ok) {
+                    purged.push(one);
+                    purgeLog('[huanqi][purge] OK ' + String(it.seq) + ' 新seq=' + String(one.newSeq) + ' 原因=' + String(it.reason));
+                }
+                else {
+                    purgeLog('[huanqi][purge] 跳过 seq ' + String(it.seq) + ': ' + String(one.error));
+                }
+            }
+            catch (e) {
+                purgeLog('[huanqi][purge] seq ' + String(it.seq) + ' 抛: ' + String(e && e.message));
+            }
+        }
+        return { ok: purged.length > 0, purged: purged };
+    }
+
+
+    /* ===== LLM 诊断（2026-10-31 加） =====
+     *
+     * 爀曦定的口径：「让 LLM 检查上下文有哪些地方导致了污染，造成思考退化」。
+     * 启发式（collectPurgeCandidates）只负责**筛出可疑段**，
+     * 真正判断「哪几段是诱因、删了安不安全」交给模型。
+     *
+     * 调用方式照官方 compaction 的 summarizeWithLlm：
+     *   ctx.get('llm').stream({ provider, model, messages, maxTokens, sessionId, purpose })
+     *   for await (chunk) assembler.push(chunk)
+     */
+
+    const PURGE_DIAG_INSTRUCTION = [
+        '你是一个上下文污染诊断器。下面列出当前会话里若干条工具结果（tool/result）的 seq、长度和开头片段。',
+        '',
+        '背景：这个 agent 出现了「思考退化」——重复推理、重复输出、空回合。',
+        '你的任务：判断哪些工具结果**最可能是导致退化的诱因**。',
+        '',
+        '典型诱因：',
+        '- 同一内容被反复读取/输出的残留（重复前缀）',
+        '- 超长的、已经用完的工具输出（整份文件 dump、大段日志）',
+        '- 失败的循环留下的错误刷屏',
+        '',
+        '对每条候选给出：',
+        '- seq：原样返回',
+        '- reason：一句话（中文）说明为什么它是诱因，或为什么不是',
+        '- safe：true 表示「删掉它对因果链无损」；false 表示「它可能是唯一记录，别动」',
+        '',
+        '★ safe 要保守：拿不准就 false。删错比不删更坏。',
+        '★ 最多挑 3 条 safe=true。没有真正的诱因就返回空数组。',
+        '',
+        '只输出 JSON，不要解释、不要 markdown 围栏：',
+        '{"items":[{"seq":123,"reason":"...","safe":true}]}'
+    ].join('\n');
+
+    /** 从模型输出里抠出 JSON 对象。四层退让：直解析 → 剥围栏 → 括号配平 → 截断抢救。 */
+    function extractJsonObject(text) {
+        const s = String(text === null || text === undefined ? '' : text);
+        if (s.length === 0) return null;
+        try {
+            const o = JSON.parse(s.trim());
+            if (o !== null && typeof o === 'object' && Array.isArray(o.items)) return o;
+        } catch { /* 退下一层 */ }
+        const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        if (fence !== null && fence[1] !== undefined) {
+            try {
+                const o = JSON.parse(fence[1].trim());
+                if (o !== null && typeof o === 'object' && Array.isArray(o.items)) return o;
+            } catch { /* 退下一层 */ }
+        }
+        for (let start = 0; start < s.length; start += 1) {
+            if (s[start] !== '{') continue;
+            let depth = 0;
+            let inStr = false;
+            let esc = false;
+            for (let i = start; i < s.length; i += 1) {
+                const ch = s[i];
+                if (inStr) {
+                    if (esc) esc = false;
+                    else if (ch === '\\') esc = true;
+                    else if (ch === '"') inStr = false;
+                    continue;
+                }
+                if (ch === '"') { inStr = true; continue; }
+                if (ch === '{') depth += 1;
+                else if (ch === '}') {
+                    depth -= 1;
+                    if (depth === 0) {
+                        try {
+                            const o = JSON.parse(s.slice(start, i + 1));
+                            if (o !== null && typeof o === 'object' && Array.isArray(o.items)) return o;
+                        } catch { /* 换下一个起点 */ }
+                        break;
+                    }
+                }
+            }
+        }
+        const re = /\{\s*"seq"\s*:\s*(-?\d+)[\s\S]*?\}/g;
+        const kept = [];
+        let m;
+        while ((m = re.exec(s)) !== null) {
+            try {
+                const o = JSON.parse(m[0]);
+                if (o !== null && typeof o === 'object') kept.push(o);
+            } catch { /* 跳过坏片 */ }
+        }
+        if (kept.length > 0) return { items: kept, __salvaged: true };
+        return null;
+    }
+
+    /** LLM 诊断：返回 { ok, items:[{seq, reason, safe}], raw }。失败时 items 为空。 */
+    async function diagnosePurge(agent, sid, opts) {
+        const llm = ctx.get('llm');
+        if (llm === undefined || llm === null || typeof llm.stream !== 'function') {
+            return { ok: false, error: 'llm service unavailable', items: [] };
+        }
+
+        const cands = collectPurgeCandidates(agent, opts);
+        if (cands.ok !== true) return { ok: false, error: String(cands.error), items: [] };
+        if (cands.items.length === 0) return { ok: true, items: [], scanned: cands.scanned, total: cands.total, raw: '(no candidates)' };
+
+        /* 目标 provider/model：优先会话最近一次路由的 config，其次 agent.options。 */
+        let target;
+        try {
+            const head = agent.session.requestHeader === undefined ? undefined : agent.session.requestHeader();
+            if (head !== undefined && head !== null && head.config !== undefined && head.config !== null) {
+                if (typeof head.config.provider === 'string' && typeof head.config.model === 'string') {
+                    target = { provider: head.config.provider, model: head.config.model };
+                }
+            }
+        }
+        catch { /* 拿不到就退下一步 */ }
+        if (target === undefined) {
+            const o = agent.options === undefined ? {} : agent.options;
+            if (typeof o.provider === 'string' && o.provider.length > 0 && typeof o.model === 'string' && o.model.length > 0) {
+                target = { provider: o.provider, model: o.model };
+            }
+        }
+        if (target === undefined) return { ok: false, error: 'no provider/model for diagnosis', items: [] };
+
+        const lines = cands.items.map((it) => 'seq=' + String(it.seq) + ' len=' + String(it.len) + ' preview=' + String(it.preview));
+        const body = PURGE_DIAG_INSTRUCTION + '\n\n候选（共 ' + String(cands.items.length) + ' 条）：\n' + lines.join('\n');
+
+        const assembler = new BlockAssembler();
+        try {
+            const message = createUserMessage({
+                content: [{ type: 'text', text: body }],
+                source: { kind: 'plugin', plugin: 'dsh-huanqi' }
+            });
+            const options = {
+                provider: target.provider,
+                model: target.model,
+                messages: [message],
+                maxTokens: 16000,
+                sessionId: agent.session.id,
+                purpose: 'purge-diagnose'
+            };
+            for await (const chunk of llm.stream(options)) assembler.push(chunk);
+        }
+        catch (e) {
+            return { ok: false, error: 'llm stream threw: ' + String(e && e.message), items: [] };
+        }
+
+        let text = '';
+        let blockSig = '(none)';
+        try {
+            const blocks = assembler.blocks();
+            const parts = [];
+            for (const b of blocks) {
+                if (b === null || typeof b !== 'object') { parts.push('?'); continue; }
+                parts.push(String(b.type) + ':' + (typeof b.text === 'string' ? String(b.text.length) : '-'));
+                if (b.type === 'text') text += String(b.text);
+            }
+            blockSig = 'n=' + String(blocks.length) + '[' + parts.join(',') + ']';
+        }
+        catch (e) {
+            return { ok: false, error: 'assembler.blocks threw: ' + String(e && e.message), items: [] };
+        }
+
+        const parsed = extractJsonObject(text);
+        if (parsed !== null && parsed.__salvaged === true) {
+            return { ok: false, error: 'output truncated (salvaged ' + String(parsed.items.length) + ')', items: [], diag: blockSig + ' SALVAGED textLen=' + String(text.length), raw: text.slice(0, 800) };
+        }
+        if (parsed === null || !Array.isArray(parsed.items)) {
+            return { ok: false, error: 'model output not parseable', items: [], diag: blockSig + ' textLen=' + String(text.length), raw: text.slice(0, 800) };
+        }
+
+        const known = new Map();
+        for (const it of cands.items) known.set(Number(it.seq), it);
+        const picked = [];
+        for (const raw of parsed.items) {
+            const seq = Number(raw === null || raw === undefined ? NaN : raw.seq);
+            if (!Number.isFinite(seq)) continue;
+            if (!known.has(seq)) continue;                 /* 模型编的 seq 一律不认 */
+            if (raw.safe !== true) continue;               /* 只采纳明确 safe 的 */
+            picked.push({ seq: seq, len: known.get(seq).len, reason: String(raw.reason === undefined ? 'llm' : raw.reason), safe: true });
+        }
+        return { ok: true, items: picked.slice(0, 3), scanned: cands.scanned, total: cands.total, diag: blockSig, raw: text.slice(0, 500) };
+    }
+
     function pickRegionEx(agent) {
         try {
             if (agent === undefined || agent === null || agent.session === undefined || agent.session === null)
@@ -1878,6 +2399,68 @@ export function apply(ctx, config) {
      *             `full`   = 直接全量。
      */
     async function compactOnce(agent, mode, sid) {
+        /* ★★★ 2026-10-31（砚青·删掉拦截）：这里原来有个 `openTurn` 检查，已删。
+         *
+         * 它的原意是「turn 还开着就先不压」，理由是担心写坏会话日志。
+         * 但实测证明它和目标直接矛盾：`compactRegion` 要的就是
+         * 「turn 还开着」（owner: 'current-turn'）。它一拦，两边都死：
+         *   · 拦住 → skipped: turn still open
+         *   · 等 turn 关了 → no open turn
+         *
+         * 而「写坏日志」那条是推断、不是实测：
+         *   2026-10-27T16:10:07  compactRegion(1847–2108) → OK n=95 tok=130302
+         * 那一次就是在 turn 里开的，日志没坏。
+         *
+         * 所以：不拦，让它在 turn 内开；失败就如实返回。 */
+        /* ★★★ 2026-10-31：**region 改走「定点清除」**，不再碰 /compact-region。
+         *
+         * 原因（一手的四次实测，见 30-状态/设计-换气定点清除.md）：
+         *   compactRegion 要 open turn + 整面静止，而换气只能在 turn 外行动 ——
+         *   这两个要求不能同时满足，六次尝试全部失败。
+         *
+         * surfaceOp 直接替换 tool/result 已实测通过（2026-10-31 12:54，
+         * `[huanqi][purge] OK 27815-27815 新seq=28423 节点 203->203`）。
+         *
+         * 顺序：先试定点清除（轻），没有候选或全失败 → 落回原来那条路（重）。 */
+        if (mode === 'region' && config.purgeOnCuts === true) {
+            let picked;
+            try {
+                /* ★ 主路径：LLM 诊断。它自带候选收集 + safe 判定。
+                 *   失败时 picked.ok=false → 下面会退回启发式。 */
+                picked = await diagnosePurge(agent, sid, {
+                    maxChars: config.purgeMaxChars,
+                    maxItems: config.purgeMaxItems,
+                    maxCandidates: 12,
+                });
+                purgeLog('[huanqi][purge] LLM 诊断 ok=' + String(picked.ok)
+                    + ' 采纳=' + String(picked.items.length)
+                    + ' 扫描=' + String(picked.scanned === undefined ? '-' : picked.scanned)
+                    + ' err=' + String(picked.error === undefined || picked.error === null ? '-' : picked.error)
+                    + ' diag=' + String(picked.diag === undefined ? '-' : picked.diag)
+                    + ' raw=' + JSON.stringify(String(picked.raw === undefined ? '' : picked.raw).slice(0, 400)));
+            }
+            catch (e) {
+                picked = { ok: false, error: 'diagnose threw: ' + String(e && e.message), items: [] };
+            }
+            if (picked.ok !== true) {
+                purgeLog('[huanqi][purge] 收集候选失败: ' + String(picked.error) + ' → 落回全量');
+            }
+            else if (picked.items.length === 0) {
+                purgeLog('[huanqi][purge] 扫描 ' + String(picked.scanned) + '/' + String(picked.total)
+                    + ' 个节点，没有污染源候选 → 落回全量');
+            }
+            else {
+                const why = picked.items.map((it) => String(it.seq) + '(' + String(it.reason) + ')').join(' ');
+                purgeLog('[huanqi][purge] 扫描 ' + String(picked.scanned) + '/' + String(picked.total)
+                    + ' 个节点，候选 ' + String(picked.items.length) + ' 条: ' + why);
+                const done = purgeMany(agent, picked.items, sid);
+                purgeLog('[huanqi][purge] 清除 ' + String(done.purged.length) + '/' + String(picked.items.length) + ' 条');
+                if (done.ok) {
+                    return { ok: true, kind: 'purge', range: null, purged: done.purged, error: null };
+                }
+                purgeLog('[huanqi][purge] 全部失败 → 落回全量');
+            }
+        }
         const svc = compactionService(agent);
         if (svc === undefined) {
             /* ★★ 2026-10-27（第 5 代加）：第二条路 —— 借 `commands` 执行 /compact。
@@ -1897,15 +2480,23 @@ export function apply(ctx, config) {
              */
             const viaCmd = await (async () => {
                 let commands;
-                try { commands = ctx.get('commands'); }
-                catch { commands = undefined; }
+                try {
+                    commands = ctx.get('commands');
+                }
+                catch {
+                    commands = undefined;
+                }
                 if (commands === undefined || commands === null || typeof commands.execute !== 'function')
                     return { ok: false, kind: 'full', range: null, error: 'commands service not found' };
                 /* 每次都用新的 AbortController —— 复用一个会在第一次 abort 之后让后续调用立刻失败。 */
                 const runCommand = async (line) => {
                     let ac;
-                    try { ac = new AbortController(); }
-                    catch { return { ok: false, error: 'AbortController unavailable' }; }
+                    try {
+                        ac = new AbortController();
+                    }
+                    catch {
+                        return { ok: false, error: 'AbortController unavailable' };
+                    }
                     try {
                         const settled = await commands.execute(agent, line, [], ac.signal);
                         if (settled === undefined)
@@ -1964,8 +2555,7 @@ export function apply(ctx, config) {
                             probeNote = 'probe-threw:' + String(e && e.message);
                         }
                         try {
-                            appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
-                                new Date().toISOString() + ' [huanqi][region] pickRegion → null why='
+                            appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log', new Date().toISOString() + ' [huanqi][region] pickRegion → null why='
                                 + String(picked.why) + ' info='
                                 + String(picked.info === undefined ? '-' : picked.info)
                                 + ' ' + probeNote + '\n');
@@ -2015,7 +2605,7 @@ export function apply(ctx, config) {
                          *   所以：忙就等，10 次 × 3 秒 = 30 秒，覆盖回合收尾那一段。
                          *   只对「忙」这一种错误重试；别的错误（真失败）立刻返回，不掩盖。
                          */
-                        /* ★★★ 2026-10-27 23:42（作者定）：**region 只走 /compact-region，失败绝不降级全量。**
+                        /* ★★★ 2026-10-27 23:42（爀曦定）：**region 只走 /compact-region，失败绝不降级全量。**
                          *
                          *   为什么不能降级：降级把"只想压走最近这一段"变成"把整段 surface 压掉"。
                          *   对一条刚开始换气、还没脏到底的会话，那是**加重**而不是治疗：
@@ -2027,16 +2617,39 @@ export function apply(ctx, config) {
                          *
                          *   ★ 熔断那条（full）不受影响 —— 那时候已经救不回来了，全量才是对的。
                          */
+                        /* ★★★ 2026-10-31（爀曦定）：**放弃 /compact-region，改用官方 /compact。**
+                         *
+                         * 原因：`compactRegion(start, end, ctx, signal)` 的语义是
+                         *   `owner: 'current-turn'` —— **它要求有 open turn**。
+                         *   而换气恰好相反：必须等 turn/end 之后才能压（否则写入顺序非法、
+                         *   会写坏整条会话）。
+                         *   实测 12:00 连报 11 次 `compactRegion: no open turn` —— 死结，
+                         *   而原来那个 10 次重试循环专门重试这个错误，等于空转 30 秒。
+                         *
+                         * `compactNow`（官方 /compact）是 `owner: null` + `selected-span`，
+                         *   **不需要 open turn**，它自己用 `selectCompactableRange` 选可压范围。
+                         * 代价：区间不再由我们指定（`pickRegionEx` 的结果只作日志参考）。
+                         * 门牌由 `dsh-yanqing-compaction` 的 hook 报告实际压了哪段，不会瞎说。
+                         *
+                         * 于是 region 与 full 共用同一条命令，区别只在**压完之后做什么**：
+                         *   region → 普通续跑 + recallHint；full → 熔断续跑。 */
+                        /* ★★★ 2026-10-31（砚青·修正）：**改回 /compact-region。**
+                         *
+                         * 证据（_plugin-diag.log）：
+                         *   2026-10-27T16:10:07 compactRegion(1847–2108) → OK n=95 tok=130302
+                         *   2026-10-27T14:53:24 compactRegion(943–1476) → FAILED: surface changed
+                         * 同一条路，一次成一次败 —— **它能用**，只是对时机敏感。
+                         *
+                         * `compactRegion` 要三件事同时成立：
+                         *   ① 在事件事务外（否则 `cannot reenter`）
+                         *   ② 调用那一刻 turn 还开着（否则 `no open turn`）
+                         *   ③ 摘要那 20 秒里 surface 不动（否则 `surface changed`）
+                         * 所以**不能在 `turn/end` 里等 idle 再调** —— 等完 turn 就关了。
+                         * 正确的时机在调用方（trigger / 正在跑的那一轮），不在这里改。 */
                         const span = String(range.start) + ' ' + String(range.end);
-                        let compact = await runCommand('/compact-region ' + span);
-                        for (let attempt = 0; attempt < 10 && !compact.ok
-                            && /not idle|active compaction|no open turn/i.test(String(compact.error)); attempt += 1) {
-                            await new Promise((resolve) => { setTimeout(resolve, 3000); });
-                            compact = await runCommand('/compact-region ' + span);
-                        }
+                        const compact = await runCommand('/compact-region ' + span);
                         return {
                             ok: compact.ok,
-                            /* ★ 现在 range 是真的用了：它既是这次调用的参数，也是 recallHint 要念的那段。 */
                             kind: 'region',
                             range,
                             error: compact.ok ? null : String(compact.error),
@@ -2062,8 +2675,7 @@ export function apply(ctx, config) {
             };
             lastCompact.set(sid, out);
             try {
-                appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
-                    new Date().toISOString() + ' [huanqi][compact] 走 commands 桥 → kind='
+                appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log', new Date().toISOString() + ' [huanqi][compact] 走 commands 桥 → kind='
                     + String(viaCmd.kind) + ' range='
                     + (viaCmd.range === null || viaCmd.range === undefined
                         ? 'null'
@@ -2175,6 +2787,84 @@ export function apply(ctx, config) {
         ].join('\n');
     }
     /**
+     * 让出一拍（2026-10-31 加）—— `waitUntilQuiet` 底下的最小单位。
+     *
+     * ★ `turn/end` 是在 append 事务里广播的，处理器起的 async IIFE
+     *   在第一个 await 之前仍在发布过程中；`setTimeout(0)` 跨到下一个宏任务才安全。
+     */
+    const yieldToHost = (ms = 0) => new Promise((resolve) => { setTimeout(resolve, ms); });
+    /**
+     * 等 agent 停下来，再让它静 3 秒（2026-10-31 爀曦定）。
+     *
+     * ★ 爀曦原话：「有不用做退避延迟的方法，直接检测 agent 是否还在活跃，
+     *   停止活动后 3s 立刻执行范围或者全量压缩」
+     *
+     * ★ 退避是**猜**时间，检测是**看**状态。`whenIdle` resolve 就是真的停了。
+     * ★ 那 3 秒留给「写锁彻底放开」—— `whenIdle` 只保证回合结束，
+     *   但 `turn/end` 的 append 事务可能还没发布完。
+     * ★ 上限：`whenIdle` 万一永远不 resolve，不能陪着卡死 ——
+     *   等满就放弃等待、直接去压，让压缩自己如实报错。
+     */
+    async function waitUntilQuiet(agent, quietMs = 3000, maxWaitMs = 60000) {
+        const whenIdle = agent === undefined || agent === null ? undefined : agent.whenIdle;
+        if (typeof whenIdle !== 'function') {
+            await yieldToHost(quietMs);
+            return { how: 'no-whenIdle', quietMs };
+        }
+        let timer;
+        const timeout = new Promise((resolve) => {
+            timer = setTimeout(() => { resolve('timeout'); }, maxWaitMs);
+        });
+        let how = 'idle';
+        try {
+            const r = await Promise.race([whenIdle.call(agent), timeout]);
+            if (r === 'timeout')
+                how = 'timeout';
+        }
+        catch {
+            how = 'idle-threw';
+        }
+        finally {
+            if (timer !== undefined)
+                clearTimeout(timer);
+        }
+        if (how === 'timeout')
+            return { how, quietMs: 0 };
+        await yieldToHost(quietMs);
+        return { how, quietMs };
+    }
+    /**
+     * 压缩后的「召回提示」（2026-10-31 爀曦定）。
+     * ★ 为什么要它：压缩是为了救，但压缩本身会丢细节 —— 给一轮机会自己找回来。
+     * ★ 不硬编码：`config.recallPrompt` 非空就用它的，留空才用这段默认。
+     */
+    function recallPromptText() {
+        const custom = typeof config.recallPrompt === 'string' ? config.recallPrompt.trim() : '';
+        if (custom !== '')
+            return custom;
+        return [
+            '[huanqi] 上下文刚被压缩过，里面有东西丢了。',
+            '先别急着干活 —— 把丢掉的东西找回来：',
+            '  · 一手原文：`memq open <指针>` 或 `mcp__echo__echo_open`',
+            '  · 按关键词检索：`mcp__echo__echo_search terms=["<最近在做的关键词>"]` 或 `memq <词>`',
+            '  · 按时间定位：`memq timeline --since <ISO>`',
+            '',
+            '拿回来的东西写一句「我找回了：…」，再继续。',
+            '★ 别依赖摘要 —— 摘要只是索引，原文永远优先。',
+        ].join('\n');
+    }
+    /**
+     * 诊断落盘（2026-10-31 砚青落）。
+     * ★ `ctx.logger.warn` 在这台 Electron 上不进任何文件（实测 grep 一条都没有），
+     *   熔断分支原来只有 logger，所以那一晚整个过程一个字都没留下。
+     */
+    function diagLog(tag, line) {
+        try {
+            appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log', new Date().toISOString() + ' [huanqi][' + tag + '] ' + line + '\n');
+        }
+        catch { /* 诊断不许影响主流程 */ }
+    }
+    /**
      * 已经收到过「落盘指令」的 agent。
      *
      * ★ 2026-10-23（砚青落）：为什么需要它 —— 熔断后 `steer` 会把会话推进下一轮，
@@ -2188,7 +2878,7 @@ export function apply(ctx, config) {
     /**
      * 换气账本。
      *
-     * ★ **全局一份，跨会话共享**（2026-10-10 定：「分会话管理会很麻烦」）。
+     * ★ **全局一份，跨会话共享**（爀曦 2026-10-10 定：「分会话管理会很麻烦」）。
      * 理由是上下文变脏通常是全局性的 —— 同一台机器、同一批模型、同样的用法。
      * 所以一个会话把额度耗光会影响别的会话，**这是有意的**。
      */
@@ -2214,7 +2904,7 @@ export function apply(ctx, config) {
     /**
      * Is this a delegated (sub-)agent rather than a root conversation?
      *
-     * ★ 2026-10-23（作者指出，砚青落）—— **子 agent 不参与换气判定。**
+     * ★ 2026-10-23（爀曦指出，砚青落）—— **子 agent 不参与换气判定。**
      *
      * 病因（2026-10-22 夜实测）：子 agent 正在干活时被反复「误杀」。
      * 换气判的是「这一轮没出正文」，而子 agent 的「没出正文」**通常只是它还在读文件、
@@ -2239,7 +2929,7 @@ export function apply(ctx, config) {
      *   （它照旧会被后面的流内/流末保护兜住），也不能因为读不到元数据
      *   就把主会话这层保险悄悄关掉 —— 那是「保险失效还说自己在值班」。
      */
-    /* ★★★ 2026-10-23 22:47 作者拍板：**智能体团队的 agent 和一次性子 agent 归成一类。**
+    /* ★★★ 2026-10-23 22:47 爀曦拍板：**智能体团队的 agent 和一次性子 agent 归成一类。**
      *   —— 实测它们在投影缓存里长得一样（都有 `subagent.identity`、`mode` 都是
      *   `continuable`，`parentSession` 两边都没有），分开判要绕去读父会话的两张表，
      *   而「常驻」这件事本身**不增加换气的负担**（空闲时没有 turn，不产生判定）。
@@ -2580,11 +3270,16 @@ export function apply(ctx, config) {
     // 任何绕过解析的路径（测试夹具、配置注入、旧版本升级）拿到的都是 `undefined`，
     // 而 `undefined` 在做真值判断时等于「关掉」—— 那条判据就会静默失效，没人知道。
     // 默认开 = 只有显式写 false 才关。
+    /* ★★★ 2026-10-31（砚青修）：这两个表原来声明在下面那个 if 块**内部**，
+     *   而 `compactOnce` 定义在块**外** —— 它一进去就 `openTurn is not defined`。
+     *   作用域错位，整个「turn 开着禁止压缩」的检查从未生效过。提到块外。 */
+    const turnStartedAt = new Map();
+    const openTurn = new Set();
     if (config.emptyTurnContinue !== false && config.maxContinuations > 0) {
         /**
          * sessionId → **最后一条** assistant 消息有没有出现 text / tool-call。
          *
-         * ★ 2026-10-19 修（作者当天实测抓到的真实形状）：
+         * ★ 2026-10-19 修（爀曦当天实测抓到的真实形状）：
          *   第一版记的是「这一轮里**任何一次**产出」，于是每次读文件、写文件（tool-call）
          *   都会把整轮标成「有产出」—— 而**最后一步卡在思考里**的时候，判据就永远不触发。
          *
@@ -2601,7 +3296,27 @@ export function apply(ctx, config) {
         /** sessionId → 最后一条 assistant 消息的形状（如 "text" / "reasoning" / "reasoning+tool-call"） */
         const lastMessageShape = new Map();
         /** sessionId → 本轮 turn/start 的时间戳（毫秒），用来算「卡了多久」 */
-        const turnStartedAt = new Map();
+        /* ★ 2026-10-31：声明已提到本 if 块外 —— compactOnce 在块外定义。 */
+        /** sessionId → 累计开过多少轮（2026-10-31 加；两套压缩冷却都按它算） */
+        const turnSeq = new Map();
+        /** sessionId → 上次范围压缩时的轮次号（配合 `regionCompactEveryTurns`） */
+        const lastRegionCompactAt = new Map();
+        /** sessionId → 上次熔断救援时的轮次号（配合 `breakerRescueEveryTurns`） */
+        const lastBreakerRescueAt = new Map();
+        /**
+         * ★★★ 2026-10-31（爀曦定）：**turn 结束后才允许开压缩。**
+         *
+         * 起因：`/compact-region` 的语义是 `owner: 'current-turn'`，它天生要求
+         * 「在一个 open turn 里」。但在 turn 内开压缩，摘要失败时引擎的写入顺序是
+         *   ① turn/end  ② compaction/end(error)
+         * —— 先结束回合、再关压缩。这条顺序非法（`turn/end crosses an open compaction`），
+         * 下一次读取整条会话直接判 "stored log is corrupt"。
+         * 2026-10-27（seq 1486/1487）与 2026-10-31（seq 27493/27494）各坏一次。
+         *
+         * 所以这里记着哪些会话还有 open turn；`compactOnce` 见到就**如实跳过**，
+         * 等 `turn/end` 把它清掉，下一个 tick（3 秒）再压。
+         * 宁可晚压一轮，不能写坏日志。
+         */
         ctx.on('session/event', ((session, event) => {
             const sid = session === undefined || session === null ? undefined : session.id;
             if (typeof sid !== 'string')
@@ -2611,6 +3326,10 @@ export function apply(ctx, config) {
                 lastMessageHadOutput.set(sid, false);
                 // ★ 诊断：记下本轮开始时间（用来算「卡了多久」）
                 turnStartedAt.set(sid, Date.now());
+                // ★ 2026-10-31：每条会话自己的轮次序号 —— 两套压缩冷却都按它算。
+                turnSeq.set(sid, (turnSeq.get(sid) ?? 0) + 1);
+                // ★ 2026-10-31：turn 开着 = 禁止开压缩（理由见 openTurn 的注释）
+                openTurn.add(sid);
                 return;
             }
             if (type === 'assistant/message') {
@@ -2635,6 +3354,8 @@ export function apply(ctx, config) {
             }
             if (type !== 'turn/end')
                 return;
+            // ★ 2026-10-31：回合结束，解除「禁止开压缩」。
+            openTurn.delete(sid);
             const data = event === undefined ? undefined : event.data;
             const kind = data === undefined ? undefined : data.reason?.kind;
             // ★★ 诊断（2026-10-19 第二次加，改成 warn 级必定可见）：
@@ -2812,14 +3533,40 @@ export function apply(ctx, config) {
                     cutCounts.set(sid, cuts);
                     let notice = strings.continueNotice(left, ledger.creditMax, config.normalTurnThreshold);
                     const cutThreshold = config.regionCompactAfterCuts;
-                    if (cutThreshold > 0 && cuts >= cutThreshold && !subagentExempt) {
+                    /* ★★★ 2026-10-31：**冷却 —— 范围压缩之间至少隔 N 轮**
+                     *   爀曦原话：「每 N 轮内只能触发一次范围压缩」。
+                     *   ★ 光有截断次数不够：一轮里截断三十次会让它反复满足。 */
+                    const everyTurns = config.regionCompactEveryTurns;
+                    const seqNow = turnSeq.get(sid) ?? 0;
+                    const lastCompactAt = lastRegionCompactAt.get(sid);
+                    const cooledDown = everyTurns <= 0
+                        || lastCompactAt === undefined
+                        || (seqNow - lastCompactAt) >= everyTurns;
+                    if (cutThreshold > 0 && cuts >= cutThreshold && cooledDown && !subagentExempt) {
                         cutCounts.set(sid, 0); // 攒够了 —— 归零重计
+                        lastRegionCompactAt.set(sid, seqNow);
+                        /* ★ as any：`session` 不在本包声明的 Agent 面上，压缩层却必须摸它。 */
                         const agentFull = ctx.agents.get(sid);
                         if (agentFull !== undefined && agentFull.session !== undefined) {
+                            /* ★★★ 2026-10-31（砚青落·爀曦定）：**先检测，再动手。**
+                             *   `turn/end` 是在 append 事务里广播的 —— 处理器起的 async IIFE
+                             *   在第一个 await 之前仍在发布过程中，所以一调压缩就撞锁。
+                             *   `waitUntilQuiet` 用 `agent.whenIdle()` 拿信号，再静 3 秒。 */
+                            diagLog('region', '准备压缩 sid=' + sid + ' cuts=' + String(cuts)
+                                + ' credit=' + String(left) + '/' + String(ledger.creditMax) + ' —— 等 agent 静下来');
+                            const quiet = await waitUntilQuiet(agentFull);
+                            diagLog('region', 'agent=' + quiet.how + ' 静 '
+                                + String(Math.round(quiet.quietMs / 1000)) + 's → 开始压缩');
                             const outcome = await compactOnce(agentFull, 'region', sid);
-                            ctx.logger.warn('dsh-huanqi: region compaction after ' + String(cuts) + ' cuts → ' +
-                                (outcome.ok ? 'ok' : 'failed(' + String(outcome.error) + ')') +
-                                (outcome.range === null
+                            diagLog('region', '压缩完成 ' + (outcome.ok
+                                ? 'OK kind=' + String(outcome.kind)
+                                : 'FAILED: ' + String(outcome.error))
+                                + (outcome.range === null
+                                    ? ''
+                                    : ' range=' + String(outcome.range.start) + '–' + String(outcome.range.end)));
+                            ctx.logger.warn('dsh-huanqi: region compaction after ' + String(cuts) + ' cuts → '
+                                + (outcome.ok ? 'ok' : 'failed(' + String(outcome.error) + ')')
+                                + (outcome.range === null
                                     ? ''
                                     : ' range=' + String(outcome.range.start) + '–' + String(outcome.range.end)));
                             /* ★ 压缩成功 → 换成「取回指引」而不是普通续跑提示。
@@ -2850,18 +3597,59 @@ export function apply(ctx, config) {
                  *
                  * ★ 告知必须写清三件事（circuitBreakNotice 里补不上，所以单独组装）：
                  *   ① 做了什么（全量压缩）② 原文在哪（seq 指针）③ 不再延续。
-                 *   少了任何一条，用户都会以为是崩溃 —— 那可能让他直接重开，整轮工作就真丢了。
+                 * 少了任何一条，用户都会以为是崩溃 —— 那可能让他直接重开，整轮工作就真丢了。
                  *
                  * ★ 同样包 async IIFE：处理器是同步的（见上面范围压缩那段的说明）。
                  * ══════════════════════════════════════════════════════════════ */
                 void (async () => {
                     let fullNote = null;
-                    if (config.fullCompactOnBreaker !== false && !subagentExempt) {
+                    let compacted = false;
+                    let attemptedCompact = false;
+                    let cooledDown = false;
+                    /* ══════════════════════════════════════════════════════════════
+                     * ★★★ 2026-10-31（爀曦定）：**两次熔断救援之间至少隔 N 轮**
+                     *
+                     * 他原话：「每 N 轮内只能触发一次范围压缩，否则延续额度用完、
+                     *   触发的熔断调用全量压缩后，不会再延续会话，
+                     *   **我们要依靠熔断机制来终结循环**」
+                     *
+                     * ★ 为什么比「救过一次就记标记」可靠：那种写法只要召回轮产出一次
+                     *   （哪怕只是调了个工具）就把标记清了，于是变成 2 轮循环。
+                     *   换成轮次冷却，救援被钉死成「18 轮一次」。
+                     * ══════════════════════════════════════════════════════════════ */
+                    const rescueEvery = config.breakerRescueEveryTurns;
+                    const rescueSeqNow = turnSeq.get(sid) ?? 0;
+                    const lastRescue = lastBreakerRescueAt.get(sid);
+                    const canRescue = config.fullCompactOnBreaker !== false
+                        && !subagentExempt
+                        && (rescueEvery <= 0
+                            || lastRescue === undefined
+                            || (rescueSeqNow - lastRescue) >= rescueEvery);
+                    if (config.fullCompactOnBreaker !== false && !subagentExempt && !canRescue) {
+                        cooledDown = true;
+                        diagLog('breaker', '熔断救援冷却中（距上次 '
+                            + String(lastRescue === undefined ? 0 : rescueSeqNow - lastRescue)
+                            + ' 轮 < ' + String(rescueEvery) + '）→ 不压、不续 sid=' + sid);
+                    }
+                    if (canRescue) {
+                        /* ★ as any：同上 —— `session` 不在本包声明的 Agent 面上。 */
                         const agentFull = ctx.agents.get(sid);
                         if (agentFull !== undefined && agentFull.session !== undefined) {
+                            attemptedCompact = true;
+                            /* ★ 先记轮次 —— **成败都算「尝试过救援」**，失败也不该在 18 轮内反复撞。 */
+                            lastBreakerRescueAt.set(sid, rescueSeqNow);
+                            diagLog('breaker', '熔断 → 准备全量压缩 sid=' + sid
+                                + ' credit=0/' + String(ledger.creditMax) + ' —— 等 agent 静下来');
+                            const quiet = await waitUntilQuiet(agentFull);
+                            diagLog('breaker', 'agent=' + quiet.how + ' 静 '
+                                + String(Math.round(quiet.quietMs / 1000)) + 's → 开始压缩');
                             const outcome = await compactOnce(agentFull, 'full', sid);
-                            ctx.logger.warn('dsh-huanqi: circuit break → full compaction ' +
-                                (outcome.ok ? 'ok' : 'failed(' + String(outcome.error) + ')'));
+                            compacted = outcome.ok;
+                            diagLog('breaker', '全量压缩 ' + (outcome.ok
+                                ? 'OK kind=' + String(outcome.kind)
+                                : 'FAILED: ' + String(outcome.error)));
+                            ctx.logger.warn('dsh-huanqi: circuit break → full compaction '
+                                + (outcome.ok ? 'ok' : 'failed(' + String(outcome.error) + ')'));
                             if (outcome.ok) {
                                 /* ★ 2026-10-26（砚青落）：全量压缩没有「压了哪一段」，所以给不出 seq 门牌。
                                  *   但不能就此只说「seq 未算准」—— 那样它连去哪找都不知道。
@@ -2881,15 +3669,35 @@ export function apply(ctx, config) {
                         }
                     }
                     agent.inject(message(fullNote === null ? strings.circuitBreakNotice(ledger.creditMax) : fullNote, 'notice', 'huanqi: circuit break (empty turn)'));
+                    /* ★ 压缩成功 → 按 `resumeAfterCompact` 续一轮召回。
+                     *   上限靠 `breakerRescueEveryTurns` 冷却，不靠一次性标记。 */
+                    if (compacted && config.resumeAfterCompact !== false) {
+                        diagLog('breaker', '压缩成功 → 注入召回提示并续一次 sid=' + sid);
+                        scheduleResume(agent, recallPromptText(), 'huanqi: resume once after full compaction (recall what the compression dropped)');
+                        return;
+                    }
+                    /* ★ 冷却中 → 不压不续，只提示人手动压（熔断的默认结局是停下）。 */
+                    if (cooledDown) {
+                        diagLog('breaker', '冷却中 → 停下等人手动 /compact sid=' + sid);
+                        agent.inject(message([
+                            '[huanqi] 思考退化熔断。',
+                            '- 距上次全量压缩还不到 ' + String(rescueEvery) + ' 轮，**这次既不压缩也不延续**。',
+                            '- 请你手动输入 `/compact` 清一次，再决定是继续还是换容器。',
+                        ].join('\n'), 'notice', 'huanqi: breaker rescue cooled down — stop and ask the user to compact manually'));
+                        return;
+                    }
+                    /* ★ 尝试过但失败 → 同样停下，不推模型。 */
+                    if (attemptedCompact && !compacted) {
+                        diagLog('breaker', '全量压缩失败 → 停下，只提示用户手动 /compact sid=' + sid);
+                        agent.inject(message([
+                            '[huanqi] 思考退化熔断，但**全量压缩没有成功**。',
+                            '- 本轮**不再延续**（不推模型，等你）。',
+                            '- 请你手动输入 `/compact` 做一次全量压缩，再决定是继续还是换容器。',
+                            '- 压缩失败的原因见 `D:\\AI\\memory\\hub\\_plugin-diag.log`。',
+                        ].join('\n'), 'notice', 'huanqi: full compaction FAILED — stop and ask the user to compact manually'));
+                        return;
+                    }
                 })();
-                /* ★ 2026-10-23（砚青落）：inject 只是让人**看见**；要它真的去落盘，必须 steer ——
-                 * steer 是一条真正的用户消息，会进下一轮被模型读到并执行。
-                 * ★ 守卫只用一次（landPrompted）：熔断后额度是 0，若它又被推进一轮却仍无产出，
-                 * 会再次熔断、再次 steer —— 那就是无限循环。第二次起只留给 inject，等人来。 */
-                if (!landPrompted.has(agent)) {
-                    landPrompted.add(agent);
-                    agent.steer(message(strings.circuitBreakNotice(ledger.creditMax), 'notice', 'huanqi: land your state, then ask the user to compact'));
-                }
             }
         }));
     }

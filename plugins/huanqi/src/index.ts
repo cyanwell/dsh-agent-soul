@@ -177,7 +177,7 @@ function homeDir(): string {
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent, AgentCancelCause } from '@deepseek-ai/dsh-agent'
-import { createUserMessage, isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, createUserMessage, isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 /* ★ 2026-10-28（源同步）：范围压缩要判「这个切点两侧的工具调用配不配对」。
  *   它是宿主自带的导出（`dsh-compaction/tool-pairing`），本包的 dependencies 里没有 ——
  *   与 `ctx.get('compaction')` 同一个前提：**运行时由宿主提供**。 */
@@ -595,6 +595,40 @@ export interface Config {
   fullCompactOnBreaker?: boolean
   /** 压缩后是否注入「取回一手原文」的指引。默认 `true`。 */
   postCompactRecallHint?: boolean
+  /**
+   * 压缩成功后是否**再延续一次**（2026-10-31 爀曦定）。
+   *
+   * ★ 与 `postCompactRecallHint` 的分工：那个管**早杀后的范围压缩**，
+   *   这个管**熔断后的全量压缩** —— `false` 时压缩完就停下等人。
+   */
+  resumeAfterCompact?: boolean
+  /** 压缩后注入的「召回提示」正文。留空 = 用内置默认（{@link recallPromptText}）。 */
+  recallPrompt?: string
+  /**
+   * 两次**范围压缩**之间至少隔多少轮（2026-10-31 加）。0 = 不限制。默认 18。
+   *
+   * ★ 「几次截断」量的是单轮内强度，「几轮」才是时间尺度 ——
+   *   一轮里截断三十次会让 `regionCompactAfterCuts` 反复满足。
+   */
+  regionCompactEveryTurns?: number
+  /**
+   * 两次**熔断救援**（全量压缩 + 续跑召回）之间至少隔多少轮。0 = 不限制。默认 18。
+   *
+   * ★★★ 防死循环的主保险。没到间隔就只停下提示手动 /compact ——
+   *   「依靠熔断机制来终结循环」。
+   */
+  breakerRescueEveryTurns?: number
+  /**
+   * 截断压缩是否改走「定点清除」（2026-10-31 加）。默认 `true`。
+   *
+   * ★ 关掉就完全退回老路：`compactRegion` / 全量 `/compact`。
+   *   留这个开关是因为定点清除会**改写工具结果**，出问题时得能一键停。
+   */
+  purgeOnCuts?: boolean
+  /** 一次最多清几条（保守起见默认 3）。 */
+  purgeMaxItems?: number
+  /** 多大的工具结果算「沙袋」（超过这个字符数就进候选）。默认 20000。 */
+  purgeMaxChars?: number
   /** 要接的压缩服务名。留空 = `compaction`。 */
   compactionService?: string
 }
@@ -617,6 +651,26 @@ export const Config: z<Config> = z.object({
   fullCompactOnBreaker: z.boolean().default(true),
   /** 压缩后是否注入「取回一手原文」的指引。默认 true。 */
   postCompactRecallHint: z.boolean().default(true),
+  /** 压缩成功后是否再延续一次（2026-10-31 加）。默认 true。 */
+  resumeAfterCompact: z.boolean().default(true),
+  /** 召回提示正文。留空 = 用内置默认。 */
+  recallPrompt: z.string().default(''),
+  /** 两次范围压缩之间至少隔多少轮。0 = 不限制。默认 18。 */
+  regionCompactEveryTurns: z.number().step(1).min(0).max(200).default(18),
+  /** 两次熔断救援之间至少隔多少轮。0 = 不限制。默认 18。 */
+  breakerRescueEveryTurns: z.number().step(1).min(0).max(200).default(18),
+  /**
+   * 截断压缩是否改走「定点清除」（2026-10-31 加）。默认 true。
+   *
+   * 背景：`/compact-region` 内在矛盾 —— 它要 open turn + 整面静止，
+   * 而换气只能在 turn 外行动，两个要求不能同时满足（六次尝试全败）。
+   * 改走 surfaceOp 直接替换 tool/result，不需要 open turn。
+   */
+  purgeOnCuts: z.boolean().default(true),
+  /** 一次最多清几条（保守起见默认 3）。 */
+  purgeMaxItems: z.number().step(1).min(1).max(20).default(3),
+  /** 多大的工具结果算「沙袋」（字符数）。默认 20000。 */
+  purgeMaxChars: z.number().step(1000).min(2000).max(200000).default(20000),
   /** 要接的压缩服务名。留空 = `compaction`。 */
   compactionService: z.string().default(''),
   /** 子 agent（含 Agent Teams 成员）的严格程度。默认 `strict` = 现在的行为。 */
@@ -2150,7 +2204,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
       void (async () => {
         let req: any = null
         try { req = JSON.parse(raw as string) } catch (e: any) {
-          diag('[huanqi][trigger] JSON 解析失败: ' + String(e && e.message))
+          diag('[huanqi][trigger] JSON 解析失败: ' + String((e as any) && (e as any).message))
           return
         }
         const mode = String(req.mode || 'region').trim()
@@ -2168,7 +2222,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
             diag('[huanqi][trigger] 兜底 ctx.agents.get(' + wantSid + ') → '
               + (target === null ? '没拿到' : '拿到了'))
           } catch (e: any) {
-            diag('[huanqi][trigger] 兜底取 agent 抛: ' + String(e && e.message))
+            diag('[huanqi][trigger] 兜底取 agent 抛: ' + String((e as any) && (e as any).message))
           }
         }
         if (target === null) {
@@ -2240,6 +2294,21 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
         }
         const tryOnce = async (m: string): Promise<void> => {
           try {
+            /* ★★★ 2026-10-31（砚青补）：**调试通道也必须先等 agent 静下来。**
+             *
+             *   实测（03:20:19，那一次我已经结束了回合、确实 idle）：
+             *     11:20:16 回合结束 → 11:20:19 trigger 启动 → 11:20:32 失败
+             *     FAILED: compaction: session surface changed during summarization
+             *
+             *   ★ 3 秒的间隔不够 —— `compactRegion` 要求摘要那十几秒里
+             *     整个 surface 一个节点都不许变，而回合收尾的写入可能还没落完。
+             *   ★ 主路径（早杀 / 熔断）靠 `waitUntilQuiet` 静 3 秒再动；
+             *     原来这个调试口直接调 `compactOnce`，所以它测出来的失败
+             *     **不能代表主路径的真实情况** —— 这也是它必须改的原因。 */
+            diag('[huanqi][trigger] 等 agent 静下来 …')
+            const quiet = await waitUntilQuiet(target)
+            diag('[huanqi][trigger] agent=' + quiet.how + ' 静 '
+              + String(Math.round(quiet.quietMs / 1000)) + 's → 开始压缩')
             const outcome = await compactOnce(target, m, targetSid)
             diag('[huanqi][trigger] compactOnce(' + m + ') → '
               + (outcome.ok ? 'OK' : 'FAILED: ' + String(outcome.error))
@@ -2247,7 +2316,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
                 ? 'null'
                 : String(outcome.range.start) + '–' + String(outcome.range.end)))
           } catch (e: any) {
-            diag('[huanqi][trigger] compactOnce(' + m + ') 抛: ' + String(e && e.message))
+            diag('[huanqi][trigger] compactOnce(' + m + ') 抛: ' + String((e as any) && (e as any).message))
           }
         }
         if (mode === 'region' || mode === 'both') await tryOnce('region')
@@ -2401,6 +2470,313 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
     why: string | null
     info?: string
   }
+  /* ===== 定点清除（2026-10-31 新增） =====
+   *
+   * 背景：`/compact-region` 要 open turn + 整面静止，在换气的时机上不可用。
+   * 改用 surfaceOp 直接替换 tool/result（已实测通过，见 30-状态/设计-换气定点清除.md）。
+   *
+   *   collectPurgeCandidates —— 找「污染源」候选（启发式，不依赖 LLM）
+   *   purgeOne              —— 替换一条（四条硬约束都已满足）
+   *   purgeMany             —— 批量替换
+   *
+   * ★ 本段在 compactOnce 作用域外，`diag` / `targetSid` 不可见 —— 用 appendFileSync 直接写。
+   */
+
+  const PURGE_LOG = 'D:\\AI\\memory\\hub\\_plugin-diag.log';
+  const purgeLog = (line: any): void => {
+      try {
+          appendFileSync(PURGE_LOG, new Date().toISOString() + ' ' + line + '\n');
+      }
+      catch { /* 诊断不许影响主流程 */ }
+  };
+
+  /** 候选：找「超大工具结果」和「重复前缀的工具结果」。 */
+  function collectPurgeCandidates(agent: any, opts: any): any {
+      const sess = agent !== null && agent !== undefined && agent.session !== undefined ? agent.session : undefined;
+      if (sess === undefined) return { ok: false, error: 'no session', items: [] };
+      const nodes = sess.surface === undefined ? undefined : sess.surface.nodes;
+      if (nodes === undefined || nodes === null) return { ok: false, error: 'no surface', items: [] };
+
+      const maxChars = Number(opts && opts.maxChars ? opts.maxChars : 20000);
+      const maxItems = Number(opts && opts.maxItems ? opts.maxItems : 3);
+
+      const arr = [];
+      try {
+          for (const v of nodes) arr.push(v);
+      }
+      catch (e) {
+          return { ok: false, error: 'iter: ' + String((e as any) && (e as any).message), items: [] };
+      }
+
+      /* 只看尾巴：动太老的历史风险大、收益小。 */
+      const tail = arr.slice(-400);
+      const items = [];
+      const seen = new Map();
+
+      for (const seq of tail) {
+          let ev;
+          try { ev = sess.eventAt(seq); }
+          catch (e) { continue; }
+          if (ev === undefined || ev === null) continue;
+          if (String(ev.type) !== 'tool/result') continue;
+
+          const d = ev.data || {};
+          const msg = d.message || {};
+          const content = Array.isArray(msg.content) ? msg.content : [];
+          let text = '';
+          for (const c of content) {
+              if (c !== null && typeof c === 'object' && typeof c.text === 'string') text += c.text;
+          }
+          if (text.length === 0) continue;
+
+          const key = text.slice(0, 200);
+          if (!seen.has(key)) seen.set(key, []);
+          seen.get(key).push({ seq: seq, len: text.length });
+
+          const preview = text.slice(0, 300).replace(/\s+/g, ' ');
+          items.push({ seq: seq, len: text.length, preview: preview, reason: 'candidate' });
+      }
+
+      /* 重复前缀：保留最后一条，前面的都算候选。 */
+      for (const entry of seen) {
+          const list = entry[1];
+          if (list.length < 2) continue;
+          for (let i = 0; i < list.length - 1; i += 1) {
+              items.push({ seq: list[i].seq, len: list[i].len, reason: 'duplicate x' + String(list.length) });
+          }
+      }
+
+      const uniq = new Map();
+      for (const it of items) if (!uniq.has(it.seq)) uniq.set(it.seq, it);
+      /* 送诊断的候选：先取最长的 maxCandidates 条（沙袋优先），再由 LLM 挑。 */
+      const maxCandidates = Number(opts && opts.maxCandidates ? opts.maxCandidates : 12);
+      const byLen = Array.from(uniq.values()).sort((a, b) => b.len - a.len).slice(0, maxCandidates);
+      const out = byLen.sort((a, b) => a.seq - b.seq);
+
+      return { ok: true, items: out, scanned: tail.length, total: arr.length };
+  }
+
+  /** 替换一条 tool/result。四条硬约束：类型、去重、只改 content、不加额外字段。 */
+  function purgeOne(sess: any, seq: any, note: any): any {
+      const ev = sess.eventAt(seq);
+      if (ev === undefined || ev === null) return { ok: false, seq: seq, error: 'no event' };
+      if (String(ev.type) !== 'tool/result') return { ok: false, seq: seq, error: 'type=' + String(ev.type) };
+      const od = ev.data || {};
+      const omsg = od.message || {};
+      const nm = Object.assign({}, omsg, { content: [{ type: 'text', text: note }] });
+      const r = sess.append('tool/result', Object.assign({}, od, { message: nm }), {
+          surfaceOp: { op: 'replace', startSeq: seq, endSeq: seq },
+          sourceEventSeqs: [seq],
+      });
+      return { ok: true, seq: seq, newSeq: r === undefined || r === null ? null : r.seq };
+  }
+
+  /** 批量：逐条替换，任何一条失败都不影响其它条。 */
+  function purgeMany(agent: any, items: any, sid: any): any {
+      const sess = agent !== null && agent !== undefined && agent.session !== undefined ? agent.session : undefined;
+      if (sess === undefined) return { ok: false, error: 'no session', purged: [] };
+      const purged = [];
+      for (const it of items) {
+          const note = '[huanqi] 定点清除 seq ' + String(it.seq) + '（原因：' + String(it.reason) + '）\n'
+              + '原文可取回：log:' + String(sid) + '#seq=' + String(it.seq) + '\n'
+              + '（这是清除留下的占位，不是压缩摘要。）';
+          try {
+              const one = purgeOne(sess, it.seq, note);
+              if (one.ok) {
+                  purged.push(one);
+                  purgeLog('[huanqi][purge] OK ' + String(it.seq) + ' 新seq=' + String(one.newSeq) + ' 原因=' + String(it.reason));
+              }
+              else {
+                  purgeLog('[huanqi][purge] 跳过 seq ' + String(it.seq) + ': ' + String(one.error));
+              }
+          }
+          catch (e) {
+              purgeLog('[huanqi][purge] seq ' + String(it.seq) + ' 抛: ' + String((e as any) && (e as any).message));
+          }
+      }
+      return { ok: purged.length > 0, purged: purged };
+  }
+
+
+  /* ===== LLM 诊断（2026-10-31 加） =====
+   *
+   * 爀曦定的口径：「让 LLM 检查上下文有哪些地方导致了污染，造成思考退化」。
+   * 启发式（collectPurgeCandidates）只负责**筛出可疑段**，
+   * 真正判断「哪几段是诱因、删了安不安全」交给模型。
+   *
+   * 调用方式照官方 compaction 的 summarizeWithLlm：
+   *   ctx.get('llm').stream({ provider, model, messages, maxTokens, sessionId, purpose })
+   *   for await (chunk) assembler.push(chunk)
+   */
+
+  const PURGE_DIAG_INSTRUCTION = [
+      '你是一个上下文污染诊断器。下面列出当前会话里若干条工具结果（tool/result）的 seq、长度和开头片段。',
+      '',
+      '背景：这个 agent 出现了「思考退化」——重复推理、重复输出、空回合。',
+      '你的任务：判断哪些工具结果**最可能是导致退化的诱因**。',
+      '',
+      '典型诱因：',
+      '- 同一内容被反复读取/输出的残留（重复前缀）',
+      '- 超长的、已经用完的工具输出（整份文件 dump、大段日志）',
+      '- 失败的循环留下的错误刷屏',
+      '',
+      '对每条候选给出：',
+      '- seq：原样返回',
+      '- reason：一句话（中文）说明为什么它是诱因，或为什么不是',
+      '- safe：true 表示「删掉它对因果链无损」；false 表示「它可能是唯一记录，别动」',
+      '',
+      '★ safe 要保守：拿不准就 false。删错比不删更坏。',
+      '★ 最多挑 3 条 safe=true。没有真正的诱因就返回空数组。',
+      '',
+      '只输出 JSON，不要解释、不要 markdown 围栏：',
+      '{"items":[{"seq":123,"reason":"...","safe":true}]}'
+  ].join('\n');
+
+  /** 从模型输出里抠出 JSON 对象。四层退让：直解析 → 剥围栏 → 括号配平 → 截断抢救。 */
+  function extractJsonObject(text: any): any {
+      const s = String(text === null || text === undefined ? '' : text);
+      if (s.length === 0) return null;
+      try {
+          const o = JSON.parse(s.trim());
+          if (o !== null && typeof o === 'object' && Array.isArray(o.items)) return o;
+      } catch { /* 退下一层 */ }
+      const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      if (fence !== null && fence[1] !== undefined) {
+          try {
+              const o = JSON.parse(fence[1].trim());
+              if (o !== null && typeof o === 'object' && Array.isArray(o.items)) return o;
+          } catch { /* 退下一层 */ }
+      }
+      for (let start = 0; start < s.length; start += 1) {
+          if (s[start] !== '{') continue;
+          let depth = 0;
+          let inStr = false;
+          let esc = false;
+          for (let i = start; i < s.length; i += 1) {
+              const ch = s[i];
+              if (inStr) {
+                  if (esc) esc = false;
+                  else if (ch === '\\') esc = true;
+                  else if (ch === '"') inStr = false;
+                  continue;
+              }
+              if (ch === '"') { inStr = true; continue; }
+              if (ch === '{') depth += 1;
+              else if (ch === '}') {
+                  depth -= 1;
+                  if (depth === 0) {
+                      try {
+                          const o = JSON.parse(s.slice(start, i + 1));
+                          if (o !== null && typeof o === 'object' && Array.isArray(o.items)) return o;
+                      } catch { /* 换下一个起点 */ }
+                      break;
+                  }
+              }
+          }
+      }
+      const re = /\{\s*"seq"\s*:\s*(-?\d+)[\s\S]*?\}/g;
+      const kept = [];
+      let m;
+      while ((m = re.exec(s)) !== null) {
+          try {
+              const o = JSON.parse(m[0]);
+              if (o !== null && typeof o === 'object') kept.push(o);
+          } catch { /* 跳过坏片 */ }
+      }
+      if (kept.length > 0) return { items: kept, __salvaged: true };
+      return null;
+  }
+
+  /** LLM 诊断：返回 { ok, items:[{seq, reason, safe}], raw }。失败时 items 为空。 */
+  async function diagnosePurge(agent: any, sid: any, opts: any): Promise<any> {
+      const llm = ctx.get('llm');
+      if (llm === undefined || llm === null || typeof llm.stream !== 'function') {
+          return { ok: false, error: 'llm service unavailable', items: [] };
+      }
+
+      const cands = collectPurgeCandidates(agent, opts);
+      if (cands.ok !== true) return { ok: false, error: String(cands.error), items: [] };
+      if (cands.items.length === 0) return { ok: true, items: [], scanned: cands.scanned, total: cands.total, raw: '(no candidates)' };
+
+      /* 目标 provider/model：优先会话最近一次路由的 config，其次 agent.options。 */
+      let target;
+      try {
+          const head = agent.session.requestHeader === undefined ? undefined : agent.session.requestHeader();
+          if (head !== undefined && head !== null && head.config !== undefined && head.config !== null) {
+              if (typeof head.config.provider === 'string' && typeof head.config.model === 'string') {
+                  target = { provider: head.config.provider, model: head.config.model };
+              }
+          }
+      }
+      catch { /* 拿不到就退下一步 */ }
+      if (target === undefined) {
+          const o = agent.options === undefined ? {} : agent.options;
+          if (typeof o.provider === 'string' && o.provider.length > 0 && typeof o.model === 'string' && o.model.length > 0) {
+              target = { provider: o.provider, model: o.model };
+          }
+      }
+      if (target === undefined) return { ok: false, error: 'no provider/model for diagnosis', items: [] };
+
+      const lines = cands.items.map((it: any) => 'seq=' + String(it.seq) + ' len=' + String(it.len) + ' preview=' + String(it.preview));
+      const body = PURGE_DIAG_INSTRUCTION + '\n\n候选（共 ' + String(cands.items.length) + ' 条）：\n' + lines.join('\n');
+
+      const assembler = new BlockAssembler();
+      try {
+          const message = createUserMessage({
+              content: [{ type: 'text', text: body }],
+              source: { kind: 'plugin', plugin: 'dsh-huanqi' } as any
+          });
+          const options = {
+              provider: target.provider,
+              model: target.model,
+              messages: [message],
+              maxTokens: 16000,
+              sessionId: agent.session.id,
+              purpose: 'purge-diagnose' as any
+          };
+          for await (const chunk of llm.stream(options)) assembler.push(chunk);
+      }
+      catch (e) {
+          return { ok: false, error: 'llm stream threw: ' + String((e as any) && (e as any).message), items: [] };
+      }
+
+      let text = '';
+      let blockSig = '(none)';
+      try {
+          const blocks = assembler.blocks();
+          const parts = [];
+          for (const b of blocks) {
+              if (b === null || typeof b !== 'object') { parts.push('?'); continue; }
+              parts.push(String(b.type) + ':' + (typeof (b as any).text === 'string' ? String((b as any).text.length) : '-'));
+              if (b.type === 'text') text += String(b.text);
+          }
+          blockSig = 'n=' + String(blocks.length) + '[' + parts.join(',') + ']';
+      }
+      catch (e) {
+          return { ok: false, error: 'assembler.blocks threw: ' + String((e as any) && (e as any).message), items: [] };
+      }
+
+      const parsed = extractJsonObject(text);
+      if (parsed !== null && parsed.__salvaged === true) {
+          return { ok: false, error: 'output truncated (salvaged ' + String(parsed.items.length) + ')', items: [], diag: blockSig + ' SALVAGED textLen=' + String(text.length), raw: text.slice(0, 800) };
+      }
+      if (parsed === null || !Array.isArray(parsed.items)) {
+          return { ok: false, error: 'model output not parseable', items: [], diag: blockSig + ' textLen=' + String(text.length), raw: text.slice(0, 800) };
+      }
+
+      const known = new Map();
+      for (const it of cands.items) known.set(Number(it.seq), it);
+      const picked = [];
+      for (const raw of parsed.items) {
+          const seq = Number(raw === null || raw === undefined ? NaN : raw.seq);
+          if (!Number.isFinite(seq)) continue;
+          if (!known.has(seq)) continue;                 /* 模型编的 seq 一律不认 */
+          if (raw.safe !== true) continue;               /* 只采纳明确 safe 的 */
+          picked.push({ seq: seq, len: known.get(seq).len, reason: String(raw.reason === undefined ? 'llm' : raw.reason), safe: true });
+      }
+      return { ok: true, items: picked.slice(0, 3), scanned: cands.scanned, total: cands.total, diag: blockSig, raw: text.slice(0, 500) };
+  }
+
   /**
    * 算一个「可以安全压」的 seq 范围 —— 从末尾往前找，直到工具调用配对平衡。
    *
@@ -2438,7 +2814,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
         surface = agent.session.surface
       }
       catch (e: any) {
-        return { range: null, why: 'surface-threw:' + String(e && e.message) }
+        return { range: null, why: 'surface-threw:' + String((e as any) && (e as any).message) }
       }
       if (surface === undefined || surface === null)
         return { range: null, why: 'no-surface' }
@@ -2501,7 +2877,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
       }
     }
     catch (e: any) {
-      return { range: null, why: 'threw:' + String(e && e.message) }
+      return { range: null, why: 'threw:' + String((e as any) && (e as any).message) }
     }
   }
   function pickRegion(agent: any): { start: number; end: number } | null {
@@ -2514,6 +2890,55 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
    *             `full`   = 直接全量。
    */
   async function compactOnce(agent: any, mode: string, sid: string): Promise<any> {
+    /* ★★★ 2026-10-31：**region 改走「定点清除」**，不再碰 /compact-region。
+     *
+     * 原因（一手的四次实测，见 30-状态/设计-换气定点清除.md）：
+     *   compactRegion 要 open turn + 整面静止，而换气只能在 turn 外行动 ——
+     *   这两个要求不能同时满足，六次尝试全部失败。
+     *
+     * surfaceOp 直接替换 tool/result 已实测通过（2026-10-31 12:54，
+     * `[huanqi][purge] OK 27815-27815 新seq=28423 节点 203->203`）。
+     *
+     * 顺序：先试定点清除（轻），没有候选或全失败 → 落回原来那条路（重）。 */
+    if (mode === 'region' && config.purgeOnCuts === true) {
+        let picked;
+        try {
+            /* ★ 主路径：LLM 诊断。它自带候选收集 + safe 判定。
+             *   失败时 picked.ok=false → 下面会退回启发式。 */
+            picked = await diagnosePurge(agent, sid, {
+                maxChars: config.purgeMaxChars,
+                maxItems: config.purgeMaxItems,
+                maxCandidates: 12,
+            });
+            purgeLog('[huanqi][purge] LLM 诊断 ok=' + String(picked.ok)
+                + ' 采纳=' + String(picked.items.length)
+                + ' 扫描=' + String(picked.scanned === undefined ? '-' : picked.scanned)
+                + ' err=' + String(picked.error === undefined || picked.error === null ? '-' : picked.error)
+                + ' diag=' + String(picked.diag === undefined ? '-' : picked.diag)
+                + ' raw=' + JSON.stringify(String(picked.raw === undefined ? '' : picked.raw).slice(0, 400)));
+        }
+        catch (e) {
+            picked = { ok: false, error: 'diagnose threw: ' + String((e as any) && (e as any).message), items: [] };
+        }
+        if (picked.ok !== true) {
+            purgeLog('[huanqi][purge] 收集候选失败: ' + String(picked.error) + ' → 落回全量');
+        }
+        else if (picked.items.length === 0) {
+            purgeLog('[huanqi][purge] 扫描 ' + String(picked.scanned) + '/' + String(picked.total)
+                + ' 个节点，没有污染源候选 → 落回全量');
+        }
+        else {
+            const why = picked.items.map((it: any) => String(it.seq) + '(' + String(it.reason) + ')').join(' ');
+            purgeLog('[huanqi][purge] 扫描 ' + String(picked.scanned) + '/' + String(picked.total)
+                + ' 个节点，候选 ' + String(picked.items.length) + ' 条: ' + why);
+            const done = purgeMany(agent, picked.items, sid);
+            purgeLog('[huanqi][purge] 清除 ' + String(done.purged.length) + '/' + String(picked.items.length) + ' 条');
+            if (done.ok) {
+                return { ok: true, kind: 'purge', range: null, purged: done.purged, error: null };
+            }
+            purgeLog('[huanqi][purge] 全部失败 → 落回全量');
+        }
+    }
     const svc = compactionService(agent)
     if (svc === undefined) {
       /* ★★ 2026-10-27（第 5 代加）：第二条路 —— 借 `commands` 执行 /compact。
@@ -2556,7 +2981,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
             }
           }
           catch (e: any) {
-            return { ok: false, error: 'command threw: ' + String(e && e.message) }
+            return { ok: false, error: 'command threw: ' + String((e as any) && (e as any).message) }
           }
         }
         /* ★★★ 2026-10-27（第 5 代补）：**把「范围压缩」修回来。**
@@ -2597,7 +3022,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
               probeNote = probe.ok ? 'probe=unexpected-ok' : 'probe=' + String(probe.error)
             }
             catch (e: any) {
-              probeNote = 'probe-threw:' + String(e && e.message)
+              probeNote = 'probe-threw:' + String((e as any) && (e as any).message)
             }
             try {
               appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
@@ -2809,6 +3234,81 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
       '★ 不要依赖摘要 —— 它是二手转述。需要细节时先用 memq open（或 mcp__echo__echo_open）',
       '  取回一手原文，再继续。你要的不是「我记得当时怎样」，是「原文写着什么」。',
     ].join('\n')
+  }
+  /**
+   * 让出一拍（2026-10-31 加）—— `waitUntilQuiet` 底下的最小单位。
+   *
+   * ★ `turn/end` 是在 append 事务里广播的，处理器起的 async IIFE
+   *   在第一个 await 之前仍在发布过程中；`setTimeout(0)` 跨到下一个宏任务才安全。
+   */
+  const yieldToHost = (ms = 0) => new Promise<void>((resolve) => { setTimeout(resolve, ms) })
+
+  /**
+   * 等 agent 停下来，再让它静 3 秒（2026-10-31 爀曦定）。
+   *
+   * ★ 爀曦原话：「有不用做退避延迟的方法，直接检测 agent 是否还在活跃，
+   *   停止活动后 3s 立刻执行范围或者全量压缩」
+   *
+   * ★ 退避是**猜**时间，检测是**看**状态。`whenIdle` resolve 就是真的停了。
+   * ★ 那 3 秒留给「写锁彻底放开」—— `whenIdle` 只保证回合结束，
+   *   但 `turn/end` 的 append 事务可能还没发布完。
+   * ★ 上限：`whenIdle` 万一永远不 resolve，不能陪着卡死 ——
+   *   等满就放弃等待、直接去压，让压缩自己如实报错。
+   */
+  async function waitUntilQuiet(agent: any, quietMs = 3000, maxWaitMs = 60000): Promise<{ how: string; quietMs: number }> {
+    const whenIdle = agent === undefined || agent === null ? undefined : agent.whenIdle
+    if (typeof whenIdle !== 'function') {
+      await yieldToHost(quietMs)
+      return { how: 'no-whenIdle', quietMs }
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<string>((resolve) => {
+      timer = setTimeout(() => { resolve('timeout') }, maxWaitMs)
+    })
+    let how = 'idle'
+    try {
+      const r = await Promise.race([whenIdle.call(agent), timeout])
+      if (r === 'timeout') how = 'timeout'
+    } catch {
+      how = 'idle-threw'
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
+    if (how === 'timeout') return { how, quietMs: 0 }
+    await yieldToHost(quietMs)
+    return { how, quietMs }
+  }
+
+  /**
+   * 压缩后的「召回提示」（2026-10-31 爀曦定）。
+   * ★ 为什么要它：压缩是为了救，但压缩本身会丢细节 —— 给一轮机会自己找回来。
+   * ★ 不硬编码：`config.recallPrompt` 非空就用它的，留空才用这段默认。
+   */
+  function recallPromptText(): string {
+    const custom = typeof config.recallPrompt === 'string' ? config.recallPrompt.trim() : ''
+    if (custom !== '') return custom
+    return [
+      '[huanqi] 上下文刚被压缩过，里面有东西丢了。',
+      '先别急着干活 —— 把丢掉的东西找回来：',
+      '  · 一手原文：`memq open <指针>` 或 `mcp__echo__echo_open`',
+      '  · 按关键词检索：`mcp__echo__echo_search terms=["<最近在做的关键词>"]` 或 `memq <词>`',
+      '  · 按时间定位：`memq timeline --since <ISO>`',
+      '',
+      '拿回来的东西写一句「我找回了：…」，再继续。',
+      '★ 别依赖摘要 —— 摘要只是索引，原文永远优先。',
+    ].join('\n')
+  }
+
+  /**
+   * 诊断落盘（2026-10-31 砚青落）。
+   * ★ `ctx.logger.warn` 在这台 Electron 上不进任何文件（实测 grep 一条都没有），
+   *   熔断分支原来只有 logger，所以那一晚整个过程一个字都没留下。
+   */
+  function diagLog(tag: string, line: string): void {
+    try {
+      appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+        new Date().toISOString() + ' [huanqi][' + tag + '] ' + line + '\n')
+    } catch { /* 诊断不许影响主流程 */ }
   }
   /**
    * 已经收到过「落盘指令」的 agent。
@@ -3250,6 +3750,12 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
     const lastMessageShape = new Map<string, string>()
     /** sessionId → 本轮 turn/start 的时间戳（毫秒），用来算「卡了多久」 */
     const turnStartedAt = new Map<string, number>()
+    /** sessionId → 累计开过多少轮（2026-10-31 加；两套压缩冷却都按它算） */
+    const turnSeq = new Map<string, number>()
+    /** sessionId → 上次范围压缩时的轮次号（配合 `regionCompactEveryTurns`） */
+    const lastRegionCompactAt = new Map<string, number>()
+    /** sessionId → 上次熔断救援时的轮次号（配合 `breakerRescueEveryTurns`） */
+    const lastBreakerRescueAt = new Map<string, number>()
 
     ctx.on('session/event', ((session: { id?: string } | undefined, event: { type?: string; data?: unknown } | undefined): void => {
       const sid = session === undefined || session === null ? undefined : session.id
@@ -3259,6 +3765,8 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
         lastMessageHadOutput.set(sid, false)
         // ★ 诊断：记下本轮开始时间（用来算「卡了多久」）
         turnStartedAt.set(sid, Date.now())
+        // ★ 2026-10-31：每条会话自己的轮次序号 —— 两套压缩冷却都按它算。
+        turnSeq.set(sid, (turnSeq.get(sid) ?? 0) + 1)
         return
       }
       if (type === 'assistant/message') {
@@ -3471,12 +3979,37 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
           cutCounts.set(sid, cuts)
           let notice = strings.continueNotice(left, ledger.creditMax, config.normalTurnThreshold)
           const cutThreshold = config.regionCompactAfterCuts
-          if (cutThreshold > 0 && cuts >= cutThreshold && !subagentExempt) {
+          /* ★★★ 2026-10-31：**冷却 —— 范围压缩之间至少隔 N 轮**
+           *   爀曦原话：「每 N 轮内只能触发一次范围压缩」。
+           *   ★ 光有截断次数不够：一轮里截断三十次会让它反复满足。 */
+          const everyTurns = config.regionCompactEveryTurns
+          const seqNow = turnSeq.get(sid) ?? 0
+          const lastCompactAt = lastRegionCompactAt.get(sid)
+          const cooledDown = everyTurns <= 0
+            || lastCompactAt === undefined
+            || (seqNow - lastCompactAt) >= everyTurns
+          if (cutThreshold > 0 && cuts >= cutThreshold && cooledDown && !subagentExempt) {
             cutCounts.set(sid, 0) // 攒够了 —— 归零重计
+            lastRegionCompactAt.set(sid, seqNow)
             /* ★ as any：`session` 不在本包声明的 Agent 面上，压缩层却必须摸它。 */
             const agentFull = ctx.agents.get(sid as never) as any
             if (agentFull !== undefined && agentFull.session !== undefined) {
+              /* ★★★ 2026-10-31（砚青落·爀曦定）：**先检测，再动手。**
+               *   `turn/end` 是在 append 事务里广播的 —— 处理器起的 async IIFE
+               *   在第一个 await 之前仍在发布过程中，所以一调压缩就撞锁。
+               *   `waitUntilQuiet` 用 `agent.whenIdle()` 拿信号，再静 3 秒。 */
+              diagLog('region', '准备压缩 sid=' + sid + ' cuts=' + String(cuts)
+                + ' credit=' + String(left) + '/' + String(ledger.creditMax) + ' —— 等 agent 静下来')
+              const quiet = await waitUntilQuiet(agentFull)
+              diagLog('region', 'agent=' + quiet.how + ' 静 '
+                + String(Math.round(quiet.quietMs / 1000)) + 's → 开始压缩')
               const outcome = await compactOnce(agentFull, 'region', sid)
+              diagLog('region', '压缩完成 ' + (outcome.ok
+                ? 'OK kind=' + String(outcome.kind)
+                : 'FAILED: ' + String(outcome.error))
+                + (outcome.range === null
+                  ? ''
+                  : ' range=' + String(outcome.range.start) + '–' + String(outcome.range.end)))
               ctx.logger.warn('dsh-huanqi: region compaction after ' + String(cuts) + ' cuts → '
                 + (outcome.ok ? 'ok' : 'failed(' + String(outcome.error) + ')')
                 + (outcome.range === null
@@ -3519,11 +4052,51 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
          * ══════════════════════════════════════════════════════════════ */
         void (async () => {
           let fullNote: string | null = null
-          if (config.fullCompactOnBreaker !== false && !subagentExempt) {
+          let compacted = false
+          let attemptedCompact = false
+          let cooledDown = false
+          /* ══════════════════════════════════════════════════════════════
+           * ★★★ 2026-10-31（爀曦定）：**两次熔断救援之间至少隔 N 轮**
+           *
+           * 他原话：「每 N 轮内只能触发一次范围压缩，否则延续额度用完、
+           *   触发的熔断调用全量压缩后，不会再延续会话，
+           *   **我们要依靠熔断机制来终结循环**」
+           *
+           * ★ 为什么比「救过一次就记标记」可靠：那种写法只要召回轮产出一次
+           *   （哪怕只是调了个工具）就把标记清了，于是变成 2 轮循环。
+           *   换成轮次冷却，救援被钉死成「18 轮一次」。
+           * ══════════════════════════════════════════════════════════════ */
+          const rescueEvery = config.breakerRescueEveryTurns
+          const rescueSeqNow = turnSeq.get(sid) ?? 0
+          const lastRescue = lastBreakerRescueAt.get(sid)
+          const canRescue = config.fullCompactOnBreaker !== false
+            && !subagentExempt
+            && (rescueEvery <= 0
+              || lastRescue === undefined
+              || (rescueSeqNow - lastRescue) >= rescueEvery)
+          if (config.fullCompactOnBreaker !== false && !subagentExempt && !canRescue) {
+            cooledDown = true
+            diagLog('breaker', '熔断救援冷却中（距上次 '
+              + String(lastRescue === undefined ? 0 : rescueSeqNow - lastRescue)
+              + ' 轮 < ' + String(rescueEvery) + '）→ 不压、不续 sid=' + sid)
+          }
+          if (canRescue) {
             /* ★ as any：同上 —— `session` 不在本包声明的 Agent 面上。 */
             const agentFull = ctx.agents.get(sid as never) as any
             if (agentFull !== undefined && agentFull.session !== undefined) {
+              attemptedCompact = true
+              /* ★ 先记轮次 —— **成败都算「尝试过救援」**，失败也不该在 18 轮内反复撞。 */
+              lastBreakerRescueAt.set(sid, rescueSeqNow)
+              diagLog('breaker', '熔断 → 准备全量压缩 sid=' + sid
+                + ' credit=0/' + String(ledger.creditMax) + ' —— 等 agent 静下来')
+              const quiet = await waitUntilQuiet(agentFull)
+              diagLog('breaker', 'agent=' + quiet.how + ' 静 '
+                + String(Math.round(quiet.quietMs / 1000)) + 's → 开始压缩')
               const outcome = await compactOnce(agentFull, 'full', sid)
+              compacted = outcome.ok
+              diagLog('breaker', '全量压缩 ' + (outcome.ok
+                ? 'OK kind=' + String(outcome.kind)
+                : 'FAILED: ' + String(outcome.error)))
               ctx.logger.warn('dsh-huanqi: circuit break → full compaction '
                 + (outcome.ok ? 'ok' : 'failed(' + String(outcome.error) + ')'))
               if (outcome.ok) {
@@ -3545,19 +4118,35 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
             }
           }
           agent.inject(message(fullNote === null ? strings.circuitBreakNotice(ledger.creditMax) : fullNote, 'notice', 'huanqi: circuit break (empty turn)'))
+          /* ★ 压缩成功 → 按 `resumeAfterCompact` 续一轮召回。
+           *   上限靠 `breakerRescueEveryTurns` 冷却，不靠一次性标记。 */
+          if (compacted && config.resumeAfterCompact !== false) {
+            diagLog('breaker', '压缩成功 → 注入召回提示并续一次 sid=' + sid)
+            scheduleResume(agent, recallPromptText(), 'huanqi: resume once after full compaction (recall what the compression dropped)')
+            return
+          }
+          /* ★ 冷却中 → 不压不续，只提示人手动压（熔断的默认结局是停下）。 */
+          if (cooledDown) {
+            diagLog('breaker', '冷却中 → 停下等人手动 /compact sid=' + sid)
+            agent.inject(message([
+              '[huanqi] 思考退化熔断。',
+              '- 距上次全量压缩还不到 ' + String(rescueEvery) + ' 轮，**这次既不压缩也不延续**。',
+              '- 请你手动输入 `/compact` 清一次，再决定是继续还是换容器。',
+            ].join('\n'), 'notice', 'huanqi: breaker rescue cooled down — stop and ask the user to compact manually'))
+            return
+          }
+          /* ★ 尝试过但失败 → 同样停下，不推模型。 */
+          if (attemptedCompact && !compacted) {
+            diagLog('breaker', '全量压缩失败 → 停下，只提示用户手动 /compact sid=' + sid)
+            agent.inject(message([
+              '[huanqi] 思考退化熔断，但**全量压缩没有成功**。',
+              '- 本轮**不再延续**（不推模型，等你）。',
+              '- 请你手动输入 `/compact` 做一次全量压缩，再决定是继续还是换容器。',
+              '- 压缩失败的原因见 `D:\\AI\\memory\\hub\\_plugin-diag.log`。',
+            ].join('\n'), 'notice', 'huanqi: full compaction FAILED — stop and ask the user to compact manually'))
+            return
+          }
         })()
-        /* ★ 2026-10-23（砚青落）：inject 只是让人**看见**；要它真的去落盘，必须 steer ——
-         * steer 是一条真正的用户消息，会进下一轮被模型读到并执行。
-         * ★ 守卫只用一次（landPrompted）：熔断后额度是 0，若它又被推进一轮却仍无产出，
-         * 会再次熔断、再次 steer —— 那就是无限循环。第二次起只留给 inject，等人来。 */
-        if (!landPrompted.has(agent)) {
-          landPrompted.add(agent)
-          agent.steer(message(
-            strings.circuitBreakNotice(ledger.creditMax),
-            'notice',
-            'huanqi: land your state, then ask the user to compact',
-          ))
-        }
       }
     }) as never)
   }

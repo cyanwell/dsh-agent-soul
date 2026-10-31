@@ -344,6 +344,43 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-31 · 换气：截断压缩改走「LLM 诊断 + 定点清除」
+
+**问题**：`/compact-region` 有一条内在矛盾 —— 它要求「turn 还开着」且「摘要期间整面静止」，
+而换气只能在 turn 外行动。两个条件不能同时满足，六次尝试全败。
+
+**换法**：不压缩，改做手术。`mode === 'region'` 时不再碰 `compactRegion`，
+改用 `surfaceOp` 直接替换 `tool/result` 的内容 —— 不需要 open turn。
+
+1. 扫最近 400 个节点，挑出超过 `purgeMaxChars` 的工具结果当候选（取最长前 12 条）
+2. 交给 LLM 诊断：哪几条是真污染源（重复刷屏 / 已被后续覆盖的失败日志 / 大段 dump）。
+   必须对每条明确回 `safe: true` 才采纳；编造的 seq 一律丢弃；最多 3 条
+3. 替换成占位符。**原文仍在事件日志里**，用 `log:session-…#seq=N` 可以回取
+
+候选为空 / LLM 失败 / 全部替换失败 → 落回全量路径，不卡住。
+
+**最值钱的一条发现**：`maxTokens` 原来给 2000，而诊断一次模型**思考**就吃掉 12808 tokens、
+正文只有 880。于是思考还没结束就被砍断，正文一个字节没有 → 报 `model output not parseable`。
+**默认提到 16000**。这条不是猜的，是从日志 `diag=n=2[reasoning:12808,text:880]` 里读出来的。
+
+顺带重写解析器（四层退让：直解析 / 剥 md 围栏 / 括号配平跳过字符串 / 截断抢救），
+三层都要求 `items` 是数组 —— 修掉了「截断时把单个 item 当结果返回」那个 bug。
+
+**验证**（`_plugin-diag.log` 连续两次触发）：
+
+```
+第一次：LLM 诊断 ok=true 采纳=3 扫描=71  diag=n=2[reasoning:12808,text:880]
+        OK 28857→29042 / OK 28866→29043 / OK 28936→29044 · 清除 3/3 条
+        compactOnce(region) → OK range=null   ← 没落回全量
+第二次：候选列表里上一轮清掉的三个 seq 全部消失   ← 可见面真的变了
+```
+
+**新增配置**：`purgeOnCuts`（默认 true）/ `purgeMaxItems`（默认 3）/ `purgeMaxChars`（默认 20000）。
+关掉 `purgeOnCuts` 就完全退回老路。
+
+**还了一笔账**：这套 purge 此前只存在于 `lib/index.js` 产物里，`src/index.ts` 一行都没有 ——
+跑一次 `tsc` 就全没了。本次把 307 行补进源码，`tsc --noEmit` 零错误。
+
 ### 2026-10-30 晚 · 安装层补两个静默洞 + 包名统一到 `dsh-agent-*`
 
 **背景**：`dsh-yanqing-*` 是本机专属插件的命名空间，对外发布不该带这个名字。
