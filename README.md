@@ -364,6 +364,26 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-31 · `compact-region` 从安装清单移除（三处口径终于一致）
+
+**三处说法互相矛盾**，这次对齐成一套：
+
+| 位置 | 原来怎么说 |
+|---|---|
+| 换气 `src/index.ts:2894` | 「region 改走定点清除，**不再碰 `/compact-region`**」 |
+| 换气 `:3042` | 「**`/compact-region` 这条路废掉了**」（要 open turn + 整面静止，六次尝试全败） |
+| **`install.js:115` 的 `parts`** | **`[... 'compact-region', ...]`** ← 还在当必装件 |
+| `07-bundle.json` | 不含它 |
+
+**改法**：`install.js` 的 `parts` 去掉 `compact-region`，注释改成「已被判定接错语义，默认不装」。
+
+**包本身留着** —— 它注册的 `/compact-region <start> <end>` 命令仍然可用（手动指定范围压一段），
+只是**换气不再走它**、**安装器不再默认装它**。需要的人单独装。
+
+**为什么不用删**：删了没有收益（一个 4 文件的薄包），留着还能手动用；
+真正的错是「默认装一个已经没人调用的东西」，而不是「它存在」。
+
+
 ### 2026-10-31 · 全仓旧口径核查与修正（30 处）+ 全局必装声明
 
 **起因**：`soul/07-bundle.json` 的 `repo.url` 还指着已弃用的 `dsh-agent-organs`。

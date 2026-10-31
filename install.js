@@ -107,12 +107,15 @@ const ORDER = [
     //   而「不装」不会报错，只会让人觉得「ECHO 好像没生效」。
     //   ★ 静默失效比报错难查得多：它不是坏了，是根本没接线。
     //
-    // ★★★ 同日补 compact-region（第十个洞）：
-    //   它给 compaction realm 开一扇「能指定范围」的门（注册 /compact-region <s> <e>），
+    // ★★★ 同日补 compact-region（第十个洞）—— ★ 2026-10-31 已从 parts 移除：
+    //   那扇「能指定范围」的门（/compact-region <s> <e>）**已被判定接错语义** ——
+    //   它要 open turn + 整面静止，而换气只能在 turn 外行动，六次尝试全败。
+    //   换气现在走「LLM 诊断 + surfaceOp 定点清除」；本包默认不装（要手动用可以单独装）。
+    //   原注释：它给 compaction realm 开一扇「能指定范围」的门（注册 /compact-region <s> <e>），
     //   让换气的「范围压缩」真的只压那一段，而不是退化成全量。
     //   presets 里一直在引用它，但它从来不在本仓库、也不在 ORDER —— 
     //   于是新用户装完，范围压缩静默降级成全量，谁也不报错。
-    parts: ['mcp-hub', 'compaction', 'pruner', 'compact-region', 'memory', 'echo', 'mnemon-probe', 'dsh-mnemon'],
+    parts: ['mcp-hub', 'compaction', 'pruner', 'memory', 'echo', 'mnemon-probe', 'dsh-mnemon'],
   },
   {
     step: 2,
