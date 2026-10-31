@@ -2458,6 +2458,7 @@ export function apply(ctx, config) {
                 const done = purgeMany(agent, picked.items, sid);
                 purgeLog('[huanqi][purge] 清除 ' + String(done.purged.length) + '/' + String(picked.items.length) + ' 条');
                 if (done.ok) {
+                    lastCompact.set(sid, { kind: 'purge', ok: true, range: null, purged: done.purged, error: null })
                     return { ok: true, kind: 'purge', range: null, purged: done.purged, error: null };
                 }
                 purgeLog('[huanqi][purge] 全部失败 → 落回全量');

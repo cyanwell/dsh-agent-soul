@@ -772,7 +772,10 @@ window.__ModuleLoader__.load({
                           : "这一轮之前没有发生过压缩",
                       },
                       t.compact
-                        ? (t.compact.kind === "region" ? "压缩·范围" : "压缩·全量") + (t.compact.ok ? " ✓" : " ✗")
+                        ? (t.compact.kind === "purge"
+                            ? "清除·" + (Array.isArray(t.compact.purged) ? t.compact.purged.length : 0) + "条"
+                            : t.compact.kind === "region" ? "压缩·范围" : "压缩·全量")
+                          + (t.compact.ok ? " ✓" : " ✗")
                         : "—")
                   );
                 }),

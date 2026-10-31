@@ -344,6 +344,30 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-31 · 回声哨兵面板：判词补上「定点清除」这一态
+
+**问题**：换气 2026-10-31 把 region 压缩改成了「LLM 诊断 + surfaceOp 定点清除」，
+但回声面板的压缩列还只认 `region` / `full` 两态 —— 定点清除的结果**一条都显示不出来**。
+更糟的是 `huanqi-turns.jsonl` 里 `compact` 字段从 10-31 起一直是 `null`：因为
+`compactOnce` 里 region 走 `viaCmd` 会 `lastCompact.set`、full 也会，**唯独 purge 那条
+`return` 之前没 set**。所以面板上那一列永远是「—」。
+
+**改了两处**：
+
+| 文件 | 改动 |
+|---|---|
+| `plugins/huanqi/src/index.ts` + `lib/index.js` | purge 成功分支 `return` 前补 `lastCompact.set(sid, { kind: 'purge', ok: true, purged, ... })` |
+| `plugins/echo/client.js` | 压缩列加 purge 态：`清除·N条 ✓`（原来只会落到「压缩·全量」） |
+
+**为什么要写这一条**：诊断和改动都很小，但**它暴露了一个盲区** ——
+`compact` 字段 1699 条里只有 190 条非 null，而那 190 条全是旧机制的
+`{"kind":"region","ok":false,"error":"compaction service not found"}`。
+换句话说，**面板的「压缩」列从上线起就没真正显示过成功的压缩**，
+只是失败记录长得像正常数据，所以没人发现。
+
+**验证方式**（改完需重启 DSH）：触发一次 region，面板压缩列应显示 `清除·N条 ✓`；
+`huanqi-turns.jsonl` 最新一条的 `compact.kind` 应为 `purge`。
+
 ### 2026-10-31 · 换气 v1.2.1 · 诊断预算提到 24000，以及一次交叉审计抓出来的 5 处
 
 **为什么改**：v1.2.0 上线后第二轮实测，日志是 `diag=n=2[reasoning:15936,text:966]` ——
