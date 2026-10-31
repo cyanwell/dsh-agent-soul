@@ -364,6 +364,38 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-31 · 补两条 FAQ（`mnemon` 装不上 / 阈值配置的生效时机）
+
+来自一份外部 bug 报告的启发，两条都补进 `docs/安装常见问题汇总与解决方法.md`。
+
+#### 3.9 `mnemon_status` 恒报 `commandFound: false`
+
+**这不是配置错误，是 `dsh-mnemon` 自己的两个 bug**（第三方包，我们改不了，但能给出 workaround 和判据）。
+
+判据一句话：**`Get-Command mnemon` 找得到 + `commandFound: false` = 包的 bug，别再去折腾 PATH。**
+
+根因（`native-cli.js`，2026-10-31 核实）：
+- `:141` `if (config.cliPath !== void 0) return ...` —— **空字符串也算「有值」**，解析失败直接 return，
+  后面三条兜底一条都不跑
+- `:35-39` npm 的 `.cmd` 取 `dirname` 得到 `.../node_modules/.bin`，再拼 `node_modules`
+  → `.bin/node_modules/...` **永远不存在**。走 npm 装就永远认不出来
+- `:130` 显式路径有分隔符就直接返回，**不验存在**
+
+workaround：设 `MNEMON_CLI_PATH` 指向包里的 `bin/mnemon.js`（不是 `.cmd` 壳），**重启 DSH**。
+
+#### 5.3 改了 `thresholdRatio`，重启也不生效
+
+**症状**：调成 0.30 验证剪枝 → 重启 → 老会话按 0.30 走；改回 0.88 再重启 → **老会话仍按 0.30**。
+
+**机制**：`compaction` 配置走 **agent preset**，而 preset 在**会话创建时应用**。
+重启只重读磁盘配置，不刷新已存在会话的 preset。
+
+★★ **要验证阈值类配置，必须开新会话。**
+
+★ **但这条如实标了置信度**：机制说得通、有外部实测线索，**但我们本机复现不了**
+（磁盘配置一直是 0.88，没有「改了又改回」的现场）。所以写的是「**有线索指向**」，不是「已证实」。
+
+
 ### 2026-10-31 · 纠正：`.agent-presets/` 的检查降为提示（不归本仓库管）
 
 **上一条（`d6aa462`）里我把 `qq-chat` / `qq-chat-v2` 当成残留移走了 —— 这是错的，已经移回原处。**
