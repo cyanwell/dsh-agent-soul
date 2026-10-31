@@ -353,30 +353,24 @@ check('L2', 'registry', 'agent-preset-registry 有 default/selectedDefault', () 
   return { ok: true, detail: near.join(' · ') }
 })
 
-check('L2', 'deadpresets', '.agent-presets/ 里没有死目录（F1）', () => {
+// ★★★ 2026-10-31 改成「只提示」，不再报红。
+//   缘由（版主原话）：「qq-chat 不纳入到 agent soul 里，这是我们自己安装的东西。」
+//   `.agent-presets/` 是 **DSH 全局**的目录，里面有什么 preset、
+//   属与不属于本仓库，**不是 agent soul 能管的事**。用它来报红
+//   等于拿别人的东西给 agent soul 计分 —— 本末倒置。
+//   但它确实捕到过一次真问题（2026-09-30「全绿然后一起消失」），
+//   所以**保留检查、降为 info** —— 只提醒「这些目录 DSH 不再扫描」，不影响总分。
+check('L2', 'deadpresets', '.agent-presets/ 里没有死目录（仅提示）', () => {
   const d = join(HOME, '.agent-presets')
   if (!existsSync(d)) return { ok: true, detail: '没有这个目录' }
   const dirs = readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)
   if (!dirs.length) return { ok: true, detail: '目录存在但是空的' }
-
-  // ★★★ 判据修正（2026-10-31）：原来「只要有目录就红」，太粗。
-  //   .agent-presets/<名>/ 有两个用途，性质完全不同：
-  //     ① DSH 不再扫描它 —— 这是真的（0.2.0-rc.2 起 preset 走 profile 层声明）
-  //     ② 但 `soul-one-shot.mjs` 仍从 <名>/agent.cordis.yml 读 compactionName / prunerName
-  //   所以：profile patch 里**有同名 `preset-<名>` 块** = 这份是「现存 preset 的源」，不算残留；
-  //         没有同名块 = 那个 preset 早就不在了，目录是死文件。
-  let patchBody = ''
-  try {
-    const pf = join(HOME, 'profiles', process.env.DSH_PROFILE || 'desktop', 'cordis.patch.yml')
-    if (existsSync(pf)) patchBody = readFileSync(pf, 'utf8')
-  } catch {}
-
-  const dead = patchBody ? dirs.filter((n) => !patchBody.includes('preset-' + n)) : dirs
-  if (!dead.length) return { ok: true, detail: `${dirs.length} 个目录，都还有对应的 preset 块（是源文件，不是残留）` }
+  // 只提示：列出这些目录存在，不做对错判断。
+  // 它们可能是本仓库产的，也可能是用户自己装的（如 qq-chat）。
   return {
-    ok: false,
-    detail: `死目录 ${dead.length} 个：${dead.join(', ')}`,
-    hint: '这些名字在 profile 的 cordis.patch.yml 里找不到对应的 preset-<名> 块 —— 那个 preset 已经不在了，目录是死文件。移走或删掉即可（它们不再被 DSH 扫描）。',
+    ok: true,
+    detail: `${dirs.length} 个目录（${dirs.join(', ')}）—— 0.2.0-rc.2 起 DSH 不再扫描它们，但这不影响安装与运行`,
+    hint: '仅供参考。这些目录属于 DSH 全局状态，不归本仓库管。如果你确认某个已废弃可以自行清理。',
   }
 })
 
