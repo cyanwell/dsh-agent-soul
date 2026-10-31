@@ -478,6 +478,19 @@ window.__ModuleLoader__.load({
 
     function EchoPanel() {
       const [d, setD] = react.useState(null);
+      const [st, setSt] = react.useState(null);
+      const [lv, setLv] = react.useState(null);
+      react.useEffect(function () {
+        var pull = function () {
+          fetch(API + "/settings").then(function (r) { return r.json() }).then(function (j) {
+            if (j && j.settings) setSt(j.settings);
+            if (j && j.live) setLv(j.live);
+          }).catch(function () {});
+        };
+        pull();
+        var t = setInterval(pull, 30000);
+        return function () { clearInterval(t) };
+      }, []);
       const [open, setOpen] = react.useState({});
       const [showOk, setShowOk] = react.useState(false);
       const [note, setNote] = react.useState(null);
@@ -653,18 +666,45 @@ window.__ModuleLoader__.load({
         // ── 记忆常驻（2026-11-01）──────────────────────────
         //   常驻天数 / 内存预算；写 echo-settings.json，echo-mcp 启动时读。
         //   ★ post() 是 POST 无 body，参数只能走 query。
+        //   ★ 当前值来自 /api/settings（含 echo-mcp 写的 live 状态）。
         h("div", { className: "yq-bar yq-glass", style: { marginTop: 8, flexWrap: "wrap" } },
           h("span", { style: { fontSize: 11.5, fontWeight: 600 } }, "记忆常驻"),
           h("span", { style: { fontSize: 11.5 } }, "天数"),
           h("div", { className: "yq-seg" },
             [1, 3, 7, 14, 30].map(function (n) {
+              var on = st && Number(st.logDays) === n;
               return h("button", {
                 key: n,
+                "data-on": on ? "1" : "0",
                 onClick: function () { post("/settings?logDays=" + n, "常驻天数 → " + n + " 天（重启 DSH 生效）…") },
                 title: "常驻最近 " + n + " 天的会话日志（1-30）",
-              }, String(n))
+              }, String(n));
             })
           ),
+          h("span", { className: "sp" }),
+          h("span", { style: { fontSize: 11.5 } }, "预算"),
+          h("div", { className: "yq-seg" },
+            [256, 512, 768, 1024].map(function (m) {
+              var on = st && Number(st.memBudgetMB) === m;
+              return h("button", {
+                key: m,
+                "data-on": on ? "1" : "0",
+                onClick: function () { post("/settings?memBudgetMB=" + m, "内存预算 → " + m + " MB（重启 DSH 生效）…") },
+                title: "常驻部分允许占用的内存上限",
+              }, String(m) + "M");
+            })
+          )
+        ),
+        // ── 内存水位（读 echo-mcp 写的 live 状态）─────────────
+        h("div", { className: "yq-bar yq-glass", style: { marginTop: 6, flexWrap: "wrap" } },
+          h("span", { style: { fontSize: 11.5, fontWeight: 600 } }, "内存水位"),
+          h("span", { className: "yq-chip" }, "日志 " + (lv && lv.logs != null ? lv.logs : "—") + " 条"),
+          h("span", { className: "yq-chip" }, "常驻 " + (lv && lv.logsMB != null ? lv.logsMB : "—") + " MB"),
+          h("span", { className: "yq-chip" }, "进程 " + (lv && lv.rssMB != null ? lv.rssMB : "—") + " MB"),
+          h("span", { className: "sp" }),
+          h("span", { style: { fontSize: 11, color: "var(--muted)" } },
+            lv ? ("更新于 " + new Date(lv.updatedAt).toLocaleTimeString()) : "等 echo-mcp 写第一次状态…")
+        ),
           h("span", { className: "sp" }),
           h("span", { style: { fontSize: 11.5 } }, "预算"),
           h("div", { className: "yq-seg" },

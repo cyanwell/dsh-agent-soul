@@ -507,8 +507,12 @@ export function apply(ctx) {
           }
           let cur = {}
           try { cur = JSON.parse(fs.readFileSync(SFILE, 'utf8')) } catch { /* 没有就用默认 */ }
+          // ★ 2026-11-01 顺带读 echo-mcp 写的实时状态（两个进程，用文件交接）
+          let live = null
+          try { live = JSON.parse(fs.readFileSync(path.join(HUBDIR, 'echo-stats.json'), 'utf8')) } catch { /* 还没写 */ }
           return json(res, 200, {
             settings: Object.assign({}, DEFAULTS, cur),
+            live: live,
             path: SFILE,
             note: '常驻天数 1-30；内存预算 64-8192 MB',
           })

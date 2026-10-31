@@ -247,6 +247,9 @@ const buildLogs = () => {
 };
 
 let logsState = "idle";   // idle | loading | ready | off
+
+
+
 const startLogsLoad = () => {
   if (logsState !== "idle") return;
   if (process.env.ECHO_LOGS_RESIDENT === "0") { logsState = "off"; return; }
@@ -267,7 +270,7 @@ const startLogsLoad = () => {
       logsState = "idle";
       process.stderr.write("echo-mcp logs failed  " + (e && e.message) + "\n");
     }
-  }, 0);
+  }, 3000);   // ★ 延迟 3s：先让 MCP 握手完成，再做重活
 };
 
 const refresh = () => {

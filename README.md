@@ -364,6 +364,37 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-01 · ECHO MCP 握手修复 + 面板现状回显
+
+**为什么改**：日志常驻上线后，ECHO MCP 连不上（桌面端一直显示「echo · 连接中 · 0 tools」）。
+
+**根因**：`buildLogs()` 是**同步**的 zstd 解压，3 天日志要 5.8 秒。而 mcp-hub 在 spawn 的
+下一瞬间就发 `initialize` —— 那一帧正好落在阻塞窗口里，于是握手永远等不到回复（20 秒超时、stdout 为空）。
+关掉日志常驻（`ECHO_LOGS_RESIDENT=0`）则 1442 ms 正常握手，确认是这个原因。
+
+**改了什么**：
+
+| # | 改哪 | 内容 |
+|---|---|---|
+| ① | `kit/echo/echo-mcp.mjs` | `startLogsLoad()` 的延迟从 `0` 改成 `3000` —— 先让握手完成，再做重活 |
+| ② | `plugins/echo/index.js` | `/api/settings` 多返回一个 `live` 字段（读 `echo-stats.json`，两个进程用文件交接） |
+| ③ | `plugins/echo/client.js` | 面板加「内存预算」按钮组（256/512/768/1024），当前值高亮（`data-on`）；每 30 秒轮询一次 |
+
+**怎么验的**（A/B 探针，模拟 hub 的真实时序 —— 启动即发 initialize）：
+
+```
+日志常驻=开  → ✓ 握手成功 1648 ms
+日志常驻=关  → ✓ 握手成功 1833 ms
+（改之前：开 → 20 s 超时、stdout 空）
+```
+
+**没做到的（如实写）**：`live` 目前**没有生产者** —— `echo-stats.json` 还是 0 条，
+因为写它的那段代码有 TDZ 风险，被整段撤掉了。所以「内存水位」那一行拿到的是 `null`，不显示数字。
+要补的话，得在 `logsState` 声明之后、或 `search()` 里写这个文件。
+
+**还剩的根因**：延迟 3 秒只是绕开冲突，`buildLogs()` 仍然阻塞事件循环 —— 握手完成后还会卡几秒。
+真正的修法是把解压放进 `worker_threads`，或在每个文件之间 `await setImmediate()` 让出。
+
 ### 2026-11-01 · ECHO 设置面板 + 日志常驻加固
 
 **为什么改**：爀曦要「常驻天数 / 内存预算可调」的设置面板 —— ECHO 一直只有哨兵面板，
