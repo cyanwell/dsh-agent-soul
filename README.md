@@ -364,6 +364,53 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-31 · 更正 `HOW-TO-TAKEOVER` 的「桌面版必然失败」，新增一份判断入口
+
+**起因**：一位用户在群里问「桌面端装 huanqi 到底要不要解 `app.asar`」，
+发现 `HOW-TO-TAKEOVER.md:7` 写着「**桌面版 ❌ 必然失败**」，
+而 `install.js:584` 写着「**桌面端 14/14 装齐、路 B 可行**」—— 两处说法打架。
+
+**核完发现：`install.js` 对，`HOW-TO-TAKEOVER.md` 那句写宽了。**
+
+#### 错在哪
+
+**它把「profile 的 `node_modules` 里没有」直接推成了「从 `app.asar` 解析不到」。**
+
+这两件事不一样：
+
+| 观察 | 能推出什么 |
+|---|---|
+| `profiles/desktop/node_modules/@deepseek-ai/` 只有 9 个包，没有 `dsh-compaction` | **只能推出**：profile 的 `node_modules` 里没有 |
+| **不能推出** | 「从 `app.asar` 解析不到」—— 那取决于加载器走哪条路 |
+
+**最硬的活证据是 `dsh-huanqi`**：
+
+- 它是 `insert`（**新增型**）、也缺 `dsh-compaction` / `dsh-llm`
+- **但在桌面端跑得好好的** —— 2026-10-31 实测 `[huanqi][trigger] compactOnce(region) → OK`
+- 因为它自带了 19 个 `@deepseek-ai/*`，缺的那几个**按设计由宿主提供**
+  （`lib/index.js:180` 注释写得很清楚：「运行时由宿主提供」）
+
+#### 改了什么
+
+**`plugins/compaction/HOW-TO-TAKEOVER.md`**：
+
+- 把「桌面版 ❌ 必然失败」改成**「先分清新增型 / 替换型」**
+- 补上**真正的机制**：`@deepseek-ai/*` 从哪来，分「自带」/「宿主提供」/「靠 profile 碰运气」三种
+- 结论收窄成三句：新增型走 `insert` 就行；替换型挑对路（路 B 已实证）；「装不上去」不是必然
+
+**`docs/桌面端装插件-新增型vs替换型.md`（新增）**：
+
+**一份判断入口，让人不用先在 `app.asar` 上白撞一圈。**
+
+三个判据：
+
+1. **查它注册什么名字** —— 没人用过 = 新增型；有人用着（`compaction`/`pruner`）= 替换型
+2. **按类型走** —— 新增型 `insert` 就行；替换型要挑路 A / 路 B
+3. **`@deepseek-ai/*` 从哪来** —— 自带 / 宿主提供 / 靠 profile 碰运气
+
+以及「三个不要」：不要先去解 asar、不要因为 profile 没有就判失败、不要拿文档结论盖过实测。
+
+
 ### 2026-10-31 · ECHO 召回提速：书房时间窗 + 行数组缓存 + svc 随 MCP 生命周期
 
 **实测（`kit/echo/echo-mcp.mjs`，50 次 0 失败）**：
