@@ -185,18 +185,32 @@ const decodeFramesOf = (file) => {
 };
 
 /** 把最近 N 天的会话日志解进内存（阻塞版，由预热器在后台调用） */
-const buildLogs = () => {
+/* ★★★ 2026-11-01：**改成可让出的异步版本**。
+ *
+ * 起因（100 组基线实测，见 docs/ECHO-更新后测速基线-20261101.html 第四节）：
+ * 原来的 buildLogs() 是纯同步的。7 天配置下整个进程会冻结数百秒 ——
+ * 基线里那条 203 秒的尖峰就是它，落在哪次查询头上，那次就等这么久。
+ * 之前的「延迟 3 秒」只是把「阻塞握手」挪成了「阻塞第 N 次查询」，没解决问题。
+ *
+ * 现在每处理一个会话文件就让出一次事件循环：单次阻塞上限从
+ * 「全部文件」降到「最慢的那一个文件」，查询可以插进空隙里。
+ * 用 setImmediate 而不是 setTimeout(0)：宏任务、不饿死 IO 回调。
+ */
+const yieldToHost = () => new Promise((r) => setImmediate(r));
+
+const buildLogs = async () => {
   if (!LOG_DAYS) return [];
   const cutoff = Date.now() - LOG_DAYS * 86400000;
   const out = [];
-  const walk = (dir, depth) => {
+  const walk = async (dir, depth) => {
     if (depth > 3) return;
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
       const p = path.join(dir, e.name);
-      if (e.isDirectory()) { walk(p, depth + 1); continue; }
+      if (e.isDirectory()) { await walk(p, depth + 1); continue; }
       if (!/^session\.v\d+\.jsonl\.zstd$/.test(e.name)) continue;
+      await yieldToHost();   // ★ 每个会话文件之前让一次：把长冻结切成小口子
       let st;
       try { st = fs.statSync(p); } catch { continue; }
       if (st.mtimeMs < cutoff) continue;
@@ -216,7 +230,13 @@ const buildLogs = () => {
         }
         if (carry) rows.push(carry);
       }
+      /* ★ 2026-11-01 第二刀：**文件内也要分片让出**。
+       * 第一版只在「每个文件之前」让一次，实测最大冻结仍有 110 秒 ——
+       * 说明单个大会话文件（几万行）的解析本身就是那个长块。
+       * 这里每 200 行让出一次，把单文件也切成小片。 */
+      let sinceYield = 0;
       for (const line of rows) {
+        if (++sinceYield >= 200) { sinceYield = 0; await yieldToHost(); }
         const s = line.trim();
         if (!s || s.length > 8 * 1024 * 1024) continue;
         let j;
@@ -242,7 +262,7 @@ const buildLogs = () => {
       }
     }
   };
-  walk(SESS_DIR, 0);
+  await walk(SESS_DIR, 0);
   return out;
 };
 
@@ -256,9 +276,9 @@ const startLogsLoad = () => {
   logsState = "loading";
   const t0 = Date.now();
   // 丢到下一轮事件循环，不阻塞 MCP 握手
-  setTimeout(() => {
+  setTimeout(async () => {
     try {
-      const arr = buildLogs();
+      const arr = await buildLogs();
       arr.sort((a, b) => String(b.t).localeCompare(String(a.t)));   // 时间倒序
       C.logs = arr;
       C.logsKey = Date.now();
