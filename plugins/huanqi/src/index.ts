@@ -2215,7 +2215,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
         let target: any = lastSeenAgent
         let targetSid: string = lastSeenSid
         if (target === null) {
-          const wantSid = String(req.sid || 'session-1099f531-7cac-4989-a14c-7fd499ac1fc0').trim()
+          const wantSid = String(req.sid || lastSeenSid).trim()
           try {
             target = ctx.agents.get(wantSid as never) ?? null
             targetSid = wantSid

@@ -344,6 +344,21 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-10-31 · 换气：调试触发口去掉写死的旧会话 id
+
+**问题**：`_huanqi-trigger.json` 的兜底逻辑里写着一个**写死的会话 id**
+（`session-1099f531-…`，当初调试时留下的）。重启之后 `lastSeenSid` 为空，
+于是每次触发都去 `ctx.agents.get()` 那个早就没了的会话，日志只会说
+「没拿到 / 取不到 agent，放弃」。
+
+**改法**：兜底改成 `req.sid || lastSeenSid` —— 用请求里带的 sid，
+没有再退到最近一次真实回合的 sid。**空就放弃，不再瞎指一个不存在的会话。**
+
+**为什么没顺手把 `lastSeenSid` 提前到 `lastHad` 之前**：试过，但 lib 里
+`if (lastHad)` 是 `else if` 链的一部分（与 src 结构不同），插一行会把 `if/else`
+切断 → `SyntaxError: Unexpected token 'else'`。已经回滚，**只保留安全的那一处**。
+真要每轮刷新，得在 lib 里按 `else if` 链的正确位置改，不能靠同一段文本替换。
+
 ### 2026-10-31 · 回声哨兵面板：判词补上「定点清除」这一态
 
 **问题**：换气 2026-10-31 把 region 压缩改成了「LLM 诊断 + surfaceOp 定点清除」，
