@@ -170,38 +170,80 @@ const messageText = (j) => {
 };
 
 /** 逐帧解压（多帧 zstd，只用 zstdDecompressSync 只能解第一帧） */
-const decodeFramesOf = (file) => {
+/* ★★★ 2026-11-01 第三刀（真正对症的那一刀）：**逐帧流式处理**。
+ *
+ * 前面两刀都在治「阻塞」，没治「内存」—— 而实测暴露后者才是大头：
+ * 26594 条日志各留 600 字符只有 ~16 MB，加载峰值 RSS 却冲到 **4.3 GB**，
+ * 放大 270 倍。放大来自三处中间产物同时驻留：
+ *   ① decodeFramesOf 先把**所有帧**解压进一个数组（单个大文件可达数百 MB）
+ *   ② rows 数组存下整份原文的**所有行**（7 天全量约 150M 字符）
+ *   ③ 逐行 JSON.parse 产生的对象
+ * 现在改成**解一帧 → 切行 → 逐行处理 → 立刻放手**，
+ * 任一时刻只持有「一帧的原文」，而不是「整个文件的原文」。
+ *
+ * 顺带把让出点挪到**帧边界**（比每 200 行自然得多，也少一层计数器开销）。
+ */
+const yieldToHost = () => new Promise((r) => setImmediate(r));
+
+const forEachFrame = async (file, onFrame) => {
   let buf;
-  try { buf = fs.readFileSync(file); } catch { return []; }
-  const out = [];
+  try { buf = fs.readFileSync(file); } catch { return 0; }
   let base = 0;
+  let frames = 0;
   while (base < buf.length) {
     let end = buf.indexOf(ZMAGIC, base + 4);
     if (end < 0) end = buf.length;
-    try { out.push(zlib.zstdDecompressSync(buf.subarray(base, end))); } catch { /* 坏帧跳过 */ }
+    let raw = null;
+    try { raw = zlib.zstdDecompressSync(buf.subarray(base, end)); } catch { raw = null; }
     base = end;
+    if (!raw) continue;
+    frames += 1;
+    onFrame(raw);
+    raw = null;                 // ★ 一帧处理完立刻放手
+    await yieldToHost();        // ★ 让出点落在帧边界
   }
-  return out;
+  buf = null;
+  return frames;
 };
-
-/** 把最近 N 天的会话日志解进内存（阻塞版，由预热器在后台调用） */
-/* ★★★ 2026-11-01：**改成可让出的异步版本**。
- *
- * 起因（100 组基线实测，见 docs/ECHO-更新后测速基线-20261101.html 第四节）：
- * 原来的 buildLogs() 是纯同步的。7 天配置下整个进程会冻结数百秒 ——
- * 基线里那条 203 秒的尖峰就是它，落在哪次查询头上，那次就等这么久。
- * 之前的「延迟 3 秒」只是把「阻塞握手」挪成了「阻塞第 N 次查询」，没解决问题。
- *
- * 现在每处理一个会话文件就让出一次事件循环：单次阻塞上限从
- * 「全部文件」降到「最慢的那一个文件」，查询可以插进空隙里。
- * 用 setImmediate 而不是 setTimeout(0)：宏任务、不饿死 IO 回调。
- */
-const yieldToHost = () => new Promise((r) => setImmediate(r));
 
 const buildLogs = async () => {
   if (!LOG_DAYS) return [];
   const cutoff = Date.now() - LOG_DAYS * 86400000;
   const out = [];
+
+  const handleLine = (line, sid) => {
+    const t = line.trim();
+    if (!t || t.length > 8 * 1024 * 1024) return;
+    let j;
+    try { j = JSON.parse(t); } catch { return; }
+    if (j.type !== "user/message" && j.type !== "assistant/message") return;
+    let body = messageText(j);
+    if (!body) return;
+    body = body.trim();
+    if (body.startsWith("<system-reminder>") || body.startsWith("Current runtime context")) return;
+    const full = body.length;
+    out.push({
+      text: full > LOG_SNIP ? body.slice(0, LOG_SNIP) : body,
+      fullLen: full,
+      t: j.time ? new Date(j.time).toISOString() : "",
+      sid,
+      seq: j.seq,
+      ptr: "log:" + sid + "#seq=" + j.seq,
+      role: j.type === "user/message" ? "user" : "assistant",
+      _n: null,
+    });
+  };
+
+  // 跨帧行缓冲：一帧结尾可能是半行，交给下一帧接上
+  const handleFrame = (raw, carryRef, sid) => {
+    let chunk;
+    try { chunk = raw.toString("utf8"); } catch { return; }
+    const segs = (carryRef.v + chunk).split(String.fromCharCode(10));
+    carryRef.v = segs.pop() || "";
+    for (const line of segs) handleLine(line, sid);
+    chunk = null;
+  };
+
   const walk = async (dir, depth) => {
     if (depth > 3) return;
     let entries;
@@ -210,58 +252,16 @@ const buildLogs = async () => {
       const p = path.join(dir, e.name);
       if (e.isDirectory()) { await walk(p, depth + 1); continue; }
       if (!/^session\.v\d+\.jsonl\.zstd$/.test(e.name)) continue;
-      await yieldToHost();   // ★ 每个会话文件之前让一次：把长冻结切成小口子
       let st;
       try { st = fs.statSync(p); } catch { continue; }
       if (st.mtimeMs < cutoff) continue;
       const sid = path.basename(path.dirname(p));
-      const parts = decodeFramesOf(p);
-      if (parts.length === 0) continue;
-      // ★ 不拼成一个大字符串 —— 7 天时单文件解压可超 512MB（V8 字符串上限）
-      const rows = [];
-      {
-        let carry = "";
-        for (const pb of parts) {
-          let chunk;
-          try { chunk = pb.toString("utf8"); } catch { continue; }
-          const segs = (carry + chunk).split(String.fromCharCode(10));
-          carry = segs.pop() || "";
-          for (const sg of segs) rows.push(sg);
-        }
-        if (carry) rows.push(carry);
-      }
-      /* ★ 2026-11-01 第二刀：**文件内也要分片让出**。
-       * 第一版只在「每个文件之前」让一次，实测最大冻结仍有 110 秒 ——
-       * 说明单个大会话文件（几万行）的解析本身就是那个长块。
-       * 这里每 200 行让出一次，把单文件也切成小片。 */
-      let sinceYield = 0;
-      for (const line of rows) {
-        if (++sinceYield >= 200) { sinceYield = 0; await yieldToHost(); }
-        const s = line.trim();
-        if (!s || s.length > 8 * 1024 * 1024) continue;
-        let j;
-        try { j = JSON.parse(s); } catch { continue; }
-        if (j.type !== "user/message" && j.type !== "assistant/message") continue;
-        let body = messageText(j);
-        if (!body) continue;
-        body = body.trim();
-        // ★ 过滤每轮注入的样板，否则会把真对话淹掉
-        if (body.startsWith("<system-reminder>") || body.startsWith("Current runtime context")) continue;
-        const full = body.length;
-        const text = full > LOG_SNIP ? body.slice(0, LOG_SNIP) : body;
-        out.push({
-          text,
-          fullLen: full,
-          t: j.time ? new Date(j.time).toISOString() : "",
-          sid,
-          seq: j.seq,
-          ptr: "log:" + sid + "#seq=" + j.seq,
-          role: j.type === "user/message" ? "user" : "assistant",
-          _n: null,   // 懒算：第一次命中时才 norm（省启动时间）
-        });
-      }
+      const carryRef = { v: "" };
+      await forEachFrame(p, (raw) => handleFrame(raw, carryRef, sid));
+      if (carryRef.v) handleLine(carryRef.v, sid);   // 最后一帧剩下的那半行
     }
   };
+
   await walk(SESS_DIR, 0);
   return out;
 };
