@@ -252,6 +252,34 @@ const readme = fs.readFileSync('README.md', 'utf8')
   let outOfOrder = 0
   for (let i = 1; i < stamps.length; i++) if (stamps[i] > stamps[i - 1]) outOfOrder++
   check('README 更新记录按时间倒序（新的在上）', outOfOrder === 0, '有 ' + outOfOrder + ' 处逆序')
+
+  // ★★ 2026-11-01 补：上面那条「格式统一 + 倒序」**拦不住真正发生过的那次事故**。
+  //
+  //   当时有个条目写成了 `## 2026-11-01 · 渲染冒烟闸…`（两个 #，和「## 更新记录」同级）。
+  //   于是它变成独立小节、**永远钉在更新记录最前面**，而后面所有正常的
+  //   `### 日期 · …` 全都成了它的下级 —— GitHub 首页看到的就是那条旧记录。
+  //   上面两条判据都看不见它：`^### ` 匹配不到 `## `，日期序列里也就没有它。
+  //
+  //   判据要按**区段**看，不能只看全文件的 `###`。
+  const clStart = readme.search(/^## 更新记录$/m)
+  check('README 有「## 更新记录」这一节', clStart >= 0)
+  if (clStart >= 0) {
+    const after = readme.slice(clStart + 1)
+    const nextH2 = after.search(/^## (?!更新记录)/m)
+    const section = nextH2 > 0 ? after.slice(0, nextH2) : after
+
+    // ① 区内不允许出现「## 日期 · …」——那正是跑出这一节的形状
+    const rogueH2 = [...section.matchAll(/^## (\d{4}-\d{2}-\d{2}.*)$/gm)].map((m) => m[1])
+    check('更新记录里没有误用 ## 的条目（否则会跑出这一节、钉在最前面）',
+      rogueH2.length === 0, '误用 ##: ' + rogueH2.join(' | '))
+
+    // ② 区内每个 ### 都必须以日期开头（#### 子节不算，^### + 空格 不会匹配 ####）
+    const noDate = [...section.matchAll(/^### (.+)$/gm)]
+      .map((m) => m[1])
+      .filter((t) => !/^\d{4}-\d{2}-\d{2}/.test(t))
+    check('更新记录区里每个 ### 都以日期开头', noDate.length === 0,
+      '无日期: ' + noDate.slice(0, 3).join(' | '))
+  }
 }
 
 // ── 7. 子包的 exports 通配符必须落在 files 白名单里（V2，2026-10-22）──
