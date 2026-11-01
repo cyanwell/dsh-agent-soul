@@ -46,11 +46,53 @@ function arg(name, fallback) {
 const has = (name) => process.argv.includes('--' + name)
 
 const PKG = arg('pkg', 'dsh-yanqing-echo')
-const SRC = arg('src', `D:/AI/dsh-tools/${PKG}`)
 const DRY = has('dry-run')
 
-// profile 目录：优先环境变量，否则用本机默认
-const PROFILE = process.env.DSH_PROFILE_DIR || 'D:/AI/dsh/home/profiles/desktop'
+/* ── 路径解析：**不写死任何本机盘符**（2026-11-01）──────────────────────
+ *
+ * 原来这里是：
+ *   const SRC = arg('src', `D:/AI/dsh-tools/${PKG}`)
+ *   const PROFILE = process.env.DSH_PROFILE_DIR || 'D:/AI/dsh/home/profiles/desktop'
+ *
+ * 在别人机器上，第一行会去一个不存在的地方找包，第二行会往一个不存在的目录里写 ——
+ * 后者的报错发生在 cp 那一刻，看起来像"权限问题"，其实是路径写死了。
+ *
+ * 现在的顺序：**显式参数 → 环境变量 → 从脚本位置探测 → 报错退出**。
+ * 刻意不兜底到任何本机盘符，也不退回插件目录 —— 那不叫兜底，那叫埋雷。
+ */
+const SRC = arg('src', process.env.DSH_PKG_SRC_DIR || join(dirname(REPO), PKG))
+
+function locateProfile() {
+  const explicit = arg('profile', null)
+  if (explicit) return explicit
+  if (process.env.DSH_PROFILE_DIR) return process.env.DSH_PROFILE_DIR
+
+  const parent = dirname(REPO)          // 工具目录与包源目录通常并列
+  const guesses = [
+    process.env.DSH_HOME && join(process.env.DSH_HOME, 'profiles', 'desktop'),
+    join(parent, '..', 'dsh', 'home', 'profiles', 'desktop'),  // <root>/dsh/home/...
+    join(parent, 'home', 'profiles', 'desktop'),               // <root>/home/...
+    join(parent, 'profiles', 'desktop'),                       // 直接在 <root>/profiles/...
+  ].filter(Boolean)
+
+  for (const g of guesses) {
+    try {
+      if (existsSync(join(resolve(g), 'node_modules'))) return resolve(g)
+    } catch { /* 继续试下一个 */ }
+  }
+  return null
+}
+
+const PROFILE = locateProfile()
+if (!PROFILE) {
+  console.error('\n  ✗ 定位不到 DSH profile 目录（要找的是含 node_modules 的 profiles/<名字>）。')
+  console.error('    请显式指定其一：')
+  console.error('      --profile <path>          或者')
+  console.error('      设置环境变量 DSH_PROFILE_DIR 或 DSH_HOME')
+  console.error('    ★ 本工具刻意不兜底到任何本机盘符 —— 那会让别人机器上静默写错地方。\n')
+  process.exit(1)
+}
+
 const DEST = join(PROFILE, 'node_modules', PKG)
 
 const srcFile = join(SRC, 'client.js')
@@ -132,13 +174,21 @@ if (DRY) {
  * 真把组件树展开两遍，能抓 ReferenceError / TypeError。
  *
  * 跳过用 --skip-smoke —— 只在明确知道原因时才用。 */
+const smokeMeta = (() => {
+  try { return JSON.parse(readFileSync(srcPkgJson, 'utf8')).dsh?.smoke || { runner: 'generic' } } catch { return { runner: 'generic' } }
+})()
 if (!has('skip-smoke')) {
-  const smokePath = join(REPO, 'tools', 'echo-smoke.mjs')
-  if (!existsSync(smokePath)) {
-    console.error('\n  ✗ 找不到 tools/echo-smoke.mjs —— 拒绝部署\n')
+  const runner = smokeMeta.runner
+  const smokePath = runner === 'echo'
+    ? join(REPO, 'tools', 'echo-smoke.mjs')
+    : runner === 'generic'
+      ? join(REPO, 'tools', 'client-smoke.mjs')
+      : null
+  if (!smokePath || !existsSync(smokePath)) {
+    console.error(`\n  ✗ 未知或缺失 smoke runner：${runner}\n`)
     process.exit(1)
   }
-  console.log('    · 跑渲染冒烟…')
+  console.log(`    · 跑 ${runner} 渲染冒烟…`)
   const r = spawnSync(process.execPath, [smokePath, srcFile], { encoding: 'utf8' })
   const out = String((r.stdout || '') + (r.stderr || '')).trim()
   if (r.status !== 0) {
