@@ -364,6 +364,41 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-01 · pre-commit 加语法闸：代码能跑 + 公告写了，两件事都得管
+
+**为什么加**：同一天我在 `486be3d` 里把 `client.js` 改出括号不匹配，
+`changelog-gate` **放行了** —— 它只比 README 的更新记录有没有变长，一个字都不看代码对不对。
+「公告写了」和「代码能跑」是两件事，闸门以前只管前者，于是后者裸奔到今天。
+
+**做了什么**（`tools/pre-commit-changelog.mjs` 里加第 1.5 步）：
+
+- 暂存的实现文件（`plugins/**` 的 `.js/.mjs/.cjs` + 根入口 + `soul/**.json`）逐个检查
+- JS 走 `node --check`，JSON 走 `JSON.parse`
+- 任何一个不过 → **`exit 1`，提交被拒**，并打印 node 的原始报错（带行号和那一行源码）
+- `.ts` 跳过（`node --check` 不认 TypeScript，硬查会误报）
+
+**两个刻意的设计**：
+
+1. **检查 index 的内容（`git show :<path>`），不是磁盘文件。**
+   要提交的是暂存内容。磁盘改好了、暂存里还是坏的，提交出去的仍然是坏的。
+2. **用 `process.execPath`，不写 `'node'`。**
+   这台机器 node 不在 PATH 里 —— 靠 PATH 的检查会静默失效。
+   这和同一文件里 `findGit()` 踩过的是同一个坑。
+
+**自测（不是「我觉得能行」）**：
+
+| 步骤 | 结果 |
+|---|---|
+| 造一个 `function bad( {` 的文件并 `git add` | —— |
+| `node tools/pre-commit-changelog.mjs` | `exit=1`，打印 `SyntaxError: Unexpected identifier 'x'` |
+| `git commit -m "..."` | `exit=1`，HEAD **没动**（`90a0ccc`） |
+| 清理后工作区 | 干净 |
+
+★ 这次自测本身也踩了个小坑：第一次接 `| head -20` 看输出，
+`$?` 拿到的是 `head` 的退出码（0），差点误判成「闸门没拦」。
+**看退出码时不要接管道** —— 这和第 ④ 条「抽验远端内容」是同一类：
+判据要真的量到那个东西，不能量到一个旁边的东西。
+
 ### 2026-11-01 · 紧急修 `486be3d` 造成的回声面板加载失败
 
 **症状**：DSH 打开窗口时报 `Web boot: 1 entry did not activate dsh-agent-echo: import failed`，
