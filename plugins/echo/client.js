@@ -549,13 +549,57 @@ window.__ModuleLoader__.load({
       return (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
     }
 
+    /* ★★ 2026-11-01 重写：探测源顺序改了。
+       旧的只看 --dsw-alias-label-primary（文字色），实测它可能取不到 ——
+       取不到就一路落到 prefers-color-scheme，而**系统是浅色、DSH 是深色主题**，
+       于是判成 light → 白玻璃在深色界面里像一块白板（爀曦原话「深色就显得突兀了」）。
+
+       新的顺序：**背景基色优先**（它就是主题的底色，比文字色直接），
+       文字色作为佐证，最后才信系统偏好。
+       ★ 每一级都试多个宿主节点：变量未必挂在 documentElement 上。 */
+
+    /** 在多个宿主节点上找变量值 */
+    function readVarAnywhere(name) {
+      const roots = [];
+      try { roots.push(document.documentElement); } catch (e) {}
+      try { if (document.body) roots.push(document.body); } catch (e) {}
+      for (const r of roots) {
+        if (!r) continue;
+        try {
+          const raw = String(getComputedStyle(r).getPropertyValue(name) || "").trim();
+          if (raw) {
+            // 已经在某个节点上拿到了原始 token，就地递归解（resolveCssVar 只认 documentElement）
+            const m = /^var\(\s*(--[a-z0-9_-]+)\s*(?:,\s*([\s\S]+))?\)$/i.exec(raw);
+            if (m) {
+              const inner = String(getComputedStyle(r).getPropertyValue(m[1]) || "").trim();
+              if (inner) return inner;
+              return (m[2] || "").trim();
+            }
+            return raw;
+          }
+        } catch (e) { /* 试下一个 */ }
+      }
+      return resolveCssVar(name);
+    }
+
     /** @returns {"dark"|"light"} */
     function detectTone() {
-      // ① 宿主主题变量（成对赋值 ⇒ 正文色亮就是深色主题）
-      const rgb = rgbOf(resolveCssVar("--dsw-alias-label-primary"));
-      if (rgb) return luminance(rgb) > 0.5 ? "dark" : "light";
+      // ① 背景基色 —— 主题的底色，最直接。浅底=light 主题，深底=dark 主题
+      const bgNames = [
+        "--dsw-alias-bg-base",
+        "--dsw-alias-bg-module-platform",
+        "--dsw-alias-markdown-code-block",
+      ];
+      for (const n of bgNames) {
+        const c = rgbOf(readVarAnywhere(n));
+        if (c) return luminance(c) > 0.5 ? "light" : "dark";
+      }
 
-      // ② 退化：向上找第一个非透明背景
+      // ② 文字色佐证（成对赋值：深色主题给浅字）
+      const ink = rgbOf(readVarAnywhere("--dsw-alias-label-primary"));
+      if (ink) return luminance(ink) > 0.5 ? "dark" : "light";
+
+      // ③ 退化：向上找第一个非透明背景
       try {
         let el = document.body;
         while (el) {
@@ -568,14 +612,13 @@ window.__ModuleLoader__.load({
         }
       } catch (e) { /* 落到下一步 */ }
 
-      // ③ 最后才信系统偏好
+      // ④ 最后才信系统偏好
       try {
         if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) return "dark";
       } catch (e) { /* ignore */ }
       return "light";
     }
-
-    /* 折叠只认 header，且「正在选字」时不折叠。
+/* 折叠只认 header，且「正在选字」时不折叠。
        click 是「按下 + 抬起」才派发 —— 拖选文字松手也会触发，
        所以整卡 onClick 会把「选中一段 evidence 复制」变成「卡片收起」。 */
     function selectionActive() {
