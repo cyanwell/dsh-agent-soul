@@ -698,24 +698,40 @@ window.__ModuleLoader__.load({
         // ── 内存水位（读 echo-mcp 写的 live 状态）─────────────
         h("div", { className: "yq-bar yq-glass", style: { marginTop: 6, flexWrap: "wrap" } },
           h("span", { style: { fontSize: 11.5, fontWeight: 600 } }, "内存水位"),
+          // ★ 2026-11-01：加一条**水位进度条**。
+          //   光看「常驻 23.1 MB」看不出离预算还有多远 —— 有刻度才知道该不该调。
           h("span", { className: "yq-chip" }, "日志 " + (lv && lv.logs != null ? lv.logs : "—") + " 条"),
-          h("span", { className: "yq-chip" }, "常驻 " + (lv && lv.logsMB != null ? lv.logsMB : "—") + " MB"),
+          h("span", {
+            title: (lv && lv.memUsedMB != null ? lv.memUsedMB : "—") + " / "
+              + (lv && lv.memBudgetMB != null ? lv.memBudgetMB : "—") + " MB",
+            style: {
+              width: "110px", height: "10px", borderRadius: "5px", flex: "none",
+              background: "rgba(255,255,255,.10)", overflow: "hidden",
+              border: "1px solid rgba(255,255,255,.10)",
+            },
+          },
+            h("div", {
+              style: {
+                width: Math.max(0, Math.min(100, Math.round(
+                  ((lv && lv.memUsedMB) || 0) / ((lv && lv.memBudgetMB) || 512) * 100
+                ))) + "%",
+                height: "100%",
+                background: ((lv && lv.memPct) || 0) >= 85 ? "#f2604c"
+                  : ((lv && lv.memPct) || 0) >= 60 ? "#f2b544" : "#3ddad7",
+              },
+            })
+          ),
+          h("span", { className: "yq-chip" },
+            "常驻 " + (lv && lv.memUsedMB != null ? lv.memUsedMB : (lv && lv.logsMB != null ? lv.logsMB : "—"))
+            + " / " + (lv && lv.memBudgetMB != null ? lv.memBudgetMB : "—") + " MB"),
           h("span", { className: "yq-chip" }, "进程 " + (lv && lv.rssMB != null ? lv.rssMB : "—") + " MB"),
+          lv && lv.logsDropped > 0
+            ? h("span", { className: "yq-chip", style: { color: "#f2b544" } },
+                "超预算裁掉 " + lv.logsDropped + " 条")
+            : null,
           h("span", { className: "sp" }),
           h("span", { style: { fontSize: 11, color: "var(--muted)" } },
             lv ? ("更新于 " + new Date(lv.updatedAt).toLocaleTimeString()) : "等 echo-mcp 写第一次状态…")
-        ),
-          h("span", { className: "sp" }),
-          h("span", { style: { fontSize: 11.5 } }, "预算"),
-          h("div", { className: "yq-seg" },
-            [256, 512, 768, 1024].map(function (m) {
-              return h("button", {
-                key: m,
-                onClick: function () { post("/settings?memBudgetMB=" + m, "内存预算 → " + m + " MB（重启 DSH 生效）…") },
-                title: "常驻部分允许占用的内存上限",
-              }, String(m) + "M")
-            })
-          )
         ),
 
 
