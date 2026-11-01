@@ -267,6 +267,35 @@ const buildLogs = async () => {
 };
 
 let logsState = "idle";   // idle | loading | ready | off
+/* ★★★ 2026-11-01：**echo-stats.json 的生产者**。
+ *
+ * 这个文件是面板「内存水位」那一行唯一的数据源，但它此前**没有任何写入者** ——
+ * 面板读到的永远是上一次重启前的旧值（实测显示 rssMB=2213，而真实是 285）。
+ * 一个显示错误数字的仪表盘比没有仪表盘更坏：它会让人以为内存爆了。
+ *
+ * 节流 30 秒：面板自己也是 30 秒轮询一次，写更勤没有意义。
+ * 内容必须是**进程此刻的真实值** —— 所以 rssMB 用 process.memoryUsage()。
+ */
+let lastStatsWriteAt = 0;
+const writeStats = () => {
+  const now = Date.now();
+  if (now - lastStatsWriteAt < 30000) return;
+  lastStatsWriteAt = now;
+  try {
+    const mem = process.memoryUsage();
+    const logsMB = Math.round(C.logs.reduce(function (a, g) { return a + g.text.length; }, 0) * 2 / 1048576 * 10) / 10;
+    fs.writeFileSync(path.join(HUB, "echo-stats.json"), JSON.stringify({
+      logs: C.logs.length,
+      logsState,
+      logsMB,
+      rssMB: Math.round(mem.rss / 1048576),
+      logDays: LOG_DAYS,
+      memBudgetMB: MEM_BUDGET_MB,
+      updatedAt: new Date().toISOString(),
+    }));
+  } catch { /* 诊断不许影响主流程 */ }
+};
+
 
 
 
@@ -283,6 +312,7 @@ const startLogsLoad = () => {
       C.logs = arr;
       C.logsKey = Date.now();
       logsState = "ready";
+      writeStats();
       process.stderr.write("echo-mcp logs ready  " + arr.length + " 条 / "
         + ((process.memoryUsage().rss) / 1048576).toFixed(0) + "MB  " + (Date.now() - t0) + "ms\n");
 
@@ -527,6 +557,7 @@ const callTool = (name, args) => {
   }
   if (name === "echo_open") return textResult(openPtr(args.ptr));
   if (name === "echo_stats") {
+    writeStats();
     const mem = process.memoryUsage();
     return textResult({
       words: C.words.length, sums: C.sums.length, mo: C.mo.length, soulFiles: C.soul.size,
