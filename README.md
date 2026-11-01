@@ -542,6 +542,50 @@ msedge --headless=new --screenshot=out.png --window-size=1180,1500 URL
 ---
 
 
+### 2026-11-01 · ECHO 部署端更新回灌 + `deploy-client` 去掉写死路径
+
+**① ECHO 的更新之前只落在部署端，仓库里是旧的。**
+
+| 文件 | 部署端 `dsh-yanqing-echo` | 发布版 `plugins/echo` |
+|---|---|---|
+| `client.js` | **71377 B（14:21）** | 70380 B（14:11） |
+| `index.js` | 25499 B | 25492 B |
+| `package.json` | 751 B（10-26） | 1000 B（10-30） |
+| `cordis.patch.yml` | 66 B（10-08） | 67 B（10-30） |
+
+`client.js` 少的那 997 B 就是今天面板上改的东西。`package.json` / `cordis.patch.yml`
+反过来是发布版新 —— 那是对的，发布版有正确的 `name`。
+
+**② 同步时守住的一条（这次没踩）**：`cp` 之后**必须把 `load({ id })` 改回 `dsh-agent-echo`**。
+部署端的 entry 名是 `dsh-yanqing-echo`，原样 cp 过来就是「应用无法启动」的重演。
+改完 71377 → **71375 B**（少 2 字节 = `yanqing`→`agent`），`node --check` 通过，
+备份 `client.js.bak-before-sync-20261101-191736`。
+
+**③ 顺带确认一处「有意差异」，别去「修」它**：`index.js` 部署端比发布端多三个字 ——
+注释里的 `爀曦`，发布版去掉了人名。**那是刻意的，不是漏同步。**
+
+**④ `tools/deploy-client.mjs` 的默认路径不再写死本机盘符。**
+
+原来是：
+
+```js
+const SRC = arg('src', `D:/AI/dsh-tools/${PKG}`)
+const PROFILE = process.env.DSH_PROFILE_DIR || 'D:/AI/dsh/home/profiles/desktop'
+```
+
+换台机器：第一行去一个不存在的地方找包，第二行往一个不存在的目录里写。
+**而报错发生在 `cp` 那一刻，看起来像权限问题，其实路径早就写死了。**
+
+改成 **显式参数 → 环境变量（`DSH_PKG_SRC_DIR` / `DSH_PROFILE_DIR` / `DSH_HOME`）→
+从脚本位置探测 → 报错退出**。刻意不兜底到任何盘符，也不退回插件目录 ——
+那不叫兜底，那叫埋雷。
+
+本机验证没退化：`node --check` exit 0；`--dry-run` 自动定位到 `profiles/desktop`、
+源解析到包目录、同包断言通过。
+
+**⑤ 新增 `tools/client-smoke.mjs`**：通用渲染冒烟（不绑定任何一个包）。
+
+
 ### 2026-11-01 · 把「部署」和「验 id」绑成一个动作（`deploy-client.mjs`）
 
 **同一天第二次崩，比第一次蠢。** 我把 `dsh-agent-soul/plugins/echo/client.js`

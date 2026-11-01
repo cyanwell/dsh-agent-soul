@@ -78,7 +78,7 @@ window.__ModuleLoader__.load({
     // ══════════════════════════════════════════════════════════════════════════
     // CSS —— 只注入一次，用 id 去重
     // ══════════════════════════════════════════════════════════════════════════
-    const STYLE_ID = "yq-echo-style-v4";
+    const STYLE_ID = "yq-echo-style-v5";
 
     const CSS = `
 .yq-root{
@@ -666,13 +666,30 @@ window.__ModuleLoader__.load({
 .yq-orb{ animation:yq-breathe 5.5s var(--swift) infinite }
 `;
 
+    /* ★★ 2026-11-01 血案：这个函数原来用 「id 已存在就 return」做幂等，
+       而 DSH 是单页应用 —— <style> 插进 <head> 后**不会随组件卸载移除**。
+       于是改了 CSS 却没改 STYLE_ID 时，旧样式永远霸占着，新 CSS 一条都不生效。
+       表现就是：组件结构换了、语义对了，但**样式全是旧的** → 折叠看着像硬切。
+
+       ★ 修法两条一起上：
+         ① 每次调用都**比对内容**，不一致就原地替换（不是只在缺失时插入）
+         ② 顺手清掉所有旧版本号的同类 style（yq-echo-style-*） */
     function ensureStyle() {
       if (typeof document === "undefined") return;
-      if (document.getElementById(STYLE_ID)) return;
-      const el = document.createElement("style");
-      el.id = STYLE_ID;
-      el.textContent = CSS;
-      document.head.appendChild(el);
+      // 清掉历史版本
+      for (const old of document.querySelectorAll('style[id^="yq-echo-style-"]')) {
+        if (old.id !== STYLE_ID) old.remove();
+      }
+      const el = document.getElementById(STYLE_ID);
+      if (el) {
+        // ★ 关键：内容变了就重写，不能因为 id 存在就跳过
+        if (el.textContent !== CSS) el.textContent = CSS;
+        return;
+      }
+      const fresh = document.createElement("style");
+      fresh.id = STYLE_ID;
+      fresh.textContent = CSS;
+      document.head.appendChild(fresh);
     }
 
     // 动效开关（存 localStorage，卡了就关）
