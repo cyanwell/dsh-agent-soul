@@ -263,10 +263,45 @@ const buildLogs = async () => {
   };
 
   await walk(SESS_DIR, 0);
+
+  /* ★★★ 2026-11-01：**滚动内存管理**。
+   *
+   * memBudgetMB 以前只是一个配置数字，没有任何代码执行它 ——
+   * 于是文档写着 512 MB、实测能冲到 4.3 GB，预算形同虚设。
+   *
+   * 现在：按时间**从新到旧**累加，超过预算就停 —— 新的留在内存里，旧的退出去。
+   * 单条大小 = 正文长度 + 约 120 字��元数据（sid/ptr/t/seq/role），按 UTF-16 双字节算。
+   *
+   * 为什么按「条」裁而不是按「天」裁：一条超长日志就能吃掉几十 MB，
+   * 按天裁会一天全丢或一天全留，粒度太粗。按条算才能真正把占用压到预算内。
+   */
+  out.sort((a, b) => String(b.t).localeCompare(String(a.t)));
+  const capBytes = Math.max(1, MEM_BUDGET_MB) * 1048576;
+  let keptBytes = 0;
+  let kept = 0;
+  for (const item of out) {
+    const sz = (item.text.length + 120) * 2;
+    if (keptBytes + sz > capBytes) break;
+    keptBytes += sz;
+    kept += 1;
+  }
+  logsTotalSeen = out.length;
+  logsDropped = out.length - kept;
+  if (logsDropped > 0) out.length = kept;   // 更旧的退出内存
+  logsMemBytes = keptBytes;
   return out;
 };
 
-let logsState = "idle";   // idle | loading | ready | off
+let logsState = "idle";
+/* ★ 2026-11-01：滚动内存管理的三个观测量（面板要用）。
+ *   logsMemBytes   —— 当前常驻实际占了多少字节
+ *   logsTotalSeen  —— 这次扫描一共见到多少条
+ *   logsDropped    —— 因超预算被挡在内存外面的条数（越旧越先被挡）
+ */
+let logsMemBytes = 0;
+let logsTotalSeen = 0;
+let logsDropped = 0;
+   // idle | loading | ready | off
 /* ★★★ 2026-11-01：**echo-stats.json 的生产者**。
  *
  * 这个文件是面板「内存水位」那一行唯一的数据源，但它此前**没有任何写入者** ——
@@ -277,9 +312,11 @@ let logsState = "idle";   // idle | loading | ready | off
  * 内容必须是**进程此刻的真实值** —— 所以 rssMB 用 process.memoryUsage()。
  */
 let lastStatsWriteAt = 0;
-const writeStats = () => {
+const writeStats = (force) => {
   const now = Date.now();
-  if (now - lastStatsWriteAt < 30000) return;
+  // ★ force 绕过节流 ——「加载完成」这种关键状态变化不能被 30 秒节流挡掉，
+  // 否则面板会在加载完成后仍然显示 loading。
+  if (!force && now - lastStatsWriteAt < 30000) return;
   lastStatsWriteAt = now;
   try {
     const mem = process.memoryUsage();
@@ -288,6 +325,10 @@ const writeStats = () => {
       logs: C.logs.length,
       logsState,
       logsMB,
+      memUsedMB: Math.round(logsMemBytes / 1048576 * 10) / 10,
+      memPct: Math.min(100, Math.round(logsMemBytes / (MEM_BUDGET_MB * 1048576) * 100)),
+      logsTotalSeen,
+      logsDropped,
       rssMB: Math.round(mem.rss / 1048576),
       logDays: LOG_DAYS,
       memBudgetMB: MEM_BUDGET_MB,
@@ -312,7 +353,7 @@ const startLogsLoad = () => {
       C.logs = arr;
       C.logsKey = Date.now();
       logsState = "ready";
-      writeStats();
+      writeStats(true);   // ★ 强制写：关键状态变化，不许被节流挡
       process.stderr.write("echo-mcp logs ready  " + arr.length + " 条 / "
         + ((process.memoryUsage().rss) / 1048576).toFixed(0) + "MB  " + (Date.now() - t0) + "ms\n");
 

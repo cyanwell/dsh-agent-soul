@@ -174,8 +174,23 @@ try {
     }
   }
   const stale = nLogs - meta.logs;
-  live.push(`- 索引：${meta.summaries} 摘要 / ${meta.words} 原话，建于 ${meta.builtAt}（${ageMin} 分钟前，${meta.elapsedSec}s）`);
-  live.push(`  - 会话日志 ${nLogs} 个${stale > 0 ? `，★ 有 ${stale} 个是索引之后新出现的 —— 该重跑了：\`node memindex.mjs build\`` : "（与索引同步）"}`);
+  /* ★ 2026-11-01：**索引重建瞬间 meta.json 可能只写了一半**。
+   *
+   * 原来这里直接拼 meta.summaries / meta.words —— 读到半截就显示
+   * 「索引：undefined 摘要 / undefined 原话，建于 …（0.18s）」。
+   * 一个显示 undefined 的仪表盘比不显示更坏：它看着像系统坏了，其实只是没读完。
+   *
+   * 校验：三个计数必须是有限数字、builtAt 必须有值。不满足就明说「正在重建」，
+   * 而不是把 undefined 拼进正文。宁可少一行字，也不许写一句假话。
+   */
+  const metaOk = Number.isFinite(meta.summaries) && Number.isFinite(meta.words)
+    && Number.isFinite(meta.logs) && meta.builtAt;
+  if (metaOk) {
+    live.push(`- 索引：${meta.summaries} 摘要 / ${meta.words} 原话，建于 ${meta.builtAt}（${ageMin} 分钟前，${meta.elapsedSec}s）`);
+    live.push(`  - 会话日志 ${nLogs} 个${stale > 0 ? `，★ 有 ${stale} 个是索引之后新出现的 —— 该重跑了：\`node memindex.mjs build\`` : "（与索引同步）"}`);
+  } else {
+    live.push(`- 索引：**正在重建**（meta.json 还没写完）—— 会话日志 ${nLogs} 个，等下一次刷新会恢复`);
+  }
 } catch {
   live.push(`- 索引：还没建过 —— \`node ${CFG.HUB}/memindex.mjs build\``);
 }
