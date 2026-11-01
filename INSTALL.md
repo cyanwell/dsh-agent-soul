@@ -375,7 +375,7 @@ agent-soul/
 ├── soul/
 │   ├── 01..05            五层文档 + 装配顺序 + 体检
 │   └── 04-manifest.json  该装哪些零件的机器可读清单
-├── plugins/              15 个零件包（每个都是独立 DSH 包）+ tools/（三个脚本目录，不是包）
+├── plugins/              每个子目录是一个独立 DSH 包（当前 16 个）+ tools/（三个脚本目录，不是包）
 ├── tools/
 │   ├── init.mjs          生成骨架
 │   ├── verify-live.mjs   静态全量校验
