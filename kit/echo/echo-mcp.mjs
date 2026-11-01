@@ -337,6 +337,9 @@ const refresh = () => {
   }
   const sk = statKey(path.join(IDX, "summaries.jsonl"));
   if (sk !== C.sKey) { C.sums = parseJsonl(path.join(IDX, "summaries.jsonl")); C.sKey = sk; C.reloads++; }
+  // ★ 2026-11-01：摘要层也预计算 norm —— 和原话层一样，加载时算一次，
+  //   而不是每次查询把 1158 条摘要重新 norm 一遍。原来这里传 null 让 hitKind 现算。
+  for (const sm of C.sums) sm._n = norm(String(sm.summary == null ? "" : sm.summary));
   const yk = statKey(path.join(HUB, "synonyms.json"));
   if (yk !== C.yKey) { C.syn = loadSyn(); C.yKey = yk; C.reloads++; }
   const mk = statKey(MO);
@@ -413,7 +416,7 @@ const search = ({ terms = [], near = false, since = null, until = null, limit = 
   const idxHits = [];
   for (const s of C.sums) {
     if (!inRange(s.t, since, until)) continue;
-    const k = hitKind(s.summary, terms, near, null, termsN);
+    const k = hitKind(s.summary, terms, near, s._n, termsN);
     if (!k) continue;
     total++; idxTotal++;
     if (idxHits.length < limit) idxHits.push({ layer: "L4", src: "索引/摘要", t: s.t, ptr: "idx:" + s.id, kind: "摘要", extra: `替换 ${s.shadowedTokens} tok`, m: k, _t: s.summary });
