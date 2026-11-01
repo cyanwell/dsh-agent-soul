@@ -364,6 +364,83 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+## 2026-11-01 · 渲染冒烟闸 + 玻璃切换；折叠动效**未成功**（如实记录）
+
+**起因**：爀曦说「玻璃很硬，没有苹果那种感觉」，要做动效。后来又要「把更新推送了」。
+
+**这一条里有三件事，成了一件半 —— 一件半里那一半是坏的，先说坏的。**
+
+### ✗ 折叠过渡：改了五版，**视觉上仍然硬切**
+
+目标：点开检查项时内容「推开」而不是「跳出来」。
+
+| 版 | 假设 | 结果 |
+|---|---|---|
+| 1 | 用 `grid-template-rows: 0fr → 1fr` | 硬切 |
+| 2 | 以为 grid 不支持，换 `max-height` | 硬切（**而且把对的换成了错的**） |
+| 3 | headless 实测两个方案都支持；`max-height` 猜太大 → 换回 grid | 硬切 |
+| 4 | 发现改的是少数派组件（`CheckCard` 3 个），用户点的是多数派（`yq-ok-body` 12 个）→ 两套都改 | 硬切 |
+| 5 | 发现 `margin` 撑开 `0fr`（`min-height:0` 压不掉 margin）→ 内层 margin 归零 | **爀曦实测：还是硬切** |
+
+**所以真因还没找到。** 代码结构留在这里（两套折叠都改成了 always-render + `data-open`），
+**但它目前等于无效改动** —— 后续要么找到真因改 CSS，要么整体回滚。
+
+★ **教训单独成文**：`20-档案/排查纪律-四种可能一次穷举.md`（在书房仓库，不在这里）。
+
+### ✓ 玻璃质感切换
+
+「动效 开/关」旁边加了「柔光/平铺」：
+
+- **柔光**（默认）= `blur(24px) saturate(185%)`，真模糊
+- **平铺** = 纯渐变，滚轮最省
+
+选择记在 `localStorage` 的 `yq-echo-glass`。
+
+### ✓ 渲染冒烟闸 —— 这条是这次最有价值的产出
+
+**起因**：同一天早些时候我把面板弄空过一次 —— `node --check` 全过、id 全对、部署「成功」，
+浏览器里**整块空白**。根因是 `toggleGlass` 被插进了 `toggleMotion` 的函数体里成了局部变量，
+运行时 `ReferenceError`，而**语法完全合法**。
+
+`tools/echo-smoke.mjs` 的做法：
+
+1. mock 掉 `window.__ModuleLoader__`，拿到 factory
+2. mock `react`（`createElement` + 全部 hooks）+ `document` / `localStorage` / `getComputedStyle` / `MutationObserver`
+3. mock `ctx.slots`，捕获注册的组件
+4. **递归展开函数组件** —— 真的执行 `EchoPanel`，不是只跑薄壳
+5. **两轮渲染**：第一轮记下每个 `useState` 的初始值，把初始为 `null` 的槽位灌成假的 `/status` 数据，
+   第二轮才是「数据到了」的样子 —— 这样 `CheckCard` 才会出现在树里
+
+**已验证它能抓 bug**（这一步不能省）：在 `CheckCard` 里注入一行引用未定义变量 →
+精确报 `ReferenceError` + 组件名 + 行号，退出码 1。
+
+**基线指纹**（好版本）：
+
+```
+第一轮：组件 5 / 节点 137
+第二轮：组件 6 / 节点 165
+组件：EchoPanel, Metric, CheckCard
+```
+
+**接进了部署流程**：`tools/deploy-client.mjs` 第 3.5 关，冒烟不过**拒绝部署**。
+跳过用 `--skip-smoke`（只在明确知道原因时才用）。
+
+**三道关现在各拦一类**：
+
+| # | 关卡 | 拦什么 |
+|---|---|---|
+| 1 | `node --check` | 语法错 |
+| 2 | id 自洽 | 跨包 cp 带错注册 id → 整个界面进不去 |
+| 3 | **渲染冒烟** | **运行时 ReferenceError / TypeError → 面板整块空白** |
+
+**用法**：
+
+```bash
+node tools/echo-smoke.mjs plugins/echo/client.js
+node tools/deploy-client.mjs --pkg dsh-yanqing-echo   # 部署时自动跑
+```
+
+
 ## 2026-11-01 · 玻璃色跟随 GUI 主题
 
 **起因**：爀曦反馈「面板还缺一个玻璃背景颜色随桌面端 GUI 主题自适应的设计，浅色搭配这个界面就很好看，

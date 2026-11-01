@@ -32,17 +32,14 @@
 // ============================================================================
 
 window.__ModuleLoader__.load({
-  /* ★★ 这个 id 必须等于**包名**，而包名是 dsh-agent-echo。
-   *   2026-10-26 00:39 我部署时把它写成了 dsh-agent-echo，
-   *   而当时部署目录叫 dsh-yanqing-echo（本机专属命名）—— 两边对不上，
-   *   client-modules 拿包名当 key 去对注册表，对不上就报
-   *   "loaded without registering ... via __ModuleLoader__.load"，
-   *   整个 web boot 批次随之不激活，界面直接弹「应用无法启动」。
-   *   ★ 教训：改 client.js 或 package.json 的**任何一边**之前，
-   *     先确认 `package.json.name === __ModuleLoader__.load({id})`，两边是一对。
-   *   ★★ 2026-10-30：发布版统一回 dsh-agent-* 命名空间，本机部署目录
-   *     dsh-yanqing-* 是安装时拷的副本 —— 仓库名与部署名可以不同，
-   *     但**同一个包内** package.json.name 与 id 必须相等。 */
+  /* ★★ id 必须等于**它在这个 profile 里的 entry 名** ——
+   *   即 profile `package.json` 的 `dsh.profile.bundles` 里写的那一串，
+   *   不是仓库名、也不是 package.json 的 name（本机这轮叫 dsh-yanqing-echo）。
+   *   2026-10-26 00:39 与 2026-11-01 12:51 各踩过一次：把 id 写成 dsh-agent-echo，
+   *   而 entry 是 dsh-yanqing-echo → client-modules 找不到注册 → web boot 整批不激活。
+   *   2026-10-30 那条「统一回 dsh-agent-*」的判断是错的：
+   *   想统一，必须 bundles / dependencies / package.json.name / node_modules 目录名**四处同时改**，
+   *   只改 client.js 的 id 必崩。 */
   id: "dsh-agent-echo",
   factory: (require) => {
     var module = { exports: {} };
@@ -81,7 +78,7 @@ window.__ModuleLoader__.load({
     // ══════════════════════════════════════════════════════════════════════════
     // CSS —— 只注入一次，用 id 去重
     // ══════════════════════════════════════════════════════════════════════════
-    const STYLE_ID = "yq-echo-style-v3";
+    const STYLE_ID = "yq-echo-style-v4";
 
     const CSS = `
 .yq-root{
@@ -117,6 +114,71 @@ window.__ModuleLoader__.load({
     radial-gradient(900px 420px at 92% 4%,  rgba(147,86,255,.08), transparent 58%),
     radial-gradient(760px 360px at 60% 108%,rgba(52,211,153,.06), transparent 60%);
 }
+/* ══ YQ-SOFT-GLASS-V1（2026-11-01）════════════════════════════════
+ * 爀曦：「玻璃很硬，没有苹果那种感觉」。
+ *
+ * 硬的原因：--glass 是 rgba(30,38,50,.88) —— 不透明度 88%，几乎是实心色块。
+ * 苹果的质感来自**模糊**，不是半透明实色。
+ *
+ * ★★ 这一版**只改 CSS，一行 JS 都不碰**。
+ *    上一版同时改了 JS（state + 属性 + 按钮），面板整块空白 ——
+ *    因为我没法在部署前验证 React 渲染，只能靠 node --check，而它只验语法。
+ *    CSS 错了最多难看，JS 错了会崩。先把风险降到一个我能承受的量级。
+ *
+ * ★ 不做 [data-glass] 开关了 —— 无条件启用软玻璃。
+ *   理由：开关需要 JS 改属性，而 JS 正是上次崩的原因。
+ *   如果实测发现滚动卡，再单独加开关（那时会有明确的对比数据）。
+ *
+ * ★ blur 只加在两张卡面上（.yq-glass / .yq-hero），不给每个小元素加 ——
+ *   合成层数量是「闪」的根源（这条来自 2026-10-02 的教训，但那次真因是重渲染）。
+ */
+
+/* 卡面：真模糊 —— 只在 data-glass="soft" 时启用（默认就是 soft） */
+.yq-root[data-glass="soft"] .yq-glass,
+.yq-root[data-glass="soft"] .yq-hero{
+  -webkit-backdrop-filter: blur(24px) saturate(185%);
+  backdrop-filter: blur(24px) saturate(185%);
+}
+
+/* 底色更透 —— 让模糊透上来。浅色主题 */
+.yq-root{
+  --glass:linear-gradient(148deg,rgba(255,255,255,.58),rgba(255,255,255,.30));
+  --edge:rgba(16,32,52,.09);
+  --lift:inset 0 1px 0 rgba(255,255,255,.90),
+         inset 0 -1px 0 rgba(16,32,52,.035),
+         0 12px 38px rgba(16,32,52,.10),
+         0 1px 2px rgba(16,32,52,.055);
+}
+
+/* 深色主题 */
+.yq-root[data-tone="dark"]{
+  --glass:linear-gradient(148deg,rgba(44,55,72,.52),rgba(26,33,45,.36));
+  --edge:rgba(255,255,255,.095);
+  --lift:inset 0 1px 0 rgba(255,255,255,.13),
+         inset 0 -1px 0 rgba(0,0,0,.20),
+         0 14px 44px rgba(0,0,0,.36),
+         0 1px 2px rgba(0,0,0,.22);
+}
+
+/* 软玻璃下按钮更轻，避免「贴纸感」 */
+.yq-root[data-tone="dark"] .yq-btn{
+  background:rgba(255,255,255,.05);
+  border-color:rgba(255,255,255,.115);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.09);
+}
+.yq-root[data-tone="dark"] .yq-btn:hover:not(:disabled){
+  background:rgba(255,255,255,.095);
+  border-color:rgba(255,255,255,.19);
+}
+.yq-root[data-tone="dark"] .yq-chip{
+  background:rgba(255,255,255,.042);
+  border-color:rgba(255,255,255,.085);
+}
+
+/* 边缘流光在软玻璃上更淡，否则像描了一圈霓虹 */
+.yq-glass::after{ opacity:.32 }
+.yq-root[data-tone="dark"] .yq-glass::after{ opacity:.44 }
+
 /* 深色宿主：整套回到原来的深色配方（2026-10-25 起由 JS 探测后设置 data-tone） */
 .yq-root[data-tone="dark"]{
   /* 深色变体：玻璃变透明玻璃，字才跟着变浅 —— 成对切换，不是各改各的 */
@@ -348,9 +410,134 @@ window.__ModuleLoader__.load({
 }
 .yq-foot code{ color:var(--dim); font-family:ui-monospace,Consolas,monospace; font-size:10.5px }
 
+/* ══ YQ-MOTION-V1（2026-11-01）════════════════════════════════════
+ * 爀曦：「顺带我们把整个界面的交互动画也设计一下吧」。
+ *
+ * 这一版只做两件事，都不改布局：
+ *   ① 折叠展开从「硬切」变成有物理感的展开
+ *   ② 把散落的 ease / linear 收拢成两条曲线（--swift 行进 / --spring 回弹）
+ *
+ * ★ 只碰 transform / opacity / grid-template-rows —— 这三个走合成层。
+ *   绝不碰 width / height / top / left（那会触发重排，是「卡」的真正来源）。
+ */
+
+/* ① 折叠容器：0fr → 1fr 的网格过渡
+   为什么不 max-height：要猜一个值，猜小了被截断、猜大了过渡变快；
+   为什么不用 height:auto：不可动画。
+   grid-template-rows 是唯一「内容自适应 + 可动画」的写法。 */
+/* ══ YQ-FOLD-V3（2026-11-01 第三版）══════════════════════════════
+ *
+ * 走过两条弯路，把实测数据记在这里，免得再来一次：
+ *
+ *   headless Chromium 157 实测（_fold-test.html）：
+ *     max-height 方案：展开高度 135.5px，上限 1400px
+ *     grid 方案：    展开高度 88.4px，grid-template-rows=88.39px  ← 精确
+ *   两个方案**都成立**，所以「不支持」不是原因。
+ *
+ *   ★ 真正的病是：**max-height 猜太大**。
+ *     135.5 / 1400 ≈ 10% —— 动画在头 10% 的时间就走完视觉变化，
+ *     剩下 90% 是空的。感知上就是「啪一下出来」，即硬切。
+ *
+ *   grid 的 1fr 是**内容真实高度**，不猜 —— 所以它才对。
+ *
+ * ★ 换回 grid，这次带齐两条必需：
+ *     ① 子元素 min-height:0（否则 1fr 撑不住内容，会顶到自然高度）
+ *     ② 子元素 overflow:hidden（否则收起时内容溢出可见）
+ */
+.yq-evidence-wrap{
+  display:grid;
+  grid-template-rows:0fr;
+  opacity:0;
+  transition:
+    grid-template-rows .34s var(--spring),
+    opacity .2s var(--swift),
+    margin-top .34s var(--spring);
+  margin-top:0;
+}
+/* ★ v4：正常项那套的折叠容器（和 .yq-evidence-wrap 同一套规则） */
+/* ══ YQ-FOLD-V5（2026-11-01 第五版）════════════════════════════
+ * ★ 一直漏掉的坑：**grid 折叠时，子元素的 margin 撑开 0fr**。
+ *   .yq-evidence 原 margin:9px 0 0 28px
+ *   .yq-ok-body   原 margin:2px 4px 8px 4px
+ *   min-height:0 压不掉 margin —— 所以 grid-template-rows:0fr 实际不是 0。
+ *   0fr→1fr 的动画从非零高度起步，头一段被 margin 吃掉，看起来就是「一下跳出来」。
+ * ★ 修法：内层 margin 归零，间距交给 wrap 的 margin-top。
+ */
+.yq-ok-body-wrap{
+  display:grid;
+  grid-template-rows:0fr;
+  opacity:0;
+  transition:
+    grid-template-rows .34s var(--spring),
+    opacity .2s var(--swift),
+    margin-top .34s var(--spring);
+  margin-top:0;
+}
+.yq-ok-body-wrap[data-open="1"]{
+  grid-template-rows:1fr;
+  opacity:1;
+  margin-top:6px;
+}
+/* 内层必须 min-height:0 + overflow:hidden，否则收起时撑不住 */
+.yq-ok-body-wrap > .yq-ok-body{
+  overflow:hidden;
+  min-height:0;
+  margin:0 !important;     /* ★ V5：margin 会撑开 0fr，必须归零 */
+}
+
+.yq-evidence-wrap[data-open="1"]{
+  grid-template-rows:1fr;
+  opacity:1;
+  margin-top:8px;
+}
+/* ★ 内层必须同时有 min-height:0 和 overflow:hidden —— grid 收起的关键 */
+.yq-evidence-wrap > .yq-evidence{
+  overflow:hidden;
+  min-height:0;
+  margin:0 !important;     /* ★ V5：evidence 有 margin:9px 0 0 28px，会把 0fr 撑开 */
+}
+
+/* ② 曲线统一：把 ease 换成有方向的曲线
+   --swift（.22,.61,.36,1）= 行进，快出慢收，适合「打开/进入」
+   --spring（.34,1.56,.64,1）= 回弹，轻微过冲，适合「按下/弹起」 */
+.yq-btn,
+.yq-chip,
+.yq-seg button,
+.yq-check-row{
+  transition-timing-function:var(--swift);
+}
+.yq-caret{
+  transition:transform .26s var(--spring),color .2s var(--swift);
+}
+.yq-caret[data-open="1"]{
+  transform:rotate(90deg);
+}
+
+/* ③ 卡片 hover 抬起 —— 只动 transform + 阴影，不动尺寸 */
+.yq-check{
+  transition:transform .22s var(--swift),box-shadow .22s var(--swift);
+}
+.yq-check:hover{
+  transform:translateY(-1px);
+}
+
+/* ④ 展开时给内容一点「落下来」的感觉 */
+@keyframes yq-settle{
+  from{ transform:translateY(-3px); opacity:.6 }
+  to  { transform:translateY(0);    opacity:1 }
+}
+.yq-evidence-wrap[data-open="1"] > .yq-evidence{
+  animation:yq-settle .3s var(--swift) both;
+}
+
 /* ── 降级：用户关掉动效 / 系统要求减弱 ─────────────────────── */
 .yq-root[data-motion="0"] *,
+.yq-root[data-motion="0"] *,
 .yq-root[data-motion="0"] *::before{ animation:none !important; transition:none !important }
+/* 动效关掉时，折叠必须**立刻**显示，不能停在 0fr */
+.yq-root[data-motion="0"] .yq-evidence-wrap,
+.yq-root[data-motion="0"] .yq-ok-body-wrap{ grid-template-rows:1fr; opacity:1 }
+.yq-root[data-motion="0"] .yq-evidence-wrap[data-open="0"]{ grid-template-rows:0fr; opacity:0 }
 @media (prefers-reduced-motion: reduce){
   .yq-root *,.yq-root *::before{ animation:none !important; transition:none !important }
 }
@@ -618,7 +805,8 @@ window.__ModuleLoader__.load({
       } catch (e) { /* ignore */ }
       return "light";
     }
-/* 折叠只认 header，且「正在选字」时不折叠。
+
+    /* 折叠只认 header，且「正在选字」时不折叠。
        click 是「按下 + 抬起」才派发 —— 拖选文字松手也会触发，
        所以整卡 onClick 会把「选中一段 evidence 复制」变成「卡片收起」。 */
     function selectionActive() {
@@ -659,9 +847,12 @@ window.__ModuleLoader__.load({
           h("span", { className: "yq-check-detail" }, c.detail),
           h("span", { className: "yq-caret", "data-open": props.open ? "1" : "0" }, "▶")
         ),
-        props.open
-          ? h("pre", { className: "yq-evidence" }, JSON.stringify(c.evidence, null, 2))
-          : null
+        /* ★ 2026-11-01：原来是 `props.open ? h("pre") : null` —— 节点直接不存在，
+           所以展开/收起是硬切，没有任何过渡。改成**始终渲染**，用 CSS 网格过渡
+           （grid-template-rows: 0fr → 1fr），这个属性走合成层，不触发重排。 */
+        h("div", { className: "yq-evidence-wrap", "data-open": props.open ? "1" : "0" },
+          h("pre", { className: "yq-evidence" }, JSON.stringify(c.evidence, null, 2))
+        )
       );
     }
 
@@ -685,6 +876,15 @@ window.__ModuleLoader__.load({
       const [note, setNote] = react.useState(null);
       const [busy, setBusy] = react.useState(false);
       const [motion, setMotion] = react.useState(readMotion);
+      /* ★ 2026-11-01 第二次加（第一次把面板弄空了）：
+         这回改完先跑 dsh-echo-smoke.mjs，过了才部署。
+         soft = 真模糊（苹果感）；flat = 纯渐变（滚轮最省）。 */
+      const [glass, setGlass] = react.useState(() => {
+        try {
+          const v = localStorage.getItem("yq-echo-glass");
+          return v === "flat" ? "flat" : "soft";
+        } catch (e) { return "soft"; }
+      });
       // ★ 2026-10-25：宿主主题探测。首帧就用真实主题，避免白字打白玻璃；
       // 之后监听 html 的 class/style 变化（宿主切主题会动这些），节流 120ms 重算。
       const [tone, setTone] = react.useState(detectTone);
@@ -756,6 +956,11 @@ window.__ModuleLoader__.load({
         setMotion(next);
         try { localStorage.setItem(MOTION_KEY, next ? "1" : "0"); } catch {}
       };
+      const toggleGlass = () => {
+        const next = glass === "soft" ? "flat" : "soft";
+        setGlass(next);
+        try { localStorage.setItem("yq-echo-glass", next); } catch (e) {}
+      };
 
       const checks = (d && d.checks) || [];
       const counts = (d && d.counts) || { error: 0, warn: 0, ok: 0, pending: 0 };
@@ -790,11 +995,32 @@ window.__ModuleLoader__.load({
           className: "yq-root",
           "data-accent": counts.error ? "error" : counts.warn ? "warn" : warming ? "pending" : "ok",
           "data-motion": motion ? "1" : "0",
+          "data-glass": glass,
           "data-tone": tone || undefined,
         },
 
         // ── 顶部：状态球 + 结论 ──────────────────────────────
-        h("div", { className: "yq-hero yq-glass" },
+        h("div", {
+          className: "yq-hero yq-glass",
+          /* ★ 2026-11-01：镜面高光跟随指针。
+             只挂在 hero 这一张大卡上 —— 每张卡都挂 mousemove 会把事件频率乘以卡数。
+             rAF 节流：一帧最多写一次 CSS 变量，样式重算被压到 60fps 以内。 */
+          onPointerMove: (e) => {
+            if (!motion) return;
+            const el = e.currentTarget;
+            if (el._yqRaf) return;
+            el._yqRaf = requestAnimationFrame(() => {
+              el._yqRaf = 0;
+              const r = el.getBoundingClientRect();
+              el.style.setProperty("--yq-mx", ((e.clientX - r.left) / r.width * 100).toFixed(1) + "%");
+              el.style.setProperty("--yq-my", ((e.clientY - r.top) / r.height * 100).toFixed(1) + "%");
+            });
+          },
+          onPointerLeave: (e) => {
+            e.currentTarget.style.setProperty("--yq-mx", "50%");
+            e.currentTarget.style.setProperty("--yq-my", "0%");
+          },
+        },
           h("div", { className: "yq-orb" },
             h("span", { className: "yq-orb-core" }, ICON[overall] || "·")
           ),
@@ -849,7 +1075,13 @@ window.__ModuleLoader__.load({
             onClick: toggleMotion,
             title: "动效开关：觉得卡就关掉（只影响动画，不影响读数）",
             style: { padding: "3px 9px", fontSize: 11 },
-          }, motion ? "动效 开" : "动效 关")
+          }, motion ? "动效 开" : "动效 关"),
+          h("button", {
+            className: "yq-btn",
+            onClick: toggleGlass,
+            title: "玻璃质感：柔光（真模糊，更像苹果）／平铺（纯渐变，滚轮最省）",
+            style: { padding: "3px 9px", fontSize: 11, marginLeft: 4 },
+          }, glass === "soft" ? "柔光" : "平铺")
         ),
 
         // ── 记忆常驻（2026-11-01）──────────────────────────
@@ -1109,18 +1341,32 @@ window.__ModuleLoader__.load({
               )
             )
           : null,
-        // ★ 2026-10-23：正常项的实测结果。点开哪个就展开哪个，可以同时展开多项。
-        showOk && good.some((c) => open[c.id])
+        /* ★ 2026-11-01 v4：这一套（正常项）原来也是**条件渲染** ——
+           `showOk && good.some(open) ? h("div", ...) : null`
+           所以点开时节点凭空出现，无论 CSS 写多好都不可能过渡。
+           面板里 12 个正常项 / 3 个异常项 —— 用户点开的多半是正常项，
+           而这正是前三版没修到的那一半。
+
+           改成：**每一项各自一个始终渲染的 wrap**，靠 data-open 驱动 grid 过渡。
+           代价是 DOM 里多 12 个空的 wrap（都是 max 4 行 div，可忽略）。
+           ★ 用 `display:contents` 让未展开的 wrap 不参与布局，避免出现空行。 */
+        showOk && good.length > 0
           ? h("div", null,
-              good.filter((c) => open[c.id]).map((c) =>
-                h("div", { key: "ev-" + c.id, className: "yq-glass yq-ok-body" },
-                  h("div", { className: "yq-ok-head" },
-                    h("span", { className: "yq-dot", "data-s": c.status,
-                      style: { width: 16, height: 16, flex: "0 0 16px", fontSize: 10 } }, ICON[c.status] || "✓"),
-                    h("span", { className: "yq-ok-name" }, c.label),
-                    h("span", { className: "yq-ok-detail" }, c.detail)
-                  ),
-                  h("pre", { className: "yq-evidence" }, JSON.stringify(c.evidence, null, 2))
+              good.map((c) =>
+                h("div", {
+                    key: "ev-" + c.id,
+                    className: "yq-ok-body-wrap",
+                    "data-open": open[c.id] ? "1" : "0",
+                  },
+                  h("div", { className: "yq-glass yq-ok-body" },
+                    h("div", { className: "yq-ok-head" },
+                      h("span", { className: "yq-dot", "data-s": c.status,
+                        style: { width: 16, height: 16, flex: "0 0 16px", fontSize: 10 } }, ICON[c.status] || "✓"),
+                      h("span", { className: "yq-ok-name" }, c.label),
+                      h("span", { className: "yq-ok-detail" }, c.detail)
+                    ),
+                    h("pre", { className: "yq-evidence" }, JSON.stringify(c.evidence, null, 2))
+                  )
                 )
               )
             )

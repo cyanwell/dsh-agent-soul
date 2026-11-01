@@ -33,6 +33,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync, renameSync } from 'node:fs'
 import { join, dirname, basename, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { spawnSync } from 'node:child_process'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(HERE, '..')
@@ -118,6 +119,43 @@ console.log(`    ✓ 同包，且 id 自洽（${srcName}）`)
 if (DRY) {
   console.log('\n  （dry-run 到此为止，没有写任何文件）\n')
   process.exit(0)
+}
+
+/* ── 3.5 渲染冒烟闸（2026-11-01 加）──────────────────────────────
+ * ★ 为什么要有这一关：
+ *   `node --check` 只验**语法**。2026-11-01 我把面板弄空了一次 ——
+ *   语法全过、id 全对、部署「成功」，浏览器里整块空白。
+ *   根因是 `toggleGlass` 被插进了 `toggleMotion` 的函数体里（成了局部变量），
+ *   运行时 ReferenceError，而语法完全合法。
+ *
+ * 这一关跑 tools/echo-smoke.mjs：mock 掉 react 和宿主，
+ * 真把组件树展开两遍，能抓 ReferenceError / TypeError。
+ *
+ * 跳过用 --skip-smoke —— 只在明确知道原因时才用。 */
+if (!has('skip-smoke')) {
+  const smokePath = join(REPO, 'tools', 'echo-smoke.mjs')
+  if (!existsSync(smokePath)) {
+    console.error('\n  ✗ 找不到 tools/echo-smoke.mjs —— 拒绝部署\n')
+    process.exit(1)
+  }
+  console.log('    · 跑渲染冒烟…')
+  const r = spawnSync(process.execPath, [smokePath, srcFile], { encoding: 'utf8' })
+  const out = String((r.stdout || '') + (r.stderr || '')).trim()
+  if (r.status !== 0) {
+    console.error('')
+    console.error('  ✗ 渲染冒烟没通过 —— 拒绝部署。')
+    console.error('    这大概率会造成「面板整块空白」，不是能随手修的小 bug。')
+    console.error('')
+    const tail = out.split('\n').slice(-14)
+    for (const line of tail) console.error('    ' + line)
+    console.error('')
+    console.error('    确认是误报时用 --skip-smoke（但先想清楚为什么）。')
+    console.error('')
+    process.exit(1)
+  }
+  const tail = out.split('\n').filter((l) => /✓|节点|组件/.test(l)).slice(-3)
+  for (const line of tail) console.log('    ' + line.trim())
+  console.log('    ✓ 渲染冒烟通过')
 }
 
 /* ── 4. 部署（备份 → 覆盖） ────────────────────────────────────────── */
