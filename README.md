@@ -364,6 +364,51 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-02 · 两处「装了不生效」+ 一个会替它们放行的检查器
+
+换容器之后做的第一件事是全面巡检。查出三件连在一起的事：
+
+**一、`plugins/echo` 和 `plugins/huanqi-panel` 的 `cordis.patch.yml` 写的是旧名。**
+
+```yaml
+- insert:
+    - id: dsh-agent-echo
+      name: dsh-yanqing-echo      # ← 包自己叫 dsh-agent-echo
+```
+
+装上去宿主只留一行 `failed to import`，不报错、不崩，路由恒 404。**装了，但没生效。**
+
+**二、唯一能抓它的检查器，恰好对它是盲的。**
+
+`tools/verify-install-traps.mjs` 里有一条「部署名白名单」，放行「name 是 `dsh-yanqing-<x>` 而包名是 `dsh-agent-<x>`」，
+注释写的理由是「install.js 装时替换」。
+
+可是 `grep yanqing install.js` 是 **0 命中** —— 那个替换能力从来没有被实现过。
+
+**三、所以它一直在输出「通过 24、失败 0」。**
+
+删掉那条白名单之后，把 echo 的 name 改回旧名再跑：
+
+```
+通过 22   失败 1
+✗ [insert.name 是真实包名（不是改名前的旧名）] plugins\echo\cordis.patch.yml 的 name=dsh-yanqing-echo 解析不到任何包
+   → 真实包名是 dsh-agent-echo。名字写错时宿主只留一行 "failed to import"，不报错、不崩，路由恒 404
+```
+
+★ **这是同一个形状的第三次**（前两次在 10-30 的记录里）：**把「打算做」写成「已经是事实」，下一个人照着这个前提改错。**
+所以这次加的判据不是「再检查一遍名字」，而是：
+
+> 注释里说「某处会处理」，就必须能找到那段代码。找不到就不是设计，是洞。
+
+**顺带**：12 个 `plugins/*/package.json` 与 `huanqi/LICENSE` 的 `author` 还写着 `dsh-agent-organs contributors`，
+那个仓库 10-30 已弃用并删除 —— 改成 `dsh-agent-soul contributors`。
+
+**新增** `tools/sync-deployed.mjs`：发布版与部署版的对账器（只读）。它刻意**不判断「谁该跟谁」**——
+仓库 mtime 会被 `git checkout` 刷新，拿它当判据会误报（第一版报了 15 个假「部署落后」）。
+工具只让差异可见，方向由人看 `git log` 判断；分工写在 `docs/两套代码-发布版与部署版.md`。
+
+实测：15 个包两边全部有差异。**没有任何工具会告诉你这件事** —— 原来的 `sync-plugins.mjs` 指向已删除的 organs，跑起来 exit 2。
+
 ### 2026-11-01 · 补记：上一条「修好了」当时只修了一半
 
 上一条记录推送后我做远端抽验 —— **还有两条同样的病**：

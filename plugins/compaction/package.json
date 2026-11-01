@@ -25,6 +25,6 @@
       "patch": "./cordis.patch.yml"
     }
   },
-  "author": "dsh-agent-organs contributors",
+  "author": "dsh-agent-soul contributors",
   "license": "MIT"
 }

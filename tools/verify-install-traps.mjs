@@ -126,15 +126,14 @@ for (const dir of pluginDirs()) {
     if (isPath) { ok(`${pkgName} ← ${row.name}（相对路径）`); continue }
     const isSelf = row.name === pkgName
     const isKnown = knownNames.has(row.name) || EXTERNAL_ALLOW.has(row.name)
-    // ★ 本仓库的「两套命名」约定（2026-10-30 补，来源：install.js）：
-    //   仓库里包名是 dsh-agent-<x>，部署时装进 profile 会改名成 dsh-yanqing-<x>。
-    //   而 cordis.patch.yml 是【部署时】给宿主读的，所以它的 name 写部署名，
-    //   与同目录 package.json 的 name 不同是【设计的】，不是改名漏改。
-    //   判据：name 是 dsh-yanqing-<x> 且本包是 dsh-agent-<x>（x 相同）→ 放行。
-    const deployAlias = /^dsh-yanqing-(.+)$/.exec(row.name)?.[1]
-    const isDeployName = Boolean(deployAlias) && pkgName === `dsh-agent-${deployAlias}`
+    // ★ 2026-11-02 删掉了一条「部署名白名单」。
+    //   它原来放行 name: dsh-yanqing-<x> 而包名是 dsh-agent-<x> 的情况，
+    //   理由写的是「install.js 装时替换」——但 grep install.js 里 yanqing 是 0 命中，
+    //   那个替换能力从来没有被实现。于是这条白名单恰好掩护了
+    //   plugins/echo 与 plugins/huanqi-panel 两处真正的「装了不生效」，
+    //   还输出「通过 24、失败 0」。
+    //   ★ 判据：注释里说「某处会处理」，就必须能找到那段代码。找不到就不是设计，是洞。
     if (isSelf) { ok(`${pkgName} ← ${row.name}`); continue }
-    if (isDeployName) { ok(`${pkgName} ← ${row.name}（部署名，install.js 装时替换）`); continue }
     if (isKnown) {
       // 这个名字能解析，但它不是本包自己 —— 明确说出来，别当静默通过
       fail(

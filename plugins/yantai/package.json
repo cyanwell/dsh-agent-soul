@@ -19,7 +19,7 @@
     }
   },
   "license": "MIT",
-  "author": "dsh-agent-organs contributors",
+  "author": "dsh-agent-soul contributors",
   "files": [
     "index.js",
     "client.js",
