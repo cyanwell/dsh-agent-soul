@@ -83,6 +83,23 @@ async function assertProfile(profile) {
   return pj
 }
 
+/**
+ * ★ 本仓库里**发布、但默认不装**的包。
+ *
+ * 为什么需要这个名单：`verify-packaging` 有一条「ORDER 必须覆盖 plugins/ 下所有包」。
+ * 而「包还在、但默认不装」是一种合法状态 —— 不显式声明，那条检查就会永远红，
+ * 真正的问题就被这条假警报淹没。
+ *
+ * `compact-region`（2026-10-31 移出 ORDER）：
+ *   它注册的 `/compact-region <s> <e>` 被判定**接错语义** —— 那扇门要 open turn + 整面静止，
+ *   而换气只能在 turn 外行动，六次尝试全败。
+ *   换气现在走「LLM 诊断 + surfaceOp 定点清除」。
+ *   ★ **换气代码里对 compact-region 零引用**（grep plugins/huanqi 无命中），
+ *     所以默认不装**不影响截断压缩**。
+ *   包本身仍在 `plugins/compact-region/`，要单独用可以手动装。
+ */
+const NOT_DEFAULT_INSTALL = ['compact-region']
+
 /** 装配顺序 —— 和 soul/04-manifest.json 的 assembly_order 对齐。 */
 const ORDER = [
   {

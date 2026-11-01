@@ -138,7 +138,9 @@ if (CMD === 'apply') {
 
   if (WRITE) {
     say('\n★ 写完请重启 DSH —— profile 配置只在启动时读一次，host 不热加载。')
-    say('  重启后验：新建会话界面切 preset，敲 /compact-region，能被识别就算成。')
+    // ★ 2026-11-01：原来让人敲 /compact-region 验证 —— 那零件已默认不装，敲了只会以为装漏了。
+    //   改用必装的 L1（compaction）来验，可靠且不依赖可选项。
+    say('  重启后验：新建会话界面切 preset，敲 /compact，能被识别就算成。')
   }
   process.exit(0)
 }

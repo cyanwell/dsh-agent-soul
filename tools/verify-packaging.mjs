@@ -173,13 +173,30 @@ for (const n of pluginNames) {
   const bundleJson = JSON.parse(fs.readFileSync('soul/07-bundle.json', 'utf8'))
   const allParts = Array.isArray(bundleJson.parts) ? bundleJson.parts : []
   const externalDirs = allParts.filter((p) => p.external === true).map((p) => p.dir)
-  const missing = pkgDirs.filter((d) => !listed.includes(d))
+
+  // ★ 2026-11-01：install.js 里可以显式声明「发布、但默认不装」的包。
+  //   「包还在 plugins/、但默认不进 ORDER」是一种**合法状态**（例如 compact-region：
+  //   门开错了语义，换气已改用 surfaceOp 定点清除，且代码里对它零引用）。
+  //   不认这个状态，这两条检查就会永远红 —— 而恒红的检查比没有检查更坏，
+  //   它会把真正的问题淹没。
+  const notDefault = (() => {
+    const m = src.match(/const NOT_DEFAULT_INSTALL\s*=\s*\[([^\]]*)\]/)
+    if (!m) return []
+    return m[1].split(',').map((x) => x.trim().replace(/^'|'$/g, '')).filter(Boolean)
+  })()
+  // ★ 这条是给上面那个名单自己上的锁：名字拼错 = 检查被悄悄关掉，必须拦。
+  const ghost = notDefault.filter((d) => !pkgDirs.includes(d))
+  check('NOT_DEFAULT_INSTALL 里的名字都真实存在', ghost.length === 0, '不存在: ' + ghost.join(','))
+
+  const missing = pkgDirs.filter((d) => !listed.includes(d) && !notDefault.includes(d))
   const unknown = listed.filter((d) => !pkgDirs.includes(d) && !externalDirs.includes(d))
-  check('install.js ORDER 覆盖全部本仓库包', missing.length === 0, '漏: ' + missing.join(','))
+  check('install.js ORDER 覆盖全部本仓库包（默认不装的除外）', missing.length === 0, '漏: ' + missing.join(','))
   check('install.js ORDER 没有来历不明的条目', unknown.length === 0, '多: ' + unknown.join(','))
-  check('install.js ORDER 总数 = 包数 + 外部件数',
-    listed.length === pkgDirs.length + externalDirs.length,
-    'ORDER=' + listed.length + ' pkgs=' + pkgDirs.length + ' ext=' + externalDirs.length)
+  const expectedOrder = pkgDirs.length - notDefault.length + externalDirs.length
+  check('install.js ORDER 数量 = (包数 − 默认不装) + 外部件数',
+    listed.length === expectedOrder,
+    'ORDER=' + listed.length + ' 期望=' + expectedOrder +
+      ' (pkgs=' + pkgDirs.length + ' 默认不装=' + notDefault.length + ' ext=' + externalDirs.length + ')')
 
   // ★ 必备零件必须都在 ORDER 里。这条是补 2026-10-22 那个洞的：
   //   dsh-mnemon 在 07-bundle.json 里标着 required: true、layer I-echo，
@@ -213,7 +230,29 @@ check('INSTALL.md 记录了执行策略坑', install.includes('PSSecurityExcepti
 check('INSTALL.md 记录了 staged 拷贝', install.includes('暂存目录'))
 
 const readme = fs.readFileSync('README.md', 'utf8')
-check('README 有 2026-10-22 的更新记录', (readme.match(/### 2026-10-22/g) || []).length >= 2)
+// ★ 2026-11-01 删掉一条恒红判据。
+//
+//   原来是：check('README 有 2026-10-22 的更新记录',
+//              (readme.match(/### 2026-10-22/g) || []).length >= 2)
+//
+//   但本仓库的更新记录**最早只到 2026-10-25**，`### 2026-10-22` 一条都没有 ——
+//   这条检查用的是一个从未存在过的锚点，从写下那天起就是红的。
+//   README 自己也两处标注过它是「历史项，非本次引入」。
+//
+//   ★ 恒红的检查比没有检查更坏：它让 `通过 122/125` 这种数字永远缺一角，
+//     真出问题时反而看不出来是哪一条新坏的。
+//   ★ 换成真正有价值的判据：更新记录必须存在且格式统一（`### YYYY-MM-DD`）。
+//     这样它能拦「有人把更新记录写成了别的格式」这个真会发生的问题。
+{
+  const headings = [...readme.matchAll(/^### (\d{4})-(\d{2})-(\d{2})/gm)]
+  check('README 更新记录格式统一（### YYYY-MM-DD 开头）', headings.length >= 20,
+    '只找到 ' + headings.length + ' 条')
+  // 日期必须单调不增（新记录在上）—— 乱序说明有人插错了位置
+  const stamps = headings.map((m) => m[1] + m[2] + m[3])
+  let outOfOrder = 0
+  for (let i = 1; i < stamps.length; i++) if (stamps[i] > stamps[i - 1]) outOfOrder++
+  check('README 更新记录按时间倒序（新的在上）', outOfOrder === 0, '有 ' + outOfOrder + ' 处逆序')
+}
 
 // ── 7. 子包的 exports 通配符必须落在 files 白名单里（V2，2026-10-22）──
 //

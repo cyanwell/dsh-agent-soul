@@ -187,16 +187,26 @@ node tools/soul-preset.mjs build --profile desktop --write   # 确认后写
 
 ### `L2/threeparts` —— 某个 preset 缺零件
 
-四组「三件套」，缺一级就是缺：
+**「三件套」现在是两件**（2026-10-31 起，L3 已不是必备）：
 
 | 级 | 零件 | 缺了会怎样 |
 |---|---|---|
 | L1 压缩本身 | `dsh-agent-compaction` | 摘要没有门牌，压缩完回不去 |
 | L2 裁剪带门牌 | `dsh-agent-pruner` | 被裁的工具结果回不去 |
-| **L3 范围压缩** | `dsh-agent-compact-region` | **换气第二档治疗失效**（只压最近一段然后继续） |
+| ~~L3 范围压缩~~ | ~~`dsh-agent-compact-region`~~ | **默认不装了，见下** |
 
-**★ 缺 `compact-region` 时压缩仍然可用**，所以这个问题最容易被忽略 ——
-表现出来是「能压缩，但遇到上下文快满时救不回思考」。
+**★ `compact-region` 已从默认安装移除，它不是「缺了就是缺」的那一件。**
+
+原因：它注册的 `/compact-region <s> <e>` 被判定**接错语义** ——
+那扇门要 open turn + 整面静止，而换气只能在 turn 外行动，六次尝试全败。
+
+换气现在走 **「LLM 诊断 + surfaceOp 定点清除」**，并且**代码里对 compact-region 零引用**
+（`grep plugins/huanqi` 无命中）——所以**不装它不影响截断压缩**，
+下面那条「缺了换气第二档失效」的说法从 2026-10-31 起就不成立了。
+
+包本身仍在 `plugins/compact-region/`，想单独用可以手动装。
+
+★ 所以这里**只缺 L1 / L2 才是真问题**。看到 doctor 报这个而 L3 没装，不用管。
 
 ```bash
 node tools/soul-preset.mjs build --profile desktop --write
@@ -250,11 +260,14 @@ node tools/soul-doctor.mjs; echo "exit=$?"
 
 1. 打开**新建会话的界面**
 2. 在 preset 选择器里切到要验的那个
-3. 在输入框敲 `/compact-region`
+3. 在输入框敲 `/compact`
 4. **它被识别成一个命令**（出现在补全里）→ 成了
 
 ★ **不需要真的开这条会话、也不需要跑一次压缩。** 命令能被识别，
-就说明 preset 加载成功、`dsh-agent-compact-region` 注册上了。
+就说明 preset 加载成功、`dsh-agent-compaction` 注册上了。
+
+★ **别再用 `/compact-region` 验了**（2026-11-01 改）：那零件默认不装，
+敲它只会让人以为「装漏了」。`/compact` 属于必装的 L1，验它更可靠。
 
 ★ 这个方法比「开新会话跑一次」好：**更快，而且不消耗额度、不产生压缩副作用。**
 
