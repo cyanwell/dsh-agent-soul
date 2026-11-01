@@ -258,20 +258,42 @@ const readme = fs.readFileSync('README.md', 'utf8')
   //   当时有个条目写成了 `## 2026-11-01 · 渲染冒烟闸…`（两个 #，和「## 更新记录」同级）。
   //   于是它变成独立小节、**永远钉在更新记录最前面**，而后面所有正常的
   //   `### 日期 · …` 全都成了它的下级 —— GitHub 首页看到的就是那条旧记录。
-  //   上面两条判据都看不见它：`^### ` 匹配不到 `## `，日期序列里也就没有它。
   //
   //   判据要按**区段**看，不能只看全文件的 `###`。
-  const clStart = readme.search(/^## 更新记录$/m)
+  //
+  // ★★★ 而且**必须在排除代码块之后**看 —— 这一条是被打脸打出来的：
+  //   更新记录里会贴演示用的代码块，里面有 `## …` 这样的示例文字。
+  //   我第一次写的版本用 `readme.search(/^## /)` 找区段末尾，
+  //   直接在那个代码块处截断，于是只检查了很窄一段、报「通过」，
+  //   而区段里明明还有两条真的误用 `##`（L719 / L762）。
+  //   ★ 判据的基准错一次，就会漏掉一整类问题，还给你一个假的绿。
+  const textNoFence = (() => {
+    const out = []
+    let inFence = false
+    for (const l of readme.split(/\r?\n/)) {
+      if (/^\s*```/.test(l)) { inFence = !inFence; out.push(''); continue }
+      out.push(inFence ? '' : l)
+    }
+    return out.join('\n')
+  })()
+
+  const clStart = textNoFence.search(/^## 更新记录$/m)
   check('README 有「## 更新记录」这一节', clStart >= 0)
   if (clStart >= 0) {
-    const after = readme.slice(clStart + 1)
-    const nextH2 = after.search(/^## (?!更新记录)/m)
+    const after = textNoFence.slice(clStart + 1)
+    // ★★★ 边界必须是「**不是记录**的二级标题」。
+    //
+    //   原来写的是 /^## (?!更新记录)/ —— 于是**误用 ## 的那条记录自己被当成了区段边界**：
+    //   它不在 section 里（漏检），它后面的整段也不在 section 里（整段漏检）。
+    //   这就是为什么修好 L367 之后，L719 / L762 还有两条同样的病、而这条判据报「通过」。
+    //   ★ 又一种「判据基准写错」：边界条件把要检的对象吃掉了。
+    const nextH2 = after.search(/^## (?!\d{4}-\d{2}-\d{2})(?!更新记录)/m)
     const section = nextH2 > 0 ? after.slice(0, nextH2) : after
 
     // ① 区内不允许出现「## 日期 · …」——那正是跑出这一节的形状
     const rogueH2 = [...section.matchAll(/^## (\d{4}-\d{2}-\d{2}.*)$/gm)].map((m) => m[1])
     check('更新记录里没有误用 ## 的条目（否则会跑出这一节、钉在最前面）',
-      rogueH2.length === 0, '误用 ##: ' + rogueH2.join(' | '))
+      rogueH2.length === 0, '误用 ##: ' + rogueH2.map((t) => t.slice(0, 24)).join(' | '))
 
     // ② 区内每个 ### 都必须以日期开头（#### 子节不算，^### + 空格 不会匹配 ####）
     const noDate = [...section.matchAll(/^### (.+)$/gm)]
