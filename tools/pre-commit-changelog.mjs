@@ -261,6 +261,64 @@ if (impl.length > 0) {
   console.log('  [syntax-gate] ' + impl.length + ' 个实现文件语法检查通过')
 }
 
+/* ── 1.6 client.js 注册 id 闸（2026-11-01 加）────────────────────────
+ *
+ * 症状：桌面端弹「应用无法启动」，控制台报
+ *   web boot: 1 entry did not activate / dsh-yanqing-echo: import failed
+ * 还在 renderer console 里看到 `duplicate factory registration for "dsh-agent-echo"`。
+ *
+ * 根因：`client.js` 里 `__ModuleLoader__.load({ id })` 必须是**部署包的名字**。
+ *   client-modules 拿 profile `dsh.profile.bundles` 的条目名当 key 去找注册表，
+ *   找不到 → 整批 web boot 不激活 → 宿主进 recovery，全界面进不去。
+ *
+ * ★ 为什么 node --check 拦不住：这是**配对**问题，不是语法问题。
+ *   两份文件各自都合法，只有「id 对不上那个名字」时才炸 —— 而那一炸是全界面进不去。
+ *
+ * ★ 2026-11-01 怎么踩的：`dsh-agent-soul/plugins/echo/`（发布版，名字 dsh-agent-echo）
+ *   和 `dsh-tools/dsh-yanqing-echo/`（本机部署包，名字 dsh-yanqing-echo）是**两个不同的包**，
+ *   我把前者 cp 进后者的 node_modules —— 一个 cp 就把整个界面弄崩了。
+ *   `tools/verify-client-ids.mjs` 10-26 就写好了，只是**从来没在提交前跑过**。
+ *   所以这里不是重新发明检查，是把它接上一个没人能忘记的时机。
+ *
+ * ★ 它拦不住「手工 cp 到部署目录」——那一步没有 commit，gate 看不见。
+ *   真正对症的是部署脚本，或者：**cp 完立刻跑一次 verify-client-ids**。
+ *
+ * 只在暂存了 client.js 时才跑（它扫整个 profiles 目录，一秒左右）。
+ */
+if (impl.some((p) => p.endsWith('client.js'))) {
+  // pre-commit 时 cwd 就是仓库根，直接拼，不依赖 ESM 里没有的 __dirname
+  const verifier = join(process.cwd(), 'tools', 'verify-client-ids.mjs')
+  if (existsSync(verifier)) {
+    let out = ''
+    let ok = true
+    try {
+      out = execFileSync(process.execPath, [verifier], {
+        encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    } catch (e) {
+      ok = false
+      out = String((e && (e.stdout || e.stderr || e.message)) || '')
+    }
+    if (!ok) {
+      const tail = out.split('\n').filter((l) => l.trim()).slice(-12).join('\n        ')
+      console.error('')
+      console.error('  ✗ [id-gate] client.js 的注册 id 与包名对不上 —— **拒绝提交**。')
+      console.error('')
+      console.error('        ' + tail)
+      console.error('')
+      console.error('    判据（顺序不能变）：')
+      console.error('      bundles 条目名 → dependencies 键 → package.json.name → client.js 的 id')
+      console.error('      最后一项必须等于第一项。')
+      console.error('')
+      console.error('    ★ 只拷 client.js 到另一个包目录，就会把 id 一起带错 ——')
+      console.error('      2026-11-01 正是这么把整个界面弄崩的。')
+      console.error('')
+      process.exit(1)
+    }
+    console.log('  [id-gate] client.js 注册 id 全部对上包名')
+  }
+}
+
 // ── 2. 没动实现 → 放行 ───────────────────────────────────────────────
 if (impl.length === 0) {
   console.log('  [changelog-gate] 没动实现文件（只有文档 / 工具 / 配置）—— 放行')

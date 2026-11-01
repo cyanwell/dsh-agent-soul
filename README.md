@@ -364,6 +364,46 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-01 · 把「部署」和「验 id」绑成一个动作（`deploy-client.mjs`）
+
+**同一天第二次崩，比第一次蠢。** 我把 `dsh-agent-soul/plugins/echo/client.js`
+（发布版，包名 `dsh-agent-echo`）用 `cp` 覆盖进 `node_modules/dsh-yanqing-echo/`
+（本机部署包，包名 `dsh-yanqing-echo`）。
+
+**那不是「同一个包的两份副本」，是两个不同的包。** 一个 `cp` 把 `load({ id })` 一起带错，
+client-modules 拿 entry 名查注册表查不到 → 整批 web boot 不激活 → 桌面端弹「应用无法启动」，**全界面进不去**。
+
+**最难看的地方**：`tools/verify-client-ids.mjs` 10-26 就写好了，能查出这个问题。
+但**没有任何一个时机强制它跑** —— pre-commit 只管提交，而我这次是改完直接 `cp` 就重启，**压根没走 commit**。
+
+**做了什么**：
+
+| 东西 | 作用 | 拦得住什么 |
+|---|---|---|
+| `tools/deploy-client.mjs`（新） | cp + 验 + 失败自动回滚，一条命令 | **跨包 cp**（源/目标 package.json.name 不等即拒） |
+| pre-commit 的 `id-gate`（新） | 暂存了 client.js 就跑 verify-client-ids | 在已坏的环境上继续提交 |
+
+**自测**：
+
+```
+自测 A（同包，dsh-tools/dsh-yanqing-echo -> node_modules/dsh-yanqing-echo）
+  OK 同包，且 id 自洽（dsh-yanqing-echo）
+
+自测 B（跨包，dsh-agent-soul/plugins/echo -> node_modules/dsh-yanqing-echo）
+  X 源和目标是两个不同的包 —— 拒绝部署。
+    src = dsh-agent-echo / dest = dsh-yanqing-echo
+```
+
+**自测 B 就是这次事故的精确复现** —— 它被拦住了。
+
+★ **一条更该记住的话**（允执诊断里那句）：**注释写错比代码写错更难查。**
+我 10-30 在 `client.js` 里写过一段注释，说「发布版统一回 `dsh-agent-*` 命名空间」——
+那是**打算做**的事，被我写成了**已经是事实**。于是 11-01 我照着这个前提把 id 改成了 `dsh-agent-echo`。
+**注释里不写推断，只写当场核过的事实。**
+
+★ 顺带修了一个真隐患：`dsh-tools/dsh-yanqing-echo/client.js`（本机部署的真源）落后于部署副本，
+水位条那些改动只在 `node_modules` 里。**已把部署版同步回源目录** —— 否则下次从源重新部署会全丢。
+
 ### 2026-11-01 · pre-commit 加语法闸：代码能跑 + 公告写了，两件事都得管
 
 **为什么加**：同一天我在 `486be3d` 里把 `client.js` 改出括号不匹配，
