@@ -414,6 +414,8 @@ msedge --headless=new --screenshot=out.png --window-size=1180,1500 URL
 
 ★ 以后验证 HTML 渲染都走这条。
 
+**规范**：这套东西已抽成 `docs/液态玻璃面板规范.md`（token 表 / 四件动效 / 两条必踩的坑 / headless 验收法），其他面板照抄即可。
+
 **同步范围**：`dsh-tools/dsh-yanqing-echo/client.js`（本机部署包，走 `deploy-client.mjs` 部署）
 与 `dsh-agent-soul/plugins/echo/client.js`（本发布版，只换 CSS 段，**id 保持 `dsh-agent-echo` 未动**）。
 
