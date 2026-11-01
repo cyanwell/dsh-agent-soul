@@ -90,9 +90,17 @@ window.__ModuleLoader__.load({
      宿主主题变量是成对赋值的（浅色主题给深字、深色主题给浅字），所以直接读它就对；
      变量拿不到时退回**深色字** —— 至少浅色宿主可读（原来的写法是白字打白玻璃）。
      深色宿主由下面的 [data-tone="dark"] 整套接管（JS 探测到之后加上这个属性）。 */
-  --ink:var(--dsw-alias-label-primary,#16202c);
-  --dim:var(--dsw-alias-label-secondary,#47576a);
-  --faint:var(--dsw-alias-label-tertiary,#5f6d7c);
+  /* ★★ 2026-11-01：**不再读宿主变量**。
+     原来写 --ink:var(--dsw-alias-label-primary,#16202c)，赌的是「宿主主题变量成对赋值」。
+     但玻璃配方（--glass）默认是**白色**，而深色宿主给的是**浅色字** ——
+     于是「白玻璃 + 浅色字」，整面板糊成一片（2026-11-01 截图实测）。
+     [data-tone="dark"] 那套本是救场的，但 JS 探测没生效，等于没有。
+
+     ★ 判据：**玻璃的亮度和文字的亮度必须成对绑定，不许各读各的。**
+     玻璃默认白 → 文字就固定深色，不管宿主是深是浅。白玻璃在任何背景上都成立。 */
+  --ink:#16202c;
+  --dim:#42536b;
+  --faint:#5b6b80;
   /* ★ 2026-10-18：玻璃配方改成和砚台同一套（去掉 backdrop-filter）。
      沿用砚台 client.js:28-45 那段的结论 —— 2026-10-02 实测「滚轮一动整个界面都在闪」，
      真凶就是 backdrop-filter：它让卡片成为 GPU 合成层，滚动时整卡连内容一起重绘。
@@ -111,8 +119,9 @@ window.__ModuleLoader__.load({
 }
 /* 深色宿主：整套回到原来的深色配方（2026-10-25 起由 JS 探测后设置 data-tone） */
 .yq-root[data-tone="dark"]{
-  --ink:#e8eef6; --dim:#8b9bb0; --faint:#5b6b80;
-  --glass:linear-gradient(148deg,rgba(255,255,255,.075),rgba(255,255,255,.028));
+  /* 深色变体：玻璃变透明玻璃，字才跟着变浅 —— 成对切换，不是各改各的 */
+  --ink:#e8eef6; --dim:#a7b6c8; --faint:#7d8da3;
+  --glass:linear-gradient(148deg,rgba(30,38,50,.88),rgba(22,29,40,.72));
   --edge:rgba(255,255,255,.15);
   --lift:inset 1.5px 0 0 rgba(255,122,122,.15),inset -1.5px 0 0 rgba(122,172,255,.17),
          inset 0 1px 0 rgba(255,255,255,.30),inset 0 -1px 0 rgba(0,0,0,.14),
@@ -182,17 +191,19 @@ window.__ModuleLoader__.load({
 /* ── 按钮 ────────────────────────────────────────────────── */
 .yq-btn{
   padding:6px 13px; border-radius:10px; font-size:12px; cursor:pointer;
-  color:var(--ink); background:rgba(255,255,255,.055);
-  border:1px solid rgba(255,255,255,.13);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.16);
+  /* ★ 2026-11-01：原来是 rgba(255,255,255,.055) —— 那是「深色底上的白色薄雾」，
+     在白色玻璃上等于什么都没画，按钮完全看不出边界。改成深色系。 */
+  color:var(--ink); background:rgba(16,32,52,.075);
+  border:1px solid rgba(16,32,52,.20);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.70), 0 1px 2px rgba(16,32,52,.06);
   transition:background .18s ease,transform .12s ease,border-color .18s ease;
 }
-.yq-btn:hover:not(:disabled){ background:rgba(255,255,255,.10); border-color:rgba(255,255,255,.22) }
+.yq-btn:hover:not(:disabled){ background:rgba(16,32,52,.13); border-color:rgba(16,32,52,.32) }
 .yq-btn:active:not(:disabled){ transform:scale(.97) }
 .yq-btn:disabled{ opacity:.45; cursor:default }
 .yq-btn-primary{
-  background:linear-gradient(140deg,rgba(96,165,250,.34),rgba(96,165,250,.14));
-  border-color:rgba(96,165,250,.44);
+  background:linear-gradient(140deg,rgba(96,165,250,.42),rgba(96,165,250,.22));
+  border-color:rgba(96,165,250,.55);
 }
 
 /* ── 四个指标 ─────────────────────────────────────────────── */
@@ -202,11 +213,11 @@ window.__ModuleLoader__.load({
 }
 .yq-metric .n{
   font-size:27px; line-height:1.05; font-weight:680; letter-spacing:-.5px;
-  font-variant-numeric:tabular-nums; color:var(--faint);
+  font-variant-numeric:tabular-nums; color:var(--ink);
   animation:yq-pop .42s cubic-bezier(.34,1.56,.64,1) both;
 }
 @keyframes yq-pop{ from{transform:scale(.72);opacity:.35} to{transform:scale(1);opacity:1} }
-.yq-metric .k{ font-size:10.5px; color:var(--faint); margin-top:2px; letter-spacing:.4px }
+.yq-metric .k{ font-size:10.5px; color:var(--dim); margin-top:2px; letter-spacing:.4px }
 .yq-metric.lit-error{ box-shadow:var(--lift),0 0 26px -10px var(--error) }
 .yq-metric.lit-warn { box-shadow:var(--lift),0 0 26px -10px var(--warn) }
 .yq-metric.lit-ok   { box-shadow:var(--lift),0 0 26px -10px var(--ok) }
@@ -220,21 +231,28 @@ window.__ModuleLoader__.load({
   display:flex; align-items:center; gap:7px; flex-wrap:wrap;
   padding:9px 12px; margin-bottom:11px; font-size:12px; color:var(--dim);
 }
-.yq-seg{ display:flex; gap:4px; padding:3px; border-radius:11px; background:rgba(0,0,0,.24); box-shadow:inset 0 1px 3px rgba(0,0,0,.4) }
+/* ★ 2026-11-01：原来是 rgba(0,0,0,.24) 的深黑槽 —— 白玻璃上是一块突兀的黑。
+   改成「比玻璃再深一档的灰」，视觉上像玻璃上刻出的凹槽。 */
+.yq-seg{
+  display:flex; gap:3px; padding:3px; border-radius:11px;
+  background:rgba(16,32,52,.055);
+  box-shadow:inset 0 1px 2px rgba(16,32,52,.14), inset 0 0 0 1px rgba(16,32,52,.06);
+}
 .yq-seg button{
   padding:4px 11px; border-radius:8px; font-size:12px; cursor:pointer;
-  background:transparent; border:0; color:var(--dim);
+  /* 未选中态给一点底色 —— 纯透明时它在凹槽里像一段灰字，看不出可点 */
+  background:rgba(16,32,52,.045); border:0; font-weight:500; color:var(--dim);
   transition:background .2s ease,color .2s ease;
 }
 .yq-seg button:hover{ color:var(--ink) }
 .yq-seg button[data-on="1"]{
-  background:linear-gradient(140deg,rgba(96,165,250,.36),rgba(96,165,250,.16));
-  color:#fff; box-shadow:inset 0 1px 0 rgba(255,255,255,.24),0 2px 10px -4px var(--pending);
+  background:linear-gradient(140deg,rgba(96,165,250,.92),rgba(59,130,246,.78));
+  color:#fff; box-shadow:inset 0 1px 0 rgba(255,255,255,.34),0 2px 8px -3px rgba(37,99,235,.55);
 }
 .yq-bar .sp{ flex:1 }
 .yq-chip{
   padding:2px 8px; border-radius:999px; font-size:11px; color:var(--dim);
-  background:rgba(255,255,255,.045); border:1px solid rgba(255,255,255,.08);
+  background:rgba(16,32,52,.045); border:1px solid rgba(16,32,52,.10);
 }
 .yq-note{ margin:-4px 0 9px; font-size:11.5px; color:var(--dim) }
 
@@ -242,9 +260,14 @@ window.__ModuleLoader__.load({
 .yq-trend{ padding:10px 12px 8px; margin-bottom:11px }
 .yq-trend-h{ display:flex; align-items:baseline; gap:8px; font-size:11px; color:var(--dim); margin-bottom:6px }
 .yq-trend-h b{ color:var(--ink); font-weight:600; font-size:11.5px }
-.yq-bars{ display:flex; align-items:flex-end; gap:1.5px; height:32px }
+.yq-bars{
+  display:flex; align-items:flex-end; justify-content:flex-start;
+  gap:1.5px; height:32px; min-height:32px;
+}
 .yq-bars i{
-  flex:1; min-width:2px; border-radius:2px 2px 1px 1px; display:block;
+  /* ★ 2026-11-01：原来只有 flex:1 —— 只有 1 条数据时它被拉成整行宽的黄条，
+     看着像一条报错横幅。给个上限：多条目时仍按比例分，单条目时最多 18px。 */
+  flex:1; max-width:18px; min-width:2px; border-radius:2px 2px 1px 1px; display:block;
   background:var(--ok); opacity:.72;
   animation:yq-grow .5s ease both; transform-origin:bottom;
 }
@@ -258,7 +281,7 @@ window.__ModuleLoader__.load({
   display:flex; align-items:center; gap:8px;
   font-size:11px; color:var(--dim); margin:0 2px 7px; letter-spacing:.3px;
 }
-.yq-sec-h::after{ content:""; flex:1; height:1px; background:linear-gradient(90deg,rgba(255,255,255,.13),transparent) }
+.yq-sec-h::after{ content:""; flex:1; height:1px; background:linear-gradient(90deg,rgba(16,32,52,.16),transparent) }
 .yq-check{
   padding:10px 13px; margin-bottom:7px; cursor:pointer;
   transition:transform .16s ease,box-shadow .2s ease;
@@ -331,6 +354,129 @@ window.__ModuleLoader__.load({
 @media (prefers-reduced-motion: reduce){
   .yq-root *,.yq-root *::before{ animation:none !important; transition:none !important }
 }
+
+/* ══ 响应式（2026-11-01 加）════════════════════════════════════════
+ * 原来 4 个指标卡是 grid-template-columns:repeat(4,1fr) 写死的，
+ * 在窄容器（面板被拖窄 / 分屏）下每个卡只有 40px 宽，数字挤成一团。
+ * 判据不是「屏幕多宽」，而是**这个面板自己剩多少地方** —— 所以用容器查询兜底，
+ * 不支持时退回视口媒体查询。
+ */
+@media (max-width: 720px){
+  .yq-metrics{ grid-template-columns:repeat(2,1fr) }
+  .yq-bar{ row-gap:7px }
+  .yq-hero{ flex-wrap:wrap }
+  .yq-hero-txt{ flex-basis:100%; order:3 }
+}
+@media (max-width: 460px){
+  .yq-metrics{ grid-template-columns:1fr 1fr; gap:7px }
+  .yq-metric{ padding:9px 6px 7px }
+  .yq-metric .n{ font-size:23px }
+  .yq-check-name{ flex-basis:auto; width:100% }
+  .yq-check-row{ flex-wrap:wrap }
+}
+/* 支持容器查询的宿主：按面板自身宽度收，比视口准 */
+@container (max-width: 620px){
+  .yq-metrics{ grid-template-columns:repeat(2,1fr) }
+}
+
+/* ══ 液态动效（2026-11-01）════════════════════════════════════════
+ * 灵感来自苹果 Liquid Glass，但**刻意不用 backdrop-filter** ——
+ * 本文件开头就记着：那玩意让滚轮一动整个界面在闪（2026-10-02 实测）。
+ *
+ * 四件事构成「液态感」，全程只碰 transform / opacity / 一圈渐变：
+ *   ① 边缘流光   —— 玻璃的湿润感（沿着圆角转的一道光）
+ *   ② 弹簧曲线   —— 所有过渡走 spring，不走 linear / ease
+ *   ③ 抬起与回弹 —— hover 抬 2px，按下压 4%
+ *   ④ 高光跟随   —— hero 卡上的镜面高光跟著指针走（JS 写 --mx/--my）
+ *
+ * ★ 一律受 [data-motion="0"] 与 prefers-reduced-motion 约束（文件末尾已有那两段）。
+ */
+
+/* 弹簧曲线：苹果那种「过冲一点点再回来」的手感，不是 ease-out */
+.yq-root{
+  --spring:cubic-bezier(.34,1.56,.64,1);
+  --swift:cubic-bezier(.22,.61,.36,1);
+  --yq-mx:50%; --yq-my:0%;
+}
+
+/* 让 CSS 变量可以被 @keyframes 平滑推进（不支持的浏览器退化成静态光圈） */
+@property --yq-a{ syntax:"<angle>"; initial-value:0deg; inherits:false }
+
+/* ── ① 边缘流光 ─────────────────────────────────────────────── */
+.yq-glass::after{
+  content:""; position:absolute; inset:0; border-radius:inherit;
+  pointer-events:none; padding:1px;
+  background:conic-gradient(from var(--yq-a,0deg),
+    transparent 0deg,
+    rgba(255,255,255,.75) 26deg,
+    rgba(160,205,255,.35) 52deg,
+    transparent 96deg);
+  /* 只保留 1px 边框那一圈，中间镂空 */
+  -webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite:exclude;
+  opacity:.5;
+  animation:yq-edge 11s linear infinite;
+}
+@keyframes yq-edge{ to{ --yq-a:360deg } }
+/* 深色玻璃上流光要亮一些才看得出 */
+.yq-root[data-tone="dark"] .yq-glass::after{ opacity:.75 }
+
+/* ── ② 弹簧过渡 ─────────────────────────────────────────────── */
+.yq-glass,
+.yq-btn,
+.yq-seg button,
+.yq-check{
+  transition-timing-function:var(--spring);
+}
+
+/* ── ③ 抬起与回弹 ───────────────────────────────────────────── */
+.yq-metric{
+  transition:transform .38s var(--spring), box-shadow .38s var(--spring);
+  will-change:transform;
+}
+.yq-metric:hover{ transform:translateY(-2px) scale(1.012) }
+.yq-metric:active{ transform:translateY(0) scale(.992) }
+
+.yq-check{ transition:transform .3s var(--spring), box-shadow .3s var(--spring) }
+.yq-check:hover{ transform:translateX(2px) }
+.yq-check:active{ transform:translateX(1px) scale(.995) }
+
+.yq-btn{ transition:background .2s var(--swift), transform .16s var(--spring), border-color .2s var(--swift), box-shadow .2s var(--swift) }
+.yq-btn:hover:not(:disabled){ transform:translateY(-1px) }
+.yq-btn:active:not(:disabled){ transform:translateY(0) scale(.955) }
+
+.yq-seg button{ transition:background .24s var(--spring), color .2s var(--swift), transform .18s var(--spring) }
+.yq-seg button:active{ transform:scale(.94) }
+
+/* ── ④ hero 镜面高光跟随指针 ────────────────────────────────── */
+.yq-hero{
+  /* 一层跟着指针走的柔光，压在掠光动画下面 */
+  background-image:
+    radial-gradient(220px circle at var(--yq-mx) var(--yq-my),
+      rgba(255,255,255,.42), transparent 68%),
+    var(--glass);
+  transition:background-image .3s var(--swift);
+}
+.yq-root[data-tone="dark"] .yq-hero{
+  background-image:
+    radial-gradient(240px circle at var(--yq-mx) var(--yq-my),
+      rgba(150,200,255,.16), transparent 70%),
+    var(--glass);
+}
+
+/* 数字变化时轻轻泛一下光 —— 比单纯 scale 更像「液态」 */
+@keyframes yq-glow{
+  0%   { text-shadow:0 0 0 transparent }
+  35%  { text-shadow:0 0 18px currentColor }
+  100% { text-shadow:0 0 0 transparent }
+}
+.yq-metric .n{ animation:yq-pop .42s var(--spring) both, yq-glow 1.1s var(--swift) .1s 1 }
+
+/* 状态球的呼吸：慢到几乎感觉不到，但让面板「活着」 */
+@keyframes yq-breathe{ 0%,100%{ transform:scale(1) } 50%{ transform:scale(1.045) } }
+.yq-orb{ animation:yq-breathe 5.5s var(--swift) infinite }
 `;
 
     function ensureStyle() {

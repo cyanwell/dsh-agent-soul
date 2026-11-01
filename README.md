@@ -364,6 +364,62 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+## 2026-11-01 · 液态玻璃改版：可读性修复 + 动效
+
+**起因**：爀曦发来一张回声面板截图，说「面板 UI 没有做自适应，导致可读性很差」。
+
+**根因不是配色，是「玻璃和文字没配对」**：
+
+```css
+--ink: var(--dsw-alias-label-primary, #16202c);   /* 优先读宿主给的文字色 */
+--glass: linear-gradient(...rgba(255,255,255,.86)...);  /* 玻璃却是白色的 */
+```
+
+深色宿主给浅色字，玻璃是近白底 → 白底浅字，整面板糊成一片。
+`[data-tone="dark"]` 那套本该救场，但 JS 探测没生效，等于没有。
+
+> ★ 判据：**玻璃的亮度和文字的亮度必须成对绑定，不许各读各的。**
+> 玻璃默认白 → 文字就固定深色，不管宿主是深是浅。白玻璃在任何背景上都成立。
+
+**改了什么**
+
+| 项 | 改法 |
+|---|---|
+| 前景色 | 不再读宿主变量，固定深色；深色变体里玻璃改成深色半透明、字才跟着变浅 |
+| 指标大数字 | `--faint`（最淡的色）→ `--ink`（最重）—— 最重要的数字原来用了最淡的色 |
+| 按钮 / chip / 分段器 | 从「白色低透明度」改成「深色系」—— 前者在白玻璃上等于什么都没画 |
+| 趋势柱 | 加 `max-width:18px` —— 单条数据原来被 `flex:1` 拉满整行，像一条报错横幅 |
+| 响应式 | 三档断点（720 / 460 / `@container 620`）—— 指标卡从固定 4 列变成 2 列 |
+
+**动效（苹果 Liquid Glass 的四件核心）**
+
+★ **刻意没用 `backdrop-filter`** —— 本文件开头就记着：2026-10-02 实测「滚轮一动整个界面都在闪」，
+真凶就是它。全程只碰 `transform` / `opacity` / 一圈渐变，全走合成层。
+
+| 动效 | 做法 |
+|---|---|
+| 边缘流光 | `conic-gradient` + `@property --yq-a` 沿圆角转，11 秒一圈 |
+| 弹簧曲线 | `--spring: cubic-bezier(.34,1.56,.64,1)`，过冲一点再回来 |
+| 抬起与回弹 | 指标卡 hover 抬 2px + 放大 1.2%；按钮按下 `scale(.955)` |
+| 镜面高光跟随 | hero 卡上 `pointermove` 写 `--mx/--my`，**rAF 节流**，只挂这一张大卡 |
+
+全部受 `data-motion="0"` 与 `prefers-reduced-motion` 约束 —— 卡了就点面板上的「动效 开」关掉。
+
+**验证方式换了**：`browser_*` 工具要 cooperate sync 且扩展常没连，系统浏览器又容易截错窗口。
+最后用 **Edge headless 直接出图**：
+
+```
+msedge --headless=new --screenshot=out.png --window-size=1180,1500 URL
+```
+
+★ 以后验证 HTML 渲染都走这条。
+
+**同步范围**：`dsh-tools/dsh-yanqing-echo/client.js`（本机部署包，走 `deploy-client.mjs` 部署）
+与 `dsh-agent-soul/plugins/echo/client.js`（本发布版，只换 CSS 段，**id 保持 `dsh-agent-echo` 未动**）。
+
+---
+
+
 ### 2026-11-01 · 把「部署」和「验 id」绑成一个动作（`deploy-client.mjs`）
 
 **同一天第二次崩，比第一次蠢。** 我把 `dsh-agent-soul/plugins/echo/client.js`
