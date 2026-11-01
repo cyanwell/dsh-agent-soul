@@ -542,6 +542,66 @@ msedge --headless=new --screenshot=out.png --window-size=1180,1500 URL
 ---
 
 
+### 2026-11-01 · 新增 `perf` 零件（渲染性能护栏）+ 清掉两处写死路径
+
+**一、`plugins/perf` —— 桌面端渲染性能护栏**
+
+按本仓库的双包模式入库：发布版叫 `dsh-agent-perf`，本机部署包叫 `dsh-yanqing-perf`，
+**两个包名不同不是笔误**（和 `echo` / `dsh-agent-echo` 是同一个模式）。
+
+★ 入库时改了四处名字，缺一处就装不上：
+
+| 位置 | 值 |
+|---|---|
+| `package.json` 的 `name` | `dsh-agent-perf` |
+| `client.js` 的 `load({ id })` | `dsh-agent-perf` |
+| `index.js` 的 `export const name` | `dsh-agent-perf` |
+| `cordis.patch.yml` 的 `- id:` | `dsh-agent-perf` |
+
+**后两个最容易漏** —— `index.js` 的 `name` 是 DSH 解析包的入口，`cordis.patch.yml` 的 `id` 是加载名。
+`node --check` 两个都拦不住（这是配对检查，不是语法检查）。
+
+**它做什么**：把高成本的 `backdrop-filter` 从密集 markdown 元素上移除，用一条
+`<style id="yq-perf-style-v1">` 覆盖。可选开关，面板在「性能」标签页。
+
+★ **护栏必须在插件加载时注入，不能等面板被打开** —— 面板是个 tab，
+不点它 `useEffect` 就不跑。这个 bug 让护栏在真实使用中**一次都没生效过**，
+而静态检查全绿（详见 `20-档案\桌面端渲染性能-实测进度.md` 第十二节）。
+
+**二、清掉两处写死的本机路径**（`verify-packaging` 自带的闸门报出来的，就是清单 #6 那两处）
+
+| 文件 | 原来 | 现在 |
+|---|---|---|
+| `plugins/echo/index.js:485` | `process.env.ECHO_HUB \|\| 'D:/AI/memory/hub'` | 用文件里已有的 `HUB`（`resolveHub()` 的结果）；为空则 503 + 明确文案 |
+| `kit/echo/echo-mcp.mjs:150` | `process.env.DSH_HOME \|\| "D:/AI/dsh/home"` | `ECHO_SESSIONS` → `$DSH_HOME/sessions` → `~/.dsh/sessions`；都没有给空串，`walk` 那行跳过 |
+
+★ **为什么这两处比「写不进去」更糟**：非 Windows 上 `'D:/AI/...'` 是**合法文件名**，
+不报错，而是把日志悄悄写进当前工作目录，留下一个叫 `D:\AI\...` 的怪文件。
+所以宁可「明确失败」，不要「换个地方默默成功」。
+
+**三、`tools/` 新增四个性能测量脚本**
+
+| 脚本 | 干什么 |
+|---|---|
+| `yq-measure.mjs` | 重启后一键：等 CDP → 等页面渲染出内容 → 验护栏 → 数 backdrop → 量 fps |
+| `yq-ab-test.mjs` | **同页面 A/B/A**：不注入 → 注入 → 移除，三段各测一次 |
+| `yq-inject-guard.mjs` | 把护栏注入当前页面（立即生效，不动文件不刷新）；`--off` 可撤 |
+| `yq-check-client.mjs` | 不依赖 CDP 的静态自检（语法 / id / factory / exports / apply / 选择器族） |
+
+★ 一条方法论结论，值得单独记：**帧率和 DOM 节点数强相关**。同样代码，
+DOM 3895 时中位帧 111 ms，DOM 1446 时 7 ms。所以**跨时刻比 fps 没有意义**，
+只有同 DOM 的 A/B 才算数 —— 之前那些 13.5 / 23.1 / 17.3 / 27.4 的横向比较都掺了这个变量。
+
+**四、`verify-packaging` 现状：122/125**
+
+修好 2 项（写死路径、perf 的 `files`），剩 3 项**都是本次改动之前就有的**，
+不在这次范围内，单独处理：
+
+- `ORDER 漏 compact-region` —— 10-31 决定把它从 parts 移除，但验证器仍要求全覆盖（口径不一致）
+- `ORDER 总数` 的公式（`ORDER=16 pkgs=16 ext=1`）
+- `README 有 2026-10-22 的更新记录` 这一条判据
+
+
 ### 2026-11-01 · ECHO 部署端更新回灌 + `deploy-client` 去掉写死路径
 
 **① ECHO 的更新之前只落在部署端，仓库里是旧的。**

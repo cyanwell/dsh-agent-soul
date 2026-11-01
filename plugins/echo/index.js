@@ -482,7 +482,15 @@ export function apply(ctx) {
         //   ★ 用 query 参数而不是 body —— 与本路由现有的 /api/level 保持一致，
         //     也避开各端 body 解析差异。
         if (p === '/api/settings') {
-          const HUBDIR = process.env.ECHO_HUB || 'D:/AI/memory/hub'
+          // ★ 2026-11-01：不再兜底 'D:/AI/memory/hub'。
+          //   resolveHub()（本文件 L97）已按 ECHO_HUB → $DSH_HOME/hub → ~/.dsh/hub →
+          //   echo.config.json 探过一轮，这里直接用它的结果。
+          //   探不到就明确报错 —— 往作者机器的路径上写比写失败更糟：
+          //   非 Windows 上 'D:/AI/...' 是合法文件名，会悄悄在当前目录留个怪文件。
+          const HUBDIR = HUB
+          if (!HUBDIR) {
+            return json(res, 503, { ok: false, error: 'hub 未定位：请设 ECHO_HUB，或确认 echo-doctor.mjs 的位置' })
+          }
           const SFILE = path.join(HUBDIR, 'echo-settings.json')
           const DEFAULTS = { logDays: 3, memBudgetMB: 768 }
           if (req.method === 'POST') {

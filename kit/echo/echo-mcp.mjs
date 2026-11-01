@@ -146,9 +146,22 @@ const LOG_DAYS = cfgNum("ECHO_LOG_DAYS", "logDays", 3);
 const MEM_BUDGET_MB = cfgNum("ECHO_MEM_BUDGET_MB", "memBudgetMB", 768);
 
 const LOG_SNIP = 600;
-// ★ DSH_HOME 本身就是 D:/AI/dsh/home，会话日志在它下面的 sessions/
-const SESS_DIR = process.env.ECHO_SESSIONS
-  || path.join(process.env.DSH_HOME || "D:/AI/dsh/home", "sessions");
+// 会话日志目录。
+// ★ 2026-11-01：去掉了写死的 "D:/AI/dsh/home" 兜底 —— 换台机器会去扫一个不存在的目录，
+//   而在非 Windows 上那还是个合法文件名，不报错、只是什么都没有。
+//   现在的顺序：ECHO_SESSIONS → $DSH_HOME/sessions → ~/.dsh/sessions。
+//   全都没有就给空串，调用处明确跳过（下面 walk 那行），而不是瞎扫一个盘符。
+const SESS_DIR = (() => {
+  if (process.env.ECHO_SESSIONS) return process.env.ECHO_SESSIONS;
+  const up = process.env.HOME || process.env.USERPROFILE;
+  const cands = [];
+  if (process.env.DSH_HOME) cands.push(path.join(process.env.DSH_HOME, "sessions"));
+  if (up) cands.push(path.join(up, ".dsh", "sessions"));
+  for (const c of cands) {
+    try { if (fs.existsSync(c)) return c; } catch { /* 无权限等，继续下一个 */ }
+  }
+  return "";
+})();
 const ZMAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
 
 /** 从一条消息里抽出可检索的正文（兼容 user/message 与 assistant/message 两种结构） */
@@ -262,7 +275,7 @@ const buildLogs = async () => {
     }
   };
 
-  await walk(SESS_DIR, 0);
+  if (SESS_DIR) await walk(SESS_DIR, 0);
 
   /* ★★★ 2026-11-01：**滚动内存管理**。
    *

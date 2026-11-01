@@ -122,7 +122,7 @@ const ORDER = [
     title: 'Ⅱ VITAL · 时间与方向',
     kind: 'plugins',
     why: '预算会烧光、会原地打转，需要把偏离拉回来。',
-    parts: ['clock', 'model-statusbar', 'huanqi', 'huanqi-panel'],
+    parts: ['clock', 'model-statusbar', 'huanqi', 'huanqi-panel', 'perf'],
   },
   {
     step: 3,
