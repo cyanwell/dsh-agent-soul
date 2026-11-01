@@ -243,6 +243,13 @@ selectedDefault: yanqing   # 新会话默认用哪个
 
 **doctor 全绿只是第一层。** 真正要验的是「新会话能不能用上」。
 
+★ **它还有一层覆盖不到的地方，得说清**：doctor 的 L1/L2 只验两件事 —— **压缩零件在不在**、**preset 与 bundles 自洽**。
+而 README 的「全局必装」有五条：`compaction` + `pruner` / ECHO 整套 / `huanqi` + `huanqi-panel` / `ledger` / `mcp-hub`。
+**只有第一条在 doctor 的检查范围内。** 另外四条装没装、装对没装对，doctor 都不会报。
+
+所以判据要补一句：**doctor 全绿 = 「压缩这套通了」，不等于「架构装齐了」。**
+后者看 `agent_soul_install` 的 plan，一步一步走。
+
 ### ① doctor 三层全绿
 
 ```bash

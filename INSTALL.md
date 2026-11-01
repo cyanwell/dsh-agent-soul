@@ -7,15 +7,52 @@
 
 ---
 
-## 前置
+## 前置：先分岔
 
-- 已装 DSH，能跑 `dsh --version`
-- 有一个自己的 profile（`dsh profile list` 能看到）
-- Node ≥ 20；pnpm 由 corepack 提供（见下面第 1 个坑）
+**你用的是桌面端还是 CLI？这两条路不一样，走错那条会「装完但界面上什么都没有」。**
+
+| | 桌面端（DSH 应用窗口） | CLI |
+|---|---|---|
+| 前置 | 装好、能打开就行 | 能跑 `dsh --version`，`dsh profile list` 里有 profile |
+| 装法 | 跑 `install-desktop.ps1`（下一节） | 下面的「三步（CLI）」 |
+| 为什么不同 | 桌面端 profile **拒绝** `dsh plugin add` —— DSH 说它由 Electron 独占管理 | profile 可写，按常规插件装 |
+
+★ 用 CLI 那一套命令装桌面端，会装进**另一个 profile**，界面一点变化都没有。这是本仓库最容易踩的坑。
 
 ---
 
-## 三步
+## 装到桌面端（Windows）
+
+一行（脚本自己找 home 与 profile）：
+
+```powershell
+irm https://raw.githubusercontent.com/cyanwell/dsh-agent-soul/main/install-desktop.ps1 | iex
+```
+
+或者先 clone 再跑本地那份：
+
+```powershell
+git clone https://github.com/cyanwell/dsh-agent-soul.git
+cd dsh-agent-soul
+powershell -ExecutionPolicy Bypass -File .\install-desktop.ps1
+```
+
+它做三件事：**拷文件 → 把包名写进 `dsh.profile.bundles` → 提示你重启**。
+动机是桌面端 profile 不接受 `dsh plugin add`，所以只能用「拷文件 + 改 bundles」这条路。
+改 `package.json` 前会先备份，改 JSON 用 node（不用 `ConvertTo-Json` —— 那个会丢字段）。**可以重复跑，幂等。**
+
+**判据：输出里必须出现 `dsh-agent-soul - desktop install` 这一行标题。**
+没有就是脚本根本没跑起来 —— 最常见是执行策略拦住了（见 §坑 1）。
+
+装完**完全退出 DSH 再打开**（不是刷新页面）。
+
+---
+
+## 三步（CLI）
+
+适用于「能跑 `dsh` 命令、有自己的 profile」的环境。
+
+- Node ≥ 20；pnpm 由 corepack 提供（见下面第 1 个坑）
 
 ### 1. 克隆
 
@@ -463,25 +500,35 @@ $mustHave = @('client.js','index.js','cordis.patch.yml','package.json','plugins'
 `storages/` 也在那里。两处都**不在 profile 目录里**，`sanitizeProfile` 碰不到它们。
 被重置的是**加载谁**的名单（`bundles`）和**patch 了什么**的配置。
 
+**先确定你的 DSH home 在哪。** Windows 默认是 `%USERPROFILE%\.dsh`，但桌面端可以改（本机就是 `D:\AI\dsh\home`）——
+下面所有路径都从它算起：
+
+```powershell
+$dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { "$env:USERPROFILE\.dsh" }
+$dshHome   # 确认它指向你真正的 home
+```
+
+★ 这些命令假设你在**同一个 PowerShell 窗口**里跑过上面这一句。
+
 **而且被改的文件基本都没删，只是改名了** —— 去 profile 目录翻 `.bak`：
 
 ```powershell
 # 1. 找到 sanitize 留下的备份（按时间倒序，最上面那个就是出事前的那份）
-Get-ChildItem "$env:USERPROFILE\.dsh\profiles\desktop" -Filter "cordis.patch.yml.bak*" |
+Get-ChildItem "$dshHome\profiles\desktop" -Filter "cordis.patch.yml.bak*" |
   Sort-Object LastWriteTime -Descending | Select-Object -First 5 Name, LastWriteTime, Length
 
 # 2. 确认那份备份里有你的原始配置（看行数和内容，不要盲拷）
-Get-Content "$env:USERPROFILE\.dsh\profiles\desktop\cordis.patch.yml.bak-<时间戳>" | Measure-Object -Line
+Get-Content "$dshHome\profiles\desktop\cordis.patch.yml.bak-<时间戳>" | Measure-Object -Line
 
 # 3. 恢复（先把当前这份也留个底，别覆盖掉唯一线索）
-Copy-Item "$env:USERPROFILE\.dsh\profiles\desktop\cordis.patch.yml" "cordis.patch.yml.broken-$(Get-Date -Format yyyyMMdd-HHmmss)"
-Copy-Item "$env:USERPROFILE\.dsh\profiles\desktop\cordis.patch.yml.bak-<时间戳>" "$env:USERPROFILE\.dsh\profiles\desktop\cordis.patch.yml" -Force
+Copy-Item "$dshHome\profiles\desktop\cordis.patch.yml" "cordis.patch.yml.broken-$(Get-Date -Format yyyyMMdd-HHmmss)"
+Copy-Item "$dshHome\profiles\desktop\cordis.patch.yml.bak-<时间戳>" "$dshHome\profiles\desktop\cordis.patch.yml" -Force
 ```
 
 **`bundles` 同理** —— profile 的 `package.json` 旁边也有 `.bak`：
 
 ```powershell
-Get-ChildItem "$env:USERPROFILE\.dsh\profiles\desktop" -Filter "package.json.bak*" |
+Get-ChildItem "$dshHome\profiles\desktop" -Filter "package.json.bak*" |
   Sort-Object LastWriteTime -Descending | Select-Object -First 5
 ```
 
@@ -489,15 +536,15 @@ Get-ChildItem "$env:USERPROFILE\.dsh\profiles\desktop" -Filter "package.json.bak
 ★ **注意用 node 读那个文件确认 JSON 合法**，不要用 PowerShell 的 `ConvertFrom-Json` 看（它容忍 BOM，会给你假通过）：
 
 ```powershell
-node -e "const p=require('fs');const j=JSON.parse(p.readFileSync(process.argv[1],'utf8'));console.log('bundles:', (j.dsh&&j.dsh.profile&&j.dsh.profile.bundles||[]).length)" "$env:USERPROFILE\.dsh\profiles\desktop\package.json"
+node -e "const p=require('fs');const j=JSON.parse(p.readFileSync(process.argv[1],'utf8'));console.log('bundles:', (j.dsh&&j.dsh.profile&&j.dsh.profile.bundles||[]).length)" "$dshHome\profiles\desktop\package.json"
 ```
 
 **确认会话还在**：
 
 ```powershell
 # 有没有丢，看文件数和最近修改时间就知道
-(Get-ChildItem "$env:USERPROFILE\.dsh\sessions" -Recurse -Filter "*.jsonl").Count
-Get-ChildItem "$env:USERPROFILE\.dsh\sessions" -Recurse -Filter "*.jsonl" |
+(Get-ChildItem "$dshHome\sessions" -Recurse -Filter "*.jsonl").Count
+Get-ChildItem "$dshHome\sessions" -Recurse -Filter "*.jsonl" |
   Sort-Object LastWriteTime -Descending | Select-Object -First 3 Name, LastWriteTime
 ```
 
@@ -516,8 +563,13 @@ Get-ChildItem "$env:USERPROFILE\.dsh\sessions" -Recurse -Filter "*.jsonl" |
     + FullyQualifiedErrorId : UnauthorizedAccess
 ```
 
-脚本一行都没跑。`INSTALL.md` 上面写的是 `powershell -ExecutionPolicy Bypass -File .\install-desktop.ps1`，
-那是**能过的**；但如果你图省事直接 `&`，会以为是脚本坏了，其实是没跑起来。
+脚本一行都没跑。**正确跑法**是：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install-desktop.ps1
+```
+
+`-ExecutionPolicy Bypass` 是能过的；但如果你图省事直接 `&`，会以为是脚本坏了，其实是没跑起来。
 ★ 判据：**看输出里有没有 `dsh-agent-soul - desktop install` 这行标题** —— 没有就是没跑，别去怀疑脚本逻辑。
 
 **② 现在改成「先拷到暂存目录、验过再换上」**

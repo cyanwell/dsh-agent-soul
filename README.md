@@ -364,6 +364,35 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-02 · 安装引导：桌面端与 CLI 分了岔，恢复步骤不再写死 home
+
+独立审查（一个只读的子会话，319 行报告）把安装引导通读了一遍。改的是**事实层**的四处：
+
+**一、`INSTALL.md` 的「三步」全是 `dsh plugin`，桌面端用户按它装会装进另一个 profile。**
+桌面端 profile **拒绝** `dsh plugin add`（DSH 说它由 Electron 独占管理），
+而「桌面」这个词在安装步骤里一次都没出现 —— 只在 §坑 的补记里。
+
+现在 `## 前置` 改成**先分岔**（桌面端 / CLI 一张对照表），并新增 `## 装到桌面端（Windows）` 一节，
+写清 `install-desktop.ps1` 做哪三件事、以及判据（输出里必须有 `dsh-agent-soul - desktop install` 那行标题）。
+
+**二、一处「引用不存在的东西」。**
+原文写「`INSTALL.md` 上面写的是 `powershell -ExecutionPolicy Bypass -File .\install-desktop.ps1`」，
+但**那行命令全文只出现在这一句里**。改成直接给出可复制的命令。
+
+**三、恢复步骤把 `$env:USERPROFILE\.dsh` 当 DSH_HOME 写死。**
+9 处。本机的 home 是 `D:\AI\dsh\home`，中招的人会照着翻到空目录、以为备份没了。
+改成先 `$dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { "$env:USERPROFILE\.dsh" }`，下面全部从它算起。
+
+**四、`AGENT-INSTALL.md` 补一句要紧的**：doctor 全绿 **≠** 装齐。
+doctor 的 L1/L2 只验「压缩零件在不在」和「preset 与 bundles 自洽」，
+而「全局必装」有五条，**只有 compaction + pruner 在它的检查范围内**。
+
+★ 审查报告里最扎的一句，我抄在这里：
+
+> 这是一份写给「已经装好的那台机器」的安装文档，不是写给陌生人的。
+
+完整报告是一次性审查产出（319 行），不入库 —— 它的结论都落成了上面这四处修改。
+
 ### 2026-11-02 · 两处「装了不生效」+ 一个会替它们放行的检查器
 
 换容器之后做的第一件事是全面巡检。查出三件连在一起的事：
