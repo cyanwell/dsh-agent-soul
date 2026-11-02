@@ -76,6 +76,7 @@ presets/
   preset-soul-cordis.yml   ← 创造
   preset-soul-ptc.yml      ← PTC
   preset-soul-distill.yml  ← 预判
+  preset-soul-all.yml      ← 全能（四合一）
   _manifest.json            ← 四个的 id / 显示名 / order / 三件套清单
 ```
 

@@ -364,6 +364,25 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-02 · 全能 preset 入库 —— 四合一从「本机能跑」变成「仓库里有一份」
+
+上一个 commit 只做了去个人化，**全能 preset 根本没进仓库**：
+仓库里原本只有 4 个（标准 / PTC / 创造 / 预判），本机有 5 个 —— 少的就是 `yanqing-all`。
+它是从本机 profile 直接长出来的，从来没走过一次导出。
+
+这次补上 `presets/preset-soul-all.yml`（702 行）：
+
+| 能力 | 来源 |
+|---|---|
+| 标准 | 门牌压缩（摘要带回取指针）+ 记忆架构 + 全套工具与权限 |
+| PTC | 工具以 Code Mode SDK 呈现，一次 `run_code` 组合多步，中间数据不回上下文 |
+| 创造 | `tool-cordis` + 随 preset 走的 `skills/`，能现场检查/改造自己的插件 |
+| 预判 | persona 里常驻「动手前先过一遍用户会怎么看」，不必等模型自己想起来调技能 |
+
+★ **关键区别不是「四个拼一起」，是没有切换动作** —— 能力一次性全在，用哪个由 Agent 按任务判断。
+★ 去个人化同一标准：id `soul-all`、显示名「灵魂 · 全能」、persona 用人称代词、不点私有 skill。
+★ 实测 token：**标准模式约 4M/轮，全能模式约 2M+/轮** —— 更强，反而更省（PTC 把中间数据挡在上下文外）。
+
 ### 2026-11-02 · preset 去个人化：把名字还给用户
 
 四个 preset 的 `persona.prefix` 之前写着具体人名（「anything that 爀曦 will see」），
