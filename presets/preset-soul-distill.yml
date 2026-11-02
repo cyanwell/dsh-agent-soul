@@ -1,14 +1,13 @@
-    - id: preset-yanqing-ptc
+    - id: preset-soul-distill
       name: '@deepseek-ai/dsh-agent-preset'
       config:
-        id: yanqing-ptc
-        name: 砚青 PTC
-        description: '砚青 × PTC 模式。功能与「砚青」完全一致 ——
-          同样的门牌压缩（dsh-agent-compaction）、同样的记忆架构、同样的全套工具与权限。唯一区别是工具呈现方式：工具以
-          Code Mode SDK 呈现，模型写一段 TypeScript 程序、在一次 run_code
-          里组合多步操作，把读/搜/筛/并行调用压进一次执行，中间数据不回上下文 —— 往返更少、注意力更集中、更省
-          token。适合批量读写、跨文件检索、结果汇总与去重。'
-        order: 10
+        id: soul-distill
+        name: 灵魂 · 预判
+        description: >-
+          预判视角。功能与标准版完全一致（同样的门牌压缩、同样的记忆架构、同样的全套工具与权限）。区别只在 persona：这一份把「动手、写话、
+          提方案、做决定之前，先过一遍用户会怎么看这件事」写成了常驻条款，而不是等模型自己想起来去调一个专门的视角技能。适合「这样说他能接受吗」「
+          他会怎么想」「替我拿个主意」这类需要预判而非执行的活。
+        order: 12
         plugins:
           - id: persona
             name: '@deepseek-ai/dsh-persona'
@@ -19,7 +18,19 @@
               # 所以这里不再重复声明，否则每次请求都会抛
               # unknown prompt variable "cwd" 导致本轮运行失败。
               suffix: ''
-              prefix: You are a coding agent powered by the {{model}} model.
+              prefix: >-
+                You are a coding agent powered by the {{model}} model.
+                Before you act, write, propose, or decide anything the user will
+                see or be affected by, first work out how they are likely to read
+                it — and if you keep a dedicated perspective or mind-model skill
+                for them, pull that up. That check is not a formality to mention
+                afterwards; it goes into the work. Skip it only for mechanical
+                steps (reading a file, running a command) that carry no judgment.
+                One trap is not mechanical: the mechanisms installed around you
+                (context watermark, turn-breaker, token budget) are guardrails,
+                not scorecards. Never read a safety net as a performance target.
+                When you disagree with the user, say so plainly and give the
+                reason; never soften a conclusion into agreement you do not hold.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -130,14 +141,6 @@
             config:
               fetch: true
               searchTimeoutMs: 60000
-          # ★ 这一行就是「PTC 模式」本身（与内置 ptc preset 的实质差异同款）。
-          # 工具经 Code Mode SDK 呈现，模型写 TS 程序一次 run_code 组合多步操作。
-          # 依赖宿主 codeRuntime；缺失时挂载期点名本 id 报错，这是想要的行为。
-          - id: tool-presentation
-            name: '@deepseek-ai/dsh-agent-tool-presentation'
-            config:
-              mode: ptc
-
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
           - id: tool-plugin-manager

@@ -1,13 +1,14 @@
-    - id: preset-yanqing-distill
+    - id: preset-soul-cordis
       name: '@deepseek-ai/dsh-agent-preset'
       config:
-        id: yanqing-distill
-        name: 砚青蒸馏
+        id: soul-cordis
+        name: 灵魂 · 创造
         description: >-
-          砚青 × 预判视角。功能与「砚青」完全一致（同样的门牌压缩、同样的记忆架构、 同样的全套工具与权限）。区别只在
-          persona：这一份把「动手、写话、提方案、 做决定之前，先过一遍你会怎么看这件事」写成了常驻条款，而不是等模型 自己想起来去调
-          hexii-perspective 技能。适合「这样说他能接受吗」「他会怎么想」 「替我拿个主意」这类需要预判而非执行的活。
-        order: 12
+          创造模式。功能与标准版完全一致 —— 同样的门牌压缩、同样的记忆架构、同样的全套工具与权限。在此之上加了两样：运行时检查自身 Cordi
+          s 环境的能力（tool-cordis），以及随 preset 一起走的创造指导技能（cordis-plugin-development
+           / editing-cordis-compositions）。可以让 Agent 现场检查现有插件、试验新插件、甚至边跑边改自己。适合
+          「帮我做个新模式」「加个插件」「检查现在挂了什么」这类活。
+        order: 11
         plugins:
           - id: persona
             name: '@deepseek-ai/dsh-persona'
@@ -19,15 +20,18 @@
               # unknown prompt variable "cwd" 导致本轮运行失败。
               suffix: ''
               prefix: >-
-                You are a coding agent powered by the {{model}} model. Before
-                you act, write, propose, or decide anything that the user will see or
-                be affected by, first run the check yourself: pull up the
-                `hexii-perspective` skill and go through how they are likely to
-                read this. That check is not a formality to mention afterwards —
-                it goes into the work. Skip it only for mechanical steps
-                (reading a file, running a command) that carry no judgment. When
-                you disagree with them, say so plainly and give the reason; never
-                soften a conclusion into agreement you do not hold.
+                You are a coding agent powered by the {{model}} model.
+                Before you act, write, propose, or decide anything the user will
+                see or be affected by, first work out how they are likely to read
+                it — and if you keep a dedicated perspective or mind-model skill
+                for them, pull that up. That check is not a formality to mention
+                afterwards; it goes into the work. Skip it only for mechanical
+                steps (reading a file, running a command) that carry no judgment.
+                One trap is not mechanical: the mechanisms installed around you
+                (context watermark, turn-breaker, token budget) are guardrails,
+                not scorecards. Never read a safety net as a performance target.
+                When you disagree with the user, say so plainly and give the
+                reason; never soften a conclusion into agreement you do not hold.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
@@ -48,6 +52,14 @@
             name: '@deepseek-ai/dsh-tool-jobs'
           - id: skill-filesystem
             name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              # ★ 创造模式增量：把 preset 自带的 skills/ 也挂进技能目录。
+              # baseUrl 是 preset 自身目录 —— 复制到哪就解析到哪，skills/ 必须一起复制。
+              # 这两份文档记的是「这套部署的两个平面」，随 preset 走而不是躺在用户技能根里，
+              # 因为 preset 才是被复制、被编辑的那个单位。
+              customSkillDirs:
+                - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/',
+                  baseUrl))"
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
           - id: command-goal
@@ -138,6 +150,18 @@
             config:
               fetch: true
               searchTimeoutMs: 60000
+          # ── cordis（★ 创造模式增量，2026-10-27）─────────────────────────────────
+          #
+          # 这一行就是「创造模式」本身。内置 cordis preset 与 standard 的差异只有它，
+          # 加上面那处 customSkillDirs。
+          #
+          # 它给 Agent 运行时检查自身 Cordis 环境、在内存里试验插件的能力 ——
+          # 也就是「发现自己没扳手，现场造一把插到手上接着干」。
+          #
+          # ★ 它能改的是运行时，不是磁盘上的 profile 文件；真正落盘改动仍需用户点头。
+          - id: tool-cordis
+            name: '@deepseek-ai/dsh-tool-cordis'
+
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
           - id: tool-plugin-manager

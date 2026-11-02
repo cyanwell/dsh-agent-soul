@@ -15,7 +15,7 @@
  *   node tools/soul-preset.mjs verify [--profile desktop]
  *      只读。查：preset 块在不在、三件套齐不齐、包能不能 resolve、registry 配置
  *
- *   node tools/soul-preset.mjs register --id <id> --name <显示名> [--from preset-yanqing] [--write]
+ *   node tools/soul-preset.mjs register --id <id> --name <显示名> [--from preset-soul] [--write]
  *      从现成 preset 复制一份，改 id/name。默认 dry-run。
  *
  *   node tools/soul-preset.mjs register-all [--write]
@@ -46,8 +46,15 @@ if (!HOME) {
   process.exit(2)
 }
 // ★ 双前缀兼容（2026-10-30）：本机是 dsh-yanqing-*、发布版是 dsh-agent-*。
+// ★ 2026-11-02 修：原来 flatMap 成 6 个名字、要求全部出现 —— 于是只装
+//   dsh-yanqing-* 的 preset 恒报『缺 dsh-agent-*』，5 个 preset 全红。
+//   语义应是「每个能力任意一种前缀存在即算齐」。改成候选组。
 const REQUIRED = ['compaction', 'compact-region', 'pruner']
-  .flatMap((d) => ['dsh-agent-' + d, 'dsh-yanqing-' + d])
+  .map((d) => ['dsh-agent-' + d, 'dsh-yanqing-' + d])
+const missOf = (names) =>
+  REQUIRED
+    .filter((alts) => !alts.some((n) => names.includes(n)))
+    .map((alts) => alts[0].replace(/^dsh-(agent|yanqing)-/, ''))
 const argOf = (k) => { const i = process.argv.indexOf(k); return i > -1 ? process.argv[i + 1] : null }
 const PROFILE = argOf('--profile') || 'desktop'
 const WRITE = process.argv.includes('--write')
@@ -101,7 +108,7 @@ if (CMD === 'verify') {
   console.log('\n[三件套]')
   for (const p of presets) {
     const names = namesIn(p.body)
-    const miss = REQUIRED.filter((r) => !names.includes(r))
+    const miss = missOf(names)
     const dead = names.filter((n) => !resolvable(n))
     if (miss.length) ng(`${p.id} 缺 ${miss.join(', ')}`)
     else if (dead.length) ng(`${p.id} resolve 不到 ${dead.join(', ')}`)
@@ -150,7 +157,7 @@ if (CMD === 'export') {
     const file = join(outDir, `${p.id}.yml`)
     writeFileSync(file, body.join('\n') + '\n', 'utf8')
     const names = namesIn(body)
-    const missing = REQUIRED.filter((r) => !names.includes(r))
+    const missing = missOf(names)
     manifest.presets.push({ blockId: p.id, configId: cfgId, displayName: cfgName.replace(/^['"]|['"]$/g, ''), order: order || null, file: `${p.id}.yml`, lines: body.length, parts: names, missing })
     console.log(`  ${p.id}  ${body.length} 行  config.id=${cfgId}  name=${cfgName}${missing.length ? '  ⚠ 缺 ' + missing.join(',') : ''}`)
   }
@@ -186,7 +193,7 @@ if (CMD === 'version') {
         order: cfgText.match(/^\s+order:\s*(\d+)\s*$/m)?.[1] || null,
         lines: p.body.length,
         parts: names,
-        missing: REQUIRED.filter((r) => !names.includes(r)),
+        missing: missOf(names),
         sha256: sha(p.body.join('\n')),
       };
     }),
@@ -329,7 +336,7 @@ if (CMD === 'build') {
 if (CMD === 'register') {
   const id = argOf('--id')
   const displayName = argOf('--name')
-  const from = argOf('--from') || 'preset-yanqing'
+  const from = argOf('--from') || 'preset-soul'
   if (!id || !displayName) die('用法：register --id <id> --name <显示名> [--from <源 preset>] [--write]')
   if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) die(`id "${id}" 不合法（只允许小写字母/数字/减号）`)
   if (presets.some((p) => p.id === `preset-${id}`)) die(`preset-${id} 已经存在，不重复注册`)

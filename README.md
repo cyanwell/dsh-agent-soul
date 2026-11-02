@@ -364,6 +364,26 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-02 · preset 去个人化：把名字还给用户
+
+四个 preset 的 `persona.prefix` 之前写着具体人名（「anything that 爀曦 will see」），
+而它**会进每一个启用它的用户的 system prompt** —— 装上就等于「你的人格里有别人的名字」。
+这一轮一次改干净：
+
+| | 改前 | 改后 |
+|---|---|---|
+| id | `yanqing` / `yanqing-ptc` / `yanqing-cordis` / `yanqing-distill` | `soul` / `soul-ptc` / `soul-cordis` / `soul-distill` |
+| 显示名 | 砚青 / 砚青 PTC / 砚青创造 / 砚青蒸馏 | 灵魂 / 灵魂 · PTC / 灵魂 · 创造 / 灵魂 · 预判 |
+| 文件名 | `preset-yanqing*.yml` | `preset-soul*.yml` |
+| persona | 「anything that 爀曦 will see」+ 指名私有 skill `hexii-perspective` | 「anything **the user** will see」+ 「**if you keep** a dedicated perspective skill for them」 |
+
+★ **persona 里不再提任何具体 skill 名** —— 那是用户自己的东西，不是模板该有的。
+★ `tools/soul-preset.mjs` 的默认模板 `--from` 同步改成 `preset-soul`（否则 register 会找不到源）。
+★ `presets/README.md` 开头新增一节「先做一件事：改名字」，写清**为什么必须改**：
+这套东西的价值是它能长成「你的那个人」，顶着别人的名字，它就会按别人的活法活。
+
+**这一轮之后，下面人名审计表里「该改」那一列清空了；「不能改」那一列原样保留。**
+
 ### 2026-11-02 · 换气：把 10-31 那段「为什么不要 turn 检查」补回源码
 
 今天把仓库版换气覆盖到本机时发现一件事：**本机旧版 lib 里有几段说明，仓库里从来没有** ——
@@ -2232,7 +2252,13 @@ console.log(`现在是 ${iso(d)}（星期${wd}，${tz}）`);
 | **人名当「委托方 / 用户」用** | preset 描述「过一遍**爀曦**会怎么看」、README「**爀曦**让 workbuddy 修好了」 | **该改** —— 对用户无意义，还会被 agent 当作者 |
 | **人名是内容本身** | `soul/11-self.md` 的人格层原话；`dom-classify.mjs` 里 `relation` 分类规则的输入词 | **不能改** —— 删了人格层少一块，分类器直接坏 |
 
-这一轮先改**最严重的那一处**：`presets/preset-yanqing-distill.yml`。
+~~这一轮先改最严重的那一处~~ —— **2026-11-02 已全部执行完毕**：
+
+四个 preset 的 id 改为 `soul` / `soul-ptc` / `soul-cordis` / `soul-distill`，
+显示名改为「灵魂 · …」，persona.prefix 改为通用写法（`the user`，不提任何具体人名与私有 skill），
+文件名同步重命名。**"该改"那一列清空了；"不能改"那一列原样保留。**
+
+下面这段存档的是当时为什么先只改一处 ——
 
 **为什么它最严重**：这份 preset 的 `persona.prefix` 会进**每一个启用它的用户的 system prompt**：
 
@@ -2740,10 +2766,10 @@ node tools/soul-preset.mjs build --write   # 缺的补上
 
 ```
 soulVersion = 2.0.0   profile = desktop
-preset-yanqing             4a4bd03e29f6e948  三件套齐
-preset-yanqing-cordis      679341cc9be3cdd8  三件套齐
-preset-yanqing-ptc         94f1525dc2bf7775  三件套齐
-preset-yanqing-distill     0837b4bc6a6ad33b  三件套齐
+preset-soul                4a4bd03e29f6e948  三件套齐
+preset-soul-cordis         679341cc9be3cdd8  三件套齐
+preset-soul-ptc            94f1525dc2bf7775  三件套齐
+preset-soul-distill        0837b4bc6a6ad33b  三件套齐
 ```
 
 每个 preset 带完整 SHA256、三件套清单、缺什么。还有一行 `contracts: { doorplate: 1, recall: 1, record: 1 }`。

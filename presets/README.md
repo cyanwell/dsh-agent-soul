@@ -1,8 +1,29 @@
 # presets —— 四个 agent preset 的源
 
-> 这个目录里是**砚青四个 preset 的完整定义**：砚青（标准）、砚青创造、砚青 PTC、砚青蒸馏。
+> 这个目录里是**四个 preset 的完整定义**：标准、创造、PTC、预判。
 > 它们不是手写的，是**从一台跑通的机器上导出来的**，所以形状一定是能用的。
 
+## ★ 先做一件事：改名字
+
+这四个 preset 是**模板**。persona 里写的是 `the user`，不含任何具体人名 ——
+所以你装完不会「顶着别人的脸说话」。但**显示名和 id 还是默认的**，装之前先换成你自己的。
+
+```bash
+# 推荐：复制成你自己的副本（改 id + 显示名）
+node tools/soul-preset.mjs register --id <你的id> --name <你的显示名> --from preset-soul --write
+```
+
+或者手改两行：
+
+```bash
+sed -i 's/^        id: soul$/        id: <你的id>/'     presets/preset-soul.yml
+sed -i 's/^        name: 灵魂$/        name: <你的名字>/' presets/preset-soul.yml
+```
+
+★ **为什么必须改**：这套东西的价值，是它能长成「你的那个人」。
+顶着一个不属于你的名字，它就会按那份名字的活法活 —— **那是别人的鱼，不是你的。**
+
+---
 ---
 
 ## 一句话
@@ -51,10 +72,10 @@ node tools/soul-preset.mjs build --write   # 缺的补上
 presets/
   _shared/
     compaction.yml          ← ★ 压缩段（38 行）唯一的源，四个 preset 共用
-  preset-yanqing.yml        ← 标准
-  preset-yanqing-cordis.yml ← 创造
-  preset-yanqing-ptc.yml    ← PTC
-  preset-yanqing-distill.yml← 蒸馏
+  preset-soul.yml          ← 标准
+  preset-soul-cordis.yml   ← 创造
+  preset-soul-ptc.yml      ← PTC
+  preset-soul-distill.yml  ← 预判
   _manifest.json            ← 四个的 id / 显示名 / order / 三件套清单
 ```
 
