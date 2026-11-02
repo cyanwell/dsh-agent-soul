@@ -364,6 +364,33 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-02 · 换气：把 10-31 那段「为什么不要 turn 检查」补回源码
+
+今天把仓库版换气覆盖到本机时发现一件事：**本机旧版 lib 里有几段说明，仓库里从来没有** ——
+覆盖之后它们就没了。补回来的是最要紧的一段：**`compactOnce` 为什么不检查「turn 还开着」**。
+
+它曾经有过一个 `openTurn` 检查，先后发现两个问题：
+
+1. **作用域错位，从未生效** —— 变量声明在 `scheduleResume` 下方的 if 块**内**，
+   而 `compactOnce` 定义在块**外**，一进去就 `openTurn is not defined`。
+2. **方向本身反了** —— `compactRegion` 的语义是 `owner: 'current-turn'`，
+   **它要的就是 turn 还开着**。检查一拦，两边都死：拦住 → `skipped: turn still open`；
+   等 turn 关了 → `no open turn`。
+
+依据是 `dsh-compaction/invariant.js` 的 tool/result 分支：
+
+```js
+if (event.surfaceOp !== "append") {
+  if (trace.openTurn === null) fail("... outside any open turn");
+  break;                  // ← replace 走旁路：只查 openTurn，不查 turn/step 配对
+}
+```
+
+所以「replace 必须在 openTurn 内」是硬约束，而 `compactRegion` 正好满足它 —— **两者不矛盾**。
+**不要再加回那个拦截。**
+
+★ 这次是纯注释，零行为改动。`src/index.ts` 与 `lib/index.js` 两处都补了。
+
 ### 2026-11-02 · 更正：部署端才是权威（这份文档的方向我写反过）
 
 同一天的巡检里，我把「发布版 / 部署版」的方向判据写反了 —— 写成「发布版是给任何人的、部署版是本机的实验」，

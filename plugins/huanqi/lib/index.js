@@ -2344,7 +2344,28 @@ export function apply(ctx, config) {
         return pickRegionEx(agent).range;
     }
     /**
-     * 压缩一次。**永不抛** —— 失败只记录，绝不让守卫自己变成故障。
+     * ★★★ 为什么这里**不**检查「turn 还开着」（2026-10-31 的教训）
+ *
+ * 曾经有过一个 openTurn 检查，意图是「turn 还开着就先不压」。它有两个问题，先后被发现：
+ *   ① 作用域错位，从未生效：变量声明在 scheduleResume 下方的 if 块内，
+ *      而本函数定义在块外 —— 一进去就 openTurn is not defined。
+ *   ② 方向本身反了：compactRegion 的语义是 owner: 'current-turn'，
+ *      它要的就是 turn 还开着。检查一拦，两边都死：
+ *        拦住 → skipped: turn still open
+ *        等 turn 关了 → no open turn
+ *
+ * 依据（dsh-compaction/invariant.js 的 tool/result 分支）：
+ *     if (event.surfaceOp !== "append") {
+ *       if (trace.openTurn === null) fail("... outside any open turn");
+ *       break;                  // ← replace 走旁路：只查 openTurn，不查 turn/step 配对
+ *     }
+ * 所以「replace 必须在 openTurn 内」是硬约束，而 compactRegion 正好满足它 —— 两者不矛盾。
+ * 不要重新加回那个拦截。
+ *
+ * 「写坏日志」那条始终是推断、不是实测：2026-10-27T16:10:07 那次
+ * compactRegion(1847–2108) → OK n=95 tok=130302 是在 turn 内跑的，没坏。
+ *
+ * 压缩一次。**永不抛** —— 失败只记录，绝不让守卫自己变成故障。
      *
      * @param mode `region` = 尽量只压最近这一段（失败降级全量）；
      *             `full`   = 直接全量。
