@@ -23,6 +23,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 //   也允许用 YQ_HUB 环境变量直接指定（比如记忆库不在 DSH 旁边时）。
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh');
 const HUB = process.env.YQ_HUB || join(dirname(dirname(DSH_HOME)), 'memory', 'hub');
+const SOUL = process.env.YQ_SOUL || join(dirname(dirname(DSH_HOME)), 'yanqing-soul');
 const CFG = join(HERE, 'heartbeat.config.json');
 const STATE = join(HERE, 'heartbeat.state.json');
 const LOG = join(HERE, 'heartbeat.log.jsonl')
@@ -36,8 +37,29 @@ const MANUAL = ARGV.includes('--manual')
 const FORCE = ARGV.includes('--force')
 
 const now = Date.now();
-const config = JSON.parse(readFileSync(CFG, 'utf8'));
-const state = JSON.parse(readFileSync(STATE, 'utf8'));
+// ★ 2026-11-04 加兜底：仓库里只放 heartbeat.config.example.json，真实配置由各人部署时生成。
+//   以前这里裸读，缺文件就 ENOENT 崩 —— 也正是「clone 下来跑不起来」的一环。
+//   缺 config 用内置默认（保守值：关着、不跑），缺 state 当全新开始。
+const DEFAULT_CONFIG = {
+  enabled: false,                       // ★ 默认关：没配置就别自己跑起来
+  options: {
+    idleThresholdMinutes: 15,
+    checkIntervalMinutes: 10,
+    schedule: { mode: 'cron', cron: '0 6,12 * * *', timezone: 'Asia/Shanghai' },
+    catchUpMissed: false,
+    budget: { maxRunsPerDay: 6, maxTokensPerRun: null },
+    quietHours: null,
+    auditLevel: 'normal',
+    logLevel: 'full',
+    toolsAllowlist: ['memindex', 'self', 'daily', 'doctor'],
+    retry: { max: 1, delaySec: 5 },
+    customSteps: [],
+    audit: { tier: 1, enabled: true, humanPresentMinutes: 15, sandboxDirs: [HUB, join(SOUL, '20-档案'), join(SOUL, '50-日记'), HUB], irreversible: ['delete', 'push', 'trade'] },
+  },
+  ignoreSessionIds: [],
+};
+const config = existsSync(CFG) ? JSON.parse(readFileSync(CFG, 'utf8')) : DEFAULT_CONFIG;
+const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};
 
 const idle = idleMinutes(config.ignoreSessionIds || []);
 const phase = decidePhase({ now, state, config, idleMinutes: idle.ok ? idle.minutes : null });

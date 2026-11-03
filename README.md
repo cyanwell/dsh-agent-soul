@@ -388,6 +388,37 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-04 · 心跳能「clone 下来就跑」（补配置模板 + 缺文件兜底）
+
+**怎么发现的**：上一轮把死路径清完、136/136 全绿之后，我没有停 —— **在临时目录里模拟了一次「别人 clone 下来」**，
+结果第一秒就崩：`ENOENT: heartbeat.config.json`。
+
+★ 这就是「静态全绿 ≠ 运行正常」。`verify-packaging` 查的是**已有文件里有没有坏东西**，
+**它不查「该有的文件在不在」** —— 又一个「工具给假绿灯」的形状。
+
+**修的四处**：
+
+| # | 缺什么 | 补法 |
+|---|---|---|
+| ① | `heartbeat.config.json` 没入库 | 仓库放 `heartbeat.config.example.json`（去个人化模板），真实那份由各人部署时写 |
+| ② | 缺文件时裸读就崩 | 加 `DEFAULT_CONFIG` 兜底：**缺配置时 `enabled: false`** —— 没配置就别自己跑起来 |
+| ③ | 缺 `state` 也崩 | 缺就当全新开始（空对象） |
+| ④ | `_glass.css`（面板样式）没入库 | 补上 |
+
+**验证方式**（这次没有只看代码）：
+
+```
+临时目录 / 只放仓库那 5 个文件 / 跑 heartbeat.mjs --manual
+→ 场景1 没 config：静息 phase=disabled，不崩 ✓
+→ 场景2 有 example config：正常读它 ✓
+```
+
+**过程中又踩了一次「写完没跑到」**：`DEFAULT_CONFIG` 里用了 `SOUL`，而 `heartbeat.mjs` 只定义了 `HUB` ——
+于是 `ReferenceError: SOUL is not defined`。**这次是跑出来的，不是想出来的。**
+
+**另外补了 `.gitignore`**：`heartbeat.state.json` / `heartbeat.log.jsonl` / `heartbeat.config.json`。
+判据和 `plugins/yantai/apps/apps.json` 那条一样 —— **带 `.example` 的是模板，不带的是运行数据**。
+
 ### 2026-11-04 · 死路径全清（47 处 → 0）+ 心跳核心脚本入库
 
 **起因**：爀曦看到一份机检报告 ——「heartbeat 插件基本是空壳：核心脚本 `heartbeat.mjs` 不在仓库里；

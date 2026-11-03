@@ -31,3 +31,10 @@ presets/_manifest.json
 
 # 本机的实际路径配置（每人不同，不该进仓库）
 echo.config.json
+
+# ★ 心跳的运行数据（2026-11-04 加）
+# 判据和 yantai/apps.json 一样：带 .example 的是模板、不带的是运行数据。
+# config 例外 —— 它的模板叫 heartbeat.config.example.json，真实那份由各人自己写。
+plugins/heartbeat/heartbeat.state.json
+plugins/heartbeat/heartbeat.log.jsonl
+plugins/heartbeat/heartbeat.config.json
