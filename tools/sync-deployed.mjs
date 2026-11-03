@@ -40,7 +40,8 @@ function getArg(name, dflt) {
   return i >= 0 && args[i + 1] ? args[i + 1] : dflt
 }
 
-const DEPLOYED = getArg('--deployed', process.env.SOUL_DEPLOYED || 'D:\\AI\\dsh\\home\\profiles\\desktop\\node_modules')
+const DEPLOYED = getArg('--deployed', process.env.SOUL_DEPLOYED
+  || join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'profiles', 'desktop', 'node_modules'))
 
 const SKIP_DIR = new Set(['node_modules', '.git', '.turbo', 'test', 'tests', 'dist', 'coverage'])
 const SKIP_FILE = /(^|\/)(\..*|.*\.bak.*|.*\.log)$/

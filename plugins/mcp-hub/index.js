@@ -33,7 +33,8 @@ const INVALID_NAME_CHARS = /[^A-Za-z0-9_-]/g
 const TRANSPORTS = new Set(['stdio', 'streamable-http'])
 
 export function dshHome() {
-  return process.env.DSH_HOME || 'D:\\AI\\dsh\\home'
+  // ★ 2026-11-04 修死路径：兜底不再指向作者机器，用 homedir/.dsh
+  return process.env.DSH_HOME || join(homedir(), '.dsh')
 }
 
 export function serversFilePath() {

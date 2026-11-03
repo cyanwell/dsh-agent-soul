@@ -7,15 +7,21 @@
 //
 // 三样都容错：读不到就返回 null，绝不因为一个文件缺失让整个面板挂掉。
 
-import { join, resolve } from 'node:path'
+import { join, resolve, dirname } from 'node:path'
+import { homedir } from 'node:os'
 import { readFileSync, writeFileSync, existsSync, statSync, readdirSync , appendFileSync, mkdirSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 
 export const name = 'dsh-yanqing-heartbeat'
 export const inject = ['webServer', 'agents']
 
-const BOOK = 'D:\\AI\\yanqing-soul\\02-墨.jsonl'
-const HUB = 'D:\\AI\\memory\\hub'
+// ★ 2026-11-04 修死路径：原来把记忆库/书房/心跳目录全写死在作者机器上。
+//   现在从 DSH_HOME 往上推两级得到 `D:\AI` 这一层，再拼各目录；三个都可用环境变量覆盖。
+const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
+const AI_ROOT = dirname(dirname(DSH_HOME))
+const SOUL = process.env.YQ_SOUL || join(AI_ROOT, 'yanqing-soul')
+const HUB = process.env.YQ_HUB || join(AI_ROOT, 'memory', 'hub')
+const BOOK = join(SOUL, '02-墨.jsonl')
 const AUTO_LOG = HUB + '\\heartbeat\\_auto.log'
 // ★ 2026-11-03 22:12 爀曦要「每步产出了什么」。heartbeat.mjs 写的历史里只有步骤名/成败/耗时，
 //   这里在插件侧补一本「输出账」，按结束时间匹配 history 里的记录。
@@ -40,8 +46,9 @@ function readRunOut () {
 }
 const DAILY_DIR = HUB + '\\heartbeat'
 const REPORTS_DIR = HUB + '\\heartbeat\\reports'          // ★ 巡视报告 + 报警队列
-const HB_DIR_FOR_ORIGIN = 'D:\\AI\\dsh-tools\\dsh-yanqing-heartbeat'   // ★ 脚本侧目录，用来把 origin 传给脚本
-const LATEST_LOG = 'D:\\AI\\dsh-tools\\dsh-yanqing-heartbeat\\heartbeat.log.jsonl'   // ★ 巡视记录的权威来源
+const HB_DIR = process.env.YQ_HB_DIR || join(AI_ROOT, 'dsh-tools', 'dsh-yanqing-heartbeat')
+const HB_DIR_FOR_ORIGIN = HB_DIR   // ★ 脚本侧目录，用来把 origin 传给脚本
+const LATEST_LOG = join(HB_DIR, 'heartbeat.log.jsonl')   // ★ 巡视记录的权威来源
 const TASK_NAMES = ['Yanqing-Echo-Heartbeat', 'Yanqing-Echo-Heartbeat-AM']
 
 // ★ _auto.log 是 GBK 编码（Windows 批处理写的）。用 utf8 读会得到「��һ」这种乱码。
@@ -191,8 +198,6 @@ export function apply(ctx) {
 
   // ★ 2026-11-03 加：命题 5 的「三条显示」缺了两条 —— 当前状态、下一次心跳。
 //   state 在心跳包自己的目录里（不是 memory/hub），cron 在 config 里。
-const HB_DIR = 'D:\\AI\\dsh-tools\\dsh-yanqing-heartbeat'
-
 function readHeartbeatState () {
   try {
     const p = HB_DIR + '\\heartbeat.state.json'
@@ -472,7 +477,7 @@ route('/heartbeat/state', async (_req, res) => {
 
     // ★ 内联的 idle 计算（不从 activity.mjs import —— profile 目录里没有那个文件，
     //   跨目录 import 会让插件加载失败。20 行代码不值得为此加一个文件依赖锁）
-    const SESSIONS_ROOT = 'D:\\AI\\dsh\\home\\sessions'
+    const SESSIONS_ROOT = join(DSH_HOME, 'sessions')
     const scanIdle = (ignore, now) => {
       let newest = 0
       let total = 0

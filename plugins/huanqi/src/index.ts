@@ -160,6 +160,12 @@
  * @module dsh-loop-guard
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs'
+
+// ★ 2026-11-04 修死路径：原来把记忆库位置写死在作者机器上。
+//   从 DSH_HOME 往上推两级得到 `D:\AI`，再拼 memory/hub；也认 YQ_HUB。
+const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
+const AI_ROOT = dirname(dirname(DSH_HOME))
+const HUB = process.env.YQ_HUB || join(AI_ROOT, 'memory', 'hub')
 import { dirname, join } from 'node:path'
 
 /**
@@ -2184,8 +2190,8 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
   //   执行完删文件，结果写 _plugin-diag.log。
   // ══════════════════════════════════════════════════════════════════════
   ((): void => {
-    const TRIGGER = 'D:\\AI\\memory\\hub\\_huanqi-trigger.json'
-    const DIAGF = 'D:\\AI\\memory\\hub\\_plugin-diag.log'
+    const TRIGGER = join(HUB, '_huanqi-trigger.json')
+    const DIAGF = join(HUB, '_plugin-diag.log')
     const diag = (line: string): void => {
       try { appendFileSync(DIAGF, new Date().toISOString() + ' ' + line + '\n') } catch { /* */ }
     }
@@ -2413,7 +2419,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
           if (got !== undefined && got !== null) {
             svc = got
             try {
-              appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+              appendFileSync(join(HUB, '_plugin-diag.log'),
                 new Date().toISOString() + ' [huanqi][diag] ' + tag + '.get(' + name + ') -> OK\n')
             }
             catch { /* */ }
@@ -2422,7 +2428,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
         }
         if (svc === undefined) {
           try {
-            appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+            appendFileSync(join(HUB, '_plugin-diag.log'),
               new Date().toISOString() + ' [huanqi][diag] 三级全落空：' + name + ' 在 agent.ctx / agent.session.ctx / ctx 都拿不到\n')
           }
           catch { /* */ }
@@ -2452,7 +2458,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
           try { sk = Object.keys(svc).slice(0, 10) } catch (e3: any) { sk = ['(读不到)'] }
           __line = '[huanqi][diag] ctx.get(' + name + ') -> OK typeof=' + typeof svc + ' keys=' + sk.join(',')
         }
-        appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+        appendFileSync(join(HUB, '_plugin-diag.log'),
           new Date().toISOString() + ' ' + __line + '\n')
       }
       catch (eX: any) { /* 诊断本身绝不许影响主流程 */ }
@@ -2483,7 +2489,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
    * ★ 本段在 compactOnce 作用域外，`diag` / `targetSid` 不可见 —— 用 appendFileSync 直接写。
    */
 
-  const PURGE_LOG = 'D:\\AI\\memory\\hub\\_plugin-diag.log';
+  const PURGE_LOG = join(HUB, '_plugin-diag.log');
   const purgeLog = (line: any): void => {
       try {
           appendFileSync(PURGE_LOG, new Date().toISOString() + ' ' + line + '\n');
@@ -3119,7 +3125,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
               probeNote = 'probe-threw:' + String((e as any) && (e as any).message)
             }
             try {
-              appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+              appendFileSync(join(HUB, '_plugin-diag.log'),
                 new Date().toISOString() + ' [huanqi][region] pickRegion → null why='
                 + String(picked.why) + ' info='
                 + String(picked.info === undefined ? '-' : picked.info)
@@ -3231,7 +3237,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
       }
       lastCompact.set(sid, out)
       try {
-        appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+        appendFileSync(join(HUB, '_plugin-diag.log'),
           new Date().toISOString() + ' [huanqi][compact] 走 commands 桥 → kind='
           + String(viaCmd.kind) + ' range='
           + (viaCmd.range === null || viaCmd.range === undefined
@@ -3414,7 +3420,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
    */
   function diagLog(tag: string, line: string): void {
     try {
-      appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+      appendFileSync(join(HUB, '_plugin-diag.log'),
         new Date().toISOString() + ' [huanqi][' + tag + '] ' + line + '\n')
     } catch { /* 诊断不许影响主流程 */ }
   }
@@ -4250,7 +4256,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
               '[huanqi] 思考退化熔断，但**全量压缩没有成功**。',
               '- 本轮**不再延续**（不推模型，等你）。',
               '- 请你手动输入 `/compact` 做一次全量压缩，再决定是继续还是换容器。',
-              '- 压缩失败的原因见 `D:\\AI\\memory\\hub\\_plugin-diag.log`。',
+              '- 压缩失败的原因见 `memory/hub/_plugin-diag.log`。',
             ].join('\n'), 'notice', 'huanqi: full compaction FAILED — stop and ask the user to compact manually'))
             return
           }

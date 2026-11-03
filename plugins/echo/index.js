@@ -291,7 +291,7 @@ function runNode(script, args, timeoutMs) {
         errTxt = String(errTxt || '') + L.join('\n')
         // ★ 同时写进固定文件，免得只在界面上闪一下
         try {
-          fs.appendFileSync('D:\\AI\\memory\\hub\\_plugin-diag.log',
+          fs.appendFileSync(join(HUB, '_plugin-diag.log'),
             new Date().toISOString() + ' [echo][diag] ' + JSON.stringify({
               node: NODE, script: script, args: args || [],
               cwd: (function () { try { return process.cwd() } catch (e) { return '?' } })(),

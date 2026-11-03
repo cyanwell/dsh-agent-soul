@@ -1391,7 +1391,7 @@ window.__ModuleLoader__.load({
 
         // ── 页脚 ─────────────────────────────────────────────
         h("div", { className: "yq-foot yq-glass" },
-          h("div", null, "体检逻辑：", h("code", null, "D:\\AI\\memory\\hub\\echo-doctor.mjs"),
+          h("div", null, "体检逻辑：", h("code", null, "memory/hub/echo-doctor.mjs"),
             " —— 命令行跑的是同一份"),
           h("div", null, "快检不看日志（约 0.9 秒）· 深检真去取一次门牌（约 9 秒）· 面板每 2 秒读一次缓存")
         )

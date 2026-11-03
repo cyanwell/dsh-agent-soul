@@ -603,9 +603,15 @@ const readme = fs.readFileSync('README.md', 'utf8')
     //   不排除的话它会永远举报自己。这是自指检查器的固定处理，不是放水：
     //   这个文件里除了那两行模式，没有任何地方**真的去读**本机路径。
     'tools/verify-packaging.mjs',
+    // ★ 2026-11-04 加：这两份是**数据**不是代码 —— 记录「本机部署在哪」，写死路径正是它们的内容本身。
+    'presets/_manifest.json',
+    'soul-version.json',
   ])
   //   ★ 正则里用 [\\/] 同时匹配两种分隔符；D:/AI 和 D:\AI 都要抓。
-  const PATTERNS = [/\bD:[\\/]AI[\\/]/, /\bC:[\\/]Users[\\/]pc[\\/]/i]
+  // ★ 2026-11-04 修：原来只匹配「一个」反斜杠（D:\AI\），
+//   而 JS 源码里写死的路径是转义后的「两个」反斜杠（'D:\\AI\\...'）—— 于是永远漏检。
+//   {1,2} 同时覆盖两种写法：裸路径与字符串里的转义路径。
+const PATTERNS = [/\bD:[\\/]{1,2}AI[\\/]/, /\bC:[\\/]{1,2}Users[\\/]{1,2}pc[\\/]/i]
   const isComment = (l) => /^\s*(\/\/|\/\*|\*|#|<!--)/.test(l)
   const hits = []
   const walk = (dir) => {

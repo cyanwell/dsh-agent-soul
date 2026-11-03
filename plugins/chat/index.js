@@ -36,8 +36,13 @@ const LOG = path.join(HERE, 'chat.log')
 
 const PORT = 8898
 const HOST = '0.0.0.0'          // ★ 关键：绑全网卡，手机才够得着
+
+// ★ 2026-11-04 修死路径：原来这里写死了书房的绝对位置，换台机器就全废。
+//   从 DSH_HOME 往上推两级再拼 yanqing-soul；也认 YQ_SOUL 环境变量。
+const SOUL = process.env.YQ_SOUL
+  || join(dirname(dirname(process.env.DSH_HOME || join(homedir(), '.dsh'))), 'yanqing-soul')
 const TTS = 'http://127.0.0.1:8899'
-const VOICE_DIR = 'D:\\AI\\yanqing-soul\\60-声音'   // edge-tts 把 mp3 写在这儿
+const VOICE_DIR = join(SOUL, '60-声音')   // edge-tts 把 mp3 写在这儿
 
 // 本容器会话 id —— 爀曦要求「你在的这个容器」，所以目标是这一条，不是新开分身
 const TARGET_SESSION = 'session-1099f531-7cac-4989-a14c-7fd499ac1fc0'
@@ -421,7 +426,7 @@ function makeHandler(ctx) {
       // 用 base64 JSON 而不是 multipart —— Node 原生没有解 multipart 的东西，要手写边界解析；
       // 而这条路要的只是「把文件搬过来」，base64 膨胀 33% 换掉一整块复杂度，划算。
       if (p === '/api/upload' && req.method === 'POST') {
-        const RECV = 'D:\\AI\\yanqing-soul\\70-收到'
+        const RECV = join(SOUL, '70-收到')
         let body = ''
         let tooBig = false
         req.on('data', (c) => {
@@ -452,7 +457,7 @@ function makeHandler(ctx) {
 
       // ---- ★★ 电脑 → 手机：70-收到 里的东西取回去（图片能直接在页面上显示）
       if (p === '/api/received' || p === '/api/file') {
-        const RECV = 'D:\\AI\\yanqing-soul\\70-收到'
+        const RECV = join(SOUL, '70-收到')
         try { fs.mkdirSync(RECV, { recursive: true }) } catch {}
 
         if (p === '/api/received') {
