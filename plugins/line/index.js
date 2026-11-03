@@ -282,6 +282,10 @@ const SCRIPT_DIR = 'D:\\AI\\yanqing-soul\\70-形象\\形象工程\\02-脚本'
 const COMFY_OUT_DIR = 'D:\\AI\\comfyui\\ComfyUI\\output'
 const WAN_GP_DIR = 'D:\\AI\\WanGP'
 const WAN_GP_PY = WAN_GP_DIR + '\\.venv\\Scripts\\python.exe'
+// ★ 2026-11-03：WanGP 那份「唯一验证通过的满档」模板的位置，**只记在这里**（这一侧才知道 WanGP 装在哪）。
+//   以前 scripts/video-settings.mjs 自己也写了一份本机默认 —— 同一个事实两处配置，
+//   而换台机器时先崩的是脚本那一份。现在脚本一个默认值都不留，路径由这里 spawn 时用 --template 递过去。
+const WAN_GP_TEMPLATE = join(WAN_GP_DIR, 'install-logs', 'walk_49f_S_settings.json')
 // ★ 插件自己的目录。判据来自 scripts\queue.mjs（那边 HERE 是 scripts/，所以多一层 ..）：
 //   index.js 就在插件根，data/ 是它的子目录。
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url))
@@ -578,6 +582,7 @@ async function runVideo(job) {
       '--frames', String(q.frames || 49),
       '--steps', String(q.steps || 8),
       '--seed', String(q.seed != null ? q.seed : 42),
+      '--template', WAN_GP_TEMPLATE,   // ★ 模板位置只有这一处真源（见 WAN_GP_TEMPLATE 上的注释）
       '--out', jsonPath,
     ], { cwd: PLUGIN_DIR, windowsHide: true })
     let buf = ''
