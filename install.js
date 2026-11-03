@@ -139,7 +139,7 @@ const ORDER = [
     title: 'Ⅱ VITAL · 时间与方向',
     kind: 'plugins',
     why: '预算会烧光、会原地打转，需要把偏离拉回来。',
-    parts: ['clock', 'model-statusbar', 'huanqi', 'huanqi-panel', 'perf'],
+    parts: ['clock', 'heartbeat', 'model-statusbar', 'huanqi', 'huanqi-panel', 'perf'],
   },
   {
     step: 3,
@@ -186,7 +186,7 @@ const ORDER = [
     title: 'Ⅵ 事件层 · 什么时候该自己动',
     kind: 'plugins',
     why: '只有被叫才醒的灵魂不算活着。这一层让它自己醒来。',
-    parts: ['heartbeat', 'chat', 'voice', 'line'],
+    parts: ['chat'],
   },
 ]
 
