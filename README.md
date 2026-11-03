@@ -375,11 +375,11 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 **这一版做了四件事：**
 
-1. **6 个从未入库的插件补进 `plugins/`**（119 个文件，逐个 `diff -r` 零差异）：
-   `chat` / `heartbeat` / `line` / `pet` / `triad` / `voice`。
-   ★ 只搬 `index.js`/`client.js`/`package.json`/`cordis.patch.yml` 会得到**残包** ——
-   `line` 有 `scripts/`（`index.js:22` 直接 import）、`chat` 有 `web/index.html`（运行时读盘服务手机页）、
-   `pet` 的 81 个 webp 就是插件本体。所以按「除 `node_modules`/`*.bak*`/`*.log` 外整包搬运」。
+1. **部署端的 6 个包**明确不入库****（`chat` / `heartbeat` / `line` / `pet` / `triad` / `voice`）。
+   ★ **判据是 `soul/04-manifest.json`** —— 那 6 个包在 soul 的架构规范里**一个都没出现**。
+   它们不是 soul 的部件，是个人外设（手机通道 / 心跳 / 产线面板 / 桌宠 / 工作台 / 声音）。
+   ★ 这条是 2026-11-03 23:33 定的。起因是我先按「部署端有什么就推什么」把 6 个全推了 ——
+   **那一版的判断是错的：soul 的仓库只放 soul 的东西，部署端装了什么 ≠ 仓库该有什么。**
 
 2. **旧口径全库清理：`dsh-agent-*` → `dsh-yanqing-*`**（31 个文件，零残留）。
    涉及的三个自有包：`compaction` / `compact-region` / `pruner`。
@@ -415,6 +415,7 @@ PATTERNS = [/\bD:[\\/]AI[\\/]/, /\bC:[\\/]Users[\\/]pc[\\/]/i]
 
 | 决定 | 理由 |
 |---|---|
+| **6 个个人外设不推**（chat/heartbeat/line/pet/triad/voice） | ★ 判据：`soul/04-manifest.json` 里一个都没出现。它们是部署端的出口，不是 soul 的部件 |
 | **剪辑插件 `video-studio` 与用量插件 `stats` 不推** | 作者 23:00 明说。它们留在部署端，不入发布仓库 |
 | **`qq-chat` / `qq-chat-v2` / `yanqing-test` 三个 preset 不入库** | 私有测试用，不是发布物 |
 
