@@ -376,8 +376,8 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 **这一版做了四件事：**
 
 1. **部署端的 6 个包**明确不入库****（`chat` / `heartbeat` / `line` / `pet` / `triad` / `voice`）。
-   ★ **判据是 `soul/04-manifest.json`** —— 那 6 个包在 soul 的架构规范里**一个都没出现**。
-   它们不是 soul 的部件，是个人外设（手机通道 / 心跳 / 产线面板 / 桌宠 / 工作台 / 声音）。
+   ★ **判据是「它管不管稀缺资源」**，不是「manifest 里有没有」——
+   `04-manifest.json` 是 v2 时写的，heartbeat 是 v3 新做的，拿旧规范判新部件当然判不出来（我第一次就这么判错了）。
    ★ 这条是 2026-11-03 23:33 定的。起因是我先按「部署端有什么就推什么」把 6 个全推了 ——
    **那一版的判断是错的：soul 的仓库只放 soul 的东西，部署端装了什么 ≠ 仓库该有什么。**
 
@@ -415,7 +415,8 @@ PATTERNS = [/\bD:[\\/]AI[\\/]/, /\bC:[\\/]Users[\\/]pc[\\/]/i]
 
 | 决定 | 理由 |
 |---|---|
-| **6 个个人外设不推**（chat/heartbeat/line/pet/triad/voice） | ★ 判据：`soul/04-manifest.json` 里一个都没出现。它们是部署端的出口，不是 soul 的部件 |
+| **5 个个人外设不推**（chat/line/pet/triad/voice） | ★ 它们不管稀缺资源，是部署端的出口 —— 手机通道 / 产线面板 / 桌宠 / 工作台 / 声音 |
+| **`heartbeat` 必须推** | ★ 它是 Ⅱ VITAL 层的部件：自主循环就是「时间与方向」。**manifest 里没有它，是因为 manifest 是 v2 时写的** |
 | **剪辑插件 `video-studio` 与用量插件 `stats` 不推** | 作者 23:00 明说。它们留在部署端，不入发布仓库 |
 | **`qq-chat` / `qq-chat-v2` / `yanqing-test` 三个 preset 不入库** | 私有测试用，不是发布物 |
 
