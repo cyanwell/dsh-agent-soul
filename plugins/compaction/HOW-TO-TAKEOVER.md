@@ -102,7 +102,7 @@ Mine → Builtin     ⇒ ctx.compaction.who() === "mine"      ← 先注册的�
 $p  = "D:\AI\dsh-demo\profiles\agent-soul-demo\package.json"
 $pj = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
 $cur = @($pj.dsh.profile.bundles)
-$move = @("dsh-agent-compaction", "dsh-agent-pruner")
+$move = @("dsh-yanqing-compaction", "dsh-yanqing-pruner")
 $rest = $cur | Where-Object { $move -notcontains $_ }
 $pj.dsh.profile.bundles = @() + ($move | Where-Object { $cur -contains $_ }) + $rest
 [System.IO.File]::WriteAllText($p, ($pj | ConvertTo-Json -Depth 20), (New-Object System.Text.UTF8Encoding($false)))
@@ -117,7 +117,7 @@ $pj.dsh.profile.bundles = @() + ($move | Where-Object { $cur -contains $_ }) + $
 
 ```
 dsh: warning: 1 entry did not activate
-dsh-agent-compaction: Error: service "compaction" has been registered at <BasicCompactionEngine>
+dsh-yanqing-compaction: Error: service "compaction" has been registered at <BasicCompactionEngine>
 ```
 
 原因是 `compaction-basic` 仍然**在 bundles 里**、仍然会被加载，而注册是「先到先得」——
@@ -143,8 +143,8 @@ dsh-agent-compaction: Error: service "compaction" has been registered at <BasicC
 重启后 `--dump-config` 应该看到：
 
 ```
-- id: dsh-agent-compaction
-- id: dsh-agent-pruner
+- id: dsh-yanqing-compaction
+- id: dsh-yanqing-pruner
 - id: compaction-basic        ← 内置的排到后面去了
 - id: tool-result-pruner
 ```
@@ -195,7 +195,7 @@ ownKeys:   [..., "__yqRange"]
     toolResultPruner: true
   config:
     - id: compaction-basic              # ★ id 保持原名
-      name: 'dsh-agent-compaction'    # ★ 只换 name
+      name: 'dsh-yanqing-compaction'    # ★ 只换 name
 ```
 
 ★ **关键在「id 不变、只换 name」**：这一行是**替换**，不是新增 ——

@@ -66,8 +66,8 @@ const PARTS = [
   { pkg: 'dsh-agent-huanqi-panel', label: '换气面板 huanqi-panel', dir: 'huanqi-panel' },
   { pkg: 'dsh-agent-memory',    label: '热记忆 memory',       dir: 'memory' },
   { pkg: 'dsh-agent-mnemon-probe',    label: 'mnemon 探针',         dir: 'mnemon-probe' },
-  { pkg: 'dsh-agent-compaction', label: '兜底压缩 compaction', dir: 'compaction', replace: true },
-  { pkg: 'dsh-agent-pruner',    label: '工具结果裁剪 pruner',  dir: 'pruner',    replace: true },
+  { pkg: 'dsh-yanqing-compaction', label: '兜底压缩 compaction', dir: 'compaction', replace: true },
+  { pkg: 'dsh-yanqing-pruner',    label: '工具结果裁剪 pruner',  dir: 'pruner',    replace: true },
   { pkg: 'dsh-agent-tools',     label: '工具集 tools',         dir: 'tools' },
 ]
 
@@ -204,9 +204,9 @@ if (needPreset) {
   console.log('     打开你正在用的那个 preset 的 agent.cordis.yml，在 compaction 那个组**内部**改：')
   console.log('')
   console.log('       - id: compaction-basic          # ← id 保持不变')
-  console.log("         name: 'dsh-agent-compaction'  # ← 只换 name")
+  console.log("         name: 'dsh-yanqing-compaction'  # ← 只换 name")
   console.log('       - id: tool-result-pruner')
-  console.log("         name: 'dsh-agent-pruner'")
+  console.log("         name: 'dsh-yanqing-pruner'")
   console.log('')
   console.log('     为什么行：id 已存在 ⇒ 是**替换**不是新增，不触发「先到先得」；')
   console.log('     而且包跑在宿主进程同一个 realm 里，@deepseek-ai/* 解析得到。')

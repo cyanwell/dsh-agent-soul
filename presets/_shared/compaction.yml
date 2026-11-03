@@ -19,7 +19,7 @@
     toolResultPruner: true
   config:
     - id: compaction-basic
-      name: 'dsh-agent-compaction'
+      name: 'dsh-yanqing-compaction'
       config:
         summarizationProvider: deepseek-official
         summarizationModel: deepseek-flash
@@ -29,9 +29,9 @@
     - id: command-compact
       name: '@deepseek-ai/dsh-command-compact'
     - id: command-compact-region
-      name: 'dsh-agent-compact-region'
+      name: 'dsh-yanqing-compact-region'
     - id: tool-result-pruner
-      name: 'dsh-agent-pruner'
+      name: 'dsh-yanqing-pruner'
       config:
         thresholdChars: 8192
         headChars: 4096

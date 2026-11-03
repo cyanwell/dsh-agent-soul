@@ -179,6 +179,29 @@ const ORDER = [
       '但下次升级时，你会把已有的拆坏。',
     ].join(''),
   },
+  {
+    // ★★★ v3.0.0 新增（2026-11-03）：6 个个人外设入库，但**不属于前五层**。
+    //   它们不管稀缺资源 —— 是「用那五层搭起来之后，个人往外接的东西」。
+    //   所以单开一层，不塞进 Ⅰ-Ⅴ，也不标必选。
+    //   ★ 这也是 verify-packaging「ORDER 必须覆盖全部包」那条的答案：
+    //     包入库了却不在 ORDER → plan 永远不提示装 → 静默少装。
+    step: 6,
+    title: 'Ⅵ 个人外设（可选）',
+    kind: 'plugins',
+    why: '前五层搭完之后，往外接的出口：手机、声音、形象、产线、工作台、心跳。',
+    how: [
+      '这一层**全是可选**：不装 soul 照样成立，装了才有这些出口。',
+      '六个分别是 —— ',
+      'chat 手机通道（自开 HTTP + edge-tts 朗读）/ ',
+      'heartbeat 心跳与自主循环 / ',
+      'line 产线面板（Blender→SDXL→Z-Image 三层生图）/ ',
+      'pet 桌宠 / ',
+      'triad 三策工作台（项目 + 看板 + agent 卡）/ ',
+      'voice 声音面板。',
+      '★ 各自依赖不同：chat 要 edge-tts、line 要 ComfyUI + Blender、其余要 Web GUI。',
+    ].join(''),
+    parts: ['chat', 'heartbeat', 'line', 'pet', 'triad', 'voice'],
+  },
 ]
 
 // ★ 包名不能靠前缀拼。`huanqi` 的真实包名是 dsh-huanqi（没有 agent），

@@ -57,7 +57,7 @@ const REMEDY = {
       error: '门牌回取链断了 —— 压缩发生了，但摘要里没有能回取原文的指针',
     },
     fix: [
-      '确认压缩插件装的是带门牌的版本（dsh-agent-compaction，不是裸的 compaction-basic）',
+      '确认压缩插件装的是带门牌的版本（dsh-yanqing-compaction，不是裸的 compaction-basic）',
       '或者：如果你的 agent 自己写摘要，检查它有没有在摘要第一行写 log:session-<id>#seq=<n>',
     ],
     where: ['evidence.summary —— 最近一次压缩的摘要开头几行', '对应那份会话日志'],
@@ -65,7 +65,7 @@ const REMEDY = {
   compaction: {
     means: '压缩机制的状态不对',
     fix: [
-      '确认 dsh-agent-compaction 已装且进了 bundles',
+      '确认 dsh-yanqing-compaction 已装且进了 bundles',
       '跑 agent_soul_install scan 看它是不是「文件在但没启用」',
     ],
     where: ['evidence', 'DSH 的 cordis.patch.yml 里 compaction 那一段'],

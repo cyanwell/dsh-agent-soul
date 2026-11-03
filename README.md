@@ -364,6 +364,54 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-03 深夜 · **v3.0.0** —— 架构变更版：部署端全量入库 + 包名统一
+
+> 作者：「agent soul 版本声明为 v3，这次是大更新，涉及到架构的变更，要全量推送，更新所有旧口径。」
+
+**为什么是 3.0。** v2.0 那次升版的理由是「三件事同时做到了」；这次的理由更硬：
+**仓库与部署端曾经描述的不是同一套东西** —— 部署端跑着 16 个 `dsh-yanqing-*` 插件，
+仓库里只有 8 个；压缩三件套在仓库里还叫 `dsh-agent-*`，在部署端已经叫 `dsh-yanqing-*`。
+**同一个系统两套名字，比少几个包更危险** —— 后者一装就知道缺，前者装上去静默报错。
+
+**这一版做了四件事：**
+
+1. **6 个从未入库的插件补进 `plugins/`**（119 个文件，逐个 `diff -r` 零差异）：
+   `chat` / `heartbeat` / `line` / `pet` / `triad` / `voice`。
+   ★ 只搬 `index.js`/`client.js`/`package.json`/`cordis.patch.yml` 会得到**残包** ——
+   `line` 有 `scripts/`（`index.js:22` 直接 import）、`chat` 有 `web/index.html`（运行时读盘服务手机页）、
+   `pet` 的 81 个 webp 就是插件本体。所以按「除 `node_modules`/`*.bak*`/`*.log` 外整包搬运」。
+
+2. **旧口径全库清理：`dsh-agent-*` → `dsh-yanqing-*`**（31 个文件，零残留）。
+   涉及的三个自有包：`compaction` / `compact-region` / `pruner`。
+   ★ **官方包名一个字没动**（`dsh-agent-instructions` / `dsh-agent-preset` / `dsh-agent-presets`）——
+   判据：**用部署端 `package.json` 的 `name` 字段为准**，不是照 pattern 全局替换。
+   ★ 历史存档不动：`.gh-issues/`（历史 issue 原文）、`archive/`。
+
+3. **版本声明 2.0.0 → 3.0.0**：`package.json` / `soul/04-manifest.json` / `soul/07-bundle.json`。
+   ★ `soul-version.json` 也改了，但它**被 `.gitignore:29` 排除** —— 那是「本机装了什么」的
+   状态快照，不进仓库是设计意图，不是漏了。
+
+4. **补 packaging 的 9 项不合格**（`verify-packaging.mjs`）：6 个新包缺 `files` 字段、
+   `install.js` 的 ORDER 漏这 6 个、3 处写死的本机路径。
+
+**两个决定要记下来（否则下一个人一定会问）：**
+
+| 决定 | 理由 |
+|---|---|
+| **剪辑插件 `video-studio` 与用量插件 `stats` 不推** | 作者 23:00 明说。它们留在部署端，不入发布仓库 |
+| **`qq-chat` / `qq-chat-v2` / `yanqing-test` 三个 preset 不入库** | 私有测试用，不是发布物 |
+
+**版本表：**
+
+| 件 | 版本 | 说明 |
+|---|---|---|
+| `dsh-agent-soul`（本体） | **3.0.0** | 架构变更 + 全量入库 |
+| `soul/04-manifest.json` | **3.0.0** | 与本体同步（规范和参考实现不能各标一个版本） |
+| `soul/07-bundle.json` | **3.0.0** | 同上 |
+| 各插件包 | **不跟着升** | 包版本各自演进（0.1.0 / 0.2.0）。v3 是 soul 的版本，不是每个插件的版本 |
+
+---
+
 ### 2026-11-03 · 补上 `presets/skills/` —— 那个被引用了却一直不存在的目录
 
 `preset-soul-all.yml` 从入库那天起就配着 `customSkillDirs → skills/`，
@@ -2082,7 +2130,7 @@ issue 页面上一个字没有，别人看还是 5 个 open。**
 
 ★ **#1 里报告作者最要紧的那句被写进代码注释了**：
 这个误报不只是看着烦，它是一条**诱导链** ——「压缩没门牌」→ 以为缺能力 →
-去装 `dsh-agent-compaction` → 内置的被 bili 禁了、槽位是空的 → 它直接注册成功 →
+去装 `dsh-yanqing-compaction` → 内置的被 bili 禁了、槽位是空的 → 它直接注册成功 →
 **复活了外部策略有意关掉的兜底引擎**，两套上下文管理并存、无法归因。
 
 **自检**：`node tools/verify-packaging.mjs` → **121 / 122**。

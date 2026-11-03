@@ -44,7 +44,7 @@ node tools/soul-preset.mjs build --write   # 缺的补上
 2. 在输入框里敲 `/compact-region`
 3. **它被识别成一个命令**（出现在命令补全里）→ 就成了
 
-★ **不需要真的开这条会话，也不需要真的跑一次压缩。** 命令能被识别，就说明这个 preset 加载成功、`dsh-agent-compact-region` 注册上了。
+★ **不需要真的开这条会话，也不需要真的跑一次压缩。** 命令能被识别，就说明这个 preset 加载成功、`dsh-yanqing-compact-region` 注册上了。
 
 ★ 这比「开个新会话真跑一次」好：**更快，而且不消耗额度、不产生任何压缩副作用。**
 
@@ -117,9 +117,9 @@ presets/
 
 | 级 | 靠什么 | 说明 |
 |---|---|---|
-| L1 压缩本身 | `dsh-agent-compaction` | 摘要会带门牌 |
-| L2 裁剪带门牌 | `dsh-agent-pruner` | 被裁的工具结果也能回取 |
-| **L3 范围压缩** | `dsh-agent-compact-region` | **换气第二档治疗**，只压最近一段然后继续 |
+| L1 压缩本身 | `dsh-yanqing-compaction` | 摘要会带门牌 |
+| L2 裁剪带门牌 | `dsh-yanqing-pruner` | 被裁的工具结果也能回取 |
+| **L3 范围压缩** | `dsh-yanqing-compact-region` | **换气第二档治疗**，只压最近一段然后继续 |
 
 ★ 2026-10-28 之前，四个 preset 里**只有标准那一个**有 L3。另外三个压缩是有的、门牌是有的，**但换气救不回思考**。
 

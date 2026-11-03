@@ -440,7 +440,7 @@ function scanRecent(logs, n, matcher) {
  * doctor 没有能力区分两件事：**压缩坏了**（有 start、没 summary）与**压缩不归内置管**（一条都没有）。
  *
  * ★ 为什么这个误报不只是看着烦（报告作者的原话，我认同）—— 它是一条诱导链：
- *   用户看到「压缩没有门牌」→ 以为缺能力 → 去装 dsh-agent-compaction →
+ *   用户看到「压缩没有门牌」→ 以为缺能力 → 去装 dsh-yanqing-compaction →
  *   内置的被 bili 禁了、槽位是空的，于是它**直接注册成功** →
  *   复活了 bili 有意关掉的兜底引擎，两套上下文管理并存、无法归因。
  *
@@ -506,7 +506,7 @@ function checkDoorSign(logs, deep) {
         detail: `压缩由 ${ext.owner} 在代理层托管，不走内置兜底 —— 门牌这一项不适用于这条链`,
         evidence: {
           events: events.length, external: ext,
-          hint: "内置 compaction/* 被外部策略禁用，零摘要属预期。★ 不要为此去装 dsh-agent-compaction —— 那会复活外部策略有意关掉的兜底引擎。",
+          hint: "内置 compaction/* 被外部策略禁用，零摘要属预期。★ 不要为此去装 dsh-yanqing-compaction —— 那会复活外部策略有意关掉的兜底引擎。",
         }, deep: true,
       };
     }

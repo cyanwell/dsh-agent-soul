@@ -129,7 +129,7 @@ dsh: pnpm failed in profile directory <profile>
 **当时**的情况：13 个零件包里 11 个有 `dsh.bundle`，这两个没有。装的时候 DSH 会明确警告：
 
 ```
-warning: dsh-agent-compaction declares no dsh.bundle —
+warning: dsh-yanqing-compaction declares no dsh.bundle —
 installed as a plain dependency, not a profile layer
 (a later update that gains one activates it automatically)
 ```

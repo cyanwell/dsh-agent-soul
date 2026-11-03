@@ -24,7 +24,7 @@
     - id: huanqi
       name: 'dsh-huanqi'
 
-# 替换型（示例：dsh-agent-compaction）
+# 替换型（示例：dsh-yanqing-compaction）
 - set:
     - id: compaction
       config: {...}
@@ -163,8 +163,8 @@ ls <profile>/node_modules/<包名>/  # 看有没有 cordis.patch.yml
 | 插件 | 类型 | 装法 | 桌面端 |
 |---|---|---|---|
 | **`dsh-huanqi`** | **新增型**（`huanqi` 是新名字） | `insert` | ✅ **实测在跑**（2026-10-31 触发压缩成功） |
-| **`dsh-agent-compaction`** | **替换型**（顶 `compaction`） | 路 B | ✅ 已实证 |
-| **`dsh-agent-pruner`** | **替换型**（顶同名的裁剪服务） | 路 B | ✅ 已实证 |
+| **`dsh-yanqing-compaction`** | **替换型**（顶 `compaction`） | 路 B | ✅ 已实证 |
+| **`dsh-yanqing-pruner`** | **替换型**（顶同名的裁剪服务） | 路 B | ✅ 已实证 |
 
 ---
 

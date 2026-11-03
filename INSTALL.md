@@ -164,7 +164,7 @@ cordis 的 Service 注册是**先注册的赢**，后来的**不报错、不警�
 $p  = "<profile>\package.json"
 $pj = Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json
 $cur = @($pj.dsh.profile.bundles)
-$move = @("dsh-agent-compaction", "dsh-agent-pruner")   # 换成你要提前的包
+$move = @("dsh-yanqing-compaction", "dsh-yanqing-pruner")   # 换成你要提前的包
 $rest = $cur | Where-Object { $move -notcontains $_ }
 $pj.dsh.profile.bundles = @() + ($move | Where-Object { $cur -contains $_ }) + $rest
 [System.IO.File]::WriteAllText($p, ($pj | ConvertTo-Json -Depth 20), (New-Object System.Text.UTF8Encoding($false)))
@@ -182,7 +182,7 @@ $pj.dsh.profile.bundles = @() + ($move | Where-Object { $cur -contains $_ }) + $
     compaction: true
   config:
     - id: compaction-basic            # ★ id 保持原名
-      name: 'dsh-agent-compaction'    # ★ 只换 name
+      name: 'dsh-yanqing-compaction'    # ★ 只换 name
 ```
 
 ★ 关键在「id 不变、只换 name」——那是**替换**不是新增，压根不会触发先到先得。

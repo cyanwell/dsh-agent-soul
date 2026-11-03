@@ -1,4 +1,4 @@
-# dsh-agent-compaction
+# dsh-yanqing-compaction
 
 > 给 DSH 内置的**兜底压缩**装上「门牌」——
 > 让自动压出来的 checkpoint 也带得回原文。

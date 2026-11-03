@@ -14,4 +14,4 @@
 # ★ 单独拿它装是拿不到 compaction 服务的 —— 会注册出一个调不动 compactRegion 的空命令。
 - insert:
     - id: command-compact-region
-      name: 'dsh-agent-compact-region'
+      name: 'dsh-yanqing-compact-region'

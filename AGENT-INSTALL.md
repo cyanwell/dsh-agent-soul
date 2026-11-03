@@ -108,9 +108,9 @@ node -e "const f=require('fs');const p=process.argv[1];let s=f.readFileSync(p,'u
 需要在目标 profile 的 `node_modules` 里能找到这四个：
 
 ```
-dsh-agent-compaction
-dsh-agent-compact-region
-dsh-agent-pruner
+dsh-yanqing-compaction
+dsh-yanqing-compact-region
+dsh-yanqing-pruner
 dsh-agent-memory
 ```
 
@@ -120,7 +120,7 @@ dsh-agent-memory
 **装完的判据**（不是「命令跑成功」）：
 
 ```bash
-node -e "console.log(require.resolve('dsh-agent-compaction'))"
+node -e "console.log(require.resolve('dsh-yanqing-compaction'))"
 ```
 
 > ⚠️ `require.resolve` 要在 **profile 目录下**跑，否则解析到别处。
@@ -191,9 +191,9 @@ node tools/soul-preset.mjs build --profile desktop --write   # 确认后写
 
 | 级 | 零件 | 缺了会怎样 |
 |---|---|---|
-| L1 压缩本身 | `dsh-agent-compaction` | 摘要没有门牌，压缩完回不去 |
-| L2 裁剪带门牌 | `dsh-agent-pruner` | 被裁的工具结果回不去 |
-| ~~L3 范围压缩~~ | ~~`dsh-agent-compact-region`~~ | **默认不装了，见下** |
+| L1 压缩本身 | `dsh-yanqing-compaction` | 摘要没有门牌，压缩完回不去 |
+| L2 裁剪带门牌 | `dsh-yanqing-pruner` | 被裁的工具结果回不去 |
+| ~~L3 范围压缩~~ | ~~`dsh-yanqing-compact-region`~~ | **默认不装了，见下** |
 
 **★ `compact-region` 已从默认安装移除，它不是「缺了就是缺」的那一件。**
 
@@ -271,7 +271,7 @@ node tools/soul-doctor.mjs; echo "exit=$?"
 4. **它被识别成一个命令**（出现在补全里）→ 成了
 
 ★ **不需要真的开这条会话、也不需要跑一次压缩。** 命令能被识别，
-就说明 preset 加载成功、`dsh-agent-compaction` 注册上了。
+就说明 preset 加载成功、`dsh-yanqing-compaction` 注册上了。
 
 ★ **别再用 `/compact-region` 验了**（2026-11-01 改）：那零件默认不装，
 敲它只会让人以为「装漏了」。`/compact` 属于必装的 L1，验它更可靠。

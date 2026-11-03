@@ -107,7 +107,7 @@ export const SESSIONS = pick('ECHO_SESSIONS', 'sessions')
  * 于是日志里一条 `compaction/*` 都没有，两项恒定 warn，而其实一切正常。
  *
  * ★ 这个误报不只是看着烦，它是一条诱导链：
- *   用户看到「压缩没有门牌」→ 以为缺能力 → 去装 dsh-agent-compaction →
+ *   用户看到「压缩没有门牌」→ 以为缺能力 → 去装 dsh-yanqing-compaction →
  *   内置的被 bili 禁了、槽位是空的，于是它**直接注册成功** →
  *   复活了 bili 有意关掉的兜底引擎，两套上下文管理并存、无法归因。
  *

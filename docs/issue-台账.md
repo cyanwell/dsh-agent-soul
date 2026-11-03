@@ -531,7 +531,7 @@ Issues (6) · 6 results
 |---|---|
 | 384 | 路 B = **「preset 的 realm 里换 `name`」** |
 | 415 | 「在 **preset** 的 `agent.cordis.yml` 里，于 `compaction` 那个 realm **内部**把已有条目的 `name` 换掉 —— **`id` 一个都不改**」 |
-| 619 | 「判据：看 `agent-presets` 的 `isolate.compaction` 是不是 `true`。修法：**在 preset 覆盖里**把 `compaction-basic` 换成带门牌的 `dsh-agent-compaction`」 |
+| 619 | 「判据：看 `agent-presets` 的 `isolate.compaction` 是不是 `true`。修法：**在 preset 覆盖里**把 `compaction-basic` 换成带门牌的 `dsh-yanqing-compaction`」 |
 
 ★ **文档从头到尾都在讲 preset。** 说「我的机器上没有 preset 这一层」等于说文档是凭空写的 —— **那句话站不住。**
 
@@ -548,7 +548,7 @@ Issues (6) · 6 results
   isolate: { compaction: true, toolResultPruner: true }
   config:
     - id: compaction-basic            # ← id 不变
-      name: 'dsh-agent-compaction'    # ← 只换 name
+      name: 'dsh-yanqing-compaction'    # ← 只换 name
 ```
 
 **而他的报告说：**

@@ -28,5 +28,5 @@
 #   ③ 把上面的 disabled 去掉再跑一次，确认现象真的变回去（反向验证）
 #   ④ 门牌里的指针能被 memq 打开（判据在 compaction 那份文档里）
 - insert:
-    - id: dsh-agent-pruner
-      name: 'dsh-agent-pruner'
+    - id: dsh-yanqing-pruner
+      name: 'dsh-yanqing-pruner'

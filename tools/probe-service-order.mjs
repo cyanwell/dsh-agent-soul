@@ -5,7 +5,7 @@
  *
  * ★ 为什么要有这个
  * ----------------
- * `compaction-basic` 和 `dsh-agent-compaction` 现在**两条并存**在 profile 的层栈里
+ * `compaction-basic` 和 `dsh-yanqing-compaction` 现在**两条并存**在 profile 的层栈里
  * （`insert` 只能新增，改不了已有条目的 `name` —— 见 plugins/compaction/cordis.patch.yml）。
  * 于是「谁真的在干活」就成了一个必须回答、但读源码读不出来的问题：
  *
@@ -38,7 +38,7 @@ class Builtin extends Service {
   }
 }
 
-/** 后注册的那个 —— 模拟「dsh-agent-compaction」 */
+/** 后注册的那个 —— 模拟「dsh-yanqing-compaction」 */
 class Mine extends Service {
   constructor(ctx) {
     super(ctx, 'compaction', true)

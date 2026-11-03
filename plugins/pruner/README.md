@@ -1,4 +1,4 @@
-# dsh-agent-pruner
+# dsh-yanqing-pruner
 
 > 给**工具结果的裁剪**装上「门牌」——
 > 把官方那句静态 marker 换成带位置信息的版本。
@@ -130,14 +130,14 @@ dsh plugin --profile <name> add <path-to-this-package>
 
 ---
 
-## 和 `dsh-agent-compaction` 的关系
+## 和 `dsh-yanqing-compaction` 的关系
 
 **两个包，同一个纪律，两个不同的受害者。**
 
 | | 被挖掉的是什么 | marker 长什么样 |
 |---|---|---|
-| `dsh-agent-compaction` | 早期上下文（整段） | 摘要最前面插一个指针块 |
-| **`dsh-agent-pruner`** | **过大的工具结果（中间）** | **替换那句静态 marker** |
+| `dsh-yanqing-compaction` | 早期上下文（整段） | 摘要最前面插一个指针块 |
+| **`dsh-yanqing-pruner`** | **过大的工具结果（中间）** | **替换那句静态 marker** |
 
 它们可以各自独立安装 —— 装一个也有用，只是那条路上仍然有暗的地方。
 

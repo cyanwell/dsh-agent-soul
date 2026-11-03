@@ -65,7 +65,7 @@
 **为什么这条要由一个插件来推**：因为压缩是**自动**发生的。
 等到 agent 想起来「我该标注来源」的时候，摘要已经写完了。
 
-**这条纪律和另外两个零件是配套的**（见 `dsh-agent-compaction` / `dsh-agent-pruner`）——
+**这条纪律和另外两个零件是配套的**（见 `dsh-yanqing-compaction` / `dsh-yanqing-pruner`）——
 那两个负责在产物里**写**指针，这个负责让 agent **知道要写**。
 
 ---
@@ -105,8 +105,8 @@ dsh plugin --profile <name> add <path-to-this-package>
 | | 干什么 |
 |---|---|
 | `dsh-agent-memory` | **让 agent 知道**要写指针（推送条款） |
-| `dsh-agent-compaction` | 在**压缩**产物里**写**指针 |
-| `dsh-agent-pruner` | 在**裁剪**产物里**写**指针 |
+| `dsh-yanqing-compaction` | 在**压缩**产物里**写**指针 |
+| `dsh-yanqing-pruner` | 在**裁剪**产物里**写**指针 |
 
 **三者独立可装。** 只装条款，agent 会知道要写但没人替它写；
 只装写入方，指针会写出来但 agent 未必知道那是必须的。

@@ -36,15 +36,15 @@ huanqi → ctx.get('commands').execute(agent, '/compact-region <start> <end>')
     toolResultPruner: true
   config:
     - id: compaction-basic
-      name: 'dsh-agent-compaction'
+      name: 'dsh-yanqing-compaction'
       config:
         thresholdRatio: 0.88
     - id: command-compact
       name: '@deepseek-ai/dsh-command-compact'
     - id: command-compact-region      # ← 本零件
-      name: 'dsh-agent-compact-region'
+      name: 'dsh-yanqing-compact-region'
     - id: tool-result-pruner
-      name: 'dsh-agent-pruner'
+      name: 'dsh-yanqing-pruner'
 ```
 
 装完重启生效。
