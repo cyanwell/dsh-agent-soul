@@ -187,6 +187,23 @@ $pj.dsh.profile.bundles = @() + ($move | Where-Object { $cur -contains $_ }) + $
 
 ★ 关键在「id 不变、只换 name」——那是**替换**不是新增，压根不会触发先到先得。
 
+★★ **但动手之前先确认一件事：你的 preset 到底在磁盘上，还是打进 `app.asar` 了？**
+
+| 你用的是 | `agent.cordis.yml` 在哪 | 路 B 能不能用 |
+|---|---|---|
+| 自己建的 preset（`~/.agent-presets/<名>/`） | **磁盘上**，可直接改 | ✓ 能用 |
+| 桌面端**内置默认 profile** | `resources/app.asar` 里，**磁盘上没有这个文件** | ✗ 用不了 |
+
+★ 第二种是别人实测踩到的（B 站评论区，2026-11-04）：
+
+> 「桌面端 compaction/pruner 走不了路 B，因为 preset 的 agent.cordis.yml 在 app.asar 里、
+> 磁盘上没有可改的文件 —— 建议 INSTALL.md 补一句，能省别人一晚上。」
+
+**所以：路 B 只对「自己建的 preset」成立。**
+用默认 profile 的话，要么走上面那条路 A，要么先建一个自己的 preset 再把 `agent.cordis.yml` 写进去。
+
+★ 判据（一行）：`ls ~/.agent-presets/<你的preset名>/agent.cordis.yml` —— **有 = 能改，没有 = 那不是你的路。**
+
 详见 [`plugins/compaction/HOW-TO-TAKEOVER.md`](plugins/compaction/HOW-TO-TAKEOVER.md)。
 
 ### 坑 5 · 装完了、没报错、但它没在工作
