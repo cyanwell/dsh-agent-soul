@@ -291,6 +291,11 @@ const EDITABLE = {
   cron: { type: 'cron', path: ['options', 'schedule', 'cron'] },
   maxRunsPerDay: { type: 'int', min: 1, max: 48, path: ['options', 'budget', 'maxRunsPerDay'] },
   quietHours: { type: 'quiet', path: ['options', 'quietHours'] },
+  // ★★ 2026-11-04 00:04 爀曦定：**搁置**（shelved），不是删。
+  //   原委：自主循环是「持续 tick」（每 X 分钟看一眼），不是固定钟点的闹钟 ——
+  //   没有「钟点」就没有「错过」，所以这个参数在当前架构下没有可执行语义。
+  //   ★ 保留字段、保留校验，但**不接线**。将来若改成固定钟点（cron 式），它立刻有用。
+  //   ★ 面板上要标「搁置」，别让人以为它生效了 —— 那是 4 个空壳参数那一课。
   catchUpMissed: { type: 'boolean', path: ['options', 'catchUpMissed'] },
   logLevel: { type: 'enum', values: ['full', 'errors'], path: ['options', 'logLevel'] },
   auditLevel: { type: 'enum', values: ['strict', 'normal', 'loose'], path: ['options', 'auditLevel'] },
@@ -298,6 +303,23 @@ const EDITABLE = {
 }
 
 const STEP_IDS = ['memindex', 'self', 'daily', 'doctor']
+
+// ★ 2026-11-04 00:01 补实现 quietHours（参数 6）
+//   语义：options.quietHours = [起, 止]（0–23 整数，可跨零点如 [22, 8]）
+//   ★ 跨零点必须处理：22 -> 8 时，hour >= 22 || hour < 8 才算安静。
+//   ★ 返回值 { quiet, why } —— why 给人看，方便面板和日志说清「为什么没动」。
+function checkQuietHours (cfg, now) {
+  const q = cfg && cfg.options && cfg.options.quietHours
+  if (!Array.isArray(q) || q.length !== 2) return { quiet: false, why: '' }
+  const a = Number(q[0]); const b = Number(q[1])
+  if (!Number.isInteger(a) || !Number.isInteger(b)) return { quiet: false, why: '' }
+  if (a === b) return { quiet: false, why: '' }
+  const h = new Date(now).getHours()
+  const inside = a < b ? (h >= a && h < b) : (h >= a || h < b)
+  return inside
+    ? { quiet: true, why: '安静时段 ' + a + ':00–' + b + ':00（现在 ' + h + ' 点）' }
+    : { quiet: false, why: '' }
+}
 
 function validateField (key, val) {
   const spec = EDITABLE[key]
@@ -779,7 +801,7 @@ route('/heartbeat/state', async (_req, res) => {
               value: k === 'enabled' ? cfg.enabled : getPath(cfg, spec.path),
               path: spec.path || [k],
               type: spec.type,
-              editable: k !== 'auditLevel', // 审计档位可改但只有 strict 真有效，前端要标注
+              editable: k !== 'auditLevel' && k !== 'catchUpMissed', // auditLevel 只有 strict 真有效；catchUpMissed 搁置（无执行语义），两者前端都要标注
               min: spec.min, max: spec.max, values: spec.values,
             },
           ])),
@@ -878,6 +900,8 @@ route('/heartbeat/state', async (_req, res) => {
         remainMs: Math.max(0, remainMs),
         graceMin,
         graceMs,
+        quiet: checkQuietHours(cfg, Date.now()).quiet,
+        quietWhy: checkQuietHours(cfg, Date.now()).why,
         lastActivityAt,
         idleMs,
         thresholdMin: thMin,
@@ -987,6 +1011,10 @@ route('/heartbeat/state', async (_req, res) => {
       const dayKey = new Date().toISOString().slice(0, 10)
       if (dayKey !== autoDayKey) { autoDayKey = dayKey; autoRunsToday = 0 }
       if (autoRunsToday >= maxDay) return
+
+      // ★ 2026-11-04 补实现 quietHours：安静时段内一律不动（他设了 22–8，就该真的不打扰）
+      const qh = checkQuietHours(cfg, Date.now())
+      if (qh.quiet) { autoLastError = ''; return }
 
       // 静默不够，不动
       const idleMs = Date.now() - lastActivityAt

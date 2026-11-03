@@ -363,6 +363,22 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-04 · 心跳 quietHours 接线 + catchUpMissed 搁置
+
+**这一版只动一个文件**：`plugins/heartbeat/index.js`（+23 行）。
+
+| 改了什么 | 怎么验的 |
+|---|---|
+| **`quietHours` 真正生效**：新增 `checkQuietHours()`，处理跨零点（`22→8` 时 `h>=22 \|\| h<8`）；`autoTick` 里一票否决；`/heartbeat/auto` 多返回 `quiet` / `quietWhy` | 源码 + 部署副本 `node --check` 通过；抠出真函数跑 7 个时点 + 2 个边界全过；重启后 `curl :50644/heartbeat/auto` 返回 `quiet:false, quietWhy:""` |
+| **`catchUpMissed` 标搁置**：能配能校验但无执行语义（自主循环是持续 tick，没有固定钟点就没有「错过」）。代码注释写清原委 + 面板 `editable:false` | 《墨》记了一条 `shelved` |
+
+★ **顺带纠正一个我自己的错**：上一版我说「10 个参数里 4 个是空壳」—— 错了，只有 1 个。
+查 `heartbeat.mjs`（四步真正跑的地方）后发现 `logLevel`（:415-424）和 `toolsAllowlist`（:94-111）**早就实现了**。
+**我只查了 `index.js` 没查 `heartbeat.mjs`** —— 同一个「只在自己这半边找」的坑。
+
+★ **三档审计的口径也定了**（爀曦 2026-11-04 00:03）：**不建真闸门**，「设计这样的真闸门会很麻烦」。
+所以它是**事后记账**，不是事前闸门；宪章 7 条硬线**靠我遵守**，不靠机制拦。65/67 号文档口径已改。
+
 
 ### 2026-11-03 深夜 · **v3.0.0** —— 架构变更版：部署端全量入库 + 包名统一
 
