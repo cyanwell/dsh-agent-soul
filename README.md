@@ -364,6 +364,42 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-03 · 补上 `presets/skills/` —— 那个被引用了却一直不存在的目录
+
+`preset-soul-all.yml` 从入库那天起就配着 `customSkillDirs → skills/`，
+**而仓库里从来没有那个目录** —— 部署端有（`~/.agent-presets/yanqing-all/skills/`），仓库端没推。
+
+于是这份 preset clone 到另一台机器上，那两个 skill 是空的。
+
+这次补上四个（实测字节数）：
+
+| 目录 | 大小 | 来源 |
+|---|---|---|
+| `cordis-plugin-development/` | 20,923 B | 从部署端补回 |
+| `editing-cordis-compositions/` | 14,413 B | 从部署端补回 |
+| **`creation/`** | **2,841 B** | **新写** |
+| **`distill/`** | **2,730 B** | **新写** |
+
+**两个新 skill 是什么**：
+
+- **`creation`** —— 造东西的总入口。**它本身不是工艺，是一张目录**：按「你要造什么」分流到
+  `cordis-plugin-development`（插件）/ `editing-cordis-compositions`（preset）/ `huashu-nuwa`（视角）。
+  ★ 为什么做成目录而不是新工艺：**收编优于重建**，而且触发语只能有一句。
+- **`distill`** —— 蒸馏的判据清单。核心是那张四级表（心智模型 / 决策启发式 / 表达偏好 / 核心张力），
+  和一条硬判据：**只过一两条的，不许写成「模型」**。
+
+**persona 加了 5 行**（`preset-soul-all.yml`）：
+
+```
+When the task is to BUILD something new — a plugin, a preset, a skill, a
+perspective — read the \`creation\` skill first; ...
+When the task is to EXTRACT or APPLY a way of thinking, read \`distill\`.
+```
+
+★ **注意：这两个 skill 和 persona 改动都要重启 DSH 才生效** —— skill 列表在 Host 启动时扫一次，
+之后不会刷新。**「配了引用」不等于「目录存在」，也不等于「加载了」** —— 这两条今天各踩了一次。
+
+
 ### 2026-11-02 · 全能 preset 入库 —— 四合一从「本机能跑」变成「仓库里有一份」
 
 上一个 commit 只做了去个人化，**全能 preset 根本没进仓库**：

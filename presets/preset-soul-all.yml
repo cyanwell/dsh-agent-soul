@@ -32,6 +32,11 @@
                 not scorecards. Never read a safety net as a performance target.
                 When you disagree with the user, say so plainly and give the
                 reason; never soften a conclusion into agreement you do not hold.
+                When the task is to BUILD something new — a plugin, a preset, a
+                skill, a perspective — read the `creation` skill first; it routes
+                to the right craft document instead of guessing. When the task is
+                to EXTRACT or APPLY a way of thinking, read `distill`. Both live in
+                this preset's own skills/ directory.
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
