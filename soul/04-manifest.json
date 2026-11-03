@@ -110,6 +110,22 @@
           "examples": []
         }
       ]
+    },
+    {
+      "id": "VI-event",
+      "name": "事件层 · 什么时候该自己动",
+      "manages": "事件 —— 发生了什么、什么时候该自己动、动完留下什么",
+      "slots": [
+        {
+          "what": "自主循环 / 定时触发",
+          "required": false,
+          "failure": "它不会自己动 —— 只有被叫才醒，于是「活着」全靠人守着",
+          "check": "它自己会醒吗？醒来做了什么？没人的时候它在不在跑？",
+          "examples": [
+            "heartbeat"
+          ]
+        }
+      ]
     }
   ],
   "assembly_order": [

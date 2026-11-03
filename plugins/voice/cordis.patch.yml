@@ -1,0 +1,14 @@
+# dsh-yanqing-voice —— 砚青的声音：输入栏播放器
+#
+# 宿主半：`/yanqing-voice` 前缀路由 —— /_list 返回 JSON 列表，其余按文件名回放音频字节。
+# 客户端半：在 conversation.input.left 挂一个 🔈 按钮。
+#
+# ★ 为什么是"真包"而不是动态 Cordis 插件（2026-09-26 实测）：
+#   动态插件的 Client 半**投递不到浏览器** —— 火狐里 dump `window.__DSH_BOOT__.entries`
+#   共 69 项，全是 @deepseek-ai/*，没有任何 dyn/ 条目；页面上 .yq-voice-btn 数量为 0、
+#   样式标签为 0，侧边栏徽章写着 `Cordis Plugin 0 running`。
+#   而 Host 侧 `Slots.listSubTree` 却报 occupants active:true —— **那是 Host 侧登记的回声，
+#   不是浏览器真实的渲染状态**，拿它当证据会连着误判两次。
+- insert:
+    - id: dsh-yanqing-voice
+      name: dsh-yanqing-voice

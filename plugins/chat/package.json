@@ -1,0 +1,23 @@
+{
+  "name": "dsh-yanqing-chat",
+  "version": "0.1.0",
+  "files": [
+    "index.js",
+    "package.json",
+    "cordis.patch.yml",
+    "web/"
+  ],
+  "description": "砚青手机通道（dsh-yanqing-chat）—— 给爀曦的手机开一个干净的聊天页：插件自开 HTTP 服务（绑 0.0.0.0，绕开 DSH Web 的 127.0.0.1 绑定与鉴权），页面直连本容器会话，回复用 edge-tts 晓伊声线朗读（手机只负责播放）。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}

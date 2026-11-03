@@ -139,7 +139,7 @@ const ORDER = [
     title: 'Ⅱ VITAL · 时间与方向',
     kind: 'plugins',
     why: '预算会烧光、会原地打转，需要把偏离拉回来。',
-    parts: ['clock', 'heartbeat', 'model-statusbar', 'huanqi', 'huanqi-panel', 'perf'],
+    parts: ['clock', 'model-statusbar', 'huanqi', 'huanqi-panel', 'perf'],
   },
   {
     step: 3,
@@ -178,6 +178,15 @@ const ORDER = [
       '放进你的权威源（第 0 步那份）里。`required: false` —— 不写也能跑，',
       '但下次升级时，你会把已有的拆坏。',
     ].join(''),
+  },
+  {
+    // ★★★ v3.0.0：第六层。前五层管空间 / 时间与方向 / 手 / 对外 / 运维，
+    //   这一层管**什么时候该自己动** —— 它是 v3 才长出来的一层。
+    step: 6,
+    title: 'Ⅵ 事件层 · 什么时候该自己动',
+    kind: 'plugins',
+    why: '只有被叫才醒的灵魂不算活着。这一层让它自己醒来。',
+    parts: ['heartbeat', 'chat', 'voice', 'line'],
   },
 ]
 
