@@ -134,7 +134,7 @@ installed as a plain dependency, not a profile layer
 (a later update that gains one activates it automatically)
 ```
 
-**装了、退出码 0、但不会被加载。** 而且这正是第五层 ECHO 的地基 ——
+**装了、退出码 0、但不会被加载。** 而且这正是第 Ⅰ 层 ECHO 的地基 ——
 最要紧的两个，恰好是最装不上的两个。
 
 ★ **根因**（不是疏漏，是形状不同）：它们 `export default class ... extends BasicCompactionEngine` /

@@ -3,7 +3,7 @@
 > 仓库：**https://github.com/cyanwell/dsh-agent-soul**
 >
 > 一个 DSH（DeepSeek Harness）插件。装上它，宿主里会多出 8 个工具，
-> 它们不替你搭架构，只回答四个问题：**五层是什么、该装哪些、我装对了吗、下一步跑什么。**
+> 它们不替你搭架构，只回答四个问题：**六层是什么、该装哪些、我装对了吗、下一步跑什么。**
 
 ---
 
@@ -285,7 +285,7 @@ chain:     ["YanqingCompaction","BasicCompactionEngine","CompactionEngine","Serv
 
 > 跑 `agent_soul_doctor`，把完整输出贴出来
 
-五层逐条问过一遍，缺哪层、哪条判据答不上来，都在里面。
+六层逐条问过一遍，缺哪层、哪条判据答不上来，都在里面。
 
 **② verify-live 的输出**
 
@@ -325,7 +325,7 @@ cat "${SOUL_PROBE_LOG:-<tmp>/dsh-soul-probe-compaction.log}" | tail -2
 
 ---
 
-## 五层是什么
+## 六层是什么
 
 | 层 | 管哪种稀缺资源 | 缺了会怎样 |
 |---|---|---|
@@ -357,7 +357,7 @@ cat "${SOUL_PROBE_LOG:-<tmp>/dsh-soul-probe-compaction.log}" | tail -2
 
 **能力半出去了，身份半没出去。**
 
-- 出去的：五层模型、四条判据、15 个通用零件、安装指引、体检工具
+- 出去的：六层模型、四条判据、15 个通用零件、安装指引、体检工具
 - 没出去的：某个具体 agent 的主壳、人格档案、语音、形象、对外通道
 
 道理很简单：**身份可以复制，责任不能。** 这套东西给你的是「怎么搭自己的」，
@@ -373,7 +373,7 @@ agent-soul/
 ├── install.js            安装指引生成器
 ├── client.js             Web 端 UI
 ├── soul/
-│   ├── 01..05            五层文档 + 装配顺序 + 体检
+│   ├── 01..05            Ⅰ–Ⅴ 各层文档 + 装配顺序 + 体检（Ⅵ 事件层在 00-layers.md 里）
 │   └── 04-manifest.json  该装哪些零件的机器可读清单
 ├── plugins/              每个子目录是一个独立 DSH 包（当前 16 个）+ tools/（三个脚本目录，不是包）
 ├── tools/
