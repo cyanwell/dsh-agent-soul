@@ -363,6 +363,24 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-04 · 微信通路进仓库（clawbot，Ⅵ 事件层）
+
+**为什么加它**：Ⅵ 事件层「把外面的世界接进来」在这台机器上只有一条通道 —— 微信。
+之前它只装在 profile 里（`desktop` / `web` / `desktop-probe` 三份），仓库里没有，
+**换台机器就接不回来**。所以把代码收进来，装进 `step: 6`。
+
+| 项 | 说明 |
+|---|---|
+| 来源 | `D:\\AI\\dsh-tools\\dsh-clawbot`（独立目录，不是 git 仓库） |
+| 带什么 | 只带 `package.json` 的 `files` 那 7 项：`index.js` / `client.js` / `cordis.patch.yml` / `icon.png` / `README.md` / `REPORT.md` / `LICENSE` |
+| **不带什么** | **凭据** —— `~/.dsh/clawbot/state.json` 存 token / botId / contextToken，**不在仓库里、也不该进** |
+| 层的归属 | Ⅵ 事件层（事件源接入）+ Ⅴ 运维（进程守护） |
+
+★ **一个必须说清的限制**：它依赖腾讯 ilink 网关的 `contextToken` ——
+**只有你在微信里主动给 bot 发一条消息才能拿到**，任何脚本都造不出来。
+拿不到时 `status: offline`、`hasContextToken: false`，而它不是报错，是**在等**。
+这条限制写在 `20-档案/agent soul v3升级方案/48-微信链路断在哪.md`，重做桥接时要正面解决它。
+
 ### 2026-11-04 · 心跳 quietHours 接线 + catchUpMissed 搁置
 
 **这一版只动一个文件**：`plugins/heartbeat/index.js`（+23 行）。
