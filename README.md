@@ -388,6 +388,27 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-05 · preset 去个人化：中转站 provider 与个人视角引用移除
+
+**背景**：社区反馈「全能 preset 里有无关的、甚至涉及隐私的内容」。逐项核后修了三处。
+
+**`preset-soul-all.yml`：删掉 `turnhub1` 那 251 行**
+- 它指向一个第三方 API 中转服务，且列了 **118 个模型 ID**；
+- 对别人无意义（没有那个 key，配了也用不了），对作者是私有配置；
+- 其余 provider（`amazon-bedrock` / `xiaomi` / `zai` / `deepseek-*`）**保留** ——
+  都是标准厂商，填自己的 key 即可用，`apiKeyEnv` 只引用环境变量、不含明文。
+
+**`presets/skills/distill/SKILL.md`：个人视角引用改降级写法**
+- 原文写死「`hexii-perspective` —— 某人的视角」，而别人那儿没有这个 skill ——
+  读到会去找一个不存在的东西，还会困惑「他」指谁；
+- 改成「如果本机装了现成的视角 skill（例如 `hexii-perspective`）就直接 read；
+  没装就按下面流程从头做」。**功能没变，对象中性了。**
+
+**没动的（记一笔）**：`preset-soul-all.yml` 开头缩进 4、后面缩进 0 ——
+标准 YAML 解析器报 `expected '<document start>'`。但这是**存量问题**（HEAD 版本同样报），
+DSH 的解析器容忍它。这次不顺手改，因为动它要重排 200+ 行缩进，风险大于收益。
+
+
 ### 2026-11-04 · 压缩层四刀：摘要的「现在时」不再冒充现状
 
 **它治的不是「忘记」，是「用过去那一刻的时态，冒充现在的事实」。**
