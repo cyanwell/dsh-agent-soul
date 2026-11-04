@@ -657,6 +657,60 @@ console.log('')
 console.log('通过 ' + checks.filter((c) => c.ok).length + ' / ' + checks.length)
 console.log('插件 files 合格 ' + pluginOk + ' 个')
 console.log('')
+// ── 坑 3 的自检（2026-11-05）────────────────────────────────────────────────
+// ★ 起因：`cordis.patch.yml` 的语法反直觉，写错只会得到一句看不懂的报错。
+//   读 `@deepseek-ai/cordis-plugin-include/lib/index.js:68-104` 确认了三件事：
+//     ① 有 `insert` → 把条目 push 进去（新条目）
+//     ② 无 `insert`、有 `id` → 改目标条目的字段（`target[key] = value`）
+//     ③ 无 `insert`、无 `id` → warn("patch: id is required for non-insert patches")
+//
+//   所以 `- update: [...]` 会被解构规则整个吞进 `...overrides`，
+//   `id` 为空 → 报那句看不懂的话。**没有 update 关键字**，这是语法事实。
+//
+// ★ id 和 name 不需要相同 —— 在 insert 里它们是新条目的两个独立字段。
+//   （曾经误以为必须相等，去查了源码才发现是两回事）
+const patchFiles = []
+const walkPatch = (dir) => {
+  let entries = []
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+  for (const e of entries) {
+    const p = path.join(dir, e.name)
+    if (e.isDirectory()) {
+      if (e.name === "node_modules" || e.name.startsWith(".")) continue
+      walkPatch(p)
+    } else if (e.name.endsWith(".patch.yml")) {
+      patchFiles.push(p)
+    }
+  }
+}
+walkPatch(ROOT)
+
+const patchProblems = []
+for (const pf of patchFiles) {
+  const src = fs.readFileSync(pf, "utf8")
+  const rel = path.relative(ROOT, pf).replace(/\\/g, "/")
+  // 去掉注释行再判 —— 注释里出现 update: 是说明文字，不是语法
+  const code = src.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n")
+  // ① 不能有真正的 `- update:` 键（语法不存在，写了必报 id is required）
+  if (/^\s*-\s*update\s*:/m.test(code)) {
+    patchProblems.push(rel + ": 用了不存在的 `- update:` 键 —— 写成 insert，或用 id+字段覆盖")
+  }
+  // ② 每个 insert 下的条目必须有 id 和 name
+  const insertBlocks = code.split(/^\s*-\s*insert\s*:/m).slice(1)
+  for (const blk of insertBlocks) {
+    const ids = [...blk.matchAll(/^\s*-\s*id\s*:\s*(\S+)/gm)]
+    const names = [...blk.matchAll(/^\s*name\s*:\s*(\S+)/gm)]
+    if (ids.length !== names.length) {
+      patchProblems.push(rel + ": insert 里 id 有 " + ids.length + " 个、name 有 " + names.length + " 个（每个条目都要两个）")
+    }
+  }
+}
+check(
+  "patch 语法没写错（没有 update 键、每个 insert 条目都有 id+name）",
+  patchProblems.length === 0,
+  patchProblems.length ? patchProblems.slice(0, 3).join("; ") : patchFiles.length + " 个 *.patch.yml 都合法"
+)
+
 if (issues.length) {
   console.log('=== 失败项 ===')
   for (const i of issues) console.log('  * ' + i)

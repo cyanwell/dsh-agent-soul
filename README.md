@@ -388,6 +388,54 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-05 · 坑 3 查到底：读了 cordis 源码，结论是文档本来就对
+
+坑 3 说「`cordis.patch.yml` 没有 `update:` 关键字」。我一度怀疑这句过时了 ——
+因为 `plugins/compaction/cordis.patch.yml` 里**有 `update:` 这个词**。
+
+去读了 `@deepseek-ai/cordis-plugin-include/lib/index.js:68-104`：
+
+```js
+const { id, insert, name, ...overrides } = patch;
+if (insert) { /* push 进去，continue */ }
+if (!id) { warn("patch: id is required for non-insert patches"); continue; }
+const target = entryMap.get(id);
+if (name && name !== target.name) { warn("name mismatch, skipping"); continue; }
+for (const [key, value] of Object.entries(overrides)) target[key] = value;
+```
+
+**三种用法，只有两种存在**：
+
+| 写法 | 行为 |
+|---|---|
+| 有 `insert` | 把条目 push 进去（新条目） |
+| 无 `insert`、有 `id` | 改目标条目的字段 |
+| 无 `insert`、无 `id` | 报那句看不懂的 `id is required` |
+
+所以 `- update: [...]` 会被解构规则**整个吞进 `...overrides`**，
+`id` 为空 → 报错。**这是语法事实，不是过时口径。**
+（那个文件里的 `update:` 全在注释里，是在解释这件事。）
+
+#### 顺带纠一个我自己的错判
+
+我看到 8 个 patch 文件的 `id` 和 `name` 不同，差点写一条「两者必须相等」的检查。
+读源码才发现：**在 `insert` 里它们只是新条目的两个独立字段，不需要相等**。
+（`id: command-compact-region` / `name: dsh-yanqing-compact-region` 是合法的。）
+
+#### 新增的检查
+
+`verify-packaging` 现在会扫全部 21 个 `*.patch.yml`：
+
+- **不能出现真的 `- update:` 键**（注释里的不算 —— 那是在解释它为什么不存在）
+- **每个 `insert` 条目必须有 `id` 和 `name`**
+
+**反向验证过**：往 `plugins/splash/cordis.patch.yml` 里故意塞一个 `- update:`，
+检查立刻报 `用了不存在的 - update: 键 —— 写成 insert，或用 id+字段覆盖`。恢复后 136/136 全过。
+
+★ 一条判据：**检查器必须有反向验证** —— 只证明「现在全绿」不够，
+还得证明「塞进去的错它能抓到」。否则它可能只是什么都不查。
+
+
 ### 2026-11-05 · 安装脚本补两个安全弱点：0 字节能过、装完不自检
 
 `install-desktop.ps1` 本来就有完整的「暂存 → 验 → 换上 → 回滚」，我逐条读了一遍，
