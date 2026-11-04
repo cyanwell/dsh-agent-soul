@@ -388,6 +388,45 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-05 · verify-runtime 补上坑 6，并纠正了一条我写错的判据
+
+**加的是**：扫 `profile/node_modules` 里每个声明了 `dsh.client` 的包，看它的客户端入口是不是真的在。
+坑 6 是**真实用户反馈**（2026-10-22）——装完 `client.js` 不在，宿主半一切正常，
+而面板/槽位一个都不出来。静态检查查不到这条：它只查仓库里的清单，用户踩的是装完之后的副本。
+
+#### 写错了一次，值得记下来
+
+第一版判据是「包根目录下有 `client.js`」。跑 desktop profile，**32 个包全报缺** ——
+而那些插件当时都在正常工作。
+
+**真实情况**（去读了四个包的 `package.json` 才看清）：
+
+```json
+"dsh": { "client": { "inject": [...], "platform": "web" } }
+```
+
+`dsh.client` 里**没有 entry 字段**，而客户端代码普遍在 **`lib/client.js`**（子目录）。
+改成**在包内递归找** `client.js` / `client.mjs` / `client.cjs`（深度限 3、不钻 node_modules）之后：
+
+```
+OK   声明了 client 的包，client.js 都在
+     53 个包声明了 dsh.client，入口文件都在
+```
+
+★ 这是同一个毛病第三次出现（前两次：坑 4 按 bundles 位置报、pnpm 报 FAIL）。
+**判据写错时，它报的不是 bug，是它自己的错。**
+而一次假警报的代价不是「多看一眼」—— 是**下次真出问题时我不信它了**。
+所以现在每条检查落地前都要先在一个**已知健康**的环境上跑一遍：
+它红了，先怀疑判据，再怀疑环境。
+
+#### 验证
+
+```
+node tools/verify-runtime.mjs --profile <desktop>   # 4 项全过（1 项提醒）
+node tools/verify-runtime.mjs                       # web profile，连跑三次逐字一致
+```
+
+
 ### 2026-11-05 · 新增 `verify-runtime`：装完才成立的三件事有人管了
 
 **为什么要它**：`verify-packaging` 135 条断言查的全是「不装也能查」的静态事实。

@@ -236,10 +236,97 @@ function checkCopyFresh() {
   )
 }
 
+// 在包目录里递归找客户端入口。深度限 3 层 —— 够用，且不会钻进 node_modules。
+// 认 .js / .mjs / .cjs 三种后缀，文件名必须是 client。
+function hasClientEntry(dir, depth) {
+  const d = depth || 0
+  if (d > 3) return false
+  let entries = []
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return false }
+  for (const e of entries) {
+    if (e.isDirectory()) {
+      if (e.name === "node_modules" || e.name.startsWith(".")) continue
+      if (hasClientEntry(path.join(dir, e.name), d + 1)) return true
+    } else if (/^client\.(js|mjs|cjs)$/.test(e.name)) {
+      return true
+    }
+  }
+  return false
+}
+
+// ── 检查 4：声明了 client 的包，client.js 真的在吗（坑 6）──────────────────
+// ★ 坑 6 是真实用户反馈（2026-10-22，第一个装这个插件的人踩的）：
+//   装完 client.js 不在，整个 DSH 会「裸奔」—— 宿主半在跑，客户端半整个没有，
+//   页面看着正常，但面板/槽位一个都不出来。
+//
+//   静态检查早就有了（verify-packaging 里有 6 条）。但它们只能查**仓库里的清单**：
+//   files 里有 client.js、ps1 的 $files 里有 client.js。
+//   而用户踩的那条是**装完之后**的事 —— 清单对了，副本里还是没有。
+//
+//   所以这里查的是：profile/node_modules 里每个声明了 dsh.client 的包，
+//   它的 client.js 是不是真的躺在那个目录里。
+function checkClientJs() {
+  if (!profile) {
+    check('声明了 client 的包，client.js 都在', false, '找不到 profile，无法检查', '用 --profile 指定')
+    return
+  }
+  const nm = path.join(profile, "node_modules")
+  if (!fs.existsSync(nm)) {
+    check('声明了 client 的包，client.js 都在', true, 'profile 下没有 node_modules —— 还没装任何包，不适用')
+    return
+  }
+  const declared = []
+  const missing = []
+  let scanned = 0
+  const scanPkgDir = (dir, label) => {
+    const pjPath = path.join(dir, "package.json")
+    if (!fs.existsSync(pjPath)) return
+    scanned++
+    let pj
+    try { pj = readJsonNoBom(pjPath) } catch { return }
+    if (!pj || !pj.dsh || !pj.dsh.client) return
+    const name = pj.name || label
+    declared.push(name)
+    // ★ 判据纠正（2026-11-05，实测 32 个包全报缺 —— 是假警报）：
+    //   实测 dsh.client 里**没有 entry 字段**，只有 { inject, platform }。
+    //   而客户端代码普遍在 **lib/client.js**（子目录），不是顶层 client.js。
+    //   所以正确做法是：**在包内递归找 client.js / client.mjs**，找不到才报。
+    //   只在顶层找会把 32 个正常包全判成坏 —— 那正是「假警报淹掉真问题」。
+    const want = (typeof pj.dsh.client === "string" && pj.dsh.client)
+      || (pj.dsh.client && typeof pj.dsh.client.entry === "string" && pj.dsh.client.entry)
+      || null
+    const found = want ? fs.existsSync(path.join(dir, want)) : hasClientEntry(dir)
+    if (!found) missing.push(name)
+  }
+  for (const e of fs.readdirSync(nm, { withFileTypes: true })) {
+    if (!e.isDirectory()) continue
+    if (e.name.startsWith("@")) {
+      const scopeDir = path.join(nm, e.name)
+      try {
+        for (const s of fs.readdirSync(scopeDir, { withFileTypes: true })) {
+          if (s.isDirectory()) scanPkgDir(path.join(scopeDir, s.name), e.name + "/" + s.name)
+        }
+      } catch {}
+    } else {
+      scanPkgDir(path.join(nm, e.name), e.name)
+    }
+  }
+  if (declared.length === 0) {
+    check('声明了 client 的包，client.js 都在', true, '扫了 ' + scanned + ' 个包，没有一个声明 dsh.client')
+    return
+  }
+  check('声明了 client 的包，client.js 都在', missing.length === 0,
+    missing.length ? missing.join("; ") : declared.length + " 个包声明了 dsh.client，入口文件都在",
+    missing.length
+      ? '这是坑 6（真实用户踩过）：客户端半缺失 → 面板/槽位全不出来，而宿主半一切正常。重装并检查 package.json 的 files'
+      : '')
+}
+
 // ── 跑 ─────────────────────────────────────────────────────────────────────
 checkPnpm()
 checkServiceCollision()
 checkCopyFresh()
+checkClientJs()
 
 const failed = checks.filter((c) => !c.ok && c.level !== 'warn')
 const warned = checks.filter((c) => !c.ok && c.level === 'warn')
