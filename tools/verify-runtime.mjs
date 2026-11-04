@@ -348,8 +348,14 @@ function checkPsPolicy() {
   }
   let out = ""
   try {
+    // ★ cwd 必须给 tmpdir（2026-11-05 实测）：
+    //   PowerShell 在**仓库根**启动时，会把某个未展开的 %SystemDrive% 当成字面目录名，
+    //   在 cwd 下建出 %SystemDrive%/ProgramData/Microsoft/Windows/Caches/*.db ——
+    //   然后 `git add -A` 把它一起收进仓库（commit e47fe6a 就是这么脏的）。
+    //   换个 cwd 就不会碰到仓库；tmpdir 里脏了也无所谓。
     out = execFileSync("powershell", ["-NoProfile", "-Command", "Get-ExecutionPolicy"], {
       encoding: "utf8", timeout: 20000, stdio: ["ignore", "pipe", "ignore"],
+      cwd: os.tmpdir(),
     }).trim()
   } catch {
     check('PowerShell 执行策略（只影响 Windows 的 .ps1 安装脚本）', true, '查不到（PowerShell 不可用？），跳过')
