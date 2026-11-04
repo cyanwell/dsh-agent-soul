@@ -388,6 +388,54 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-04 · 换气报 `no open turn` 的真相：`lib` 从没重新编译过
+
+**现象**：面板一直报
+```
+compact-region › region compaction failed: Error: compactRegion: no open turn
+```
+而且换气额度耗尽时**熔断全量压缩也没触发**。
+
+**先排除的**：不是仓库代码的问题。仓库里 `plugins/huanqi/lib/index.js` 早就没有那句守卫了
+（`grep "没有 open turn" → 0`），`cordis.patch.yml` 里也没有 `compact-region` 挂载 ——
+10-31 就把它移出了 `NOT_DEFAULT_INSTALL` 之外。
+
+**真因（部署端）**：`src/index.ts` 改了、`tsc` 没跑。
+
+| 位置 | 守卫 | 说明 |
+|---|---|---|
+| `src/index.ts` | **无** | 10-31 删的，注释写明了理由 |
+| `lib/index.js`（部署） | **有** | 停在 11-02，从没从新 src 编译过 |
+
+**所以十天里换气一次都没成功过**，每次都在 `跳过：当前没有 open turn（surfaceOp 替换会写坏日志）`
+这一步落回全量，而全量又因为 `ctx.get(compaction) -> UNDEFINED` 拿不到服务，最后只剩
+`commands` 桥发 `kind=region` —— 撞上同一个 `no open turn`。
+
+**⚠ 这是一条给所有人的警告：**
+
+> **改 `src` 不等于改 `lib`。**
+> `src/index.ts --tsc--> lib/index.js --copy--> node_modules/dsh-huanqi/lib/`
+> **任何一环没走，改的就是空气。**
+
+**本次部署端做的**（不在本仓库里）：
+1. `dsh-huanqi` 跑 `tsc` → `lib/index.js` 225,758 → 214,023 B（少 11 KB = 删掉的守卫）
+2. 同步到 `profiles/desktop/node_modules/dsh-huanqi/lib/`
+3. `profiles/desktop/cordis.patch.yml` 里 **5 处** `command-compact-region` 全删
+4. 两个 preset（`qq-chat-v2` / `yanqing`）里的同名挂载一并删
+
+**验证**：
+```
+部署包守卫处数: 0
+purge 分支: 1   (if (mode === 'region' && purgeOnCuts === true))
+模块加载: ✓ exports: Config,CreditLedger,GRAME_SIZE,LoopDetector,...
+YAML: 改前 21 条目 / 改后 21 条目
+```
+
+**region 的逻辑矛盾其实不存在**：
+`compactRegion` 确实要 open turn，但 **`surfaceOp` 不需要** —— 10-31 12:54 实测过
+`[huanqi][purge] OK 27815-27815 新seq=28423 节点 203->203`。
+**是守卫把前者的限制错套到了后者身上。**
+
 ### 2026-11-04 · 路径解析改成「四级 + 候选」；群里四个问题全修
 
 **起因**：群友 `白毛狼狼` 实测 —— 上一轮我改的 `AI_ROOT = dirname(dirname(DSH_HOME))`，
