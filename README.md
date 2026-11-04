@@ -401,7 +401,7 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 `node tools/verify-runtime.mjs` 把这三件事做成检查。
 
-### 写的时候纠正了一条错判据
+#### 写的时候纠正了一条错判据
 
 坑 4 原文说「`dsh plugin add` 往 bundles **末尾**追加 → 排在 `@deepseek-ai/dsh-base` 后面 ⇒ 输」。
 听起来「看 bundles 里的位置」就是判据 —— 但实测**本机两个 profile 都是 base 在索引 0、我们在 11 / 13**，
@@ -412,12 +412,12 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 所以正确判据是**先扫每个包真正 provide 了什么，真重名才报**。
 按位置报会把它变成一条永远红的假警报 —— 而假警报会淹掉真问题。
 
-### 另一条：pnpm 那条降成「提醒」
+#### 另一条：pnpm 那条降成「提醒」
 
 本机实测 `pnpm` 确实不在 PATH，但 `dsh plugin add` 历史上**成功装过**（可能 dsh 有自己的解析路径，没查实）。
 **没证实会坏的事不该报红。** 所以检查器有 `WARN` 级：提醒不影响退出码。
 
-### 验证
+#### 验证
 
 ```
 node tools/verify-runtime.mjs    # 连跑三次，输出逐字一致（幂等）
@@ -430,7 +430,7 @@ node tools/verify-runtime.mjs    # 连跑三次，输出逐字一致（幂等）
 **起因**：`tools/verify-packaging.mjs` 那条「代码里没有写死的本机路径」是红的 —— 135/136。
 这条检查本来就在，红了很久没人修；而它拦的正是「**装上、没报错、但读不到数据**」这一类。
 
-### 修了什么
+#### 修了什么
 
 | 位置 | 原写法 | 现在 |
 |---|---|---|
@@ -439,12 +439,12 @@ node tools/verify-runtime.mjs    # 连跑三次，输出逐字一致（幂等）
 | 同上 `recall.mjs` / `vecsearch.mjs` | 同一套写死 | 同上 |
 | `plugins/compaction/index.js:95` | `const MEMQ = 'node D:\\AI\\memory\\hub\\memq.mjs'` | 从 `ECHO_HUB` / `ECHO_MEMORY` 推断；**推不出来就印 `<你的 ECHO hub>` 占位符**，不在门牌里印一条别人没装过的路径 |
 
-### 两条设计取舍
+#### 两条设计取舍
 
 - **记忆库缺失不顶层 throw** —— 向量层是可选的。改成「用到时才检查」，否则任何 import 这个文件的代码都会连带崩掉，哪怕根本没用向量层。
 - **模型路径从脚本自身位置推，不从配置读** —— 权重和脚本在同一个目录里，这是唯一不会漂的参照。写死一个外部路径正是原来那个 bug 的来源（模型其实早就打包进来了，代码却指向 `D:\AI\memory\hub\models\`）。
 
-### 验证
+#### 验证
 
 ```
 node tools/verify-packaging.mjs
