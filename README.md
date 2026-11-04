@@ -404,6 +404,26 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-05 · 坑 5 加进 verify-runtime（WARN 级，标注待查）
+
+坑 5 是「装完了、没报错、但它没在工作」—— echo 要三个脚本才能跑，缺了会被 try/catch 吞掉。
+那三个是**文件**，所以**不用重启也能查**。加成了第 6 条检查。
+
+但它报的是 **WARN 不是 FAIL**，因为**我的候选列表和插件自己的 resolveHub() 还没对齐**：
+`plugins/echo/index.js` 的 `resolveHub()` 多一条「echo.config.json 里的 memory/hub」，我读不到。
+本机 `echo.config.json` 在 `D:/AI/memory/hub/`，而 `kit/echo/echo-config.mjs` 的候选**没有这个位置** ——
+**两份配置逻辑不一致**，就是那个 patch 注释里说的「面板绿、工具红」。
+
+★ **所以标注成待查，不是已解决。** 夜里最后一条底线：
+**宁可留一个诚实的 WARN，不留一个假的 FAIL 或假的 OK。**
+
+#### 这一轮的第 4 次判据错
+
+`dsh-echo` / `dsh-agent-echo` 我都试了，**实际包名是 `dsh-yanqing-echo`**。
+改成「扫 node_modules 里名字含 echo 的目录」，不猜前缀。
+（4 次假警报，全在同一个形状上：**我看到一个现象，立刻把它当成判据。**）
+
+
 ### 2026-11-05 · 「装完怎么验」重写成一张表：五条，越往下越依赖真环境
 
 原来那一节是**五次追加**堆出来的 —— 我这次加 `verify-runtime` 时，

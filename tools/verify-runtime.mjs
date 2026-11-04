@@ -371,12 +371,92 @@ function checkPsPolicy() {
     "warn")
 }
 
+// ── 检查 6：echo 的三个脚本在不在（坑 5）─────────────────────────────────
+// ★ 坑 5：「装完了、没报错、但它没在工作」—— 最像成功的一种失败。
+//   echo 要在 HUB 目录里找三个脚本才能跑：echo-doctor.mjs / memindex.mjs / self.mjs。
+//   它们**不在 npm 包里**，是「你的记忆库」工具。
+//   起子进程那一行包在 try/catch 里 —— 失败不报错、不打日志。
+//
+// ★ 能不重启就查吗？**能** —— 缺的是**文件**，不是运行时状态。
+//   （原文档给的是 curl /api/status，那需要 DSH 跑着；这里是它的静态前置条件。）
+function checkEchoHub() {
+  const ECHO_FILES = ["echo-doctor.mjs", "memindex.mjs", "self.mjs"]
+  const cands = []
+  const push = (p) => { if (p && cands.indexOf(p) < 0) cands.push(p) }
+  push(process.env.ECHO_HUB)
+  const dshHome = (process.env.DSH_HOME || process.env.ECHO_DSH_HOME || "").trim()
+    || path.join(os.homedir(), ".dsh")
+  push(path.join(dshHome, "hub"))
+  push(path.join(os.homedir(), ".dsh", "hub"))
+
+  // ★ 2026-11-05 待查（别当已解决）：本机 echo.config.json 在 D:/AI/memory/hub/，
+  //   而 kit/echo/echo-config.mjs 的候选**没有这个位置**（只有 kit/echo、kit、仓库根、$DSH_HOME/hub）。
+  //   plugins/echo/index.js 的 resolveHub() 多一条「echo.config.json 里的 memory/hub」——
+  //   **两份配置逻辑不一致**，就是那个 patch 注释里说的「面板绿、工具红」。
+  //   这里把「候选目录里自己的 echo.config.json」也读进来，缩小差距（但不改产品代码）。
+  for (const c of cands.slice()) {
+    try {
+      const cfgPath = path.join(c, "echo.config.json")
+      if (fs.existsSync(cfgPath)) {
+        const j = JSON.parse(fs.readFileSync(cfgPath, "utf8").replace(/^\uFEFF/, ""))
+        if (j && j.memory) {
+          push(path.join(j.memory, "hub"))
+          if (j.hub) push(j.hub)
+        }
+      }
+    } catch (e) {}
+  }
+
+  let hub = null
+  for (const c of cands) {
+    try { if (fs.statSync(path.join(c, "echo-doctor.mjs")).isFile()) { hub = c; break } } catch (e) {}
+  }
+
+  if (!hub) {
+    // ★ 包名不能猜（2026-11-05 实测踩过）：本机装的是 **dsh-yanqing-echo**，
+    //   而我只认 dsh-agent-echo / dsh-echo → 误判成「没装 echo」，第 4 次假警报。
+    //   改成「扫 node_modules 里名字含 echo 的目录」—— 不猜具体前缀。
+    const nm = profile ? path.join(profile, "node_modules") : null
+    let hasEcho = false
+    if (nm) {
+      try {
+        hasEcho = fs.readdirSync(nm, { withFileTypes: true })
+          .some(function (e) { return e.isDirectory() && /echo/i.test(e.name) })
+      } catch (e) {}
+    }
+    if (!hasEcho) {
+      check('echo 的三个脚本在不在（坑 5）', true, '这个 profile 没装 echo —— 不适用')
+      return
+    }
+    const why = "装了 echo，但这几个候选里都没有 echo-doctor.mjs：" + cands.join(" / ")
+      + "。★ 这条是 WARN 不是 FAIL —— 我的候选列表和插件自己的 resolveHub() 还没对齐"
+      + "（它多一条「echo.config.json 里的 memory/hub」，我读不到），"
+      + "所以「找不到」可能只是我没找对地方，不是真缺。"
+    const howto = "★ 如果它真缺，就是坑 5：装上了、加载了、检查全绿 —— 但它调不起体检，"
+      + "因为起子进程失败被 try/catch 吞了。设 ECHO_HUB 指向你的记忆中枢目录"
+      + "（比如 D:/AI/memory/hub），再跑一次看它变不变绿。"
+    check('echo 的三个脚本在不在（坑 5）', false, why, howto, 'warn')
+    return
+  }
+
+  const missing = ECHO_FILES.filter(function (f) { return !fs.existsSync(path.join(hub, f)) })
+  const detail = missing.length
+    ? ("HUB=" + hub + "，缺：" + missing.join(", "))
+    : ("HUB=" + hub + "，三个都在")
+  const hint = missing.length
+    ? ("★ 缺哪个就没哪个功能：echo-doctor.mjs=体检 / memindex.mjs=记忆索引 / self.mjs=每轮自我层。"
+       + "起子进程失败被 try/catch 吞，不会报错")
+    : ""
+  check('echo 的三个脚本在不在（坑 5）', missing.length === 0, detail, hint)
+}
+
 // ── 跑 ─────────────────────────────────────────────────────────────────────
 checkPnpm()
 checkServiceCollision()
 checkCopyFresh()
 checkClientJs()
 checkPsPolicy()
+checkEchoHub()
 
 const failed = checks.filter((c) => !c.ok && c.level !== 'warn')
 const warned = checks.filter((c) => !c.ok && c.level === 'warn')
