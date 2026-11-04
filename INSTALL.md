@@ -258,48 +258,69 @@ curl http://127.0.0.1:<端口>/yanqing-echo/api/status
 
 ## 装完怎么验
 
-### ★ 装完再跑这一条：`verify-runtime`（2026-11-05 加）
+**别只看「文件复制过去了」。** 五条，从不需要 profile 到必须重启，越往下越依赖真环境。
 
-`verify-packaging` 查的是**仓库**（不装也能查）；这一条查的是**装完才成立的事**。
+| # | 跑什么 | 查什么 | 需要什么 |
+|---|---|---|---|
+| ① | `node tools/verify-packaging.mjs` | 仓库本身：files 清单、两份清单一致、patch 语法、本机路径泄漏…… **136 条断言** | 只要仓库 |
+| ② | `node tools/verify-install-traps.mjs --verbose` | 四条「静默失败」判据：insert.name 与包名一致 / 示例配置键名 / 模板与骨架目录一致 / 能解析 | 只要仓库 |
+| ③ | `node tools/verify-runtime.mjs` | **装完才成立的事**：pnpm / 服务重名 / 副本新旧 / client 入口 / 执行策略 | 一个 profile |
+| ④ | `node tools/verify-live.mjs --profile <dir>` | 层进没进 bundles / patch 在不在 / 副本与源一致吗 | 已装的 profile |
+| ⑤ | 装探针 → **重启** → 读日志 | 现在管压缩的是谁（`ctor` 是 `YanqingCompaction` = 接管成功） | **必须重启** |
+
+### ① 仓库自检（136 条，不装也能跑）
+
+```bash
+node tools/verify-packaging.mjs
+```
+
+★ **它必须有反向验证过**：只证明「现在全绿」不够，还得证明「塞进去的错它能抓到」。
+  2026-11-05 实测：往 `plugins/splash/cordis.patch.yml` 里塞一个 `- update:`，它报
+  `用了不存在的 - update: 键`。
+
+### ② 四条静默失败判据
+
+```bash
+node tools/verify-install-traps.mjs --verbose
+# 当前树实测：通过 27，失败 0
+```
+
+### ③ 运行时（装完才成立）
 
 ```bash
 node tools/verify-runtime.mjs
-# 或指定 profile：
-node tools/verify-runtime.mjs --profile ~/.dsh/profiles/desktop
-# 给机器读：
-node tools/verify-runtime.mjs --json
+node tools/verify-runtime.mjs --profile ~/.dsh/profiles/desktop   # 指定
+node tools/verify-runtime.mjs --json                              # 给机器读
 ```
 
-它查三件**静态看全绿、跑起来不对**的事：
+它查五件**静态看全绿、跑起来不对**的事：
 
-| 查什么 | 为什么它只能运行时查 |
+| 查什么 | 为什么只能运行时查 |
 |---|---|
-| pnpm 在不在 PATH | `dsh plugin add` 内部走 pnpm，不在就装到一半才炸（**提醒级，不判死**） |
-| 插件之间有没有服务重名 | cordis 里先注册的赢，后者不报错、**静默不生效** |
+| pnpm 在不在 PATH | `dsh plugin add` 是**纯 pnpm 转发器**（`spawnSync("pnpm")`，ENOENT → 127）。**但桌面端那条路不用 pnpm** —— 报 FAIL 时错误信息会写清两条路 |
+| 插件之间有没有服务重名 | cordis 里**先注册的赢**，后者不报错、静默不生效 |
 | 副本版本/时间 vs 源 | pnpm 对 `file:` 依赖会缓存，改了源重装会说 `Already up to date` 而副本不动 |
-| 声明了 `dsh.client` 的包有没有客户端入口 | 坑 6 是真实用户踩过的：**清单对了、副本里还是没有** → 面板/槽位全不出来，而宿主半一切正常 |
-| pnpm 在不在 PATH | `dsh plugin add` 是纯 pnpm 转发器（`spawnSync("pnpm")`，不在就 127）。**但桌面端那条路不用 pnpm** |
-| PowerShell 执行策略 | 直接 `& .\install-desktop.ps1` 会被拦，**脚本一行都不会跑**，看起来像脚本坏了 |
+| 声明了 `dsh.client` 的包有没有客户端入口 | 坑 6 是真实用户踩过的：**清单对了、副本里还是没有** → 面板全不出来，而宿主半一切正常 |
+| PowerShell 执行策略 | `& .\install-desktop.ps1` 会被拦，**脚本一行都不会跑**，看起来像脚本坏了 |
 
 ★ **它认「提醒」和「失败」两种**：提醒不影响退出码。
-  这条是 2026-11-05 定的 —— pnpm 那条在本机确实不满足，但 `dsh plugin add` 历史上成功过，
-  **没证实会坏的事不该报红**，否则真问题会被假警报淹掉。
+  理由见坑 1 —— pnpm 那条本机确实不满足，但它**只挡 CLI 那条路**，报 WARN 会让人以为「不用管」，
+  报 FAIL 才给得出「两条路」。而执行策略那条恰好相反：`-ExecutionPolicy Bypass` 一定能过，
+  它不是「你缺了什么」，是「你该怎么跑」，所以是 WARN。
 
 ★ **判定标准是幂等**：连跑三次，输出逐字一致。它不写任何文件，只读。
+  （2026-11-05 实测：`cwd` 必须给 `os.tmpdir()` —— 在仓库根起 PowerShell 会建出
+   `%SystemDrive%/...` 这种脏目录，被 `git add -A` 收进过仓库一次。）
 
-
-**别只看「文件复制过去了」。** 本仓库带两个验法：
+### ④ 已装 profile 的静态核对
 
 ```bash
-# ⓪ 四条「静默失败」判据 —— 不需要 profile，任何机器上都能跑
-node tools/verify-install-traps.mjs --verbose
-#   查：insert.name 与包名一致 / 示例配置键名 / 模板与骨架目录一致 / 能解析
-#   当前树实测：通过 22，失败 0
-
-# ① 静态：层进没进 bundles / patch 在不在 / 副本与源一致吗
 node tools/verify-live.mjs --profile <profile 目录>
+```
 
-# ② 运行时：现在管压缩的是谁
+### ⑤ 运行时探针（要重启）
+
+```bash
 dsh plugin --profile <profile> add "file:<仓库>/tools/soul-probe"
 # 重启后看探针日志。默认在系统临时目录：
 #   <tmp>/dsh-soul-probe-compaction.log
@@ -320,6 +341,7 @@ chain:     ["YanqingCompaction","BasicCompactionEngine","CompactionEngine","Serv
 开浏览器看，不是看 Host 报 running。
 
 ---
+
 
 ## 出问题了怎么办
 
