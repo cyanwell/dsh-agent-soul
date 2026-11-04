@@ -91,16 +91,25 @@ function checkPnpm() {
       tried.push(cmd)
     }
   }
-  // ★ 为什么是 warn 而不是 fail（2026-11-05）：
-  //   本机实测 pnpm 不在 PATH，而 dsh plugin add 历史上**成功装过** —— 说明 dsh 可能有
-  //   自己的解析路径（或装了 corepack shim），我没查实。**没证实会坏的事不该报红**，
-  //   否则真正的问题会被这条假警报淹掉。
+  // ★ 2026-11-05 查实的结论（读 dsh 源码，不是猜）：
+  //
+  //   dsh 的 `plugin` 子命令是**纯 pnpm 转发器**：
+  //     lib/plugin-Ddi42qoW.js:109  spawnSync("pnpm", args, { cwd: profileDir })
+  //     同一文件 :116  result.error.code === "ENOENT" → 打「pnpm not found on PATH」并 return 127
+  //   **没有内部兜底、没有自带 pnpm** —— 不在 PATH 就是 127。
+  //
+  //   但**桌面端那条路完全不用 pnpm**：install-desktop.ps1 全文 0 处 pnpm 调用，
+  //   它是 Copy-Item 直接拷文件进 <profile>/node_modules/dsh-agent-soul。
+  //
+  //   所以这条不是「全局阻塞」，是「**只挡 CLI 这条路**」。
+  //   原来我把它降成 WARN 是因为「没查实」—— 现在查实了，它是真会坏，只是坏在一条路上。
+  //   所以判 FAIL，但错误信息必须同时说清另一条路能走。
   check(
-    'pnpm 可用（dsh plugin add 依赖它）',
+    'pnpm 可用（只影响 `dsh plugin add` 这条 CLI 路径）',
     false,
-    '试过：' + tried.join(' / ') + '，都不在 PATH —— 但 dsh plugin add 历史上成功过，可能不阻塞',
-    '如果接下来装包报 pnpm 相关错，再跑 corepack enable pnpm',
-    'warn'
+    '试过：' + tried.join(' / ') + '，都不在 PATH',
+    '两条路：① 走 CLI（dsh plugin add）→ 必须先跑 `corepack enable pnpm`；' +
+    '② 走桌面端（install-desktop.ps1）→ 不经过 pnpm，可以直接装',
   )
 }
 
@@ -322,11 +331,46 @@ function checkClientJs() {
       : '')
 }
 
+// ── 检查 5：PowerShell 执行策略能不能直接跑 .ps1（INSTALL.md 补记 2）───────
+// ★ 起因（2026-10-22 实机）：用户直接 & .\install-desktop.ps1，被拦：
+//   「无法加载文件 ... 因为在此系统上禁止运行脚本」(PSSecurityException / UnauthorizedAccess)
+//   **脚本一行都没跑**，而症状看起来像脚本坏了。
+//
+//   正确跑法：powershell -ExecutionPolicy Bypass -File .\install-desktop.ps1
+//   ★ 所以这条**不是失败，是「怎么跑」**：Bypass 一定能过。报 FAIL 会吓人。
+//
+//   但也不能不报 —— 因为「直接 &」是绝大多数人的第一反应。
+//   报 WARN，把正确跑法写在提示里。
+function checkPsPolicy() {
+  if (process.platform !== "win32") {
+    check('PowerShell 执行策略（只影响 Windows 的 .ps1 安装脚本）', true, '非 Windows，不适用')
+    return
+  }
+  let out = ""
+  try {
+    out = execFileSync("powershell", ["-NoProfile", "-Command", "Get-ExecutionPolicy"], {
+      encoding: "utf8", timeout: 20000, stdio: ["ignore", "pipe", "ignore"],
+    }).trim()
+  } catch {
+    check('PowerShell 执行策略（只影响 Windows 的 .ps1 安装脚本）', true, '查不到（PowerShell 不可用？），跳过')
+    return
+  }
+  const ok = /^(Bypass|Unrestricted)$/i.test(out)
+  const howto = "正确跑法：powershell -ExecutionPolicy Bypass -File .\\install-desktop.ps1  " +
+    "（Bypass 只对这一条命令生效，不改系统设置）。" +
+    "★ 判据：看输出里有没有「dsh-agent-soul - desktop install」这行标题 —— 没有就是没跑起来"
+  check('PowerShell 执行策略允许直接跑 .ps1', ok,
+    "当前：" + (out || "(空)") + (ok ? " — 可以直接 & .\\install-desktop.ps1" : " — 直接 & 会被拦，脚本一行都不会跑"),
+    ok ? "" : howto,
+    "warn")
+}
+
 // ── 跑 ─────────────────────────────────────────────────────────────────────
 checkPnpm()
 checkServiceCollision()
 checkCopyFresh()
 checkClientJs()
+checkPsPolicy()
 
 const failed = checks.filter((c) => !c.ok && c.level !== 'warn')
 const warned = checks.filter((c) => !c.ok && c.level === 'warn')

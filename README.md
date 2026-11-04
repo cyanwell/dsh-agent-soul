@@ -388,6 +388,57 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-05 · verify-runtime 到 5 条：pnpm 那条查实了，执行策略也纳入
+
+#### pnpm：从「含糊的提醒」到「说清两条路」
+
+上一版我把它降成 WARN，理由写的是「没查实会不会坏」。**这一版去读了 dsh 的源码**：
+
+```js
+// node_modules/@deepseek-ai/dsh/lib/plugin-Ddi42qoW.js:109
+const result = spawnSync("pnpm", args.map(...), { cwd: profileDir })
+// :116
+if (result.error.code === "ENOENT") {
+  process.stderr.write(`${NAME}: pnpm not found on PATH`); return 127;
+}
+```
+
+**没有内部兜底、没有自带 pnpm** —— 不在 PATH 就是 127。
+
+但同一轮也查清了另一半：**`install-desktop.ps1` 全文 0 处 pnpm 调用**，
+它是 `Copy-Item` 直接把文件拷进 `<profile>/node_modules/dsh-agent-soul`。
+
+所以它不是「全局阻塞」，是「**只挡 CLI 这条路**」。
+这条现在判 FAIL（它真会坏），但**错误信息里同时写出另一条能走的路**：
+
+```
+FAIL pnpm 可用（只影响 `dsh plugin add` 这条 CLI 路径）
+       试过：pnpm.cmd / pnpm，都不在 PATH
+       → 两条路：① 走 CLI（dsh plugin add）→ 必须先跑 `corepack enable pnpm`；
+         ② 走桌面端（install-desktop.ps1）→ 不经过 pnpm，可以直接装
+```
+
+★ 「降级成提醒」不是解决，**是回避**。真正该做的是查清它坏在哪、不坏在哪。
+
+#### 新增第 5 条：PowerShell 执行策略
+
+本机 `Get-ExecutionPolicy` = **Restricted**，而 `INSTALL.md` 补记 2 记的就是这个：
+直接 `& .\install-desktop.ps1` 会 PSSecurityException，**脚本一行都不跑**，看起来像脚本坏了。
+
+这条判 **WARN 不判 FAIL** —— 因为 `-ExecutionPolicy Bypass` 一定能过，
+所以它不是「你缺了什么」，是「你该怎么跑」。提示里直接给那条命令。
+
+#### 现在的五条
+
+| 检查 | 级别 | 本机结果 |
+|---|---|---|
+| pnpm 可用（只挡 CLI 路径） | FAIL | 不在 PATH，已写清两条路 |
+| 插件之间服务重名 | FAIL | 22 个插件不注册服务 → 通过 |
+| 副本版本 vs 源 | FAIL | 这两个 profile 不适用 |
+| 声明了 client 的包有没有入口 | FAIL | 53 个包全过 |
+| PowerShell 执行策略 | WARN | Restricted → 给了 Bypass 跑法 |
+
+
 ### 2026-11-05 · verify-runtime 补上坑 6，并纠正了一条我写错的判据
 
 **加的是**：扫 `profile/node_modules` 里每个声明了 `dsh.client` 的包，看它的客户端入口是不是真的在。
