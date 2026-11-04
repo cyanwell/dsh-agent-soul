@@ -388,6 +388,43 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-05 · 新增 `verify-runtime`：装完才成立的三件事有人管了
+
+**为什么要它**：`verify-packaging` 135 条断言查的全是「不装也能查」的静态事实。
+而 INSTALL.md 那 7 个坑里，有 3 个是**装完、没报错、就是不工作**：
+
+| 坑 | 症状 |
+|---|---|
+| 1 · pnpm 不在 PATH | 装到一半才炸 |
+| 4 · 同名服务先到先得 | 静默不生效，日志里什么都没有 |
+| 7 · 重装副本没变 | 改了源码，行为不变 |
+
+`node tools/verify-runtime.mjs` 把这三件事做成检查。
+
+### 写的时候纠正了一条错判据
+
+坑 4 原文说「`dsh plugin add` 往 bundles **末尾**追加 → 排在 `@deepseek-ai/dsh-base` 后面 ⇒ 输」。
+听起来「看 bundles 里的位置」就是判据 —— 但实测**本机两个 profile 都是 base 在索引 0、我们在 11 / 13**，
+系统却一直正常。
+
+**因为这套 22 个插件根本不注册服务**（只 `inject: [webServer]`，没有一个 `ctx.provide`）。
+
+所以正确判据是**先扫每个包真正 provide 了什么，真重名才报**。
+按位置报会把它变成一条永远红的假警报 —— 而假警报会淹掉真问题。
+
+### 另一条：pnpm 那条降成「提醒」
+
+本机实测 `pnpm` 确实不在 PATH，但 `dsh plugin add` 历史上**成功装过**（可能 dsh 有自己的解析路径，没查实）。
+**没证实会坏的事不该报红。** 所以检查器有 `WARN` 级：提醒不影响退出码。
+
+### 验证
+
+```
+node tools/verify-runtime.mjs    # 连跑三次，输出逐字一致（幂等）
+# 本机结果：OK 服务无重名 / OK 副本一致 / WARN pnpm 不在 PATH
+```
+
+
 ### 2026-11-05 · 清掉 6 处写死的本机路径：别人的机器上不再「静默找不到东西」
 
 **起因**：`tools/verify-packaging.mjs` 那条「代码里没有写死的本机路径」是红的 —— 135/136。

@@ -258,6 +258,33 @@ curl http://127.0.0.1:<端口>/yanqing-echo/api/status
 
 ## 装完怎么验
 
+### ★ 装完再跑这一条：`verify-runtime`（2026-11-05 加）
+
+`verify-packaging` 查的是**仓库**（不装也能查）；这一条查的是**装完才成立的事**。
+
+```bash
+node tools/verify-runtime.mjs
+# 或指定 profile：
+node tools/verify-runtime.mjs --profile ~/.dsh/profiles/desktop
+# 给机器读：
+node tools/verify-runtime.mjs --json
+```
+
+它查三件**静态看全绿、跑起来不对**的事：
+
+| 查什么 | 为什么它只能运行时查 |
+|---|---|
+| pnpm 在不在 PATH | `dsh plugin add` 内部走 pnpm，不在就装到一半才炸（**提醒级，不判死**） |
+| 插件之间有没有服务重名 | cordis 里先注册的赢，后者不报错、**静默不生效** |
+| 副本版本/时间 vs 源 | pnpm 对 `file:` 依赖会缓存，改了源重装会说 `Already up to date` 而副本不动 |
+
+★ **它认「提醒」和「失败」两种**：提醒不影响退出码。
+  这条是 2026-11-05 定的 —— pnpm 那条在本机确实不满足，但 `dsh plugin add` 历史上成功过，
+  **没证实会坏的事不该报红**，否则真问题会被假警报淹掉。
+
+★ **判定标准是幂等**：连跑三次，输出逐字一致。它不写任何文件，只读。
+
+
 **别只看「文件复制过去了」。** 本仓库带两个验法：
 
 ```bash
