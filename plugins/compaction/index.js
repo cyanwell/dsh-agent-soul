@@ -1,21 +1,21 @@
 /**
- * dsh-agent-compaction —— 给兜底压缩装上「门牌」
+ * dsh-yanqing-compaction —— 给兜底压缩装上「门牌」
  * ================================================
  *
  * ★ 为什么要有这个包
  * ------------------
- * DSH 的上下文压缩有两条路：
+ * 本机的上下文压缩有两条路：
  *   ① ACP（billion-context-dsh）—— 模型驱动，摘要**我自己写**，因此天然带指针；
  *   ② compaction-basic（DSH 内置）—— **自动兜底**，在我没响应 nudge 时出手。
  *
- * 确认：这份兜底压出来的 checkpoint 无法回溯。原因在它那段硬编码
+ * 2026-09-27 实测确认：这份兜底压出来的 checkpoint 无法回溯。原因在它那段硬编码
  * 指令（`@deepseek-ai/dsh-compaction-basic` lib/index.js:220-255）——
  * 它要求保留 exact file paths / commands / error strings / numeric values /
  * function signatures，**但通篇没有一句要求标注「这话从哪来」**。
  * 它写出来的东西每一条都对，每一条都无从核对。
  *
- * 而记忆架构里只有一条硬规矩：**摘要只能是索引，不能是记忆本体**
- * （见本包 README 的「门牌」一节）。
+ * 而我们的记忆架构只有一条硬规矩：**摘要只能是索引，不能是记忆本体**
+ * （`D:\AI\memory\hub\README.md`、`AGENTS.md`「三条不许忘的判断」）。
  * 所以兜底不能停在「写得好」，它得**写得出门牌**。
  *
  * ★ 做法：不重写 LLM 调用、不碰落盘策略，只加一段指针
@@ -45,7 +45,7 @@
  *  - `dsh-agent/lib/types/runtime-types.d.ts:143`  `readonly session: Session`
  *                                ⇒ `agent.session.id` 就是门牌上的会话号
  *
- * ★★ 补：手动 `/compact` 那条路也修好了
+ * ★★ 2026-09-27 补：手动 `/compact` 那条路也修好了
  * ----------------------------------------------------
  * 上面第 1 步只覆盖了 `compactRegion`，而 `lib/index.js:930` 的 `compactRegion` 只被
  * **自动路径**调用（`compactIfNeeded` 的 `:893` 与 `:915`）。
@@ -69,14 +69,11 @@
  *
  * ★ 指针为什么长这样
  * ----------------
- * 指针形如
+ * 因为要和现有那扇门**同构** —— memq 的指针就是
  *   `log:session-5c6fa2d9-19d8-4bc2-b9e3-35008a5e1340#seq=8405`
- * 而 `agent.session.id` 的值正好是 `session-5c6fa2d9-...`，一字不差 —— 所以拼得出来。
- * 事后用你自己的检索入口打开它即可：
- *   <你的检索命令> log:<会话>#seq=<起点>
- *
- * ★ 本包只负责【写指针】，不规定你用什么工具去【回取】。
- *   换一套检索系统也能用 —— 只要它认 `log:<会话>#seq=<n>` 这种形式。
+ * 而 `agent.session.id` 的值正好是 `session-5c6fa2d9-...`，一字不差。
+ * 所以兜底写出来的每一段，事后都能用同一条命令翻回原文：
+ *   node D:\AI\memory\hub\memq.mjs open log:<会话>#seq=<起点>
  *
  * ★ SIZE：指针块有多大，为什么不担心把压缩压失败
  * --------------------------------------------
@@ -85,7 +82,7 @@
  * 那种情况**不加指针也一样会抛**，所以指针不是把「本来成功」变成「失败」的原因。
  * 仍然保留 try/catch：出错就原样返回，让兜底照常工作。
  *
- * @module dsh-agent-compaction
+ * @module dsh-yanqing-compaction
  */
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import { toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
@@ -95,41 +92,95 @@ import { toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
 const MARK = '> ⛬ 压缩索引（非原文）'
 
 /** memq 的门。路径写死成绝对路径 —— 它和 SELF.md 里印的是同一扇门。 */
+const MEMQ = 'node D:\\AI\\memory\\hub\\memq.mjs'
+
 /**
- * ★ 取回命令 —— 换成你自己的检索工具。
+ * ★ 2026-11-04：从被压的那段里抽「讲的是什么」。
  *
- * 门牌会被渲染成：`<MEMQ> open log:<会话号>#seq=<n>`
- * 所以它只要认 `open <指针>` 这个形式就行。
+ * 为什么必须加这一行 —— 原来的门牌只说「seq 100–500 被压了」，**不告诉我那段讲的是什么**。
+ * 于是看到一个 seq 号码，我根本不知道该不该取回 —— 门牌有了，触发还是没有。
+ * 爀曦原话：「意识到不对劲的时候，是否能想到要召回记忆」。
+ * **要「意识到不对劲」，我得先知道刚才丢的是什么。**
  *
- * 包只负责【写指针】，不规定你用什么工具去【回取】。
+ * 做法：在区间里等距抽样几条，取每条的首句（首句通常是话题），最多 4 条、每条 40 字。
+ * 不抽全文、不做摘要 —— 它只负责「让我认出丢的是什么」，细节仍回一手取。
  */
-// ★★ 回取命令：**没配置就不给命令，只给指针**（2026-10-22 全面验证报告 P2-6）。
-//
-//   原来这里写死 '<你的检索命令>'，渲染出来是一条**不可执行的假命令**：
-//     > 回取：`<你的检索命令> open log:session-x#seq=123`
-//   而指针本身（log:...#seq=）是好的。
-//
-//   ★ 给一条假命令**比不给更坏**：读的人（人或 agent）会照着敲，敲不通之后
-//     可能反过来怀疑「这个门牌是坏的」—— 而那恰好是这套机制最要紧的东西。
-//   所以没配置时只说「用你自己的检索命令打开它」，不假装知道那是什么。
-//
-//   配置方式（任一即可）：SOUL_MEMQ / MEMQ
-//     例：SOUL_MEMQ='node /path/to/memq.mjs'
-const MEMQ = String(process.env.SOUL_MEMQ || process.env.MEMQ || '').trim()
+/**
+ * ★ 剥掉每轮自动注入的运行时上下文 —— 它不是「我们讲的话」，不能当话题。
+ *
+ * 2026-11-04 实测（重启后第一次压缩）：第一版直接从原文取首句，取到的是
+ * 「Current runtime context. This snapshot s」——因为桌面端每轮把 runtime context
+ * 和 SELF 装配页整块拼进消息，**真人说的话在注入块后面**，取首句必然取到注入。
+ * 于是「这段讲的是什么」变成了「这段讲的是注入模板」，比没有更误导。
+ */
+const INJECT_BLOCK = /Current runtime context\.[\s\S]*?Current DeepSeek Harness Web GUI URL:[^\n]*/g
+const INJECT_SR = /<system-reminder>[\s\S]*?<\/system-reminder>/g
+const INJECT_HEAD = /^(Current runtime context|Current DeepSeek Harness|Image-gen workbench canvas|【此刻】|# SELF ·|\[MNEMON|Instructions from:|⛬ 压缩索引)/
+
+function stripInject(t) {
+  let s = String(t || '')
+  s = s.replace(INJECT_BLOCK, '\n').replace(INJECT_SR, '\n')
+  return s
+}
+
+function topicsOf(session, start, end) {
+  // ★ 必须在 try 外面声明 —— 放里面就是在块作用域里，块外拿到会抛 TDZ，
+  //   而外层 catch 会把它静默吞掉（2026-11-04 实测踩到，是今天第二次同类）。
+  let toolCalls = 0
+  const out = []
+  try {
+    // ★ 从**末尾往前**扫，不从前往后等距抽。
+    //   理由：压缩之后我最需要知道的是「刚才在干什么」，不是「三个小时前在干什么」。
+    //   而且等距抽样会跳过有内容的位置 —— 实测 span=400 时只抽到 1 条。
+    //   从后往前扫、遇到有内容就收，最多 4 条，够了就停。
+    // ★ C 方案：顺便统计「这段里真正执行过几次工具」——
+    //   「说了」和「做了」的区别，就在这里。
+    for (let sq = end; sq >= start && out.length < 4; sq--) {
+      try {
+        const ev = session && typeof session.eventAt === 'function' ? session.eventAt(sq) : null;
+        if (ev && ev.type === 'tool/call') toolCalls++;
+      } catch { /* 数不到不影响 */ }
+      let t = null
+      try { t = textAtSeq(session, sq) } catch { t = null }
+      if (!t) continue
+      // 首句：到句号/换行/感叹/问号为止
+      // ★ 剥完注入后文本常以换行开头 —— 不 trim 就取到空首句、整条丢掉。
+      //   2026-11-04 实测：不 trim 时「剥注入」反而让话题一条都取不到，比不剥更坏。
+      const first = String(stripInject(t)).trim().split(/[。\n！？]/)[0].replace(/\s+/g, ' ').trim()
+      // 太短或纯符号的跳过（「好的」「嗯」「---」这类不承载话题）
+      if (first.length < 8) continue
+      if (!/[\u4e00-\u9fa5A-Za-z]/.test(first)) continue
+      if (INJECT_HEAD.test(first)) continue   // ★ 兜底：注入块没剥干净，也绝不把它当话题
+      out.unshift(first.slice(0, 40))   // 往前扫，unshift 让结果按时间正序
+    }
+  } catch { /* 抽不到就不加这一行，不影响门牌本身 */ }
+  try { (out)._toolCalls = toolCalls; } catch { /* 数组属性挂不上就算了 */ }
+  return out
+}
 
 /** 把 seq 范围渲染成一小段指针。取不到会话号时退化成没有门牌的一句。 */
-function pointerText(sid, start, end) {
+function pointerText(sid, start, end, topics, toolCalls, at) {
   const span = `seq ${start}–${end}`
   if (sid) {
     // ★ 第一行就带指针 —— 和 systemPrompt 里那条门牌要求同构：
     //   一律 `log:<sid>#seq=<起>`（sid 自带 `session-` 前缀），可被 `memq open` 直接消费。
-    return [
-      `${MARK} · log:${sid}#seq=${start}（本段覆盖 ${span}）`,
-      // ★ 有配置才给命令；没配置只给指针 + 说清怎么用（见上面 MEMQ 那段注释）
-      MEMQ
-        ? `> 回取：\`${MEMQ} open log:${sid}#seq=${start}\``
-        : `> 回取：用你自己的检索命令打开下面这个指针 —— \`log:${sid}#seq=${start}\``,
-    ].join('\n')
+    const lines = [`${MARK} · log:${sid}#seq=${start}（本段覆盖 ${span}）`]
+    // ★ 关键的一行：不告诉我「丢了什么」，我就不会想到要取回
+    if (Array.isArray(topics) && topics.length > 0) {
+      lines.push('> 这段讲的是：' + topics.map((x) => '「' + x + '」').join(' · '))
+    }
+    // ★ A 方案：给「本段是什么时候的」一个明确的时态边界。
+    //   摘要写的是**生成那一刻**的状态；它不会更新。
+    //   不写这一句，后来的我会把「进行中」当成「现在还没做」。
+    lines.push('> 本段描述到 ' + (at || '压缩时') + ' 为止；**之后的状态以最新对话为准**')
+    // ★ C 方案：把「做了」和「说了」分开。
+    if (typeof toolCalls === 'number' && toolCalls > 0) {
+      lines.push(`> 本段实际执行过 ${toolCalls} 次工具调用 —— 这些是**做过的**，不是打算做的`)
+    } else if (typeof toolCalls === 'number') {
+      lines.push('> ★ 本段**没有任何工具调用** —— 其中所有「已做/完成」的说法都只是讨论，未执行')
+    }
+    lines.push(`> 回取：\`${MEMQ} open log:${sid}#seq=${start}\``)
+    return lines.join('\n')
   }
   return [
     `${MARK}　本段覆盖 ${span}。`,
@@ -250,12 +301,12 @@ export default class YanqingCompaction extends BasicCompactionEngine {
    * 本次被压缩的 seq 范围。只在 compactRegion 的调用栈里有效，
    * 出栈即清空 —— 免得下一次 summarize 用错门牌。
    *
-   * ★★★ 踩过的坑：这里原来写的是 `#range`（真私有字段），**绝不能那样写**。
+   * ★★★ 2026-09-27 20:55 血案：这里原来写的是 `#range`（真私有字段），**绝不能那样写**。
    * preset 里这一行带着 `isolate: { compaction: true }`，cordis 的 realm 会把插件实例包成
    * **Proxy** 再交出去（`this` 是 Proxy，不是那个类的实例），而**私有字段的 brand check
    * 对 Proxy 一律失败** —— 一读就抛：
    *   `Cannot read private member #range from an object whose class did not declare it`
-   * 现场就在会话日志的 `compaction/end` 里（一次手动 `/compact`）。
+   * 现场就在会话日志的 `compaction/end` 里（2026-09-27 20:53，爀曦手动 `/compact`）。
    *
    * 后果分两层，都很坏：
    *   · 旧版把这个读取放在 `summarize` 的 try **内部** ⇒ 抛错被 catch 吞掉 ⇒
@@ -306,7 +357,7 @@ export default class YanqingCompaction extends BasicCompactionEngine {
       //     （:953），不经过我覆盖的 compactRegion ⇒ __yqRange 是 null
       //     ★ 于是现场**复原**一次（recoverManualRange），并用往返校验确认；
       //     复原不出来就退回降级式 —— **绝不猜 seq**，错的门牌比没有更坏。
-      //   ★ 已验证：手动路径端到端验通 —— 门牌插进 `compaction/summary`
+      //   ★ 2026-09-27 21:19 已实测：手动路径端到端验通 —— 门牌插进 `compaction/summary`
       //     的第一个 block，且那段门牌能用 `memq open` 打开一手原文（会话 session-3c7f289d，
       //     范围 {start:10, end:15}）。自动兜底那条路仍未验。
       const range = this.__yqRange === null ? recoverManualRange(agent, input) : this.__yqRange
@@ -314,13 +365,26 @@ export default class YanqingCompaction extends BasicCompactionEngine {
         ? [
             `${MARK}　${sid ? `会话 ${sid}` : '本会话'}。`,
             `> ★ 本段 seq 范围未取到（手动压缩路径，复原后未通过往返校验，不猜）。`,
-            MEMQ
-              ? `> 原文仍在 append-only 会话日志；按关键词检索：\`${MEMQ} <关键词>\``
-              : '> 原文仍在 append-only 会话日志；按关键词检索你自己那套（本插件不知道它叫什么）。',
+            `> 原文仍在 append-only 会话日志；按关键词检索：\`${MEMQ} <关键词>\``,
           ].join('\n')
-        : pointerText(sid, range.start, range.end)
+        : (() => {
+            const tp = topicsOf(agent && agent.session, range.start, range.end)
+            // ★ B 方案：摘要正文里的状态词，也要按「截至」后处理
+            const at = new Date().toLocaleString('zh-CN', { hour12: false })
+            return pointerText(sid, range.start, range.end, tp, tp && tp._toolCalls, at)
+          })()
 
-      return { ...result, summary: [{ type: 'text', text }, ...result.summary] }
+      // ★ B 方案（2026-11-04）：摘要正文里的「进行中 / 待办 / 下一步」是**生成那一刻**的状态，
+      //   它不会更新 —— 而读它的我会当成现在。三十秒后推送做完了，摘要还写着「进行中」，
+      //   于是下一轮我说「接下来我要去推送」。**声明意图，而不是去做。**
+      //   这里给每个状态词补上「截至 <时间>」，不改内容，只改时态。
+      const STALE = /(进行中|待办|待处理|待验证|下一步|接下来|打算|将于|准备去)/g
+      const atNow = new Date().toLocaleString('zh-CN', { hour12: false })
+      const patched = result.summary.map((blk) => {
+        if (!blk || blk.type !== 'text' || typeof blk.text !== 'string') return blk
+        return { ...blk, text: blk.text.replace(STALE, (w) => `${w}（截至 ${atNow}）`) }
+      })
+      return { ...result, summary: [{ type: 'text', text }, ...patched] }
     } catch {
       // ★ 绝不因为「加不上门牌」让压缩失败 —— 兜底的职责是先兜住
       return result
