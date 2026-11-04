@@ -404,6 +404,39 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-05 · 坑 5 从 WARN 变 OK —— 不是放宽判据，是找对了路径
+
+上一轮那条 echo 检查报 WARN 说「找不到」。**它是对的，我错了。**
+
+读完 `plugins/echo/index.js` 的 `resolveHub()`（90 行），发现我漏了一条：
+
+```js
+const up2 = path.dirname(path.dirname(DSH_HOME))
+push(path.join(up2, "memory", "hub"))
+```
+
+**这条正好是本机的布局**：`DSH_HOME=D:/AI/dsh/home` → 往上两级 = `D:/AI` → `D:/AI/memory/hub` ✓
+
+而我的检查器算出的是 `C:\Users\memory\hub`（不存在），因为**我在普通 node 里跑，`DSH_HOME` 是空的**，
+就退回了 `~/.dsh` = `C:\Users\pc\.dsh`。
+
+#### 修法：从 profile 反推，不读环境变量
+
+```js
+// profile 就在 DSH_HOME 下面两级（<DSH_HOME>/profiles/<name>）
+const up = path.dirname(path.dirname(profile))
+if (fs.existsSync(path.join(up, "profiles"))) dshHome = up
+```
+
+★ **这是「不猜，从现场推」**：环境变量在检查器的运行环境里不一定有，
+但 profile 路径是我手上确定的事实 —— 从它推，比读一个可能为空的环境变量可靠。
+
+现在输出是：`OK  echo 的三个脚本在不在（坑 5）  HUB=D:\AI\memory\hub，三个都在`
+
+★ 这一条值得记下来：**上一轮我把它降成 WARN，是对的判断；这一轮把它修成 OK，是找到了原因。**
+两件事不一样 —— **降级是「我先不判」，修复是「我知道为什么」**。
+
+
 ### 2026-11-05 · 坑 5 加进 verify-runtime（WARN 级，标注待查）
 
 坑 5 是「装完了、没报错、但它没在工作」—— echo 要三个脚本才能跑，缺了会被 try/catch 吞掉。

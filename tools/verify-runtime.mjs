@@ -384,10 +384,25 @@ function checkEchoHub() {
   const cands = []
   const push = (p) => { if (p && cands.indexOf(p) < 0) cands.push(p) }
   push(process.env.ECHO_HUB)
-  const dshHome = (process.env.DSH_HOME || process.env.ECHO_DSH_HOME || "").trim()
-    || path.join(os.homedir(), ".dsh")
-  push(path.join(dshHome, "hub"))
+  // ★★ 2026-11-05 修：DSH_HOME 不能只靠环境变量。
+  //   在普通 node 里跑时 process.env.DSH_HOME 是空的，会退回 ~/.dsh = C:\Users\pc\.dsh，
+  //   而 resolveHub() 的 up2 = dirname(dirname(DSH_HOME)) 于是推成 C:\Users\memory\hub —— 不存在。
+  //   本机真实布局：DSH_HOME=D:/AI/dsh/home → up2=D:/AI → D:/AI/memory/hub ✓
+  //
+  //   ★ profile 就在 DSH_HOME 下面两级（<DSH_HOME>/profiles/<name>），
+  //     所以**从 profile 反推**比读环境变量可靠 —— 这是「不猜，从现场推」。
+  let dshHome = (process.env.DSH_HOME || process.env.ECHO_DSH_HOME || "").trim()
+  if (!dshHome && profile) {
+    const up = path.dirname(path.dirname(profile))
+    if (fs.existsSync(path.join(up, "profiles"))) dshHome = up
+  }
+  if (!dshHome) dshHome = path.join(os.homedir(), ".dsh")
+  const DSH_HOME = dshHome
+  push(path.join(DSH_HOME, "hub"))
   push(path.join(os.homedir(), ".dsh", "hub"))
+  // ★ 照抄 resolveHub() 的这条（L111-114）：DSH_HOME 往上两级 + memory/hub
+  //   本机 DSH_HOME=D:/AI/dsh/home → D:/AI/memory/hub。原来我漏了这条。
+  try { push(path.join(path.dirname(path.dirname(DSH_HOME)), "memory", "hub")) } catch (e) {}
 
   // ★ 2026-11-05 待查（别当已解决）：本机 echo.config.json 在 D:/AI/memory/hub/，
   //   而 kit/echo/echo-config.mjs 的候选**没有这个位置**（只有 kit/echo、kit、仓库根、$DSH_HOME/hub）。
