@@ -661,3 +661,43 @@ ln -s /path/to/dsh-agent-soul node_modules/dsh-agent-soul
 
 ★ 这一条真正想说的是：**「命令成功」和「副本更新了」是两件事**。
 和坑 1、坑 5 是同一个形状 —— 这次连报错都没有，只有一句看起来像好消息的 `Already up to date`。
+
+---
+
+## 向量层（可选，2026-11-04 加）
+
+**它只在「字面命中不足 3 条」时兜底，不做加工、不做提炼 —— 只找出可能相关的那几条门牌，原文还得取回。**
+
+### 装
+
+```bash
+cd kit/echo/models/bge-small-zh
+npm install          # 装 @huggingface/transformers（约 479MB）
+```
+
+模型本体（`onnx_model_quantized.onnx` 22.9MB + tokenizer）**随仓库带**，不用另下。
+
+### 建索引
+
+```bash
+node embed.mjs       # 增量嵌入，只处理没嵌过的
+```
+
+生成 `<ECHO_SOUL>/00-记忆库/vectors.meta.json`。
+
+### 验证
+
+```bash
+node recall.mjs "一段上下文"    # 算它和哪些记忆相关
+node vecsearch.mjs "问题"       # 独立验证，不经过 echo-mcp
+```
+
+### ★ 不装会怎样
+
+**整个向量层静默跳过**，其他五层（墨 / 索引 / 书房 / 门牌 / 正文）照常工作。
+只有「字面命中 < 3 条」时少一层兜底，不影响任何已有结果。
+
+### 路径
+
+向量层不再硬编码 —— 模型目录从 `ECHO_HUB`（或 `echo.config.json`）推，
+元数据从 `ECHO_SOUL` 推。**都没配就报错退出，不会偷偷用别的路径。**

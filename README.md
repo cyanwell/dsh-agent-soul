@@ -388,6 +388,82 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-04 · ECHO 加向量层、检索从 182ms 打到 16ms；全组件去死路径
+
+**这一轮两件事：加了向量，重写了检索速度。**
+
+#### 一、向量层（新增）
+
+**用途**：只在**字面命中不足**时兜底 —— `total < 3` 才跑。
+
+★ **它不做记忆加工、不做提炼，只做「更精确快速地找出可能相关的那几条」，
+拿到的永远是门牌，原文还得自己取回。** 这是设计约束，不是实现细节。
+
+| 组件 | 位置 | 是否进 git |
+|---|---|---|
+| 模型本体（bge-small-zh-v1.5 int8） | `kit/echo/models/bge-small-zh/` | **进**（47MB，onnx 22.9MB） |
+| 依赖 `@huggingface/transformers` | 同上 `node_modules/` | **不进**（479MB，靠 `npm install`） |
+| 三个独立工具 | 同上 | 进 |
+| `vectors.meta.json`（向量索引元数据） | 记忆库 `00-记忆库/` | 不进（生成物） |
+
+**安装**：
+```bash
+cd kit/echo/models/bge-small-zh && npm install
+```
+
+**三个独立工具**（不经过 echo-mcp，可单独验证）：
+```bash
+node embed.mjs              # 增量嵌入（只嵌没嵌过的）
+node recall.mjs "一段上下文"   # 算它和哪些记忆相关
+node vecsearch.mjs "问题"     # 独立验证向量检索
+```
+
+★ **模型缺失时整个向量层静默跳过**，不影响其他五层 —— 装了没装都能用。
+
+#### 二、检索速度：182ms → 16ms（11.4 倍）
+
+| 轮次 | 改了什么 | 中位 |
+|---|---|---|
+| 起点 | — | 182ms |
+| ① | `norm()` 循环写在 `if` 外面（每查询白烧 100-130ms） | 58ms |
+| ② | 位图倒排（24MB，构建 435ms） | 25ms |
+| ③ | 多字 AND 预筛 + 位图改小写构建 | 29ms |
+| ④ | 墨层 `_n`/`_flat` 预计算 | 24ms |
+| ⑤ | ASCII 2-gram 位图（4.5MB） | 16ms |
+| ⑥ | **门牌层缺 `_n`** ← 最后一刀 | **16ms** |
+
+**最终**：中文 9-28ms，英文 44-53ms，结果与全扫版 **100% 一致**。
+
+#### 三、三条实测换来的判据
+
+**① 能被忘掉的参数，迟早会被忘掉。**
+`hitKind(文本, terms, near, 预计算norm, termsN)` 第 4 个参数可省略、不报错、只变慢 ——
+同一类 bug 出现了**三次**（摘要层、墨层、门牌层）。
+
+**② 位图的收益来自缩小验证范围，不只是缩小候选。**
+「单字该跳过位图」的推理很顺，实测反而慢 21ms ——
+`includes` 的**调用次数**有成本，不只扫描字符数。
+
+**③ 内存不是越多越好，局部性优先。**
+3-gram 精确 Map（458MB）比 4096 桶哈希（28MB）**更慢**（27ms vs 16ms）——
+位图分散在堆上，每次查询全是 cache miss。
+
+#### 四、去掉全部死路径
+
+`echo-mcp.mjs` 里原有 **8 处**本机绝对路径（`D:\AI\memory\...`），全部改成从 `echo-config.mjs` 解析：
+
+```js
+import { HUB as CFG_HUB, SOUL as CFG_SOUL, LEDGER as CFG_LEDGER } from "./echo-config.mjs";
+const HUB  = process.env.ECHO_HUB  || CFG_HUB;
+const SOUL = process.env.ECHO_SOUL || CFG_SOUL;
+if (!HUB || !SOUL) { /* 明确报错退出，不偷偷用默认值 */ }
+```
+
+★ **未配置就报错退出（exit 2）并打印怎么配 —— 不再「零报错、只是全空」。**
+
+**验证**：kit 版用纯 `ECHO_MEMORY` / `ECHO_SOUL` / `ECHO_SESSIONS` 环境变量跑通，
+中文 102ms / 英文 67ms / stats 正常，**不需要任何本机路径**。
+
 ### 2026-11-04 · 换气报 `no open turn` 的真相：`lib` 从没重新编译过
 
 **现象**：面板一直报
