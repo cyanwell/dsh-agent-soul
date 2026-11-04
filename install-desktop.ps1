@@ -169,7 +169,14 @@ foreach ($d in @('kit','soul','skeleton','tools','plugins')) {
 $mustHave = @('client.js','index.js','cordis.patch.yml','package.json','plugins','tools/add-bundle.cjs')
 $missing = @()
 foreach ($m in $mustHave) {
-  if (-not (Test-Path (Join-Path $stage $m))) { $missing += $m }
+  $p = Join-Path $stage $m
+  if (-not (Test-Path $p)) { $missing += $m; continue }
+  # ★ 2026-11-05：**存在 ≠ 有效**。原来只 Test-Path —— 一个 0 字节的 client.js 也能过，
+  #   而 0 字节的客户端半和没有它一样：DSH 起不来 → sanitizeProfile → 抹掉用户的 bundles。
+  #   这里是**文件**就必须非空；目录（plugins）不查大小。
+  if (Test-Path $p -PathType Leaf) {
+    if ((Get-Item $p).Length -le 0) { $missing += "$m (0 bytes)" }
+  }
 }
 if ($missing.Count -gt 0) {
   Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
@@ -295,5 +302,26 @@ if (Test-Path $oneShot) {
   Write-Host ''
   Write-Host '  After restart, one command answers "is it actually running":' -ForegroundColor DarkGray
   Write-Host "    node `"$oneShot`"" -ForegroundColor Cyan
+}
+
+# ★ 2026-11-05 加：装完立刻跑一次运行时检查（verify-runtime）。
+#   它查的是 verify-packaging 查不到的那几条：副本新旧 / client 入口 / pnpm / 执行策略。
+#   ★ 注意：它只读，不写任何文件。
+$rtScript = Join-Path $PSScriptRoot 'tools\verify-runtime.mjs'
+if (Test-Path $rtScript) {
+  Write-Host ''
+  Write-Host '  ---------------------------------' -ForegroundColor Cyan
+  Write-Host '  runtime check (right after install)' -ForegroundColor Cyan
+  if ($nodeExe) {
+    & $nodeExe $rtScript '--profile' $Profile
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host ''
+      Write-Host '  ★ 上面有 FAIL —— 但你的 profile 没被进一步改动。' -ForegroundColor Yellow
+      Write-Host '    看每条后面的 → 那一行，它给了下一步怎么做。' -ForegroundColor DarkGray
+    }
+  } else {
+    Write-Host '  (node not on PATH - run this yourself:)' -ForegroundColor DarkGray
+    Write-Host "    node `"$rtScript`" --profile `"$Profile`"" -ForegroundColor DarkGray
+  }
 }
 Write-Host ''

@@ -388,6 +388,51 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-05 · 安装脚本补两个安全弱点：0 字节能过、装完不自检
+
+`install-desktop.ps1` 本来就有完整的「暂存 → 验 → 换上 → 回滚」，我逐条读了一遍，
+它守住了这五件事：
+
+| 守住什么 | 怎么守的 |
+|---|---|
+| 暂存验不过就丢，不碰 profile | `Die` 前先 `Remove-Item $stage`，且发生在 rename-aside 之前 |
+| 老是先改名再换新的 | `Rename-Item $dest` → 移入新的；移入失败可改名回滚 |
+| 移入失败分两种报错 | 「回滚成功」和「回滚失败 + 备份路径」是两句不同的话 |
+| 改 package.json 前先备份 | 带时间戳的 `.bak`，改失败 `Copy-Item $bak` 恢复 |
+| DSH 在跑时不动手 | 改名失败 → `Die`「DSH 可能还开着，退出后重跑」 |
+
+但有两个真实弱点：
+
+#### 弱点 1：只查「存在」，不查「有效」
+
+```powershell
+if (-not (Test-Path (Join-Path $stage $m))) { $missing += $m }
+```
+
+**一个 0 字节的 `client.js` 也能过这条检查** —— 而 0 字节的客户端半和没有它一样：
+DSH 起不来 → `sanitizeProfile` → **抹掉用户的 bundles**。
+这是「存在 ≠ 有效」的典型：检查写对了形状，但没写对判据。
+
+改成：文件必须非空（目录不查大小）。
+
+#### 弱点 2：装完不自检
+
+脚本装完只跑 `verify-client-ids`（静态），**不跑 `verify-runtime`**（我上一轮加的那 5 条）。
+于是「装完了」这句话在脚本眼里等于「文件拷过去了」。
+
+现在装完立刻跑一次 `verify-runtime --profile <当前 profile>`。
+**它只读，不写任何文件** —— 不会因为自检再弄脏什么。
+
+#### 一个我差点做错的改动
+
+改的时候习惯性把行尾统一成了 CRLF（`.cmd` 必须那样）。
+但这是个 `.ps1` —— **PowerShell 接受 LF**，而原文件本来就是 LF（299 处裸 LF、0 处 CRLF）。
+统一成 CRLF 会让 `git diff` 显示整个文件都变了，把真正的改动埋掉。
+**改回去了**，现在 diff 是 29 行新增 + 1 行删除。
+
+（`.cmd` 要 CRLF 是 cmd.exe 的限制，`.ps1` 没有这条 —— 别把一条规矩的适用范围用过头。）
+
+
 ### 2026-11-05 · verify-runtime 到 5 条：pnpm 那条查实了，执行策略也纳入
 
 #### pnpm：从「含糊的提醒」到「说清两条路」
