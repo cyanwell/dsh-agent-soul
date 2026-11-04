@@ -26,7 +26,7 @@ import zlib from "node:zlib";
 // ★ 路径全部走 echo-config.mjs（2026-11-04）——
 //   kit 版不留任何本机绝对路径：未配置就明确报错，而不是偷偷用 D:\AI\ 然后在你机器上找不到东西。
 //   配置优先级：ECHO_HUB / ECHO_SOUL / ECHO_MEMORY 环境变量 → echo.config.json → 推断。
-import { HUB as CFG_HUB, SOUL as CFG_SOUL, LEDGER as CFG_LEDGER, checkConfig } from "./echo-config.mjs";
+import { HUB as CFG_HUB, SOUL as CFG_SOUL, LEDGER as CFG_LEDGER, SESSIONS as CFG_SESSIONS, checkConfig } from "./echo-config.mjs";
 
 const HUB = process.env.ECHO_HUB || CFG_HUB;
 const SOUL = process.env.ECHO_SOUL || CFG_SOUL;
@@ -156,7 +156,10 @@ const LOG_DAYS = cfgNum("ECHO_LOG_DAYS", "logDays", 3);
 const MEM_BUDGET_MB = cfgNum("ECHO_MEM_BUDGET_MB", "memBudgetMB", 768);
 
 const LOG_SNIP = 600;
-const SESS_DIR = process.env.ECHO_SESSIONS || "D:\\AI\\dsh\\home\\sessions";
+// ★ 不写死本机路径（2026-11-05）：会话日志根走 echo-config 的三级推断
+//   ECHO_SESSIONS 环境变量 → echo.config.json → <DSH_HOME>/sessions
+//   推不出来就是 null —— 下面 D 会跳过会话层，而不是去 D:\AI 下瞎找。
+const SESS_DIR = CFG_SESSIONS;
 const ZMAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
 
 const messageText = (j) => {

@@ -29,8 +29,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline, env } from '@huggingface/transformers';
 
-const DIR = 'D:\\AI\\memory\\hub\\models\\bge-small-zh';
-const LIB = 'D:\\AI\\yanqing-soul\\00-记忆库';
+// ★ 不写死本机路径（2026-11-05）：
+//   模型就在这个目录里（model_quantized.onnx 与本文件同级）→ 从 import.meta.url 推。
+//   记忆库是用户数据 → ECHO_MEMORY / echo.config.json，用到处才检查。
+const DIR = path.dirname(fileURLToPath(import.meta.url));
+const libRoot = () => {
+  const m = process.env.ECHO_MEMORY || null;
+  if (m) return m.endsWith('00-记忆库') ? m : path.join(m, '00-记忆库');
+  throw new Error('[向量层] 没配置记忆库根。设 ECHO_MEMORY，或在 echo.config.json 里写 memory。');
+};
 const PREFIX = '为这个句子生成表示以用于检索相关文章：';
 
 // ★ 推送阈值比搜索阈值高 —— 搜索是「我要」，推送是「你没要」
@@ -48,9 +55,9 @@ env.localModelPath = DIR;
 env.useBrowserCache = false;
 
 const loadIdx = () => {
-  const meta = JSON.parse(fs.readFileSync(path.join(LIB, 'vectors.meta.json'), 'utf8'));
+  const meta = JSON.parse(fs.readFileSync(path.join(libRoot(), 'vectors.meta.json'), 'utf8'));
   const chunks = new Map();
-  for (const l of fs.readFileSync(path.join(LIB, 'chunks.jsonl'), 'utf8').split('\n')) {
+  for (const l of fs.readFileSync(path.join(libRoot(), 'chunks.jsonl'), 'utf8').split('\n')) {
     if (!l) continue;
     try { const c = JSON.parse(l); chunks.set(c.id, c); } catch {}
   }

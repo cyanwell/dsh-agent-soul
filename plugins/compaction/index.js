@@ -91,8 +91,18 @@ import { toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
 /** 摘要框的行首标记 —— 醒目的一个词，让后来的我一眼认出这是压缩产物。 */
 const MARK = '> ⛬ 压缩索引（非原文）'
 
-/** memq 的门。路径写死成绝对路径 —— 它和 SELF.md 里印的是同一扇门。 */
-const MEMQ = 'node D:\\AI\\memory\\hub\\memq.mjs'
+/**
+ * memq 的门 —— **不写死本机路径**（2026-11-05）。
+ *
+ * 门牌里印的这条命令是给「后来的人」用的：配置了 ECHO_HUB / ECHO_MEMORY 就印真路径，
+ * 没配置就印一个占位符让人自己替换 —— 绝不在别人机器上印一条他根本没装过的 D:\AI 路径。
+ */
+const MEMQ = (() => {
+  const strip = (s) => String(s || '').replace(/[\\/]+$/, '')
+  const hub = process.env.ECHO_HUB
+    || (process.env.ECHO_MEMORY ? strip(process.env.ECHO_MEMORY) + '/hub' : null)
+  return hub ? `node ${strip(hub)}/memq.mjs` : 'node <你的 ECHO hub>/memq.mjs'
+})()
 
 /**
  * ★ 2026-11-04：从被压的那段里抽「讲的是什么」。

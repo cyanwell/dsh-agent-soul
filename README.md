@@ -388,6 +388,37 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-05 · 清掉 6 处写死的本机路径：别人的机器上不再「静默找不到东西」
+
+**起因**：`tools/verify-packaging.mjs` 那条「代码里没有写死的本机路径」是红的 —— 135/136。
+这条检查本来就在，红了很久没人修；而它拦的正是「**装上、没报错、但读不到数据**」这一类。
+
+### 修了什么
+
+| 位置 | 原写法 | 现在 |
+|---|---|---|
+| `kit/echo/echo-mcp.mjs:159` | `process.env.ECHO_SESSIONS \|\| "D:\\AI\\dsh\\home\\sessions"` | 用 `echo-config.mjs` 已有的 `SESSIONS`（环境变量 → 配置文件 → `<DSH_HOME>/sessions`），推不出来就是 `null`，D 层跳过会话检索而不是去 `D:\AI` 下瞎找 |
+| `kit/echo/models/bge-small-zh/embed.mjs` | 模型与记忆库都写死 | 模型从 `import.meta.url` 推（**权重就在同目录**，24MB 的 `model_quantized.onnx`），记忆库走 `ECHO_MEMORY` |
+| 同上 `recall.mjs` / `vecsearch.mjs` | 同一套写死 | 同上 |
+| `plugins/compaction/index.js:95` | `const MEMQ = 'node D:\\AI\\memory\\hub\\memq.mjs'` | 从 `ECHO_HUB` / `ECHO_MEMORY` 推断；**推不出来就印 `<你的 ECHO hub>` 占位符**，不在门牌里印一条别人没装过的路径 |
+
+### 两条设计取舍
+
+- **记忆库缺失不顶层 throw** —— 向量层是可选的。改成「用到时才检查」，否则任何 import 这个文件的代码都会连带崩掉，哪怕根本没用向量层。
+- **模型路径从脚本自身位置推，不从配置读** —— 权重和脚本在同一个目录里，这是唯一不会漂的参照。写死一个外部路径正是原来那个 bug 的来源（模型其实早就打包进来了，代码却指向 `D:\AI\memory\hub\models\`）。
+
+### 验证
+
+```
+node tools/verify-packaging.mjs
+# 修前：通过 135 / 136，FAIL「代码里没有写死的本机路径」
+# 修后：★ 全部通过
+```
+
+★ 这一轮是**检查器自己把自己修绿了** —— 那条断言两年前就写在那儿，红着没人管。
+它一红就把六个副本一次全指出来，比人工翻快得多。**能写成断言的就别靠"我记得检查过"。**
+
+
 ### 2026-11-05 · preset 去个人化：中转站 provider 与个人视角引用移除
 
 **背景**：社区反馈「全能 preset 里有无关的、甚至涉及隐私的内容」。逐项核后修了三处。

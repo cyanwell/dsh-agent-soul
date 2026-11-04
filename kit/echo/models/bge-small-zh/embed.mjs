@@ -23,11 +23,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline, env } from '@huggingface/transformers';
 
-const DIR = 'D:\\AI\\memory\\hub\\models\\bge-small-zh';
-const LIB = 'D:\\AI\\yanqing-soul\\00-记忆库';
-const CHUNKS = path.join(LIB, 'chunks.jsonl');
-const VECOUT = path.join(LIB, 'vectors.f32');
-const METAOUT = path.join(LIB, 'vectors.meta.json');
+// ★ 不写死本机路径（2026-11-05）：
+//   模型就在这个目录里（model_quantized.onnx 与本文件同级）→ 从 import.meta.url 推，永远对得上。
+//   记忆库是用户数据 → 走 echo.config.json / ECHO_MEMORY，**用到时才检查**（不在顶层 throw，
+//   否则任何 import 这个文件的代码都会连带崩掉，哪怕根本没用向量层）。
+const DIR = path.dirname(fileURLToPath(import.meta.url));
+const libRoot = () => {
+  const m = process.env.ECHO_MEMORY || null;
+  if (m) return m.endsWith('00-记忆库') ? m : path.join(m, '00-记忆库');
+  throw new Error(
+    '[向量层] 没配置记忆库根。设 ECHO_MEMORY 指向你的记忆库目录，',
+    '或在 echo.config.json 里写 memory。向量层是可选功能 —— 不装不影响检索主链路。'
+  );
+};
+const chunksPath = () => path.join(libRoot(), 'chunks.jsonl');
+const vecPath = () => path.join(libRoot(), 'vectors.f32');
+const metaPath = () => path.join(libRoot(), 'vectors.meta.json');
 
 // ★ 只认本地模型，绝不去网上拉 —— 断网也能跑
 env.allowRemoteModels = false;
@@ -81,20 +92,20 @@ const run = async () => {
     return;
   }
 
-  const chunks = fs.readFileSync(CHUNKS, 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l));
+  const chunks = fs.readFileSync(chunksPath(), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l));
   if (args.includes('--stats')) {
-    const meta = fs.existsSync(METAOUT) ? JSON.parse(fs.readFileSync(METAOUT, 'utf8')) : { done: {} };
+    const meta = fs.existsSync(metaPath()) ? JSON.parse(fs.readFileSync(metaPath(), 'utf8')) : { done: {} };
     const n = Object.keys(meta.done || {}).length;
     console.log('chunks: ' + chunks.length + ' 块');
     console.log('已嵌入: ' + n + ' 块');
-    if (fs.existsSync(VECOUT)) console.log('vectors.f32: ' + (fs.statSync(VECOUT).size / 1048576).toFixed(1) + ' MB');
+    if (fs.existsSync(vecPath())) console.log('vectors.f32: ' + (fs.statSync(vecPath()).size / 1048576).toFixed(1) + ' MB');
     return;
   }
 
   const force = args.includes('--force');
   let meta = { dim: 0, done: {} };
-  if (!force && fs.existsSync(METAOUT)) {
-    try { meta = JSON.parse(fs.readFileSync(METAOUT, 'utf8')); } catch {}
+  if (!force && fs.existsSync(metaPath())) {
+    try { meta = JSON.parse(fs.readFileSync(metaPath(), 'utf8')); } catch {}
   }
   if (force) meta = { dim: 0, done: {} };
 
@@ -121,15 +132,15 @@ const run = async () => {
         const rate = done / el;
         process.stderr.write('  ' + done + '/' + todo.length + '  ' + el.toFixed(0) + 's  ' + rate.toFixed(1) + ' 块/秒  剩余约 ' + Math.round((todo.length - done) / rate) + 's\n');
         // 每 80 条落一次盘（防崩了全丢）
-        fs.writeFileSync(METAOUT, JSON.stringify(meta), 'utf8');
+        fs.writeFileSync(metaPath(), JSON.stringify(meta), 'utf8');
       }
     } catch (e) {
       console.error('批次 ' + i + ' 失败: ' + ((e && e.message) || e));
       break;
     }
   }
-  fs.writeFileSync(METAOUT, JSON.stringify(meta), 'utf8');
-  const sz = fs.statSync(METAOUT).size / 1048576;
+  fs.writeFileSync(metaPath(), JSON.stringify(meta), 'utf8');
+  const sz = fs.statSync(metaPath()).size / 1048576;
   console.log('完成 ' + done + ' 块，总耗时 ' + ((Date.now() - t0) / 1000).toFixed(0) + 's');
   console.log('vectors.meta.json: ' + sz.toFixed(1) + ' MB，维度 ' + meta.dim);
 };
