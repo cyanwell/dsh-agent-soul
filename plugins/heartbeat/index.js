@@ -15,14 +15,21 @@ import { execFile } from 'node:child_process'
 export const name = 'dsh-yanqing-heartbeat'
 export const inject = ['webServer', 'agents']
 
-// ★ 2026-11-04 修死路径：原来把记忆库/书房/心跳目录全写死在作者机器上。
-//   现在从 DSH_HOME 往上推两级得到 `D:\AI` 这一层，再拼各目录；三个都可用环境变量覆盖。
+// ★ 2026-11-04 修死路径（第二次）：第一次改成 dirname(dirname(DSH_HOME))，
+//   那在作者机器（D:\AI\dsh\home -> D:\AI）碰巧对，标准安装（C:\Users\<名>\.dsh -> C:\Users）全错。
+//   现在统一走 lib/paths.mjs 的四级解析：env > 自身配置 > echo.config.json > 候选列表。
+//   ★ 解析失败时把「试过哪些」打出来 —— 静默失败比报错更坏。
+import { resolveAll, explain } from '../../lib/paths.mjs'
+
+const _paths = resolveAll()
+if (!_paths.soul.path) console.warn('[heartbeat] ' + explain('SOUL', _paths.soul))
+if (!_paths.memory.path) console.warn('[heartbeat] ' + explain('HUB', _paths.memory))
+
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
-const AI_ROOT = dirname(dirname(DSH_HOME))
-const SOUL = process.env.YQ_SOUL || join(AI_ROOT, 'yanqing-soul')
-const HUB = process.env.YQ_HUB || join(AI_ROOT, 'memory', 'hub')
+const SOUL = _paths.soul.path
+const HUB = _paths.memory.path ? join(_paths.memory.path, 'hub') : ''
 const BOOK = join(SOUL, '02-墨.jsonl')
-const AUTO_LOG = HUB + '\\heartbeat\\_auto.log'
+const AUTO_LOG = HUB ? join(HUB, 'heartbeat', '_auto.log') : ''
 // ★ 2026-11-03 22:12 爀曦要「每步产出了什么」。heartbeat.mjs 写的历史里只有步骤名/成败/耗时，
 //   这里在插件侧补一本「输出账」，按结束时间匹配 history 里的记录。
 //   ★★ 边界：只有 /heartbeat/run（手动/强制）能拿到 stdout；自动触发走的是 followup，
@@ -112,6 +119,16 @@ function readDriver() {
 // ② 心跳日志末行
 function readLastBeat() {
   try {
+    // ★ 2026-11-04：先看 heartbeat.log.jsonl —— 那是心跳自己写的，**两条触发路径都会写**。
+    //   _auto.log 只有计划任务那套写，插件自己的 setInterval 不写，所以两本账。
+    const hbLog = HUB ? join(HUB, 'heartbeat', 'heartbeat.log.jsonl') : ''
+    if (hbLog && existsSync(hbLog)) {
+      try {
+        const lines = readFileSync(hbLog, 'utf8').trim().split('\n').filter(Boolean)
+        const last = JSON.parse(lines[lines.length - 1])
+        return { ok: true, at: last.t || last.time || '', source: 'heartbeat.log.jsonl' }
+      } catch { /* 解析失败就往下走，读 _auto.log */ }
+    }
     if (!existsSync(AUTO_LOG)) return { ok: false, why: '_auto.log 不存在' }
     const st = statSync(AUTO_LOG)
     // 只读尾部 8KB，日志可能很大

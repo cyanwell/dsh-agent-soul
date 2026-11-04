@@ -4,13 +4,15 @@
 // 由【主导会话下一次在场时】读它并决定做什么。
 
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { resolveAll } from '../../lib/paths.mjs';
 import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 
 // ★ 2026-11-04 修死路径：从 DSH_HOME 推导，可用环境变量覆盖。
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh');
-const AI_ROOT = dirname(dirname(DSH_HOME));
+const _p = resolveAll();
+const AI_ROOT = _p.memory.path ? dirname(_p.memory.path) : dirname(dirname(DSH_HOME));
 const SOUL = process.env.YQ_SOUL || join(AI_ROOT, 'yanqing-soul');
 const HUB = process.env.YQ_HUB || join(AI_ROOT, 'memory', 'hub');
 const HERE = process.env.YQ_HB_DIR || join(AI_ROOT, 'dsh-tools', 'dsh-yanqing-heartbeat');

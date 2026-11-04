@@ -22,8 +22,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 //   现在从 DSH_HOME 往上推两级再拼 memory/hub；也知道 YQ_HUB 环境变量。
 //   也允许用 YQ_HUB 环境变量直接指定（比如记忆库不在 DSH 旁边时）。
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh');
-const HUB = process.env.YQ_HUB || join(dirname(dirname(DSH_HOME)), 'memory', 'hub');
-const SOUL = process.env.YQ_SOUL || join(dirname(dirname(DSH_HOME)), 'yanqing-soul');
+const HUB = (() => { const p = resolveAll().memory.path; return process.env.YQ_HUB || (p ? join(p, 'hub') : ''); })();
+const SOUL = process.env.YQ_SOUL || resolveAll().soul.path;
 const CFG = join(HERE, 'heartbeat.config.json');
 const STATE = join(HERE, 'heartbeat.state.json');
 const LOG = join(HERE, 'heartbeat.log.jsonl')
@@ -85,7 +85,9 @@ const trigger = FORCE ? 'force' : (MANUAL ? 'manual' : 'cron')
 const FOUR_STEPS = [
   ['memindex', 'memindex build', join(HUB, 'memindex.mjs'), ['build']],
   ['self', 'self assemble', join(HUB, 'self.mjs'), []],
-  ['daily', 'heartbeat daily', join(HUB, 'heartbeat.mjs'), ['daily']],
+  // ★ 2026-11-04：daily 脚本是外挂的（不在本仓库里）。文件不在就跳过，**不算失败** ——
+  //   原来它直接把「没有这个文件」变成一条告警，第一次装的人会以为装坏了。
+  (() => { const p = join(HUB, 'heartbeat.mjs'); return existsSync(p) ? ['daily', 'heartbeat daily', p, ['daily']] : null; })(),
   ['doctor', 'echo doctor', join(HUB, 'echo-doctor.mjs'), []],
 ]
 
@@ -127,7 +129,8 @@ function resolveCustomSteps () {
 //   所以：只要一个步骤 id 都没命中，就当作"没配置过"，全跑。
 function allowedSteps() {
   const allow = config.options && config.options.toolsAllowlist
-  const all = FOUR_STEPS
+  // ★ .filter(Boolean)：daily 那一步在脚本不存在时返回 null，必须滤掉
+  const all = FOUR_STEPS.filter(Boolean)
   if (!Array.isArray(allow) || allow.length === 0) return { steps: all, skipped: [], legacy: true }
   const ids = new Set(allow.map(String))
   const hit = all.filter(s => ids.has(s[0]))

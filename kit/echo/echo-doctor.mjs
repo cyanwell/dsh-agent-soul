@@ -379,7 +379,7 @@ function checkDeploy() {
   if (kitDrift.length) {
     return {
       id: "deploy", label: L, status: "warn",
-      detail: `仓库那边的脚本已经变了 ${kitDrift.length} 个：${kitDrift.slice(0, 3).join("；")} —— HUB 里跑的还是旧的，重跑 install-kit.mjs`,
+      detail: `仓库那边的脚本和 HUB 不一样的有 ${kitDrift.length} 个：${kitDrift.slice(0, 3).join("；")} —— 注意：跑的还是旧的，重跑 install-kit.mjs`,
       evidence: ev,
     };
   }
@@ -1033,12 +1033,27 @@ function checkSelf(logs, deep) {
 
 function checkHeartbeat() {
   let newest = 0, file = null;
-  try {
-    for (const n of fs.readdirSync(HEARTBEAT_DIR)) {
-      const p = path.join(HEARTBEAT_DIR, n);
+  // ★ 2026-11-04：递归一层。原来只 readdirSync 顶层 + isFile()，
+  //   而心跳把报告写在 <dir>/reports/*.md —— 子目录里的文件一个都扫不到，
+  //   于是 newest=0 → 永远报「目录在，但一次都没跑过」。人看到这条会去重装一遍。
+  const scan = (dir, depth) => {
+    if (depth < 0) return
+    let names = []
+    try { names = fs.readdirSync(dir) } catch { return }
+    for (const n of names) {
+      const p = path.join(dir, n);
       const st = statSafe(p);
-      if (st?.isFile() && st.mtimeMs > newest) { newest = st.mtimeMs; file = n }
+      if (!st) continue
+      if (st.isFile()) {
+        if (st.mtimeMs > newest) { newest = st.mtimeMs; file = path.relative(HEARTBEAT_DIR, p) }
+      } else if (st.isDirectory()) {
+        scan(p, depth - 1)
+      }
     }
+  }
+  try {
+    scan(HEARTBEAT_DIR, 1)
+    if (newest === 0) throw new Error('empty')
   } catch {
     // ★ 心跳是**可选**那一层（要另外装定时任务）。没装 ≠ 坏了。
     //   ★ 但要说清「如果你装过，那它是停了」—— doctor 分不出「没装」和「装了但目录被删」，

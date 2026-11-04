@@ -161,11 +161,14 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 
-// ★ 2026-11-04 修死路径：原来把记忆库位置写死在作者机器上。
-//   从 DSH_HOME 往上推两级得到 `D:\AI`，再拼 memory/hub；也认 YQ_HUB。
+// ★ 2026-11-04 修死路径（第二次）：统一走 lib/paths.mjs 四级解析。
+//   第一次的 dirname(dirname(DSH_HOME)) 只在作者机器碰巧对，标准安装会推成 C:\Users。
+import { resolveAll } from '../../../lib/paths.mjs'
+
+const _p = resolveAll()
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
-const AI_ROOT = dirname(dirname(DSH_HOME))
-const HUB = process.env.YQ_HUB || join(AI_ROOT, 'memory', 'hub')
+const AI_ROOT = _p.memory.path ? dirname(_p.memory.path) : dirname(dirname(DSH_HOME))
+const HUB = process.env.YQ_HUB || (_p.memory.path ? join(_p.memory.path, 'hub') : '')
 import { dirname, join } from 'node:path';
 /**
  * 家目录。

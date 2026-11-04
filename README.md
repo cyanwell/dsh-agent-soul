@@ -388,6 +388,58 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-04 · 路径解析改成「四级 + 候选」；群里四个问题全修
+
+**起因**：群友 `白毛狼狼` 实测 —— 上一轮我改的 `AI_ROOT = dirname(dirname(DSH_HOME))`，
+在**作者机器上碰巧对**（`D:\AI\dsh\home` → `D:\AI`），
+**标准安装下全错**（`C:\Users\<名>\.dsh` → `C:\Users`），三个路径全空、**零报错**。
+
+★ 群友原话：「零报错，只是全空」—— **这才是最坏的地方：不是错，是不说。**
+
+**新增 `lib/paths.mjs`：不猜，四级解析。**
+
+| 级 | 来源 | 置信度 |
+|---|---|---|
+| 1 | 环境变量 `YQ_SOUL` / `YQ_HUB` / `YQ_HB_DIR` | confirmed |
+| 2 | `heartbeat.config.json` 的 `paths` 段 | confirmed |
+| 3 | `echo.config.json` 的 `soul` / `memory` | confirmed |
+| 4 | 候选列表（试几个常见布局） | **guessed**（要人确认） |
+
+★ 前三级都是「用户说了算」，第 4 级才只做兜底。
+
+★ **解析失败时把「试过哪些、各自为什么不算」打出来。**
+
+**接进 5 个文件**：`lib/paths.mjs`（新）、`plugins/heartbeat/{index,heartbeat,heartbeat-collect}.mjs`、
+`plugins/huanqi/lib/index.js`（**意外发现也有同一个 bug**）。
+
+**群里报的另外四个问题**：
+
+| # | 问题 | 改法 |
+|---|---|---|
+| 1 | `daily` 脚本仓库里没有，但默认白名单有 → 新机器必挂告警 | 改成**存在才启用**，`filter(Boolean)` 滤掉占位 |
+| 2 | `checkHeartbeat` 只扫顶层，`reports/` 被 `isFile()` 滤掉 → 永远报「一次都没跑过」 | 改成递归一层 |
+| 3 | 面板读 `_auto.log`，但插件自己的 `setInterval` 不写它（两本账） | 先读 `heartbeat.log.jsonl`（两条触发都写），`_auto.log` 兜底 |
+| 4 | 部署漂移提示「重跑 install-kit」会冲掉本机改动 | 改成「两边不一样不代表谁旧，**先看 LOCAL-PATCHES.md 判断方向**」 |
+
+**撤回一条判据**（爀曦指出）：
+
+我原来用 `02-墨.jsonl` / `hub/` 判断「这个目录是不是 soul/memory」——
+**但仓库端和部署端的组件命名是两套，这是特地设计**，拿仓库名判断部署端必然误判。
+改成只看「目录存在」+ 标置信度。
+
+**实测**（本机）：
+
+```
+SOUL   : D:/AI/yanqing-soul                        | echo.config.json | confirmed
+HUB    : D:\AI\memory                               | candidate        | guessed
+HB_DIR : D:\AI\dsh-tools\dsh-yanqing-heartbeat      | candidate        | guessed
+```
+
+★ 注意 `SOUL` 的来源是**第 3 级**（echo.config.json），不是候选列表 —— 说明多层确实按序工作。
+
+**教训一条**：第一次跑候选列表时 `SOUL` 找不到，输出显示 `D:\AI\dsh\yanqing-soul`（错）——
+我只取了一级 `dirname`，但根其实在两级之上。**正是「把试过的路径打出来」让这个立刻现形。**
+
 ### 2026-11-04 · 心跳能「clone 下来就跑」（补配置模板 + 缺文件兜底）
 
 **怎么发现的**：上一轮把死路径清完、136/136 全绿之后，我没有停 —— **在临时目录里模拟了一次「别人 clone 下来」**，
