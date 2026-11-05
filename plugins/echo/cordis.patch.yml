@@ -1,3 +1,8 @@
+# ★ 这个文件里的 id/name 必须等于你 node_modules 里那个包的实际包名。
+#   发布版（本仓库）= dsh-agent-echo；本机部署版叫 dsh-yanqing-echo。
+#   两套名字是【设计】（见 docs/两套代码-发布版与部署版.md），
+#   但装混了就会报「找不到包」—— 症状见 docs/安装常见问题汇总与解决方法.md。
+#   ★ 不改就别装：装之前先把下面 id/name 改成你实际的包名。
 - insert:
     - id: dsh-agent-echo
       name: dsh-agent-echo

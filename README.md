@@ -412,6 +412,31 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-05 · 事件层补上最后一块：`lead-waker` 进仓 + 修「找不到包」这个报错
+
+**为什么现在做**：上一轮收了 `aurabot`（分会话能报上来），但**缺一个读队列、叫醒主导的组件** ——
+于是报了事没人接。这个包补的就是那一段：轮询事件队列 → 找到当前主导 → `followup()` 叫醒 → 记账 → 双向派活。
+
+| # | 改动 | 位置 |
+|---|---|---|
+| 1 | **新插件入仓**：`dsh-agent-lead-waker`，host + client 两半（1,100 余行） | `plugins/lead-waker/` |
+| 2 | 台账状态机：`pending → woken → decided(done/held/auditing)`，连续 3 次叫不醒转 `stuck` | `index.js` |
+| 3 | **超时重叫**：`woken` 超过 30 分钟仍未判定 → 重新叫醒（否则台账变成安静的垃圾桶） | 同上，`staleMs` |
+| 4 | 两个 HTTP 入口：`GET /lead-waker/state`（四类视图）、`POST /lead-waker/decide`（写判定） | 同上 |
+| 5 | 两个 patch 文件加**包名约束注释** —— 说明「id/name 必须等于你实际的包名」 | `plugins/echo/`、`plugins/huanqi-panel/` |
+| 6 | FAQ 新增一节：**报「找不到 dsh-agent-echo」怎么办**（群友反馈的真问题） | `docs/安装常见问题汇总与解决方法.md` |
+
+**第 6 条是群友报的**：他的机器上装的是 `dsh-yanqing-echo`，而 patch 里写 `dsh-agent-echo` —— 对不上就加载失败。
+根因不是代码 bug，是**两套命名**（见 [两套代码-发布版与部署版](./docs/两套代码-发布版与部署版.md)）在用户端造成的混淆：
+他装进去的是作者的**部署版**包。FAQ 里给了两条解法，并写死一条铁律：
+**patch 的 `name` 必须等于同目录 `package.json` 的 `name`，这条不分发布版还是部署版。**
+
+★ **`install.js` 为什么没自动修**：它只做「扫描 / 判断缺什么 / 给安装指引」，**不负责复制插件文件** ——
+所以它没法替用户改 patch 里的名字。这一点也写进了 FAQ，免得下一个人以为脚本该兜住。
+
+★ **这个包的定位要说清**：它**不是通用插件**，依赖三项特定约定（事件队列 JSONL、《墨》账本、live 主导会话）。
+`DEFAULT_CONFIG` 里的路径是作者本机目录，别人要用必须全部改 config。文件头已写明。
+
 ### 2026-11-05 · 收入第三方组件 dsh-aurabot-qq —— QQ 通道进「全局必装」
 
 **为什么现在做**：事件层原来只有半边 —— 分会话能把事报上来（`lead-relay` 写 `事件队列.jsonl`），但**没人读它、也唤不醒主导会话**。
