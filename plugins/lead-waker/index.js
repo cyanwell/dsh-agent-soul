@@ -657,6 +657,9 @@ const pendingList = ledger.events.filter((x) => {
               charter: 'unchecked', charterNote: '', decidedAt: null,
               decision: null,
               note: '由分会话上报（wake）' + (a.facts ? '：' + String(a.facts).slice(0, 400) : ''),
+              // ★ 回邮地址：谁唤的醒，回信就寄给谁。有了它，主导不需要知道
+              //   「群 661580035 对应哪个 session」—— 分身自己留了门牌。
+              fromSession: who || String(a.from || ''),
             }))
             writeAtomic(cfg.accountFile, JSON.stringify(led, null, 2), warn)
             try { tickUp() } catch (e) { warn('wake 后立即 tick 失败（下一轮仍会重试）：' + String(e && e.message || e)) }
@@ -721,6 +724,28 @@ const pendingList = ledger.events.filter((x) => {
           if (!r.ok) return { ok: false, error: r.err, text: '判定没写进去：' + r.err }
           if (!saveLedger(cfg.accountFile, led, warn)) {
             return { ok: false, error: '台账写不进去', text: '判定没落盘' }
+          }
+          // ── 回信：判定完把结论下发回「唤醒者」那里 ──
+          //    ★ 只发给 fromSession 存在的那条（人手从面板点的也走这里，
+          //      但面板判定通常没有 fromSession，就不发 —— 不制造噪音）。
+          if (r && r.event && r.event.fromSession) {
+            try {
+              const to = String(r.event.fromSession)
+              const line = JSON.stringify({
+                sessionId: to,
+                from: 'lead-decide',
+                text: '【主导已判定】' + String(r.event.title || '').slice(0, 60) +
+                  '\n判定：' + String(r.event.decision || '') +
+                  '｜宪章：' + String(r.event.charter || '') +
+                  (r.event.charterNote ? '（' + r.event.charterNote + '）' : '') +
+                  (r.event.note ? '\n附注：' + String(r.event.note).slice(0, 300) : '') +
+                  '\n\n★ 接下来是你的活：由你决定要不要、以及怎么在群里回话。主导不下场替你说。',
+              }) + '\n'
+              appendFileSync(cfg.downFile, line, 'utf8')
+              log('已回信 → ' + to + '｜' + String(r.event.title || '').slice(0, 30))
+            } catch (e) {
+              warn('回信失败（判定仍已写入）：' + String(e && e.message || e))
+            }
           }
           return { ok: true, counts: snapshot().counts, text: '已写入判定：' + r.event.key + ' → stage=' + r.event.stage }
         } catch (e) {
