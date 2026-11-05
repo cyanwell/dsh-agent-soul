@@ -412,6 +412,33 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-05 · 真凶：appendFileSync 从来没被 import
+
+**症状**：decide 成功、台账写了、下发文件却始终不长一行。加了落盘调试也没用 —— **调试日志自己也不写**。
+
+**真因**：文件顶部那行 import 是
+
+```js
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs'
+```
+
+**没有 appendFileSync。** 于是 `sendReply` 每次执行到写文件那一行就 `ReferenceError`：
+
+| 位置 | 后果 |
+|---|---|
+| `dbg()` 里的 | 被它自己的 `try{}catch{}` 吞掉 → **调试日志一行不写** |
+| `sendReply` 里的 | 被外层 catch 吞掉 → 只打一行 `console.warn`，界面上看不见 |
+
+**完美的静默失败：写功能坏了，它的监控也坏了。**
+
+★ **为什么我查了五轮没找到**：我一直 `grep appendFileSync`，**看到它出现在 sendReply 里就以为导入了**。
+  但那次 grep 查的是**用法**，不是 **import 行**。
+
+> 这是「没验证就相信返回值」的第 N 次：**我要的是「这个符号在 import 里」，实际验的是「这个字符串在文件里」。**
+> 判据要贴着目标写：`grep -n "^import.*appendFileSync"`，而不是 `grep appendFileSync`。
+
+★ 顺带一条设计教训：**调试代码不能自己也靠 try/catch 兜底** ——
+它一兜底，就等于把「我在失败」这件事也藏起来了。要么直接抛，要么写 stderr。
 ### 2026-11-05 · 下行三个真 bug：短 id / 换 session / 只在工具分支回信
 
 爀曦压测「她 wake → 我回她」时，面板点执行却没有任何回信。查下来是**三个独立问题叠在一起**：

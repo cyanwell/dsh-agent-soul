@@ -10,7 +10,7 @@
  * 改法见同目录 DESIGN.md 与 README。
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs'
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, renameSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 export const name = 'dsh-agent-lead-waker'
@@ -337,17 +337,19 @@ function lookupChatSession (chatId, file) {
 /** 判定之后把结论回给"唤醒者"。★ 面板按钮和工具走的是两条路，
  *  所以这段必须是公共函数 —— 上一版只加在工具分支，面板点执行就静默无回信。 */
 function sendReply (cfg, ev, log, warn) {
+  // ★ 落盘调试：这条链路已经静默失败三次，靠猜没用 —— 每一处分流都留证。
+  const dbg = (m) => { try { appendFileSync('D:/AI/yanqing-soul/30-状态/_reply-debug.log', new Date().toISOString() + ' ' + m + '\n') } catch { } }
   try {
-    if (!ev) return
+    if (!ev) { dbg('RET no-ev'); return }
     const raw = String(ev.fromSession || '')
     const m = String(ev.from || '').match(/session-[0-9a-fA-F-]{8,}/)
     let to = raw || (m ? m[0] : '')
-    // ★ chatId 兜底：记的是 group:xxx 就现查"当前负责它"的会话
     if (!to && ev.from) {
       const cm = String(ev.from).match(/(group|private|system):[0-9A-Za-z_]+/)
       if (cm) to = lookupChatSession(cm[0], cfg.aurabotSessions)
     }
-    if (!to) { warn('回信跳过：没有可用收件地址'); return }
+    dbg('START fromSession=' + JSON.stringify(raw) + ' from=' + JSON.stringify(String(ev.from || '')) + ' → to=' + JSON.stringify(to))
+    if (!to) { dbg('RET no-target'); warn('回信跳过：没有可用收件地址'); return }
     const line = JSON.stringify({
       sessionId: to,
       from: 'lead-decide',
@@ -358,9 +360,12 @@ function sendReply (cfg, ev, log, warn) {
         (ev.note ? '\n附注：' + String(ev.note).slice(0, 300) : '') +
         '\n\n★ 接下来是你的活：由你决定要不要、以及怎么在群里回话。主导不下场替你说。',
     }) + '\n'
+    dbg('WRITE downFile=' + cfg.downFile + ' bytes=' + line.length)
     appendFileSync(cfg.downFile, line, 'utf8')
+    dbg('OK written')
     log('已回信 → ' + to + '｜' + String(ev.title || '').slice(0, 30))
   } catch (e) {
+    dbg('THROW ' + String(e && e.message || e))
     warn('回信失败（判定仍已写入）：' + String(e && e.message || e))
   }
 }
