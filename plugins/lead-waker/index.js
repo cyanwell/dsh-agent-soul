@@ -9,28 +9,7 @@
  * DEFAULT_CONFIG 里的路径是作者本机（砚青）的目录约定，**别人要用必须全部改 config**。
  * 改法见同目录 DESIGN.md 与 README。
  */
-/**
- * dsh-agent-lead-waker —— 从「有人想找主导会话」到「叫醒 + 记账 + 双向」的那一段路。
- *
- * 定位（DESIGN.md 第一句）：主导会话与分会话的双向交流渠道 + 状态展示。
- * 三件事，缺一件这个插件就不成立：
- *   ① 上行：读事件队列（lead-relay 用 append-only 写的），找到 live lead，followup 叫醒。
- *   ② 台账：把「这件事走到哪了」单独记一份，状态机 pending→woken→decided/终态，失败 3 次判 stuck。
- *   ③ 下行：轮询 下发.jsonl，按 sessionId 找 live agent，followup 投递。
- *
- * ★★ 为什么台账是独立文件而不是给队列加字段：
- *   事件队列是 lead-relay 的 append-only 写域（DESIGN §一）。JSONL 改字段 = 重写文件 = 破坏写域。
- *   队列回答「说过什么」，台账回答「走到哪了」—— 两个问题，两份文件，两个写者。
- *   本插件**只读**事件队列，一行都不写（硬约束，改这里之前先看 DESIGN 第一节）。
- *
- * ★★ 为什么判定不自动生成：
- *   DESIGN §六 —— 「没写就当通过」是明确禁止的。charter 初值必须是 unchecked，
- *   只有 lead（人）能把它改成 pass/ask/block。插件只负责「显示 unchecked」，
- *   不负责替任何人判断宪章。
- *
- * lead 是谁：读《墨》最后一条 lead 的 by（会话 id 前 8 位），不写死。
- * 唯一的状态文件之外，对外只有两个 HTTP 入口：/lead-waker/state（读）、/lead-waker/decide（写判定）。
- */
+
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs'
 import { dirname } from 'node:path'
 
@@ -622,7 +601,11 @@ const pendingList = ledger.events.filter((x) => {
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['list', 'decide'], description: 'list 默认' },
+          action: { type: 'string', enum: ['list', 'decide', 'wake'], description: 'wake=上报并叫醒主导（任何会话可调）；list 默认；decide 只有主导可调' },
+          title: { type: 'string', description: 'wake 必填：一句话说清要主导做什么' },
+          facts: { type: 'string', description: 'wake 可选：背景/证据/已查过什么（越具体越好）' },
+          from: { type: 'string', description: 'wake 可选：谁在请求（如 group:661580035）' },
+          tier: { type: 'string', enum: ['act', 'watch', 'info'], description: 'wake 可选：紧急度，默认 act' },
           key: { type: 'string', description: '台账 key（list 里能拿到）' },
           decision: { type: 'string', enum: ['resume', 'hold', 'audit'], description: '判定' },
           charter: { type: 'string', enum: ['pass', 'ask', 'block', 'unchecked'], description: '宪章结论' },
@@ -644,9 +627,70 @@ const pendingList = ledger.events.filter((x) => {
         },
         render: (_args, value) => [{ type: 'text', text: value && value.text ? value.text : JSON.stringify(value, null, 2) }],
       },
-      execute: async (args) => {
+      execute: async (args, ctx) => {
         try {
           const a = args || {}
+          const who = (() => {
+            try {
+              const g = ctx && (ctx.agent || ctx)
+              return String((g && (g.id || g.sessionId || g.session)) || '')
+            } catch { return '' }
+          })()
+
+          // ── wake：任何会话可调。写一条 pending 进台账，然后立刻叫醒主导 ──
+          //    ★ 不写事件队列 —— 那是 lead-relay 的 append-only 域。
+          //    ★ tickUp 只补充台账里没有的 key，不会重建，所以这条不会被冲掉。
+          if (a.action === 'wake') {
+            const title = String(a.title || '').trim()
+            if (!title) return { ok: false, error: 'wake 需要 title（一句话说清要主导做什么）' }
+            const now = Date.now()
+            const key = new Date(now).toISOString() + '|wake|' + title.slice(0, 60)
+            const led = loadLedger(cfg.accountFile)
+            if (led.events.some((x) => x.key === key)) {
+              return { ok: true, text: '同一条请求 5 秒内已上报过，未重复入账', counts: snapshot().counts }
+            }
+            led.events.push(normalizeRecord({
+              key, t: new Date(now).toISOString(), title,
+              from: String(a.from || who || 'unknown'),
+              tier: String(a.tier || 'act'),
+              stage: 'pending', wakeCount: 0, wokenAt: null,
+              charter: 'unchecked', charterNote: '', decidedAt: null,
+              decision: null,
+              note: '由分会话上报（wake）' + (a.facts ? '：' + String(a.facts).slice(0, 400) : ''),
+            }))
+            writeAtomic(cfg.accountFile, JSON.stringify(led, null, 2), warn)
+            try { tickUp() } catch (e) { warn('wake 后立即 tick 失败（下一轮仍会重试）：' + String(e && e.message || e)) }
+            const n = snapshot().counts
+            return {
+              ok: true,
+              counts: n,
+              text: '已上报并触发叫醒：' + title.slice(0, 50) + '（台账 ' + n.total + ' 条，待处理 ' + n.act + '）',
+            }
+          }
+
+          // ── decide：只有当前主导能写判定 ──
+          //    ★ 上报是无辜的，判定是权力。不用「不给工具」来拦（改 preset 就能绕），
+          //      改用身份：本会话是不是《墨》最后一条 lead 的署名者。
+          //    ★ 取不到调用者身份时【放行】并在 warn 里留痕 —— 宁可偶尔多信一次，
+          //      也不能因为拿不到 ctx 就让主导自己判不了。日志里能看出是谁判的。
+          if (a.action === 'decide') {
+            let caller = ''
+            try {
+              const g = ctx && (ctx.agent || ctx)
+              caller = String((g && (g.id || g.sessionId || g.session)) || '')
+            } catch { caller = '' }
+            const lead = currentLeadPrefix(cfg.ledgerFile)
+            if (caller && lead && !caller.includes(lead)) {
+              return {
+                ok: false,
+                error: '只有当前主导会话能写判定（本会话 ' + caller.slice(0, 12) +
+                  ' 不是《墨》最后一条 lead 的署名者 ' + lead + '）。你可以用 action=wake 上报。',
+                counts: snapshot().counts,
+              }
+            }
+            if (!caller) warn('decide 调用者身份取不到（ctx.agent 无 id），已放行；判定 key=' + String(a.key || '').slice(0, 40))
+          }
+
           if ((a.action || 'list') === 'list') {
             const snap = snapshot()
             const fmt = (arr) => arr.map((x) =>
