@@ -967,29 +967,31 @@ route('/heartbeat/state', async (_req, res) => {
   let autoLastError = ''
   let autoLastAt = 0
 
-  // 找主导会话（2026-11-05 重写）：
-  //   ① 排掉桥接/分身（clawbot 监听、aurabot QQ 会话、qq-relay）—— 叫醒它们没有意义
-  //   ② 只剩一个 → 就是它
-  //   ③ 剩多个 → 按《墨》最后一条 lead 的署名挑（身份判据的唯一权威，AGENTS §7.6）
-  //   ④ 挑不出 → 记下原因，让面板看得见；★ 绝不静默返回 null
-  //   ★ 旧版要求「正好剩 1 个」。一旦有第二个根会话（分身/桥接/旁路）就恒返回 null，
-  //     而「他停下来、等我自主」恰恰就是那时候 —— 于是自主循环在最该活的时候死掉，且一句话不说。
+  // 找主导会话（2026-11-05 深夜 · 爀曦定的极简判据）：
+  //   ★ 只认一个真源 —— 《墨》里最后一条 lead 的署名。账本说谁是主导，就把自主提醒投给谁。
+  //   别的什么都不判：不看根会话有几个、不看谁叫什么名字、不看谁最近活跃。
+  //
+  //   ★ 为什么不要「过滤桥接名单」：名单是硬编码的枚举（clawbot / aurabot / qq-relay…），
+  //     每加一个新分身就得改一次代码。而《墨》里那条 lead 早就把答案写死了 ——
+  //     有权威源的时候，用枚举当代理是自找的维护债。
+  //   ★ 为什么不要「挑不出就兜底投第一个」：那是**假成功**。
+  //     投错会话比停摆更坏 —— 停摆面板会报红、有人看得见；投错没人看得见，还以为在跑。
   const LEDGER_FILE = 'D:/AI/yanqing-soul/02-墨.jsonl'
   let _leadAt = 0
   let _leadVal = ''
   const leadSessionPrefix = () => {
     const now = Date.now()
-    if (now - _leadAt < 30000) return _leadVal
+    if (now - _leadAt < 30000) return _leadVal   // 30 秒缓存：每分钟 tick 一次，够用
     _leadAt = now
     _leadVal = ''
     try {
       if (!existsSync(LEDGER_FILE)) return ''
       const lines = readFileSync(LEDGER_FILE, 'utf8').split('\n')
       for (let i = lines.length - 1; i >= 0; i--) {
-        const s = lines[i].trim()
-        if (!s) continue
+        const line = lines[i].trim()
+        if (!line) continue
         let o = null
-        try { o = JSON.parse(s) } catch { continue }
+        try { o = JSON.parse(line) } catch { continue }
         if (!o || String(o.type || '') !== 'lead') continue
         const m = String(o.by || '').match(/[0-9a-fA-F]{8,}/)
         _leadVal = m ? m[0] : ''
@@ -999,30 +1001,22 @@ route('/heartbeat/state', async (_req, res) => {
     return _leadVal
   }
 
-  const BRIDGE_RE = /^(clawbot-listen-|aurabot|qq-relay|slang-agent)/
   let autoPrimaryWhy = ''
   const findPrimaryAgent = () => {
     try {
       const agents = ctx.get('agents')
       if (!agents || typeof agents.roots !== 'function') { autoPrimaryWhy = 'no-agents-service'; return null }
-      const roots = agents.roots() || []
-      const cand = roots.filter((a) => {
-        const id = String((a && a.id) || '')
-        if (!id) return false
-        if (BRIDGE_RE.test(id)) return false
-        return typeof (a && a.followup) === 'function'
-      })
-      if (!cand.length) { autoPrimaryWhy = 'no-root-after-filter(roots=' + roots.length + ')'; return null }
-      if (cand.length === 1) { autoPrimaryWhy = ''; return cand[0] }
       const lead = leadSessionPrefix()
-      if (lead) {
-        const hit = cand.find((a) => String((a && a.id) || '').includes(lead))
-        if (hit) { autoPrimaryWhy = ''; return hit }
+      if (!lead) { autoPrimaryWhy = '账本里没有 lead 记录'; return null }
+      const roots = agents.roots() || []
+      const hit = roots.find((a) =>
+        typeof (a && a.followup) === 'function' && String((a && a.id) || '').includes(lead))
+      if (!hit) {
+        autoPrimaryWhy = '账本上的主导不在活的会话里（lead=' + lead + '，roots=' + roots.length + '）'
+        return null
       }
-      // ★ 兜底：主导那条会话已经不在了（换届/关掉），也不能让自主循环静默死掉。
-      //   候选只剩非桥接的，投错也只是「多一个会话收到自主提醒」，比永久停摆轻。
-      autoPrimaryWhy = 'lead-fallback(cand=' + cand.length + ',lead=' + (lead || 'none').slice(0, 12) + ')'
-      return cand[0]
+      autoPrimaryWhy = ''
+      return hit
     } catch (e) { autoPrimaryWhy = 'throw:' + String((e && e.message) || e).slice(0, 60); return null }
   }
 
