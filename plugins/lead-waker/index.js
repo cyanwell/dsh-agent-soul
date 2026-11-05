@@ -27,6 +27,8 @@ const DEFAULT_CONFIG = {
   // ★ 台账（状态机）与下发（下行）—— DESIGN §一 划给本插件的两个写域
   accountFile: 'D:/AI/yanqing-soul/30-状态/lead-waker-台账.json',
   downFile: 'D:/AI/yanqing-soul/30-状态/下发.jsonl',
+  // ★ 按 chatId 查「当前负责它的会话」时读这个文件（aurabot 的 chats 映射）
+  aurabotSessions: 'D:/AI/dsh/home/plugins-data/aurabot/sessions.json',
   pollMs: 30000,
   maxPerPoll: 2,
   maxPerDay: 12,
@@ -272,7 +274,17 @@ function findAgentById (agents, id) {
   } catch { /* 掉到下面按 roots 找 */ }
   try {
     const roots = agents.roots() || []
-    return roots.find((a) => a && String(a.id || '') === id && typeof a.followup === 'function') || null
+    // ★ 精确匹配先来（DESIGN §四 的原意），**再加前缀兜底**：
+    //   实测踩过 —— 事件里带的常是短 id（session-b6d69373），
+    //   而 agent 的真实 id 是完整 UUID（session-b6d69373-ead5-...），
+    //   精确相等永远为假，于是"找不到 live agent"。人明明在，是门牌号没写全。
+    const hit = roots.find((a) => a && String(a.id || '') === id && typeof a.followup === 'function')
+      || roots.find((a) => {
+        const aid = String((a && a.id) || '')
+        if (!aid || typeof (a && a.followup) !== 'function') return false
+        return aid.startsWith(id) || id.startsWith(aid)
+      })
+    return hit || null
   } catch { return null }
 }
 
@@ -307,6 +319,50 @@ function readDownChunk (file, cursor) {
     try { rows.push(JSON.parse(s)) } catch { /* 坏行跳过：坏行不该卡死后面的好行 */ }
   }
   return { cursor: complete.length, rows }
+}
+
+/** 按 chatId（如 group:661580035）查 aurabot 当前负责它的会话 id。
+ *  ★ 为什么需要：群会话是一次性的，每次被拉起都会换 sessionId。
+ *    下发行只记 chatId 就够了 —— 投递那一刻现查，拿到的就是"当前那个"。 */
+function lookupChatSession (chatId, file) {
+  if (!chatId) return ''
+  try {
+    if (!existsSync(file)) return ''
+    const j = JSON.parse(readFileSync(file, 'utf8'))
+    const e = j && j.chats && j.chats[chatId]
+    return e && e.sessionId ? String(e.sessionId) : ''
+  } catch { return '' }
+}
+
+/** 判定之后把结论回给"唤醒者"。★ 面板按钮和工具走的是两条路，
+ *  所以这段必须是公共函数 —— 上一版只加在工具分支，面板点执行就静默无回信。 */
+function sendReply (cfg, ev, log, warn) {
+  try {
+    if (!ev) return
+    const raw = String(ev.fromSession || '')
+    const m = String(ev.from || '').match(/session-[0-9a-fA-F-]{8,}/)
+    let to = raw || (m ? m[0] : '')
+    // ★ chatId 兜底：记的是 group:xxx 就现查"当前负责它"的会话
+    if (!to && ev.from) {
+      const cm = String(ev.from).match(/(group|private|system):[0-9A-Za-z_]+/)
+      if (cm) to = lookupChatSession(cm[0], cfg.aurabotSessions)
+    }
+    if (!to) { warn('回信跳过：没有可用收件地址'); return }
+    const line = JSON.stringify({
+      sessionId: to,
+      from: 'lead-decide',
+      text: '【主导已判定】' + String(ev.title || '').slice(0, 60) +
+        '\n判定：' + String(ev.decision || '') +
+        '｜宪章：' + String(ev.charter || '') +
+        (ev.charterNote ? '（' + ev.charterNote + '）' : '') +
+        (ev.note ? '\n附注：' + String(ev.note).slice(0, 300) : '') +
+        '\n\n★ 接下来是你的活：由你决定要不要、以及怎么在群里回话。主导不下场替你说。',
+    }) + '\n'
+    appendFileSync(cfg.downFile, line, 'utf8')
+    log('已回信 → ' + to + '｜' + String(ev.title || '').slice(0, 30))
+  } catch (e) {
+    warn('回信失败（判定仍已写入）：' + String(e && e.message || e))
+  }
 }
 
 // ─────────────────────────── 插件主体 ───────────────────────────
@@ -463,7 +519,10 @@ const pendingList = ledger.events.filter((x) => {
     for (const row of rows) {
       if (done >= cfg.maxDownPerPoll) break
       const rec = row && typeof row === 'object' ? row : {}
-      const sid = String(rec.sessionId || rec.to || '')
+      let sid = String(rec.sessionId || rec.to || '')
+      // ★ 没有现成 sessionId 就用 chatId 动态查当前会话 —— 群会话每次拉起都换 id，
+      //   写死的地址第二天就失效；查表才跟得上。
+      if (!sid && rec.chatId) sid = lookupChatSession(String(rec.chatId), cfg.aurabotSessions)
       if (!sid) {
         // ★ chatId 路由是 DESIGN §四 明确留的口子（交给 aurabot 侧），第一版不做。
         //   但必须留痕，不能静默吞掉 —— 一条指令写下来却没人投递，比报错更坏。
@@ -579,6 +638,7 @@ const pendingList = ledger.events.filter((x) => {
           if (!saveLedger(cfg.accountFile, led, warn)) {
             return sendJson(res, 500, { ok: false, err: '台账写不进去' })
           }
+          sendReply(cfg, r.event, log, warn)
           const snap = snapshot()
           sendJson(res, 200, { ok: true, event: r.event, counts: snap.counts })
         } catch (e) {
@@ -728,31 +788,7 @@ const pendingList = ledger.events.filter((x) => {
           if (!saveLedger(cfg.accountFile, led, warn)) {
             return { ok: false, error: '台账写不进去', text: '判定没落盘' }
           }
-          // ── 回信：判定完把结论下发回「唤醒者」那里 ──
-          //    ★ 只发给 fromSession 存在的那条（人手从面板点的也走这里，
-          //      但面板判定通常没有 fromSession，就不发 —— 不制造噪音）。
-          if (r && r.event && r.event.fromSession) {
-            try {
-              const raw = String(r.event.fromSession || '')
-              const m = String(r.event.from || '').match(/session-[0-9a-fA-F-]{8,}/)
-              const to = raw || (m ? m[0] : '')
-              if (!to) throw new Error('没有可用回邮地址（fromSession 与 from 都没带 session id）')
-              const line = JSON.stringify({
-                sessionId: to,
-                from: 'lead-decide',
-                text: '【主导已判定】' + String(r.event.title || '').slice(0, 60) +
-                  '\n判定：' + String(r.event.decision || '') +
-                  '｜宪章：' + String(r.event.charter || '') +
-                  (r.event.charterNote ? '（' + r.event.charterNote + '）' : '') +
-                  (r.event.note ? '\n附注：' + String(r.event.note).slice(0, 300) : '') +
-                  '\n\n★ 接下来是你的活：由你决定要不要、以及怎么在群里回话。主导不下场替你说。',
-              }) + '\n'
-              appendFileSync(cfg.downFile, line, 'utf8')
-              log('已回信 → ' + to + '｜' + String(r.event.title || '').slice(0, 30))
-            } catch (e) {
-              warn('回信失败（判定仍已写入）：' + String(e && e.message || e))
-            }
-          }
+                    sendReply(cfg, r.event, log, warn)
           return { ok: true, counts: snapshot().counts, text: '已写入判定：' + r.event.key + ' → stage=' + r.event.stage }
         } catch (e) {
           return { ok: false, error: String(e && e.message || e).slice(0, 200), text: '工具失败' }
