@@ -1,14 +1,4 @@
-/**
- * ★★★ 这是一个【架构专属组件】，不是通用插件。
- *
- * 它读四样东西，都在作者本机的目录约定下：
- *   《墨》账本 · memory/hub 工具目录 · heartbeat 的自动日志 · 每步产出账
- *
- * 下面的 BOOK / HUB / AUTO_LOG / RUN_OUT 都是作者本机的绝对路径。
- * **别人要用必须全部改**（这些是常量，当前版本没有 config 覆盖口子 —— 已知待改进）。
- * 改完还要保证 heartbeat.mjs（外部脚本）在同一套路径下运行。
- */
-// dsh-agent-heartbeat — DSH plugin package, Host half.
+// dsh-yanqing-heartbeat — DSH plugin package, Host half.
 //
 // 读三个真值，经 /heartbeat/state 交给浏览器半：
 //   ① 谁在驾驶   —— 《墨》里最后一条 lead 的摘要
@@ -21,7 +11,7 @@ import { join, resolve } from 'node:path'
 import { readFileSync, writeFileSync, existsSync, statSync, readdirSync , appendFileSync, mkdirSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 
-export const name = 'dsh-agent-heartbeat'
+export const name = 'dsh-yanqing-heartbeat'
 export const inject = ['webServer', 'agents']
 
 const BOOK = 'D:\\AI\\yanqing-soul\\02-墨.jsonl'
@@ -50,8 +40,8 @@ function readRunOut () {
 }
 const DAILY_DIR = HUB + '\\heartbeat'
 const REPORTS_DIR = HUB + '\\heartbeat\\reports'          // ★ 巡视报告 + 报警队列
-const HB_DIR_FOR_ORIGIN = 'D:\\AI\\dsh-tools\\dsh-agent-heartbeat'   // ★ 脚本侧目录，用来把 origin 传给脚本
-const LATEST_LOG = 'D:\\AI\\dsh-tools\\dsh-agent-heartbeat\\heartbeat.log.jsonl'   // ★ 巡视记录的权威来源
+const HB_DIR_FOR_ORIGIN = 'D:\\AI\\dsh-tools\\dsh-yanqing-heartbeat'   // ★ 脚本侧目录，用来把 origin 传给脚本
+const LATEST_LOG = 'D:\\AI\\dsh-tools\\dsh-yanqing-heartbeat\\heartbeat.log.jsonl'   // ★ 巡视记录的权威来源
 const TASK_NAMES = ['Yanqing-Echo-Heartbeat', 'Yanqing-Echo-Heartbeat-AM']
 
 // ★ _auto.log 是 GBK 编码（Windows 批处理写的）。用 utf8 读会得到「��һ」这种乱码。
@@ -201,7 +191,7 @@ export function apply(ctx) {
 
   // ★ 2026-11-03 加：命题 5 的「三条显示」缺了两条 —— 当前状态、下一次心跳。
 //   state 在心跳包自己的目录里（不是 memory/hub），cron 在 config 里。
-const HB_DIR = 'D:\\AI\\dsh-tools\\dsh-agent-heartbeat'
+const HB_DIR = 'D:\\AI\\dsh-tools\\dsh-yanqing-heartbeat'
 
 function readHeartbeatState () {
   try {
@@ -924,6 +914,7 @@ route('/heartbeat/state', async (_req, res) => {
         autoLastAt,
         autoLastError,
         primaryFound: primary,
+        primaryWhy: autoPrimaryWhy,
       })
     } catch (e) {
       sendJson(res, 200, { ok: false, why: String((e && e.message) || e).slice(0, 120) })
@@ -951,7 +942,7 @@ route('/heartbeat/state', async (_req, res) => {
   })
 
   route('/heartbeat/ping', async (_req, res) => {
-    sendJson(res, 200, { ok: true, plugin: 'dsh-agent-heartbeat', v: '0.1.0' })
+    sendJson(res, 200, { ok: true, plugin: 'dsh-yanqing-heartbeat', v: '0.1.0' })
   })
   // ═══════════════════════════════════════════════════════════════════
   // ★ 2026-11-03 17:37 会话内自主循环（04 号命题 4 的实现）
@@ -976,21 +967,63 @@ route('/heartbeat/state', async (_req, res) => {
   let autoLastError = ''
   let autoLastAt = 0
 
-  // 找主导会话：roots() 排掉 clawbot-listen-*，正好剩 1 个才算数
+  // 找主导会话（2026-11-05 重写）：
+  //   ① 排掉桥接/分身（clawbot 监听、aurabot QQ 会话、qq-relay）—— 叫醒它们没有意义
+  //   ② 只剩一个 → 就是它
+  //   ③ 剩多个 → 按《墨》最后一条 lead 的署名挑（身份判据的唯一权威，AGENTS §7.6）
+  //   ④ 挑不出 → 记下原因，让面板看得见；★ 绝不静默返回 null
+  //   ★ 旧版要求「正好剩 1 个」。一旦有第二个根会话（分身/桥接/旁路）就恒返回 null，
+  //     而「他停下来、等我自主」恰恰就是那时候 —— 于是自主循环在最该活的时候死掉，且一句话不说。
+  const LEDGER_FILE = 'D:/AI/yanqing-soul/02-墨.jsonl'
+  let _leadAt = 0
+  let _leadVal = ''
+  const leadSessionPrefix = () => {
+    const now = Date.now()
+    if (now - _leadAt < 30000) return _leadVal
+    _leadAt = now
+    _leadVal = ''
+    try {
+      if (!existsSync(LEDGER_FILE)) return ''
+      const lines = readFileSync(LEDGER_FILE, 'utf8').split('\n')
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const s = lines[i].trim()
+        if (!s) continue
+        let o = null
+        try { o = JSON.parse(s) } catch { continue }
+        if (!o || String(o.type || '') !== 'lead') continue
+        const m = String(o.by || '').match(/[0-9a-fA-F]{8,}/)
+        _leadVal = m ? m[0] : ''
+        return _leadVal
+      }
+    } catch (e) { _leadVal = '' }
+    return _leadVal
+  }
+
+  const BRIDGE_RE = /^(clawbot-listen-|aurabot|qq-relay|slang-agent)/
+  let autoPrimaryWhy = ''
   const findPrimaryAgent = () => {
     try {
       const agents = ctx.get('agents')
-      if (!agents || typeof agents.roots !== 'function') return null
+      if (!agents || typeof agents.roots !== 'function') { autoPrimaryWhy = 'no-agents-service'; return null }
       const roots = agents.roots() || []
       const cand = roots.filter((a) => {
         const id = String((a && a.id) || '')
-        return id && !id.startsWith('clawbot-listen-')
+        if (!id) return false
+        if (BRIDGE_RE.test(id)) return false
+        return typeof (a && a.followup) === 'function'
       })
-      if (cand.length !== 1) return null
-      const t = cand[0]
-      if (typeof t.followup !== 'function') return null
-      return t
-    } catch (e) { return null }
+      if (!cand.length) { autoPrimaryWhy = 'no-root-after-filter(roots=' + roots.length + ')'; return null }
+      if (cand.length === 1) { autoPrimaryWhy = ''; return cand[0] }
+      const lead = leadSessionPrefix()
+      if (lead) {
+        const hit = cand.find((a) => String((a && a.id) || '').includes(lead))
+        if (hit) { autoPrimaryWhy = ''; return hit }
+      }
+      // ★ 兜底：主导那条会话已经不在了（换届/关掉），也不能让自主循环静默死掉。
+      //   候选只剩非桥接的，投错也只是「多一个会话收到自主提醒」，比永久停摆轻。
+      autoPrimaryWhy = 'lead-fallback(cand=' + cand.length + ',lead=' + (lead || 'none').slice(0, 12) + ')'
+      return cand[0]
+    } catch (e) { autoPrimaryWhy = 'throw:' + String((e && e.message) || e).slice(0, 60); return null }
   }
 
   // 任何 agent 状态变化 → 刷新「刚活动过」
@@ -1005,7 +1038,7 @@ route('/heartbeat/state', async (_req, res) => {
       '这是你自己进入的自主时间。\n\n' +
       '不必汇报「我在自主」，直接做事。做完把结论落盘，别留在上下文里。' }],
     // ★ V4 格式：source kind 必须是 producer-owned（今天踩过这个坑）
-    source: { kind: 'plugin:dsh-agent-heartbeat' },
+    source: { kind: 'plugin:dsh-yanqing-heartbeat' },
   })
 
   const autoTick = () => {
@@ -1031,7 +1064,7 @@ route('/heartbeat/state', async (_req, res) => {
       if (idleMs < threshold * 60000) return
 
       const target = findPrimaryAgent()
-      if (!target) return
+      if (!target) { autoLastError = 'no-primary: ' + (autoPrimaryWhy || 'unknown'); return }
 
       target.followup(autoMessage('静默 ' + Math.round(idleMs / 60000) + ' 分钟，阈值 ' + threshold + ' 分钟。'))
       autoRunsToday++

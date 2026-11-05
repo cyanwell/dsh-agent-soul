@@ -1,5 +1,5 @@
 /**
- * dsh-agent-heartbeat — browser half.
+ * dsh-yanqing-heartbeat — browser half.
  *
  * 两处注册：
  *   ① sidebar.panellist（list）—— 侧边栏图标的画法
@@ -8,7 +8,7 @@
  * 数据全走 Host 半的 /heartbeat/state；这里只负责显示。
  */
 window.__ModuleLoader__.load({
-  id: "dsh-agent-heartbeat",
+  id: "dsh-yanqing-heartbeat",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
@@ -991,6 +991,9 @@ window.__ModuleLoader__.load({
       var remainAll = Math.max(0, totalAll - idleV);
       var st = data.state || "present";
       var s = SC[st] || SC.present;
+      // ★ 2026-11-05 找不到主导会话时自主循环是停的 —— 面板必须说出来，不能继续显示「等下一拍」骗人
+      var noPrimary = data.primaryFound === false;
+      if (noPrimary) s = { c: "#e06a6a", t: "断线：找不到主导会话" };
       var elapsed = Date.now() - (data._at || Date.now());
       var remain = Math.max(0, (data.remainMs || 0) - elapsed);
       var total = data.totalMs || 1;
@@ -1008,8 +1011,10 @@ window.__ModuleLoader__.load({
         cdText = "暂停";
         sub = "我干完这轮、安静下来后自动恢复";
       } else if (st === "ready") {
-        cdText = "待触发";
-        sub = "next tick 会拉起自主";
+        cdText = noPrimary ? "断线" : "待触发";
+        sub = noPrimary
+          ? "挑不出主导会话（" + String(data.primaryWhy || "未知原因") + "），这一拍不会来"
+          : "next tick 会拉起自主";
       } else {
         cdText = "0";
         sub = "已跑 " + data.autoRunsToday + " / " + data.maxRunsPerDay + " 轮 · 明天恢复";

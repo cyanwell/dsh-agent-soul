@@ -1,19 +1,29 @@
 /**
- * ★★★ 这是一个【架构专属组件】，不是通用插件。
+ * dsh-yanqing-lead-waker —— 从「有人想找主导会话」到「叫醒 + 记账 + 双向」的那一段路。
  *
- * 它依赖三个东西，缺一个就跑不起来：
- *   ① 一个「事件队列」JSONL（分会话往里写请求）
- *   ② 《墨》账本（用它判断谁是当前主导会话）
- *   ③ 至少一条 live 的主导会话（叫醒目标）
+ * 定位（DESIGN.md 第一句）：主导会话与分会话的双向交流渠道 + 状态展示。
+ * 三件事，缺一件这个插件就不成立：
+ *   ① 上行：读事件队列（lead-relay 用 append-only 写的），找到 live lead，followup 叫醒。
+ *   ② 台账：把「这件事走到哪了」单独记一份，状态机 pending→woken→decided/终态，失败 3 次判 stuck。
+ *   ③ 下行：轮询 下发.jsonl，按 sessionId 找 live agent，followup 投递。
  *
- * DEFAULT_CONFIG 里的路径是作者本机（砚青）的目录约定，**别人要用必须全部改 config**。
- * 改法见同目录 DESIGN.md 与 README。
+ * ★★ 为什么台账是独立文件而不是给队列加字段：
+ *   事件队列是 lead-relay 的 append-only 写域（DESIGN §一）。JSONL 改字段 = 重写文件 = 破坏写域。
+ *   队列回答「说过什么」，台账回答「走到哪了」—— 两个问题，两份文件，两个写者。
+ *   本插件**只读**事件队列，一行都不写（硬约束，改这里之前先看 DESIGN 第一节）。
+ *
+ * ★★ 为什么判定不自动生成：
+ *   DESIGN §六 —— 「没写就当通过」是明确禁止的。charter 初值必须是 unchecked，
+ *   只有 lead（人）能把它改成 pass/ask/block。插件只负责「显示 unchecked」，
+ *   不负责替任何人判断宪章。
+ *
+ * lead 是谁：读《墨》最后一条 lead 的 by（会话 id 前 8 位），不写死。
+ * 唯一的状态文件之外，对外只有两个 HTTP 入口：/lead-waker/state（读）、/lead-waker/decide（写判定）。
  */
-
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, renameSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-export const name = 'dsh-agent-lead-waker'
+export const name = 'dsh-yanqing-lead-waker'
 // ★ 三个都是本机实测存在的服务：agents（叫醒/投递）、webServer（面板读写）、tools（lead 落判定）。
 //   少写一个 -> cordis 一直等它 -> apply 永不执行 -> 整包静默失效（这条坑 dsh-yanqing-triad 记过）。
 export const inject = ['agents', 'webServer', 'tools']
@@ -337,10 +347,8 @@ function lookupChatSession (chatId, file) {
 /** 判定之后把结论回给"唤醒者"。★ 面板按钮和工具走的是两条路，
  *  所以这段必须是公共函数 —— 上一版只加在工具分支，面板点执行就静默无回信。 */
 function sendReply (cfg, ev, log, warn) {
-  // ★ 落盘调试：这条链路已经静默失败三次，靠猜没用 —— 每一处分流都留证。
-  const dbg = (m) => { try { appendFileSync('D:/AI/yanqing-soul/30-状态/_reply-debug.log', new Date().toISOString() + ' ' + m + '\n') } catch { } }
   try {
-    if (!ev) { dbg('RET no-ev'); return }
+    if (!ev) return
     const raw = String(ev.fromSession || '')
     const m = String(ev.from || '').match(/session-[0-9a-fA-F-]{8,}/)
     let to = raw || (m ? m[0] : '')
@@ -348,8 +356,7 @@ function sendReply (cfg, ev, log, warn) {
       const cm = String(ev.from).match(/(group|private|system):[0-9A-Za-z_]+/)
       if (cm) to = lookupChatSession(cm[0], cfg.aurabotSessions)
     }
-    dbg('START fromSession=' + JSON.stringify(raw) + ' from=' + JSON.stringify(String(ev.from || '')) + ' → to=' + JSON.stringify(to))
-    if (!to) { dbg('RET no-target'); warn('回信跳过：没有可用收件地址'); return }
+    if (!to) { warn('回信跳过：没有可用收件地址'); return }
     const line = JSON.stringify({
       sessionId: to,
       from: 'lead-decide',
@@ -360,12 +367,9 @@ function sendReply (cfg, ev, log, warn) {
         (ev.note ? '\n附注：' + String(ev.note).slice(0, 300) : '') +
         '\n\n★ 接下来是你的活：由你决定要不要、以及怎么在群里回话。主导不下场替你说。',
     }) + '\n'
-    dbg('WRITE downFile=' + cfg.downFile + ' bytes=' + line.length)
     appendFileSync(cfg.downFile, line, 'utf8')
-    dbg('OK written')
     log('已回信 → ' + to + '｜' + String(ev.title || '').slice(0, 30))
   } catch (e) {
-    dbg('THROW ' + String(e && e.message || e))
     warn('回信失败（判定仍已写入）：' + String(e && e.message || e))
   }
 }
@@ -488,7 +492,7 @@ const pendingList = ledger.events.filter((x) => {
             id: 'wake-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
             role: 'user',
             content: [{ type: 'text', text: buildWakeText(rec, rawByKey.get(rec.key)) }],
-            source: { kind: 'plugin:dsh-agent-lead-waker' },
+            source: { kind: 'plugin:dsh-yanqing-lead-waker' },
           })
           rec.stage = 'woken'
           rec.wokenAt = Date.now()
@@ -544,7 +548,7 @@ const pendingList = ledger.events.filter((x) => {
           id: 'down-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8),
           role: 'user',
           content: [{ type: 'text', text: String(rec.text || rec.content || '') }],
-          source: { kind: 'plugin:dsh-agent-lead-waker', from: 'lead' },
+          source: { kind: 'plugin:dsh-yanqing-lead-waker', from: 'lead' },
         })
         done++
         log('已下行 → ' + sid + '｜' + String(rec.text || '').slice(0, 30))
