@@ -262,13 +262,13 @@ curl http://127.0.0.1:<端口>/yanqing-echo/api/status
 
 | # | 跑什么 | 查什么 | 需要什么 |
 |---|---|---|---|
-| ① | `node tools/verify-packaging.mjs` | 仓库本身：files 清单、两份清单一致、patch 语法、本机路径泄漏…… **136 条断言** | 只要仓库 |
+| ① | `node tools/verify-packaging.mjs` | 仓库本身：files 清单、两份清单一致、patch 语法、本机路径泄漏…… **140 条断言** | 只要仓库 |
 | ② | `node tools/verify-install-traps.mjs --verbose` | 四条「静默失败」判据：insert.name 与包名一致 / 示例配置键名 / 模板与骨架目录一致 / 能解析 | 只要仓库 |
 | ③ | `node tools/verify-runtime.mjs` | **装完才成立的事**：pnpm / 服务重名 / 副本新旧 / client 入口 / 执行策略 | 一个 profile |
 | ④ | `node tools/verify-live.mjs --profile <dir>` | 层进没进 bundles / patch 在不在 / 副本与源一致吗 | 已装的 profile |
 | ⑤ | 装探针 → **重启** → 读日志 | 现在管压缩的是谁（`ctor` 是 `YanqingCompaction` = 接管成功） | **必须重启** |
 
-### ① 仓库自检（136 条，不装也能跑）
+### ① 仓库自检（140 条，不装也能跑）
 
 ```bash
 node tools/verify-packaging.mjs
@@ -727,7 +727,7 @@ cd kit/echo/models/bge-small-zh
 npm install          # 装 @huggingface/transformers（约 479MB）
 ```
 
-模型本体（`onnx_model_quantized.onnx` 22.9MB + tokenizer）**随仓库带**，不用另下。
+模型本体（`onnx/model_quantized.onnx` 22.9MB + tokenizer）**随仓库带**，不用另下。
 
 ### 建索引
 

@@ -30,7 +30,7 @@ import path from 'node:path';
 import { pipeline, env } from '@huggingface/transformers';
 
 // ★ 不写死本机路径（2026-11-05）：
-//   模型就在这个目录里（model_quantized.onnx 与本文件同级）→ 从 import.meta.url 推。
+//   模型在子目录 onnx/ 下（onnx/model_quantized.onnx）→ DIR 从 import.meta.url 推。
 //   记忆库是用户数据 → ECHO_MEMORY / echo.config.json，用到处才检查。
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const libRoot = () => {

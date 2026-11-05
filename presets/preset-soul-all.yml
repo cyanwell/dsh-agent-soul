@@ -209,244 +209,6 @@
           - id: tool-plugin-manager
             name: '@deepseek-ai/dsh-plugin-manager/tools'
             disabled: true
-- id: llm-pi-ai
-  name: "@deepseek-ai/dsh-llm-pi-ai"
-  config:
-    providers:
-      amazon-bedrock:
-        apiKeyEnv: AMAZON_BEDROCK_API_KEY
-      xiaomi:
-        apiKeyEnv: XIAOMI_API_KEY
-      zai:
-        apiKeyEnv: ZAI_API_KEY
-- id: web-ui-pet
-  name: "@linxin666/dsh-pet"
-  config:
-    visible: false
-    size: 320
-    right: 29
-    bottom: 3
-    petId: yanqing4
-    enabled: true
-- id: web-ui-task-board
-  name: "@linxin666/dsh-web-all/task-board"
-  config:
-    plugin: "@linxin666/dsh-client-ui-task-board"
-    preventIdleSleep: true
-    announceToAgent: true
-- id: web-ui-session-archive
-  name: "@linxin666/dsh-web-all/session-archive"
-  config:
-    plugin: "@linxin666/dsh-session-archive"
-    autoArchiveEnabled: true
-- id: web-ui-remote-web-ui
-  name: "@linxin666/dsh-web-all/remote-web-ui"
-  config:
-    plugin: "@linxin666/dsh-remote-web-ui"
-    autoTunnel: true
-    lanBind: false
-
-# --- remote-web-ui lan-bind block (managed - do not edit) ---
-- id: webserver
-  name: '@deepseek-ai/dsh-host-webserver'
-  config:
-    host: '127.0.0.1'
-    port: 0
-    compression: gzip
-    compressionLevel: 1
-    compressionThresholdBytes: 1024
-- id: subagent-model-selection-settings
-  name: "@deepseek-ai/dsh-tool-subagent/model-selection-settings"
-  config:
-    enabled: true
-    allowedModels:
-      - provider: amazon-bedrock
-        model: amazon.nova-2-lite-v1:0
-      - provider: amazon-bedrock
-        model: amazon.nova-lite-v1:0
-      - provider: amazon-bedrock
-        model: amazon.nova-micro-v1:0
-      - provider: amazon-bedrock
-        model: amazon.nova-pro-v1:0
-      - provider: amazon-bedrock
-        model: anthropic.claude-fable-5
-      - provider: amazon-bedrock
-        model: anthropic.claude-fable-5-1
-      - provider: amazon-bedrock
-        model: anthropic.claude-opus-4-1-20250805-v1:0
-      - provider: amazon-bedrock
-        model: anthropic.claude-haiku-4-5-20251001-v1:0
-      - provider: amazon-bedrock
-        model: anthropic.claude-opus-4-5-20251101-v1:0
-      - provider: amazon-bedrock
-        model: anthropic.claude-opus-4-6-v1
-      - provider: amazon-bedrock
-        model: anthropic.claude-opus-4-7
-      - provider: amazon-bedrock
-        model: anthropic.claude-opus-4-8
-      - provider: amazon-bedrock
-        model: anthropic.claude-sonnet-4-5-20250929-v1:0
-      - provider: amazon-bedrock
-        model: anthropic.claude-sonnet-4-6
-      - provider: amazon-bedrock
-        model: anthropic.claude-sonnet-5
-      - provider: amazon-bedrock
-        model: apac.amazon.nova-micro-v1:0
-      - provider: amazon-bedrock
-        model: apac.amazon.nova-lite-v1:0
-      - provider: amazon-bedrock
-        model: apac.anthropic.claude-sonnet-4-20250514-v1:0
-      - provider: amazon-bedrock
-        model: au.anthropic.claude-haiku-4-5-20251001-v1:0
-      - provider: amazon-bedrock
-        model: au.anthropic.claude-opus-4-6-v1
-      - provider: amazon-bedrock
-        model: au.anthropic.claude-opus-4-7
-      - provider: amazon-bedrock
-        model: au.anthropic.claude-opus-4-8
-      - provider: amazon-bedrock
-        model: au.anthropic.claude-opus-5
-      - provider: amazon-bedrock
-        model: au.anthropic.claude-opus-5-5
-      - provider: amazon-bedrock
-        model: au.anthropic.claude-sonnet-4-5-20250929-v1:0
-      - provider: amazon-bedrock
-        model: au.anthropic.claude-sonnet-4-6
-      - provider: amazon-bedrock
-        model: au.anthropic.claude-sonnet-5
-      - provider: amazon-bedrock
-        model: ca.amazon.nova-lite-v1:0
-      - provider: amazon-bedrock
-        model: deepseek.v3.2
-      - provider: amazon-bedrock
-        model: deepseek.v3-v1:0
-      - provider: amazon-bedrock
-        model: eu.amazon.nova-2-lite-v1:0
-      - provider: amazon-bedrock
-        model: eu.amazon.nova-lite-v1:0
-      - provider: amazon-bedrock
-        model: eu.amazon.nova-pro-v1:0
-      - provider: amazon-bedrock
-        model: eu.amazon.nova-micro-v1:0
-      - provider: amazon-bedrock
-        model: eu.anthropic.claude-opus-5-5
-      - provider: amazon-bedrock
-        model: eu.anthropic.claude-opus-5
-      - provider: amazon-bedrock
-        model: eu.anthropic.claude-opus-4-8
-      - provider: amazon-bedrock
-        model: eu.anthropic.claude-opus-4-7
-      - provider: amazon-bedrock
-        model: global.anthropic.claude-fable-5-1
-      - provider: amazon-bedrock
-        model: global.anthropic.claude-opus-4-8
-      - provider: amazon-bedrock
-        model: global.anthropic.claude-opus-4-7
-      - provider: amazon-bedrock
-        model: global.anthropic.claude-opus-4-6-v1
-      - provider: amazon-bedrock
-        model: in.openai.gpt-5.6-luna
-      - provider: amazon-bedrock
-        model: jp.amazon.nova-2-lite-v1:0
-      - provider: amazon-bedrock
-        model: google.gemma-4-31b
-      - provider: amazon-bedrock
-        model: google.gemma-4-26b-a4b
-      - provider: amazon-bedrock
-        model: global.xai.grok-4.6
-      - provider: amazon-bedrock
-        model: global.openai.gpt-6-astra
-      - provider: amazon-bedrock
-        model: global.openai.gpt-5.6-terra
-      - provider: amazon-bedrock
-        model: global.openai.gpt-5.6-sol
-      - provider: amazon-bedrock
-        model: global.openai.gpt-5.6-luna
-      - provider: amazon-bedrock
-        model: minimax.minimax-m2.5
-      - provider: amazon-bedrock
-        model: minimax.minimax-m2.1
-      - provider: amazon-bedrock
-        model: minimax.minimax-m2
-      - provider: amazon-bedrock
-        model: meta.llama4-scout-17b-instruct-v1:0
-      - provider: amazon-bedrock
-        model: moonshotai.kimi-k2.5
-      - provider: amazon-bedrock
-        model: moonshot.kimi-k2-thinking
-      - provider: amazon-bedrock
-        model: openai.gpt-5.6-sol
-      - provider: amazon-bedrock
-        model: openai.gpt-5.6-luna
-      - provider: deepseek-account
-        model: deepseek-flash
-      - provider: deepseek-account
-        model: deepseek-v4-pro
-      - provider: deepseek-official
-        model: deepseek-v4.1-flash
-      - provider: deepseek-official
-        model: deepseek-v4-pro
-      - provider: amazon-bedrock
-        model: zai.glm-4.7-flash
-      - provider: amazon-bedrock
-        model: zai.glm-4.7
-      - provider: amazon-bedrock
-        model: zai.glm-5
-- id: mnemon
-  name: dsh-mnemon
-  config:
-    remoteAccess: read-only
-    timeoutMs: 10000
-    defaultRecallLimit: 10
-    runtimeMemory:
-      memoryLimitBytes: 11264
-      userLimitBytes: 4096
-      maintenanceMaxTokens: 8192
-    embedding:
-      enabled: false
-      endpoint: http://localhost:11434
-      model: nomic-embed-text
-      protocol: auto
-      apiKey: ""
-    memoryView:
-      strategyTypeId: default-three-tier
-      entries:
-        include:mnemon-strategy-auto-capture:
-          config: {}
-        include:mnemon-strategy-scoped:
-          config: {}
-    recallQuality:
-      policy: strict-v1
-      lowScoreThreshold: 0.25
-      highScoreThreshold: 0.6
-      candidateMultiplier: 3
-      maxMediumResults: 4
-      maxUnknownResults: 2
-    routingGuidance: true
-    tabEnabled: true
-    writeEnabled: true
-    lifecycleEnabled: true
-    recallMode: guided
-    writebackMode: guided
-    idleReviewMs: 30000
-
-# --- end remote-web-ui lan-bind block ---
-
-# ── 换气 (dsh-huanqi) 的可调参数 ─────────────────────────────────────────
-# 这些是「延续额度」那套东西的设置。改完要重启 DSH 才生效。
-#   maxContinuations      一口气能接几次（同时也是额度上限）0 = 关掉换气层，只留循环检测
-#   normalTurnThreshold   攒够多少「正常轮」额度 +1（正常轮 = 出了正文、没触发延续）
-#   anomalyWindow         出正文后多少轮内又卡住，算一次异常（额度 −1）
-#   warnAtCredit          额度降到几时开始提示
-#   ledgerPath            账本落盘路径；留空 = <DSH_HOME>/state/dsh-huanqi.json
-#   silentReasoningChars  流内早杀阈值：推理写到这么多字、正文与工具仍为零，就地截断
-#                         ★ 2026-10-12 23:57 改：3000 → 8000（实测放宽）
-#                         理由：3000 会误杀约 7.9% 的正常长推理（probe-loop 全量 7533 步实测，
-#                         3000 字以上的正常步共 592 个），当晚实测被误截断 4 次、全是正常思考，
-#                         额度被误耗到 0 导致熔断。放宽到 8000 后误杀率降到 0.37%。
-#                         ★ 真正的主力是流末那层（reasoning-only + stalledRun >= reasoningOnlySteps）
-#                         —— 全史 4 次循环全中、正常步零误报；流内这层只负责「别等它自己停」。
-# ★★★ 2026-10-18：换气引擎在 0.2.1 上整个不加载。
 #   两种情况要分清（这是文件头那句话：id-targeted **config overrides** + **insert lists**）：
 #     · `- id: X`      = 覆盖**已存在**的条目 —— X 不存在时静默跳过，不报错
 #     · `- insert: [ ]` = 新增条目
@@ -454,3 +216,241 @@
 #   于是 huanqi 这个 id 压根不存在 → 原来的 `- id: huanqi` 覆盖了个空气。
 #   ⇒ 必须用 insert 真正把它插进树里。
 - insert:
+    - id: llm-pi-ai
+      name: "@deepseek-ai/dsh-llm-pi-ai"
+      config:
+        providers:
+          amazon-bedrock:
+            apiKeyEnv: AMAZON_BEDROCK_API_KEY
+          xiaomi:
+            apiKeyEnv: XIAOMI_API_KEY
+          zai:
+            apiKeyEnv: ZAI_API_KEY
+    - id: web-ui-pet
+      name: "@linxin666/dsh-pet"
+      config:
+        visible: false
+        size: 320
+        right: 29
+        bottom: 3
+        petId: yanqing4
+        enabled: true
+    - id: web-ui-task-board
+      name: "@linxin666/dsh-web-all/task-board"
+      config:
+        plugin: "@linxin666/dsh-client-ui-task-board"
+        preventIdleSleep: true
+        announceToAgent: true
+    - id: web-ui-session-archive
+      name: "@linxin666/dsh-web-all/session-archive"
+      config:
+        plugin: "@linxin666/dsh-session-archive"
+        autoArchiveEnabled: true
+    - id: web-ui-remote-web-ui
+      name: "@linxin666/dsh-web-all/remote-web-ui"
+      config:
+        plugin: "@linxin666/dsh-remote-web-ui"
+        autoTunnel: true
+        lanBind: false
+
+    # --- remote-web-ui lan-bind block (managed - do not edit) ---
+    - id: webserver
+      name: '@deepseek-ai/dsh-host-webserver'
+      config:
+        host: '127.0.0.1'
+        port: 0
+        compression: gzip
+        compressionLevel: 1
+        compressionThresholdBytes: 1024
+    - id: subagent-model-selection-settings
+      name: "@deepseek-ai/dsh-tool-subagent/model-selection-settings"
+      config:
+        enabled: true
+        allowedModels:
+          - provider: amazon-bedrock
+            model: amazon.nova-2-lite-v1:0
+          - provider: amazon-bedrock
+            model: amazon.nova-lite-v1:0
+          - provider: amazon-bedrock
+            model: amazon.nova-micro-v1:0
+          - provider: amazon-bedrock
+            model: amazon.nova-pro-v1:0
+          - provider: amazon-bedrock
+            model: anthropic.claude-fable-5
+          - provider: amazon-bedrock
+            model: anthropic.claude-fable-5-1
+          - provider: amazon-bedrock
+            model: anthropic.claude-opus-4-1-20250805-v1:0
+          - provider: amazon-bedrock
+            model: anthropic.claude-haiku-4-5-20251001-v1:0
+          - provider: amazon-bedrock
+            model: anthropic.claude-opus-4-5-20251101-v1:0
+          - provider: amazon-bedrock
+            model: anthropic.claude-opus-4-6-v1
+          - provider: amazon-bedrock
+            model: anthropic.claude-opus-4-7
+          - provider: amazon-bedrock
+            model: anthropic.claude-opus-4-8
+          - provider: amazon-bedrock
+            model: anthropic.claude-sonnet-4-5-20250929-v1:0
+          - provider: amazon-bedrock
+            model: anthropic.claude-sonnet-4-6
+          - provider: amazon-bedrock
+            model: anthropic.claude-sonnet-5
+          - provider: amazon-bedrock
+            model: apac.amazon.nova-micro-v1:0
+          - provider: amazon-bedrock
+            model: apac.amazon.nova-lite-v1:0
+          - provider: amazon-bedrock
+            model: apac.anthropic.claude-sonnet-4-20250514-v1:0
+          - provider: amazon-bedrock
+            model: au.anthropic.claude-haiku-4-5-20251001-v1:0
+          - provider: amazon-bedrock
+            model: au.anthropic.claude-opus-4-6-v1
+          - provider: amazon-bedrock
+            model: au.anthropic.claude-opus-4-7
+          - provider: amazon-bedrock
+            model: au.anthropic.claude-opus-4-8
+          - provider: amazon-bedrock
+            model: au.anthropic.claude-opus-5
+          - provider: amazon-bedrock
+            model: au.anthropic.claude-opus-5-5
+          - provider: amazon-bedrock
+            model: au.anthropic.claude-sonnet-4-5-20250929-v1:0
+          - provider: amazon-bedrock
+            model: au.anthropic.claude-sonnet-4-6
+          - provider: amazon-bedrock
+            model: au.anthropic.claude-sonnet-5
+          - provider: amazon-bedrock
+            model: ca.amazon.nova-lite-v1:0
+          - provider: amazon-bedrock
+            model: deepseek.v3.2
+          - provider: amazon-bedrock
+            model: deepseek.v3-v1:0
+          - provider: amazon-bedrock
+            model: eu.amazon.nova-2-lite-v1:0
+          - provider: amazon-bedrock
+            model: eu.amazon.nova-lite-v1:0
+          - provider: amazon-bedrock
+            model: eu.amazon.nova-pro-v1:0
+          - provider: amazon-bedrock
+            model: eu.amazon.nova-micro-v1:0
+          - provider: amazon-bedrock
+            model: eu.anthropic.claude-opus-5-5
+          - provider: amazon-bedrock
+            model: eu.anthropic.claude-opus-5
+          - provider: amazon-bedrock
+            model: eu.anthropic.claude-opus-4-8
+          - provider: amazon-bedrock
+            model: eu.anthropic.claude-opus-4-7
+          - provider: amazon-bedrock
+            model: global.anthropic.claude-fable-5-1
+          - provider: amazon-bedrock
+            model: global.anthropic.claude-opus-4-8
+          - provider: amazon-bedrock
+            model: global.anthropic.claude-opus-4-7
+          - provider: amazon-bedrock
+            model: global.anthropic.claude-opus-4-6-v1
+          - provider: amazon-bedrock
+            model: in.openai.gpt-5.6-luna
+          - provider: amazon-bedrock
+            model: jp.amazon.nova-2-lite-v1:0
+          - provider: amazon-bedrock
+            model: google.gemma-4-31b
+          - provider: amazon-bedrock
+            model: google.gemma-4-26b-a4b
+          - provider: amazon-bedrock
+            model: global.xai.grok-4.6
+          - provider: amazon-bedrock
+            model: global.openai.gpt-6-astra
+          - provider: amazon-bedrock
+            model: global.openai.gpt-5.6-terra
+          - provider: amazon-bedrock
+            model: global.openai.gpt-5.6-sol
+          - provider: amazon-bedrock
+            model: global.openai.gpt-5.6-luna
+          - provider: amazon-bedrock
+            model: minimax.minimax-m2.5
+          - provider: amazon-bedrock
+            model: minimax.minimax-m2.1
+          - provider: amazon-bedrock
+            model: minimax.minimax-m2
+          - provider: amazon-bedrock
+            model: meta.llama4-scout-17b-instruct-v1:0
+          - provider: amazon-bedrock
+            model: moonshotai.kimi-k2.5
+          - provider: amazon-bedrock
+            model: moonshot.kimi-k2-thinking
+          - provider: amazon-bedrock
+            model: openai.gpt-5.6-sol
+          - provider: amazon-bedrock
+            model: openai.gpt-5.6-luna
+          - provider: deepseek-account
+            model: deepseek-flash
+          - provider: deepseek-account
+            model: deepseek-v4-pro
+          - provider: deepseek-official
+            model: deepseek-v4.1-flash
+          - provider: deepseek-official
+            model: deepseek-v4-pro
+          - provider: amazon-bedrock
+            model: zai.glm-4.7-flash
+          - provider: amazon-bedrock
+            model: zai.glm-4.7
+          - provider: amazon-bedrock
+            model: zai.glm-5
+    - id: mnemon
+      name: dsh-mnemon
+      config:
+        remoteAccess: read-only
+        timeoutMs: 10000
+        defaultRecallLimit: 10
+        runtimeMemory:
+          memoryLimitBytes: 11264
+          userLimitBytes: 4096
+          maintenanceMaxTokens: 8192
+        embedding:
+          enabled: false
+          endpoint: http://localhost:11434
+          model: nomic-embed-text
+          protocol: auto
+          apiKey: ""
+        memoryView:
+          strategyTypeId: default-three-tier
+          entries:
+            include:mnemon-strategy-auto-capture:
+              config: {}
+            include:mnemon-strategy-scoped:
+              config: {}
+        recallQuality:
+          policy: strict-v1
+          lowScoreThreshold: 0.25
+          highScoreThreshold: 0.6
+          candidateMultiplier: 3
+          maxMediumResults: 4
+          maxUnknownResults: 2
+        routingGuidance: true
+        tabEnabled: true
+        writeEnabled: true
+        lifecycleEnabled: true
+        recallMode: guided
+        writebackMode: guided
+        idleReviewMs: 30000
+
+    # --- end remote-web-ui lan-bind block ---
+
+    # ── 换气 (dsh-huanqi) 的可调参数 ─────────────────────────────────────────
+    # 这些是「延续额度」那套东西的设置。改完要重启 DSH 才生效。
+    #   maxContinuations      一口气能接几次（同时也是额度上限）0 = 关掉换气层，只留循环检测
+    #   normalTurnThreshold   攒够多少「正常轮」额度 +1（正常轮 = 出了正文、没触发延续）
+    #   anomalyWindow         出正文后多少轮内又卡住，算一次异常（额度 −1）
+    #   warnAtCredit          额度降到几时开始提示
+    #   ledgerPath            账本落盘路径；留空 = <DSH_HOME>/state/dsh-huanqi.json
+    #   silentReasoningChars  流内早杀阈值：推理写到这么多字、正文与工具仍为零，就地截断
+    #                         ★ 2026-10-12 23:57 改：3000 → 8000（实测放宽）
+    #                         理由：3000 会误杀约 7.9% 的正常长推理（probe-loop 全量 7533 步实测，
+    #                         3000 字以上的正常步共 592 个），当晚实测被误截断 4 次、全是正常思考，
+    #                         额度被误耗到 0 导致熔断。放宽到 8000 后误杀率降到 0.37%。
+    #                         ★ 真正的主力是流末那层（reasoning-only + stalledRun >= reasoningOnlySteps）
+    #                         —— 全史 4 次循环全中、正常步零误报；流内这层只负责「别等它自己停」。
+    # ★★★ 2026-10-18：换气引擎在 0.2.1 上整个不加载。

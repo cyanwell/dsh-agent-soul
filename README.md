@@ -404,6 +404,42 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+### 2026-11-05 · 外部干净机器验证报告：四个 P0 + 一个我自己没发现的
+
+**触发**：一份在 Ubuntu 干净机器上「tarball 全量拉取 → 清空 DSH_HOME → 22 个包逐个 add」的验证报告。
+它一句话说清了我这一版最难看的地方：
+
+> 功能层面是实打实的进步；但安装层面仍然不可用 —— 干净机器上 22 个包有 4 个加载即崩，
+> 而仓库自检 135/136 全绿。**原因不是「有 bug」，是所有验证工具都只在仓库目录里跑过。**
+
+**四个 P0 全部核实为真**（逐条读源码，行号一处不差），另有一个报告没提到的：
+
+| 问题 | 修法 |
+|---|---|
+| **P0-1** heartbeat/huanqi 用 `../../lib/paths.mjs`，装进 `node_modules/<pkg>/` 后指到 `profile/lib/`（不存在）；heartbeat 的 `AI_ROOT` 定义被删、引用没删 | 改成**按包名解析** `dsh-agent-soul/lib/paths.mjs`：根包 `exports` 补 `./lib/paths.mjs`、`files` 补 `lib/`；`AI_ROOT` 改成从已解析的 SOUL 反推，拿不到就留空 |
+| **P0-2** huanqi 的 `files` 不含 `lib/paths.mjs` | 补上 |
+| **P0-3** chat 只 import 了 `path` 命名空间，却裸用 `join/dirname/homedir` | 补三条 import（模块求值期就 ReferenceError，try/catch 拦不住） |
+| **P0-4** `soul-preset build --write` 在空 patch 上把内容插到文件最前面、`[]` 被推到末尾 → YAML 非法；而自检只核 bundles 条数和 BOM | ① `Math.max()` 空数组保护；② **写完跑一次 `dsh --profile X --dump-config`，失败自动回滚** —— 让「读这个文件的那个人」读一遍，而不是自己猜 |
+| **报告没提** | `tools/soul-preset.mjs` 在 `.mjs` 里用 `require('node:fs')` —— ESM 没有 `require`，而它包在 `try/catch` 里，**一直静默返回 0** |
+
+**preset 层级错乱（P0-6）**：8 个条目顶格散在文件里，被当成 profile 级 patch 打进去 ——
+后果是「装个 preset 顺手把宿主的 `llm-pi-ai` providers 覆盖成只剩 3 个，**不报错**」。
+按块收拢到 `- insert:` 下，其中一次动手**改错了、当场回滚**，第二次换算法才成。
+
+**新增两个检查器 —— 这才是能防复发的：**
+
+- `tools/verify-installed.mjs` —— 在 `profile/node_modules` 里**逐个 `import()`**，做的正是宿主启动时那件事。
+  本机实跑 44 个包，**抓到 1 个真的起不来**（`dsh-agent-plugins-market`）。136 条静态检查一条都没抓到它。
+- `tools/verify-preset-shape.mjs` —— 顶格 `- ` 只允许是 `- insert:`；否则报出文件与行号。
+
+**两个都接进了 `verify-packaging`**（不接进去就等于没做，那正是报告骂的事）：
+`通过 137/138 → 139/140`。没有 profile 时**明确打印 SKIP，不冒充通过**（P2-1 那种假绿）。
+
+**顺带**：删掉 `kit/echo/models/bge-small-zh/` 根目录那份 24 MB 的重复 onnx
+（代码走 `dtype:'q8'` → `onnx/model_quantized.onnx`，根目录那份没人用），并改正三处写着「与本文件同级」的错误注释。
+
+---
+
 ### 2026-11-05 · 坑 5 从 WARN 变 OK —— 不是放宽判据，是找对了路径
 
 上一轮那条 echo 检查报 WARN 说「找不到」。**它是对的，我错了。**
@@ -466,7 +502,7 @@ if (fs.existsSync(path.join(up, "profiles"))) dshHome = up
 
 | # | 跑什么 | 查什么 | 需要什么 |
 |---|---|---|---|
-| ① | `verify-packaging.mjs` | 仓库本身（136 条断言） | 只要仓库 |
+| ① | `verify-packaging.mjs` | 仓库本身（140 条断言，含 2 条安装态检查） | 只要仓库 |
 | ② | `verify-install-traps.mjs` | 四条「静默失败」判据 | 只要仓库 |
 | ③ | `verify-runtime.mjs` | 装完才成立的事（5 条） | 一个 profile |
 | ④ | `verify-live.mjs` | 层进没进 bundles / 副本与源一致 | 已装的 profile |
@@ -713,7 +749,7 @@ node tools/verify-runtime.mjs    # 连跑三次，输出逐字一致（幂等）
 | 位置 | 原写法 | 现在 |
 |---|---|---|
 | `kit/echo/echo-mcp.mjs:159` | `process.env.ECHO_SESSIONS \|\| "D:\\AI\\dsh\\home\\sessions"` | 用 `echo-config.mjs` 已有的 `SESSIONS`（环境变量 → 配置文件 → `<DSH_HOME>/sessions`），推不出来就是 `null`，D 层跳过会话检索而不是去 `D:\AI` 下瞎找 |
-| `kit/echo/models/bge-small-zh/embed.mjs` | 模型与记忆库都写死 | 模型从 `import.meta.url` 推（**权重就在同目录**，24MB 的 `model_quantized.onnx`），记忆库走 `ECHO_MEMORY` |
+| `kit/echo/models/bge-small-zh/embed.mjs` | 模型与记忆库都写死 | 模型从 `import.meta.url` 推（**权重在 `onnx/` 子目录**，24MB 的 `onnx/model_quantized.onnx`），记忆库走 `ECHO_MEMORY` |
 | 同上 `recall.mjs` / `vecsearch.mjs` | 同一套写死 | 同上 |
 | `plugins/compaction/index.js:95` | `const MEMQ = 'node D:\\AI\\memory\\hub\\memq.mjs'` | 从 `ECHO_HUB` / `ECHO_MEMORY` 推断；**推不出来就印 `<你的 ECHO hub>` 占位符**，不在门牌里印一条别人没装过的路径 |
 

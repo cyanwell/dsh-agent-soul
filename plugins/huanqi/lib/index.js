@@ -163,7 +163,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } fr
 
 // ★ 2026-11-04 修死路径（第二次）：统一走 lib/paths.mjs 四级解析。
 //   第一次的 dirname(dirname(DSH_HOME)) 只在作者机器碰巧对，标准安装会推成 C:\Users。
-import { resolveAll } from '../../../lib/paths.mjs'
+// ★ 2026-11-05 修 P0-1：同 heartbeat，改成按包名解析。
+import { resolveAll } from 'dsh-agent-soul/lib/paths.mjs'
 
 const _p = resolveAll()
 const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')

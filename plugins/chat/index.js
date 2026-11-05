@@ -25,6 +25,10 @@ import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+// ★ 2026-11-05 修 P0-3：下面用了裸 join/dirname/homedir，但原来只 import 了 path 命名空间 ——
+//   模块求值期就 ReferenceError，任何 try/catch 都拦不住，宿主只留一行 failed to import。
+import { join, dirname } from 'node:path'
+import { homedir } from 'node:os'
 
 export const name = 'dsh-yanqing-chat'
 // ★ 只声明确定存在的服务。多写一个不存在的 → apply 永不执行（静默失效，见 skill）。

@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import os from 'node:os'
 
 // ★ 占位符判定的唯一真源（R1，2026-10-22）
@@ -654,6 +655,43 @@ for (const c of checks) {
   console.log((c.ok ? '  OK   ' : '  FAIL ') + c.name + (c.detail && !c.ok ? '  [' + c.detail + ']' : ''))
 }
 console.log('')
+// ── 安装态检查（2026-11-05 报告的核心判据）──────────────────
+// ★ 为什么接在这里：报告的原话是「所有验证都只在仓库目录里跑过」。
+//   下面两个脚本能各自跑，但不接进这条链，它们就和之前那 136 条一样 ——
+//   存在，却没人跑。
+{
+  const r = spawnSync(process.execPath, [path.join(HERE, 'verify-preset-shape.mjs')], { encoding: 'utf8', timeout: 60000 })
+  const out = (r.stdout || '') + (r.stderr || '')
+  const badFiles = (out.match(/❌/g) || []).length
+  check(
+    'preset 层级形状（顶格条目会被当成 profile 级 patch 打进去）',
+    r.status === 0,
+    badFiles ? badFiles + ' 个文件有顶格条目 —— 跑 node tools/verify-preset-shape.mjs 看明细' : ''
+  )
+}
+{
+  // ★ SKIP 不是 PASS。没有 profile 时必须明说「跳过」，
+  //   这正是报告 P2-1 骂的那种假绿。
+  const home = process.env.DSH_HOME || (process.platform === 'win32'
+    ? path.join(process.env.APPDATA || '', 'dsh', 'home')
+    : path.join(process.env.HOME || '', '.dsh'))
+  const prof = process.env.YQ_VERIFY_PROFILE || 'desktop'
+  const pj = path.join(home, 'profiles', prof, 'package.json')
+  if (!fs.existsSync(pj)) {
+    console.log('\n[安装态] SKIP —— 没有这个 profile：' + pj)
+    console.log('         ★ 这是跳过，不是通过。要验安装态请先 dsh plugin add，或设 YQ_VERIFY_PROFILE。')
+  } else {
+    const r = spawnSync(process.execPath, [path.join(HERE, 'verify-installed.mjs'), '--profile', prof], { encoding: 'utf8', timeout: 300000 })
+    const out = (r.stdout || '') + (r.stderr || '')
+    const fails = [...out.matchAll(/^\s+❌ (.+)$/gm)].map((m) => m[1].trim())
+    check(
+      '安装态：profile/node_modules 里每个包都能 import（' + prof + '）',
+      r.status === 0,
+      fails.length ? fails.slice(0, 3).join('; ') : ''
+    )
+  }
+}
+
 console.log('通过 ' + checks.filter((c) => c.ok).length + ' / ' + checks.length)
 console.log('插件 files 合格 ' + pluginOk + ' 个')
 console.log('')

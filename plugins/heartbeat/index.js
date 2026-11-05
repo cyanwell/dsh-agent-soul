@@ -19,7 +19,11 @@ export const inject = ['webServer', 'agents']
 //   那在作者机器（D:\AI\dsh\home -> D:\AI）碰巧对，标准安装（C:\Users\<名>\.dsh -> C:\Users）全错。
 //   现在统一走 lib/paths.mjs 的四级解析：env > 自身配置 > echo.config.json > 候选列表。
 //   ★ 解析失败时把「试过哪些」打出来 —— 静默失败比报错更坏。
-import { resolveAll, explain } from '../../lib/paths.mjs'
+// ★ 2026-11-05 修 P0-1：跨包相对路径 ../../lib/paths.mjs 在仓库里对，
+//   装进 profile/node_modules/<pkg>/ 后指到 profile/lib/ —— 不存在。
+//   改为按包名解析：dsh-agent-soul 是根包，安装态在 node_modules/dsh-agent-soul/，
+//   Node 向上找 node_modules 就能命中；根包 exports/files 已补上这一条。
+import { resolveAll, explain } from 'dsh-agent-soul/lib/paths.mjs'
 
 const _paths = resolveAll()
 if (!_paths.soul.path) console.warn('[heartbeat] ' + explain('SOUL', _paths.soul))
@@ -53,7 +57,11 @@ function readRunOut () {
 }
 const DAILY_DIR = HUB + '\\heartbeat'
 const REPORTS_DIR = HUB + '\\heartbeat\\reports'          // ★ 巡视报告 + 报警队列
-const HB_DIR = process.env.YQ_HB_DIR || join(AI_ROOT, 'dsh-tools', 'dsh-yanqing-heartbeat')
+// ★ 2026-11-05 修 P0-1 后半：AI_ROOT 的定义在那次「死路径全清」里被删了，引用没删。
+//   现在 HB_DIR 优先取 env / 配置，最后才退回「soul 仓库旁边的 dsh-tools 同名目录」——
+//   而不是硬编码 D:/AI。拿不到就留空，别猜。
+const HB_DIR = process.env.YQ_HB_DIR
+  || (SOUL ? join(dirname(SOUL), 'dsh-tools', 'dsh-yanqing-heartbeat') : '')
 const HB_DIR_FOR_ORIGIN = HB_DIR   // ★ 脚本侧目录，用来把 origin 传给脚本
 const LATEST_LOG = join(HB_DIR, 'heartbeat.log.jsonl')   // ★ 巡视记录的权威来源
 const TASK_NAMES = ['Yanqing-Echo-Heartbeat', 'Yanqing-Echo-Heartbeat-AM']

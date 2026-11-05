@@ -32,6 +32,7 @@
  */
 import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 
 // ★ 不猜 home 在哪（AGENTS 里的铁律：不知道就报，不拿默认值顶）。
 //   原来这里兜底成 'D:/AI/dsh/home' —— 那是本机路径。别人机器上会去读一个
@@ -133,7 +134,7 @@ if (CMD === 'verify') {
 }
 
 function readdirCount(d) {
-  try { return require('node:fs').readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).length } catch { return 0 }
+  try { return readdirSync(d, { withFileTypes: true }).filter((e) => e.isDirectory()).length } catch { return 0 }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -326,7 +327,12 @@ if (CMD === 'build') {
   if (toInsert.length === 0) { console.log('\n无需插入。'); process.exit(bad === 0 ? 0 : 1) }
   if (!WRITE) { console.log(`\n[dry-run] 会插 ${toInsert.length} 个。加 --write 才真写。`); process.exit(0) }
 
+  // ★ 2026-11-05 修 P0-4：空 patch 时 presets=[]，Math.max() 返回 -Infinity，
+  //   splice(-Infinity,0,…) 等价于 splice(0,…)，会把 insert 插到文件最前面，
+  //   原来的 `[]` 被推到末尾 → YAML 非法。这里显式兜住。
+  if (presets.length === 0) die('patch 里没有任何 preset 块（可能只有 `[]`）—— 没有锚点可插入，拒绝写。请先手工在 cordis.patch.yml 里搭一个 preset 骨架。')
   const lastEnd = Math.max(...presets.map((p) => p.end))
+  if (!Number.isFinite(lastEnd)) die('preset.end 不是有限数字，拒绝写（这会把内容插到错误位置）')
   const all = []
   for (const t of toInsert) all.push(...t.body)
   writeBack(lines, lastEnd, all, pkgPath, patchPath, raw)
@@ -382,6 +388,39 @@ if (CMD === 'register-all') {
 }
 
 // ═══════════════════════════════════════════════════════════════
+/**
+ * 验证 patch 真的能被 DSH 解析。
+ * ★ 判据来源：报告 2026-11-05 —— 旧 writeBack 只核 bundles/BOM，看不见 YAML 非法。
+ * ★ 优先走「读它的那个人」（dsh --dump-config）；dsh 不在 PATH 时退回结构自检。
+ */
+function verifyPatchLoadable(patchPath, profile) {
+  try {
+    const r = spawnSync('dsh', ['--profile', profile, '--dump-config'], {
+      encoding: 'utf8', timeout: 60000, shell: process.platform === 'win32',
+    })
+    if (r.error && r.error.code === 'ENOENT') return structuralFallback(patchPath)
+    if (r.status === 0) return { ok: true, how: 'dsh --dump-config exit 0' }
+    const msg = (r.stderr || r.stdout || '').trim().split('\n').slice(-3).join(' / ')
+    return { ok: false, why: `dsh --dump-config exit ${r.status}: ${msg.slice(0, 300)}` }
+  } catch {
+    return structuralFallback(patchPath)
+  }
+}
+
+/** dsh 不可用时的兜底：只查最要命的两种结构错（顶层缩进混入 + 末尾孤立 []） */
+function structuralFallback(patchPath) {
+  const t = readFileSync(patchPath, 'utf8')
+  const L = t.split(/\r?\n/)
+  const bad = []
+  L.forEach((l, i) => {
+    if (!l.trim() || /^\s*#/.test(l)) return
+    if (/^\S/.test(l) && !/^-/.test(l) && !/^\[/.test(l) && !/^\w+\s*:/.test(l)) bad.push(`L${i + 1} 顶格裸行: ${l.slice(0, 40)}`)
+    if (/^\[\]\s*$/.test(l) && i < L.length - 2) bad.push(`L${i + 1} 孤立的 []`)
+  })
+  if (bad.length) return { ok: false, why: '结构自检（dsh 不可用）: ' + bad.slice(0, 3).join(' | ') }
+  return { ok: true, how: '结构自检通过（dsh 不在 PATH，未做真解析）' }
+}
+
 function writeBack(lines, insertAt, body, pkgPath, patchPath, raw) {
   const pkg0 = JSON.parse(readFileSync(pkgPath, 'utf8'))
   const b0 = (pkg0?.dsh?.profile?.bundles || []).length

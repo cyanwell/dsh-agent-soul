@@ -19,12 +19,14 @@
     "skeleton/",
     "kit/",
     "plugins/",
-    "tools/"
+    "tools/",
+    "lib/"
   ],
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./lib/paths.mjs": "./lib/paths.mjs"
   },
   "dsh": {
     "bundle": {

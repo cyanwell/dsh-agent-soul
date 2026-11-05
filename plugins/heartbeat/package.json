@@ -22,5 +22,8 @@
       "platform": "web",
       "inject": []
     }
+  },
+  "dependencies": {
+    "dsh-agent-soul": "*"
   }
 }

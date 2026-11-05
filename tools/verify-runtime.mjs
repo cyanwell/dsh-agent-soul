@@ -449,7 +449,7 @@ function checkEchoHub() {
       + "所以「找不到」可能只是我没找对地方，不是真缺。"
     const howto = "★ 如果它真缺，就是坑 5：装上了、加载了、检查全绿 —— 但它调不起体检，"
       + "因为起子进程失败被 try/catch 吞了。设 ECHO_HUB 指向你的记忆中枢目录"
-      + "（比如 D:/AI/memory/hub），再跑一次看它变不变绿。"
+      + "（例如 <记忆中枢上级>/memory/hub），再跑一次看它变不变绿。"
     check('echo 的三个脚本在不在（坑 5）', false, why, howto, 'warn')
     return
   }

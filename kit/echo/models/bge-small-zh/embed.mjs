@@ -24,7 +24,8 @@ import path from 'node:path';
 import { pipeline, env } from '@huggingface/transformers';
 
 // ★ 不写死本机路径（2026-11-05）：
-//   模型就在这个目录里（model_quantized.onnx 与本文件同级）→ 从 import.meta.url 推，永远对得上。
+//   模型在子目录 onnx/ 下（onnx/model_quantized.onnx，dtype 'q8' 由 transformers.js 拼出）
+//   → DIR 从 import.meta.url 推，永远对得上。
 //   记忆库是用户数据 → 走 echo.config.json / ECHO_MEMORY，**用到时才检查**（不在顶层 throw，
 //   否则任何 import 这个文件的代码都会连带崩掉，哪怕根本没用向量层）。
 const DIR = path.dirname(fileURLToPath(import.meta.url));

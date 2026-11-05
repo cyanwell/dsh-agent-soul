@@ -38,3 +38,12 @@ echo.config.json
 plugins/heartbeat/heartbeat.state.json
 plugins/heartbeat/heartbeat.log.jsonl
 plugins/heartbeat/heartbeat.config.json
+
+# ★ 2026-11-05 加：未展开的环境变量被当成目录名时，Windows 会在仓库根建出这种目录。
+#   实测：跑 PowerShell 子进程后出现过 `%SystemDrive%/ProgramData/Microsoft/Windows/Caches/*.db`，
+#   而 `git add -A` 把它一起收了进去（commit e47fe6a）。
+#   ★ 真正的教训不是「忘了 ignore」，是 **git add -A 会把任何脏东西收进来** ——
+#   以后 add 要显式列路径，不用 -A。
+%SystemDrive%/
+%SystemRoot%/
+%USERPROFILE%/
