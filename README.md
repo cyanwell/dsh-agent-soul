@@ -412,6 +412,24 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 
 ## 更新记录
 
+### 2026-11-05 · 修 fromSession 被白名单吞掉（回邮地址丢在门口）
+
+**症状**：上一版加了 `fromSession`，但实测台账里是 `undefined` —— 于是 decide 时无址可寄，回信根本没发生。
+
+**真因**：`normalizeRecord()` 是个**白名单**函数 —— 只保留它认识的那些字段。
+我把 `fromSession` 加进了 `wake` 的写入，**但没加进白名单**，于是写进去、立刻被清掉。
+
+> 这一行是爀曦压测时抓出来的。我自己跑过一次 wake 自测，当时也没看出问题 —— 
+> 因为自测时 `from` 是空的、`fromSession` 也是空的，**两个空值看起来一模一样**。
+
+| # | 改动 |
+|---|---|
+| 1 | `normalizeRecord` 加 `fromSession: String(r.fromSession \|\| '')` |
+| 2 | 回信目标加兜底：`fromSession` 空时，从 `from` 里抠 `session-[0-9a-f-]{8,}` |
+| 3 | 两者都空 → 抛错并 warn，**不静默跳过** |
+
+**第 2 条是为了兼容旧记录**：已经躺在台账里的那条 `fromSession` 是 undefined，
+但它的 `from` 里带着 `session-b6d69373` —— 能救回来，不用让分身再报一次。
 ### 2026-11-05 · 双向通路补齐：wake 带回邮地址，decide 自动回信
 
 **为什么做**：爀曦现场压测「她唤醒我 → 我再唤醒她」。上一版只有上行 ——

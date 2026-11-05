@@ -121,6 +121,9 @@ function normalizeRecord (raw) {
     charterNote: String(r.charterNote || ''),
     decidedAt: Number.isFinite(r.decidedAt) ? r.decidedAt : null,
     note: String(r.note || ''),
+    // ★ 回邮地址必须活着穿过白名单 —— 上一版就是漏了这一行，
+    //   wake 写进去了、normalize 又把它丢掉，于是 decide 时无址可寄。
+    fromSession: String(r.fromSession || ''),
   }
 }
 
@@ -730,7 +733,10 @@ const pendingList = ledger.events.filter((x) => {
           //      但面板判定通常没有 fromSession，就不发 —— 不制造噪音）。
           if (r && r.event && r.event.fromSession) {
             try {
-              const to = String(r.event.fromSession)
+              const raw = String(r.event.fromSession || '')
+              const m = String(r.event.from || '').match(/session-[0-9a-fA-F-]{8,}/)
+              const to = raw || (m ? m[0] : '')
+              if (!to) throw new Error('没有可用回邮地址（fromSession 与 from 都没带 session id）')
               const line = JSON.stringify({
                 sessionId: to,
                 from: 'lead-decide',
