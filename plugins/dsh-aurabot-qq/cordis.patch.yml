@@ -1,0 +1,143 @@
+# Aurabot —— DSH bundle patch（插件自带的挂载声明）
+#
+# 1) aurabot：插件本体（宿主半边 src/host.js + 网页半边 client/client.js）
+# 2) 两个 agent preset，只给 Aurabot 自己建的 QQ 会话用：
+#    - aurabot-private：主人私聊，完整工具 + 大肥鱼人格
+#    - aurabot-private-long：同上，另挂 jobs + schedule（面板「长任务模式」打开时用，默认关）
+#    - aurabot-social ：群聊 / 其他人私聊，没有任何本地工具（shell / 文件 / 网络），只有插件按会话挂的 QQ 工具
+#    人格通过提示词变量 {{aurabot_persona}} 放在系统提示词最前面（由插件注册，面板切换人格即时生效）。
+- insert:
+    - id: aurabot
+      name: dsh-aurabot-qq
+    - id: preset-aurabot-private
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: aurabot-private
+        name: Aurabot · 主人私聊
+        description: 大肥鱼在 QQ 上和主人私聊时用：人格 + 完整工具
+        order: 60
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: "{{aurabot_persona}}\n\n{{aurabot_rules_private}}"
+              # 人格独占系统提示词：不带 DSH 那一大段编程助手身份和工具指南（实测私聊从 1~4 分钟一轮降下来）。
+              # 工具照样挂着，模型靠工具定义本身就会用。
+              complete: true
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+    - id: preset-aurabot-private-long
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: aurabot-private-long
+        name: Aurabot · 主人私聊（长任务模式）
+        description: 主人私聊 + 后台任务（jobs）和定时任务（schedule）：长任务跑完会自动唤醒她回报
+        order: 62
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: "{{aurabot_persona}}\n\n{{aurabot_rules_private}}"
+              # 人格独占系统提示词：不带 DSH 那一大段编程助手身份和工具指南（实测私聊从 1~4 分钟一轮降下来）。
+              # 工具照样挂着，模型靠工具定义本身就会用。
+              complete: true
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          # 长任务模式：后台跑命令、完成后自动唤醒；以及一次性/周期定时任务
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: tool-schedule
+            name: '@deepseek-ai/dsh-tool-schedule'
+    - id: preset-aurabot-social
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: aurabot-social
+        name: Aurabot · 群聊
+        description: 大肥鱼在 QQ 群和陌生人私聊时用：人格 + 只有 QQ 社交工具，没有任何电脑操作能力
+        order: 61
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: "{{aurabot_persona}}\n\n{{aurabot_rules_social}}"
+              complete: true
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'

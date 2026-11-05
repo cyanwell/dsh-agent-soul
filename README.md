@@ -103,11 +103,18 @@
 | 3 | **换气插件必须实装** | `huanqi` + `huanqi-panel` | 思考退化是常态；没有它，会话会卡死在循环里而不自知 |
 | 4 | **墨账本必须实装** | `plugins/tools/ledger` | 整套架构的脊柱 —— 双写者不倒，记忆才不会散成文件。「墨」是本机实例的名字，通用件叫 ledger |
 | 5 | **MCP hub 必装** | `mcp-hub`（+ `kit/echo/echo-mcp.mjs`） | **以后很多机制为了更快响应必须注册成 MCP 服务**，它是唯一入口 |
+| 6 | **QQ 通道必装（事件层核心）** | `plugins/dsh-aurabot-qq` —— **第三方组件**（上游 [`accomplish07zrh-eng/dsh-aurabot-qq`](https://github.com/accomplish07zrh-eng/dsh-aurabot-qq)，MIT 许可）；本仓收的是 vendored 改造版，改动见该目录 README 的「本 fork 的改造」一节 | QQ 是「她不在 GUI 里的时候」唯一的在场方式。**事件层的两条腿都从它过**：上行（分会话把事报给主导 → `aurabot-modules/lead-relay`）与下行（主导把话发到 QQ） |
 
 ★ **两个「必」不是一回事，别读混**：
 
 - `plugins/清单.md` 的 `✓/○` 是「**层内**必选」——Ⅲ 层按定义没有必选项，所以 mcp-hub 在那里标 `○` 是对的。
 - **这一节是「全局必装」**——mcp-hub 在这里是必装。**层内可选 ≠ 整体可选。**
+
+★ **第 6 条是第三方组件**，不是本仓原创。收进来的理由：它是事件层的核心件 —— 缺了它，「分会话叫不醒主导」这一环就不成立。
+  改造只有两处：`src/chat/access.js` 的 `presetFor()` 按档位分 preset（且 preset 名可从 `config.presets` 覆盖），以及事件目录用 `YANQING_EVENT_DIR` 可配。
+  **升级上游时按该目录 README 的「本 fork 的改造」一节重做一遍**，不要直接覆盖。
+
+★ 同目录下的 `aurabot-modules/lead-relay` 是配套的事件层模块（上行那半），装在 aurabot 的 `modules/` 下热加载。
 
 ---
 
@@ -404,6 +411,24 @@ node tools/init.mjs --out ./my-soul --answers answers.json
 ---
 
 ## 更新记录
+
+### 2026-11-05 · 收入第三方组件 dsh-aurabot-qq —— QQ 通道进「全局必装」
+
+**为什么现在做**：事件层原来只有半边 —— 分会话能把事报上来（`lead-relay` 写 `事件队列.jsonl`），但**没人读它、也唤不醒主导会话**。
+而 QQ 是「她不在 GUI 里时」唯一的在场方式，所以那条通道本身就是事件层的一部分，不是附加项。
+
+| # | 改动 | 位置 |
+|---|---|---|
+| 1 | 第三方组件 vendored 进仓（上游 [`accomplish07zrh-eng/dsh-aurabot-qq`](https://github.com/accomplish07zrh-eng/dsh-aurabot-qq) v1.1.24，MIT） | `plugins/dsh-aurabot-qq/`（163 文件 / 2.4 MB，已排除 `node_modules` 与备份） |
+| 2 | `presetFor()` 改为可配置：默认仍是砚青那两个 preset；外部用户可用 `config.presets` 指到插件自带的 `aurabot-private` / `aurabot-social` | `src/chat/access.js` |
+| 3 | 事件层模块源码入仓（此前只活在数据目录，无留底） | `aurabot-modules/lead-relay/index.mjs`（155 行） |
+| 4 | 事件目录改 `YANQING_EVENT_DIR` 可配，默认值不变 | 同上 |
+| 5 | 「全局必装」加第 6 条，明标第三方来源与升级重做路径 | `README.md` |
+
+**第 2 条为什么重要**：外部用户装了 aurabot 却没装 `yanqing-qq` 这个 preset，转进 DSH 时会直接报 `Unknown agent preset` —— 本机 19:44 真踩过一次。现在有了覆盖口子，装完即用。
+
+**怎么验的**：`node --check` 通过；用 `node --input-type=module -e "import(...)"` 真导入拿到 `name` / `inject` / `apply`；文件路径逐条对着 `ls` 核过。
+**没验的**：vendored 副本与部署实例的长期一致性 —— 见该目录 README 的「本 fork 的改造」一节，升级上游时必须重做那两处改造，不能直接覆盖。
 ### 2026-11-05 · 外部干净机器验证报告：四个 P0 + 一个我自己没发现的
 
 **触发**：一份在 Ubuntu 干净机器上「tarball 全量拉取 → 清空 DSH_HOME → 22 个包逐个 add」的验证报告。
