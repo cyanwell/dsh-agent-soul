@@ -1,5 +1,5 @@
 /**
- * dsh-yanqing-heartbeat — browser half.
+ * dsh-agent-heartbeat — browser half.
  *
  * 两处注册：
  *   ① sidebar.panellist（list）—— 侧边栏图标的画法
@@ -8,7 +8,7 @@
  * 数据全走 Host 半的 /heartbeat/state；这里只负责显示。
  */
 window.__ModuleLoader__.load({
-  id: "dsh-yanqing-heartbeat",
+  id: "dsh-agent-heartbeat",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
@@ -264,17 +264,35 @@ window.__ModuleLoader__.load({
     // ① 侧边栏图标：只画图形，不画文字
     function Icon(props) {
       useStyle();
+      var _es = useState(0);
+      var _evtN = _es[0], _setEvtN = _es[1];
+      useEffect(function () {
+        var alive = true;
+        function pull() {
+          fetch("/lead-waker/state", { cache: "no-store" })
+            .then(function (r) { return r.json(); })
+            .then(function (j) { if (alive) _setEvtN((j.counts && j.counts.badge) || 0); })
+            .catch(function () {});
+        }
+        pull(); var _t = setInterval(pull, 20000);
+        return function () { alive = false; clearInterval(_t); };
+      }, []);
       var size = (props && props.size) || 20;
       var active = !!(props && props.active);
       var color = active ? "currentColor" : "currentColor";
       var op = active ? 1 : 0.62;
-      return react.createElement("svg", {
+      var _svgEl = react.createElement("svg", {
         width: size, height: size, viewBox: "0 0 24 24",
         fill: "none", stroke: color, strokeWidth: 1.9,
         strokeLinecap: "round", strokeLinejoin: "round",
         style: { opacity: op, display: "block" },
       },
         react.createElement("path", { d: "M2 12h4l2.5-6 3 12 2.5-6h8" }),
+      );
+      if (!_evtN) return _svgEl;
+      return react.createElement("div", { style: { position: "relative", display: "block", lineHeight: 0 } },
+        _svgEl,
+        react.createElement("span", { style: { position: "absolute", top: "-1px", right: "-2px", width: "7px", height: "7px", borderRadius: "50%", background: "#e8833a", boxShadow: "0 0 0 2px rgba(232,131,58,.22)" } }),
       );
     }
 
@@ -287,6 +305,141 @@ window.__ModuleLoader__.load({
     }
 
     // ② 面板内容
+    // ===== 事件层（合并自 lead-waker 的 UI，2026-11-05 爀曦定）=====
+    // ★ 只读 /lead-waker/state；判定按钮走 POST /lead-waker/decide。
+    //   lead-waker 仍是独立插件 —— 这里只是把它的状态画进心跳面板，
+    //   两个 host 各活各的，任一个挂了另一个照常工作。
+    // ===== 事件层面板（四类视图 + 宪章判定 + 操作按钮）=====
+    // 爀曦的原话："什么要你执行，什么你执行了，什么要审计但是我没有审计的，
+    // 什么你自己决定做的，通过宪章了吗" —— 这四问就是下面四个分类。
+    var EV_TABS = [
+      { id: "act",   label: "要你执行", hint: "叫醒了但还没判定" },
+      { id: "done",  label: "已执行",   hint: "判定为执行、已做完" },
+      { id: "audit", label: "要审计",   hint: "悬着等爀曦拍板" },
+      { id: "auto",  label: "自决",     hint: "我自己拿的主意" },
+    ];
+
+    function evCharter(c) {
+      if (c === "pass")  return { t: "宪章·通过",   c: "#2f8f5b" };
+      if (c === "ask")   return { t: "宪章·待问",   c: "#b58900" };
+      if (c === "block") return { t: "宪章·拦截",   c: "#c1453a" };
+      return { t: "宪章·未判", c: "#7a828c" };
+    }
+
+    function EventsCard() {
+      var s1 = useState("act"); var tab = s1[0], setTab = s1[1];
+      var s2 = useState({ data: null, err: null, busy: "" }); var st = s2[0], setSt = s2[1];
+
+      useEffect(function () {
+        var alive = true;
+        function pull() {
+          fetch("/lead-waker/state", { cache: "no-store" })
+            .then(function (r) { return r.json(); })
+            .then(function (j) { if (alive) setSt(function (o) { return { data: j, err: null, busy: o.busy }; }); })
+            .catch(function (e) { if (alive) setSt(function (o) { return { data: null, err: String(e && e.message || e), busy: o.busy }; }); });
+        }
+        pull(); var t = setInterval(pull, 15000);
+        return function () { alive = false; clearInterval(t); };
+      }, []);
+
+      function decide(key, decision) {
+        setSt(function (o) { return { data: o.data, err: o.err, busy: key }; });
+        fetch("/lead-waker/decide", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ key: key, decision: decision, charter: "unchecked", note: "" }),
+        }).then(function (r) { return r.json(); })
+          .then(function () {
+            return fetch("/lead-waker/state", { cache: "no-store" }).then(function (r) { return r.json(); });
+          })
+          .then(function (j) { setSt({ data: j, err: null, busy: "" }); })
+          .catch(function (e) { setSt({ data: null, err: String(e), busy: "" }); });
+      }
+
+      if (st.err) {
+        return react.createElement("div", { className: "hb-card" },
+          react.createElement("div", { className: "hb-k" }, "事件层 · 分会话请求"),
+          react.createElement("div", { className: "hb-vs" }, "未连上 lead-waker（不影响心跳本身）"));
+      }
+
+      var j = st.data || {};
+      var counts = j.counts || {};
+      var views = j.views || {};
+
+      // 分类标签
+      var tabs = react.createElement("div", { style: { display: "flex", gap: "6px", marginTop: "8px", flexWrap: "nowrap" } },
+        EV_TABS.map(function (t) {
+          var on = t.id === tab;
+          var n = counts[t.id] || 0;
+          return react.createElement("button", {
+            key: t.id, type: "button", title: t.hint,
+            onClick: function () { setTab(t.id); },
+            style: {
+              flex: "0 0 auto", cursor: "pointer", font: "inherit", fontSize: "12px",
+              padding: "4px 9px", borderRadius: "7px", border: "1px solid " + (on ? "rgba(232,131,58,.55)" : "rgba(128,140,155,.28)"),
+              background: on ? "rgba(232,131,58,.14)" : "transparent",
+              color: on ? "#d9813c" : "inherit", opacity: on ? 1 : 0.72,
+            },
+          }, t.label + (n ? " " + n : ""));
+        }));
+
+      // 当前分类的条目
+      var list = views[tab] || [];
+      var body;
+      if (!list.length) {
+        body = react.createElement("div", { className: "hb-vs", style: { marginTop: "8px" } },
+          tab === "act" ? "没有等你处理的事" :
+          tab === "done" ? "还没有执行完的记录" :
+          tab === "audit" ? "没有悬着等拍板的事" : "没有我自决的事");
+      } else {
+        body = react.createElement("div", { style: { marginTop: "4px" } }, list.map(function (x, i) {
+          var ch = evCharter(x.charter);
+          var when = String(x.t || "").slice(11, 16);
+          var showBtn = tab === "act";
+          return react.createElement("div", {
+            key: x.key || i,
+            style: { padding: "9px 0", borderTop: i ? "1px solid rgba(128,140,155,.16)" : "none" },
+          },
+            react.createElement("div", { style: { fontSize: "13.5px", fontWeight: 600, lineHeight: 1.5, wordBreak: "break-word" } },
+              String(x.title || "(无标题)").slice(0, 80)),
+            react.createElement("div", {
+              style: { display: "flex", gap: "8px", alignItems: "center", marginTop: "4px", fontSize: "11.5px", opacity: 0.72, flexWrap: "nowrap", overflow: "hidden" },
+            },
+              react.createElement("span", null, String(x.from || "?")),
+              react.createElement("span", null, when ? when : ""),
+              react.createElement("span", null, "tier=" + String(x.tier || "?")),
+              react.createElement("span", { style: { color: ch.c, opacity: 1 } }, ch.t),
+              x.wakeCount > 1 ? react.createElement("span", null, "叫了 " + x.wakeCount + " 次") : null,
+            ),
+            x.note ? react.createElement("div", { style: { fontSize: "12px", opacity: 0.66, marginTop: "3px", lineHeight: 1.55 } }, String(x.note).slice(0, 140)) : null,
+            showBtn ? react.createElement("div", { style: { display: "flex", gap: "6px", marginTop: "7px", flexWrap: "nowrap" } },
+              ["resume", "hold", "audit"].map(function (d) {
+                var label = d === "resume" ? "执行" : d === "hold" ? "搁置" : "送审";
+                return react.createElement("button", {
+                  key: d, type: "button", className: "hb-btn",
+                  disabled: st.busy === x.key,
+                  onClick: function () { decide(x.key, d); },
+                  style: { fontSize: "12px", padding: "4px 10px", cursor: "pointer" },
+                }, st.busy === x.key ? "…" : label);
+              })
+            ) : null
+          );
+        }));
+      }
+
+      return react.createElement("div", { className: "hb-card" },
+        react.createElement("div", { className: "hb-k" },
+          "事件层 · 分会话请求" + (counts.badge ? "  (" + counts.badge + " 待处理)" : "")),
+        tabs,
+        body);
+    }
+
+    function PanelWithEvents() {
+      return react.createElement("div", null,
+        react.createElement(EventsCard, null),
+        react.createElement(Panel, null));
+    }
+
     function Panel() {
       useStyle();
       var s = useState({ loading: true, data: null, err: null });
@@ -940,7 +1093,7 @@ window.__ModuleLoader__.load({
       ctx.slots.inject("main", function () {
         return ctx.slots.register(
           { name: "main", key: PANEL_ID },
-          function () { return react.createElement(Panel); },
+          function () { return react.createElement(PanelWithEvents); },
         );
       });
     }

@@ -1,4 +1,14 @@
-// dsh-yanqing-heartbeat — DSH plugin package, Host half.
+/**
+ * ★★★ 这是一个【架构专属组件】，不是通用插件。
+ *
+ * 它读四样东西，都在作者本机的目录约定下：
+ *   《墨》账本 · memory/hub 工具目录 · heartbeat 的自动日志 · 每步产出账
+ *
+ * 下面的 BOOK / HUB / AUTO_LOG / RUN_OUT 都是作者本机的绝对路径。
+ * **别人要用必须全部改**（这些是常量，当前版本没有 config 覆盖口子 —— 已知待改进）。
+ * 改完还要保证 heartbeat.mjs（外部脚本）在同一套路径下运行。
+ */
+// dsh-agent-heartbeat — DSH plugin package, Host half.
 //
 // 读三个真值，经 /heartbeat/state 交给浏览器半：
 //   ① 谁在驾驶   —— 《墨》里最后一条 lead 的摘要
@@ -7,33 +17,16 @@
 //
 // 三样都容错：读不到就返回 null，绝不因为一个文件缺失让整个面板挂掉。
 
-import { join, resolve, dirname } from 'node:path'
-import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { readFileSync, writeFileSync, existsSync, statSync, readdirSync , appendFileSync, mkdirSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 
-export const name = 'dsh-yanqing-heartbeat'
+export const name = 'dsh-agent-heartbeat'
 export const inject = ['webServer', 'agents']
 
-// ★ 2026-11-04 修死路径（第二次）：第一次改成 dirname(dirname(DSH_HOME))，
-//   那在作者机器（D:\AI\dsh\home -> D:\AI）碰巧对，标准安装（C:\Users\<名>\.dsh -> C:\Users）全错。
-//   现在统一走 lib/paths.mjs 的四级解析：env > 自身配置 > echo.config.json > 候选列表。
-//   ★ 解析失败时把「试过哪些」打出来 —— 静默失败比报错更坏。
-// ★ 2026-11-05 修 P0-1：跨包相对路径 ../../lib/paths.mjs 在仓库里对，
-//   装进 profile/node_modules/<pkg>/ 后指到 profile/lib/ —— 不存在。
-//   改为按包名解析：dsh-agent-soul 是根包，安装态在 node_modules/dsh-agent-soul/，
-//   Node 向上找 node_modules 就能命中；根包 exports/files 已补上这一条。
-import { resolveAll, explain } from 'dsh-agent-soul/lib/paths.mjs'
-
-const _paths = resolveAll()
-if (!_paths.soul.path) console.warn('[heartbeat] ' + explain('SOUL', _paths.soul))
-if (!_paths.memory.path) console.warn('[heartbeat] ' + explain('HUB', _paths.memory))
-
-const DSH_HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
-const SOUL = _paths.soul.path
-const HUB = _paths.memory.path ? join(_paths.memory.path, 'hub') : ''
-const BOOK = join(SOUL, '02-墨.jsonl')
-const AUTO_LOG = HUB ? join(HUB, 'heartbeat', '_auto.log') : ''
+const BOOK = 'D:\\AI\\yanqing-soul\\02-墨.jsonl'
+const HUB = 'D:\\AI\\memory\\hub'
+const AUTO_LOG = HUB + '\\heartbeat\\_auto.log'
 // ★ 2026-11-03 22:12 爀曦要「每步产出了什么」。heartbeat.mjs 写的历史里只有步骤名/成败/耗时，
 //   这里在插件侧补一本「输出账」，按结束时间匹配 history 里的记录。
 //   ★★ 边界：只有 /heartbeat/run（手动/强制）能拿到 stdout；自动触发走的是 followup，
@@ -57,13 +50,8 @@ function readRunOut () {
 }
 const DAILY_DIR = HUB + '\\heartbeat'
 const REPORTS_DIR = HUB + '\\heartbeat\\reports'          // ★ 巡视报告 + 报警队列
-// ★ 2026-11-05 修 P0-1 后半：AI_ROOT 的定义在那次「死路径全清」里被删了，引用没删。
-//   现在 HB_DIR 优先取 env / 配置，最后才退回「soul 仓库旁边的 dsh-tools 同名目录」——
-//   而不是硬编码 D:/AI。拿不到就留空，别猜。
-const HB_DIR = process.env.YQ_HB_DIR
-  || (SOUL ? join(dirname(SOUL), 'dsh-tools', 'dsh-yanqing-heartbeat') : '')
-const HB_DIR_FOR_ORIGIN = HB_DIR   // ★ 脚本侧目录，用来把 origin 传给脚本
-const LATEST_LOG = join(HB_DIR, 'heartbeat.log.jsonl')   // ★ 巡视记录的权威来源
+const HB_DIR_FOR_ORIGIN = 'D:\\AI\\dsh-tools\\dsh-agent-heartbeat'   // ★ 脚本侧目录，用来把 origin 传给脚本
+const LATEST_LOG = 'D:\\AI\\dsh-tools\\dsh-agent-heartbeat\\heartbeat.log.jsonl'   // ★ 巡视记录的权威来源
 const TASK_NAMES = ['Yanqing-Echo-Heartbeat', 'Yanqing-Echo-Heartbeat-AM']
 
 // ★ _auto.log 是 GBK 编码（Windows 批处理写的）。用 utf8 读会得到「��һ」这种乱码。
@@ -127,16 +115,6 @@ function readDriver() {
 // ② 心跳日志末行
 function readLastBeat() {
   try {
-    // ★ 2026-11-04：先看 heartbeat.log.jsonl —— 那是心跳自己写的，**两条触发路径都会写**。
-    //   _auto.log 只有计划任务那套写，插件自己的 setInterval 不写，所以两本账。
-    const hbLog = HUB ? join(HUB, 'heartbeat', 'heartbeat.log.jsonl') : ''
-    if (hbLog && existsSync(hbLog)) {
-      try {
-        const lines = readFileSync(hbLog, 'utf8').trim().split('\n').filter(Boolean)
-        const last = JSON.parse(lines[lines.length - 1])
-        return { ok: true, at: last.t || last.time || '', source: 'heartbeat.log.jsonl' }
-      } catch { /* 解析失败就往下走，读 _auto.log */ }
-    }
     if (!existsSync(AUTO_LOG)) return { ok: false, why: '_auto.log 不存在' }
     const st = statSync(AUTO_LOG)
     // 只读尾部 8KB，日志可能很大
@@ -223,6 +201,8 @@ export function apply(ctx) {
 
   // ★ 2026-11-03 加：命题 5 的「三条显示」缺了两条 —— 当前状态、下一次心跳。
 //   state 在心跳包自己的目录里（不是 memory/hub），cron 在 config 里。
+const HB_DIR = 'D:\\AI\\dsh-tools\\dsh-agent-heartbeat'
+
 function readHeartbeatState () {
   try {
     const p = HB_DIR + '\\heartbeat.state.json'
@@ -502,7 +482,7 @@ route('/heartbeat/state', async (_req, res) => {
 
     // ★ 内联的 idle 计算（不从 activity.mjs import —— profile 目录里没有那个文件，
     //   跨目录 import 会让插件加载失败。20 行代码不值得为此加一个文件依赖锁）
-    const SESSIONS_ROOT = join(DSH_HOME, 'sessions')
+    const SESSIONS_ROOT = 'D:\\AI\\dsh\\home\\sessions'
     const scanIdle = (ignore, now) => {
       let newest = 0
       let total = 0
@@ -971,7 +951,7 @@ route('/heartbeat/state', async (_req, res) => {
   })
 
   route('/heartbeat/ping', async (_req, res) => {
-    sendJson(res, 200, { ok: true, plugin: 'dsh-yanqing-heartbeat', v: '0.1.0' })
+    sendJson(res, 200, { ok: true, plugin: 'dsh-agent-heartbeat', v: '0.1.0' })
   })
   // ═══════════════════════════════════════════════════════════════════
   // ★ 2026-11-03 17:37 会话内自主循环（04 号命题 4 的实现）
@@ -1025,7 +1005,7 @@ route('/heartbeat/state', async (_req, res) => {
       '这是你自己进入的自主时间。\n\n' +
       '不必汇报「我在自主」，直接做事。做完把结论落盘，别留在上下文里。' }],
     // ★ V4 格式：source kind 必须是 producer-owned（今天踩过这个坑）
-    source: { kind: 'plugin:dsh-yanqing-heartbeat' },
+    source: { kind: 'plugin:dsh-agent-heartbeat' },
   })
 
   const autoTick = () => {

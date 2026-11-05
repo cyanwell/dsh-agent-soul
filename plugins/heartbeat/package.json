@@ -1,12 +1,6 @@
 {
-  "name": "dsh-yanqing-heartbeat",
+  "name": "dsh-agent-heartbeat",
   "version": "0.1.0",
-  "files": [
-    "index.js",
-    "client.js",
-    "package.json",
-    "cordis.patch.yml"
-  ],
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -22,8 +16,5 @@
       "platform": "web",
       "inject": []
     }
-  },
-  "dependencies": {
-    "dsh-agent-soul": "*"
   }
 }
