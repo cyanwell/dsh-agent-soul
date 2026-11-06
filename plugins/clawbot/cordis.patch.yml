@@ -1,7 +1,0 @@
-# ClawBot bundle patch。
-# 通过 `dsh plugin --profile web add github:<owner>/<repo>` 安装后生效。
-# 注册宿主端插件（agent 工具 + 自动通知 + /clawbot/* HTTP 路由）；
-# 浏览器半由 package.json 的 dsh.client + exports["./client"] 自动拾取。
-- insert:
-    - id: dsh-clawbot
-      name: dsh-clawbot

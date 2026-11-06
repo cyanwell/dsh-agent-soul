@@ -1,49 +1,25 @@
-node_modules/
+# 用户数据 —— 绝不入库
+data/
 *.log
-*.bak
-*.bak-*
-.DS_Store
+
+# 构建产物（35MB，每次重打包都变）
+build/*.exe
+build/*.dll
+build/*.pdb
+build/*.zip
+
+# 截图/验证产物（356MB）
+_verify/
+
+# 本机开发配置（含真实路径）
+config.json
+config.local.json
+
+# 依赖与缓存
+node_modules/
+*.cache
+
+# 系统
 Thumbs.db
-# 本机调试产物：插件开发时临时放在包根目录的东西
-_gen.py
-_probe*.mjs
-# ★ 2026-10-23 删掉了这里的 `selftest.mjs` —— 它原来是无前缀的全局匹配，
-#   把三个包**正式的自检脚本**一起忽略了：
-#   plugins/{model-statusbar,riji,yantai}/selftest.mjs
-#   而那三个 package.json 的 files 里都列着 selftest.mjs，
-#   于是从 git 打出来的包会**缺自检脚本**，本机却测不出来（本机有文件）。
-#   和「作者机器上永远走不到的兜底」是同一个形状：错误只在别人那里显形。
-#   以后若要忽略临时探针，请写成带路径的形式（如 `/probe.mjs`），不要用裸文件名。
-
-# ★ 运行数据（2026-10-23 加）
-# 这类文件是「这台机器扫出来的结果」，里面带着本机的应用名和绝对路径。它不是缺陷，
-# 但**不该进仓库** —— 提交上去等于替别人预装了一份别人的应用清单。
-# 仓库里只留 apps.example.json 这种「形状示例」，真实数据由每个人在本机第一次打开时自己生成。
-# 判据：同一个文件名，带 .example 的是模板、不带的是运行数据。
-plugins/yantai/apps/apps.json
-plugins/yantai/apps/icons/
-plugins/yantai/apps/usage.json
-.gh-issues/
-
-# 安装状态导出快照 —— 不入库（由 tools/soul-preset.mjs --export 生成，含本机路径）
-soul-version.json
-presets/_manifest.json
-
-# 本机的实际路径配置（每人不同，不该进仓库）
-echo.config.json
-
-# ★ 心跳的运行数据（2026-11-04 加）
-# 判据和 yantai/apps.json 一样：带 .example 的是模板、不带的是运行数据。
-# config 例外 —— 它的模板叫 heartbeat.config.example.json，真实那份由各人自己写。
-plugins/heartbeat/heartbeat.state.json
-plugins/heartbeat/heartbeat.log.jsonl
-plugins/heartbeat/heartbeat.config.json
-
-# ★ 2026-11-05 加：未展开的环境变量被当成目录名时，Windows 会在仓库根建出这种目录。
-#   实测：跑 PowerShell 子进程后出现过 `%SystemDrive%/ProgramData/Microsoft/Windows/Caches/*.db`，
-#   而 `git add -A` 把它一起收了进去（commit e47fe6a）。
-#   ★ 真正的教训不是「忘了 ignore」，是 **git add -A 会把任何脏东西收进来** ——
-#   以后 add 要显式列路径，不用 -A。
-%SystemDrive%/
-%SystemRoot%/
-%USERPROFILE%/
+desktop.ini
+.DS_Store

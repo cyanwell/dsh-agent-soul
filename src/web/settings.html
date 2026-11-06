@@ -1,0 +1,444 @@
+<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>agent-soul · 设置</title>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<style>
+:root{--bg:#131315;--panel:#1a1a1d;--panel2:#202024;--line:#28282d;--ink:#eae6de;--dim:#7d786f;--dim2:#585349;--amber:#d8a24a;--green:#63a05e;--red:#c4553f}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:'Lanxi-叮叮',ui-monospace,Consolas,monospace;font-size:13px;display:grid;grid-template-columns:176px 1fr;grid-template-rows:1fr 32px;height:100vh;overflow:hidden}
+nav{background:var(--panel);border-right:1px solid var(--line);padding:20px 0;display:flex;flex-direction:column}
+nav .brand{padding:0 16px 22px;font-family:'Lanxi-超粗黑',sans-serif;font-size:15px;letter-spacing:.04em}
+nav .brand i{font-style:normal;color:var(--amber)}
+nav .brand em{display:block;font-style:normal;font-family:'Lanxi-叮叮',monospace;font-size:9.5px;color:var(--dim2);letter-spacing:.18em;margin-top:4px}
+nav a{display:flex;align-items:center;gap:8px;padding:9px 16px;color:var(--dim);text-decoration:none;font-size:12.5px;border-left:2px solid transparent;transition:color .12s}
+nav a.on{color:var(--ink);border-left-color:var(--amber);background:var(--panel2)}
+nav a:hover{color:var(--ink)}
+nav a b{width:4px;height:4px;border-radius:50%;background:var(--dim2);flex:none}
+nav a.on b{background:var(--amber)}
+nav .sp{flex:1}
+nav .ver{padding:0 16px;font-size:9.5px;color:var(--dim2);letter-spacing:.1em}
+main{padding:24px 26px 30px;overflow-y:auto}
+header{display:flex;align-items:flex-end;gap:12px;margin-bottom:5px}
+h1{font-family:'Lanxi-超粗黑',sans-serif;font-size:21px;font-weight:400}
+header .t{font-size:10px;color:var(--dim2);margin-bottom:3px}
+.sub{color:var(--dim);font-size:11.5px;margin-bottom:18px;line-height:1.75}
+.sub b{color:var(--ink);font-weight:400}
+.sub .mono{color:var(--dim2);font-size:10.5px}
+h2{font-size:10px;letter-spacing:.22em;color:var(--dim2);margin:0 0 8px;font-weight:400;display:flex;align-items:center;gap:9px}
+h2:after{content:'';flex:1;height:1px;background:var(--line)}
+h2 .gid{letter-spacing:.05em;font-size:9.5px;opacity:.65}
+h2 .gcnt{margin-left:auto;letter-spacing:.05em;font-size:9.5px;color:var(--dim2);opacity:.8}
+.grp{margin:0 0 22px}
+.gnote{color:var(--dim);font-size:10.5px;margin:0 0 4px;line-height:1.6}
+.grestart{color:var(--dim2);font-size:10px;margin:0 0 10px;line-height:1.6}
+.card{background:var(--panel);border:1px solid var(--line);padding:0 14px 2px}
+table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+th{text-align:left;font-weight:400;font-size:9px;letter-spacing:.14em;color:var(--dim2);padding:10px 10px 5px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 10px 9px 0;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:none}
+th:last-child,td:last-child{padding-right:0}
+tr.chg td:first-child{box-shadow:inset 2px 0 0 var(--amber);padding-left:10px}
+.nm{font-size:12.5px;line-height:1.4}
+.ky{font-size:9.5px;color:var(--dim2);letter-spacing:.02em;margin-top:3px;word-break:break-all}
+.val{font-size:12.5px;word-break:break-all;line-height:1.5}
+.val.hot{color:var(--amber)}
+.dfl{color:var(--dim2);font-size:11.5px;word-break:break-all;line-height:1.5}
+.imp{color:var(--dim);font-size:11px;line-height:1.65}
+.det{color:var(--dim2);font-size:10px;margin-top:3px;line-height:1.5;word-break:break-all}
+.det.bad{color:var(--red)}
+.badge{display:inline-block;font-size:9px;padding:0 5px;border:1px solid var(--line);color:var(--dim2);margin:0 4px 3px 0;letter-spacing:.06em;line-height:16px}
+.badge.hot{color:var(--amber);border-color:#4a3a1e}
+.badge.off{color:var(--red);border-color:#4a2a22}
+.badge.env{color:var(--ink);border-color:var(--dim2)}
+.badge.ok{color:var(--green);border-color:#29401f}
+.stats{display:flex;gap:10px;margin-bottom:20px}
+.stat{background:var(--panel);border:1px solid var(--line);padding:9px 14px;min-width:120px}
+.stat b{display:block;font-family:'Lanxi-超粗黑',sans-serif;font-size:19px;font-weight:400;line-height:1.25}
+.stat span{font-size:9.5px;color:var(--dim2);letter-spacing:.1em}
+.stat.warn b{color:var(--amber)}
+.empty{color:var(--dim2);font-size:11px;padding:16px 0}
+.errbox{border:1px solid #4a2a22;color:var(--red);font-size:11.5px;padding:10px 12px;margin-bottom:16px;line-height:1.7}
+footer{border-top:1px solid var(--line);display:flex;align-items:center;gap:18px;padding:0 22px;font-size:11px;color:var(--dim2);grid-row:2/3;grid-column:1/3;background:var(--panel)}
+footer .dot{width:5px;height:5px;background:var(--green);border-radius:50%;display:inline-block;margin-right:6px;box-shadow:0 0 6px var(--green)}
+footer .dot.no{background:var(--red);box-shadow:0 0 6px var(--red)}
+footer .r{margin-left:auto;display:flex;gap:16px}
+footer span{color:var(--dim)}
+footer button{background:none;border:1px solid var(--line);color:var(--dim);font-family:inherit;font-size:10px;padding:2px 9px;cursor:pointer}
+footer button:hover{color:var(--ink);border-color:var(--dim)}
+.bar{position:sticky;top:0;z-index:6;background:var(--bg);margin:0 -26px 16px;padding:10px 26px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;font-size:11.5px}
+.bar .dirty{color:var(--amber)}
+.bar .clean{color:var(--dim2)}
+.bar .grow{flex:1}
+.btn{background:var(--panel2);border:1px solid var(--line);color:var(--ink);font-family:inherit;font-size:11.5px;padding:6px 14px;cursor:pointer}
+.btn:hover{border-color:var(--dim)}
+.btn.primary{border-color:#4a3a1e;color:var(--amber)}
+.btn.primary:hover{background:#241c10}
+.btn:disabled{opacity:.35;cursor:default}
+.i{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);font-family:inherit;font-size:12.5px;padding:5px 8px;outline:none}
+.i:focus{border-color:var(--amber)}
+textarea.i{min-height:72px;resize:vertical;line-height:1.6}
+input[type=checkbox]{accent-color:var(--amber);width:14px;height:14px;vertical-align:-2px}
+.hint{color:var(--dim2);font-size:10px;margin-top:4px;line-height:1.5}
+.err{color:var(--red);font-size:10.5px;margin-top:4px;line-height:1.55}
+tr.bad td:first-child{box-shadow:inset 2px 0 0 var(--red);padding-left:10px}
+.msg{margin:0 0 14px;padding:9px 12px;border:1px solid var(--line);font-size:11.5px;line-height:1.75;white-space:pre-wrap}
+.msg.ok{border-color:#29401f;color:var(--green)}
+.msg.no{border-color:#4a2a22;color:var(--red)}
+.msg .k{color:var(--ink)}
+.rowin{display:flex;align-items:center;gap:9px}
+</style></head><body>
+<nav><div class='brand'>agent<i>·</i>soul<em>CONSOLE</em></div>
+<a href='/'><b></b>概览</a><a href='/organs'><b></b>器官</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><a href='/params'><b></b>参数</a><a href='/settings' class='on'><b></b>设置</a><a href='/chat'><b></b>对话</a>
+<div class='sp'></div><div class='ver'>v0.1.0</div></nav>
+<main>
+<header><h1>设置</h1><span class='t' id='meta'></span></header>
+<div class='sub' id='sub'>正在读配置……</div>
+<div class='bar' id='bar'><span id='dirtxt' class='clean'>没有改动</span><span class='grow'></span><button class='btn' id='revert'>丢弃改动</button><button class='btn primary' id='save' disabled>保存</button></div>
+<div id='msg'></div>
+<div id='groups'><div class='empty'>读配置中……</div></div>
+</main>
+<footer><span><i class='dot' id='dot'></i><span id='st'>连接中</span></span><span id='at'></span>
+<span class='r'><button id='reload'>重新读</button></span></footer>
+<script>
+var $=function(id){return document.getElementById(id)}
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+function clock(){return new Date().toLocaleTimeString('zh-CN')}
+
+var ROWS=[];
+var DATA=null;
+
+function load(){
+  setStatus('读配置中');
+  fetch('/api/config',{cache:'no-store'}).then(function(r){return r.json().then(function(d){return {status:r.status,d:d}})}).then(function(o){
+    if(o.status!==200){
+      var why=(o.d&&(o.d.fileError||o.d.configError||o.d.error))||('HTTP '+o.status);
+      showMsg('no','配置接口没读成功：'+why);
+    }
+    render(o.d);
+    setStatus('在线');
+  }).catch(function(x){
+    $('sub').textContent='读不到配置接口 —— '+x.message;
+    $('st').textContent='连不上';$('dot').className='dot no';
+  });
+}
+
+function setStatus(t){$('st').textContent=t;$('dot').className='dot';}
+
+function render(d){
+  DATA=d;ROWS=[];
+  $('meta').textContent='（读于 '+clock()+'）';
+  var sub=$('sub');sub.innerHTML='';
+  sub.appendChild(document.createTextNode('改完点保存。校验不过就'));
+  sub.appendChild(el('b',null,'一个字都不会写盘'));
+  sub.appendChild(document.createTextNode('；通过才会原子写（.tmp → rename），写完还会读回来给你看。'));
+  sub.appendChild(el('br'));
+  sub.appendChild(el('span','mono','config.json · '+d.file+' · '+d.bytes+' B · sha256 '+d.sha256+(d.exists?'':' · 文件还不存在，保存时新建')));
+
+  var host=$('groups');host.innerHTML='';
+  (d.groups||[]).forEach(function(g){host.appendChild(groupEl(g))});
+  updateDirty();
+}
+
+function groupEl(g){
+  var box=el('div','grp');
+  var h=el('h2');h.appendChild(document.createTextNode(g.name));h.appendChild(el('span','gid',g.id));
+  h.appendChild(el('span','gcnt',g.fields.length+' 项'));
+  box.appendChild(h);
+  if(g.note)box.appendChild(el('div','gnote',g.note));
+  if(g.restartWhy)box.appendChild(el('div','grestart','改动后重启才生效 —— '+g.restartWhy));
+
+  var card=el('div','card');
+  var t=el('table');
+  var cg=el('colgroup');
+  var ws=['168px','auto','124px','200px','78px'];
+  ws.forEach(function(w){var c=el('col');c.setAttribute('style','width:'+w);cg.appendChild(c)});
+  t.appendChild(cg);
+  var thead=el('thead');var trh=el('tr');
+  ['参数','值','默认','影响','状态'].forEach(function(x){trh.appendChild(el('th',null,x))});
+  thead.appendChild(trh);t.appendChild(thead);
+  var tb=el('tbody');
+  g.fields.forEach(function(f){tb.appendChild(rowEl(f))});
+  t.appendChild(tb);card.appendChild(t);box.appendChild(card);
+  return box;
+}
+
+function rowEl(f){
+  f._base=baseOf(f);
+  var tr=el('tr');
+
+  var td1=el('td');
+  td1.appendChild(el('div','nm',f.label));
+  td1.appendChild(el('div','ky',f.key));
+  tr.appendChild(td1);
+
+  var td2=el('td');
+  var c=ctlEl(f);
+  td2.appendChild(c.wrap);
+  var errEl=el('div','err');errEl.setAttribute('style','display:none');
+  td2.appendChild(errEl);
+  tr.appendChild(td2);
+
+  var td3=el('td');td3.appendChild(el('div','dfl',f.defaultDisplay==null?'—':f.defaultDisplay));
+  tr.appendChild(td3);
+
+  var td4=el('td');td4.appendChild(el('div','imp',f.note||''));
+  tr.appendChild(td4);
+
+  var td5=el('td');
+  if(f.wired===false)td5.appendChild(el('span','badge off','未接线'));
+  if(f.source==='env')td5.appendChild(el('span','badge env','env'));
+  if(f.restart)td5.appendChild(el('span','badge','重启'));
+  tr.appendChild(td5);
+
+  ROWS.push({f:f,input:c.input,clear:c.clear||null,tr:tr,errEl:errEl});
+  return tr;
+}
+
+function ctlEl(f){
+  var wrap=el('div');
+
+  if(f.type==='bool'){
+    var lab=el('label','rowin');
+    var cb=document.createElement('input');cb.type='checkbox';cb.checked=!!f.value;
+    var txt=el('span','hint',f.value?'开':'关');
+    lab.appendChild(cb);lab.appendChild(txt);
+    cb.addEventListener('change',function(){txt.textContent=cb.checked?'开':'关'});
+    wrap.appendChild(lab);
+    return {wrap:wrap,input:cb};
+  }
+
+  if(f.type==='secret'){
+    var row=el('div','rowin');
+    var pw=document.createElement('input');
+    pw.type='password';pw.className='i';pw.autocomplete='new-password';
+    pw.placeholder=f.hasKey?'已配置（不显示）—— 留空 = 不改':'未配置 —— 填一个才能对话';
+    row.appendChild(pw);wrap.appendChild(row);
+    var lab2=el('label','rowin');
+    var cl=document.createElement('input');cl.type='checkbox';
+    lab2.appendChild(cl);lab2.appendChild(el('span','hint','清除这个 key（明确清空）'));
+    wrap.appendChild(lab2);
+    cl.addEventListener('change',function(){pw.disabled=cl.checked;if(cl.checked)pw.value=''});
+    return {wrap:wrap,input:pw,clear:cl};
+  }
+
+  if(f.type==='strings'||f.type==='files'){
+    var ta=document.createElement('textarea');ta.className='i';
+    ta.value=initText(f);
+    wrap.appendChild(ta);
+    wrap.appendChild(el('div','hint',f.type==='files'?'一行一个：tier|名称|路径（tier = core / work / context）':'一行一个'));
+    return {wrap:wrap,input:ta};
+  }
+
+  if(f.type==='hours'){
+    var hi=document.createElement('input');hi.type='text';hi.className='i';
+    hi.value=Array.isArray(f.value)?f.value.join(', '):'';
+    hi.placeholder='例如 2, 7（留空 = 不设）';
+    wrap.appendChild(hi);
+    wrap.appendChild(el('div','hint','两个 0..23 的整点；留空 = 不设'));
+    return {wrap:wrap,input:hi};
+  }
+
+  var inp=document.createElement('input');
+  inp.className='i';
+  if(f.type==='int'||f.type==='float'){
+    inp.type='number';
+    if(f.min!=null)inp.min=String(f.min);
+    if(f.max!=null)inp.max=String(f.max);
+    inp.step=String(f.step||1);
+  }else{
+    inp.type='text';
+  }
+  inp.value=(f.value==null)?'':String(f.value);
+  wrap.appendChild(inp);
+  if(f.type==='int'||f.type==='float'){
+    if(f.min!=null||f.max!=null)wrap.appendChild(el('div','hint','范围 '+f.min+' ~ '+f.max+(f.unit?' · '+f.unit:'')));
+    else if(f.unit)wrap.appendChild(el('div','hint','单位 '+f.unit));
+  }
+  if(f.type==='path'){
+    if(f.resolved)wrap.appendChild(el('div','hint',f.exists===false?('✗ 不存在：'+f.resolved):f.resolved));
+    if(f.allowNull)wrap.appendChild(el('div','hint','留空 = 不设置'));
+  }
+  if(f.type==='string'&&f.allowNull)wrap.appendChild(el('div','hint','留空 = 不设置'));
+  if(f.source==='env')wrap.appendChild(el('div','hint','★ 当前被环境变量 '+f.envVar+' 盖着 —— 改这里的值不会生效'));
+  else if(f.envVar)wrap.appendChild(el('div','hint','也可以用环境变量 '+f.envVar+' 覆盖（那样改这里会失效）'));
+  return {wrap:wrap,input:inp};
+}
+
+function initText(f){
+  if(f.type==='strings')return Array.isArray(f.value)?f.value.join('\n'):'';
+  if(f.type==='files')return Array.isArray(f.value)?f.value.map(function(it){
+    return (it.tier||'context')+'|'+(it.name||'')+'|'+(it.path||'');
+  }).join('\n'):'';
+  return '';
+}
+
+function baseOf(f){return normOf(f,f.value)}
+
+function normOf(f,v){
+  if(f.type==='bool')return !!v;
+  if(f.type==='int'||f.type==='float')return (v===null||v===undefined||v==='')?null:Number(v);
+  if(f.type==='strings')return Array.isArray(v)?v.map(String):[];
+  if(f.type==='hours')return Array.isArray(v)?v.map(Number):null;
+  if(f.type==='files')return Array.isArray(v)?v.map(function(it){
+    return {tier:String(it.tier||''),name:String(it.name||''),path:String(it.path||'')};
+  }):[];
+  if(v===null||v===undefined)return null;
+  return String(v);
+}
+
+function parseCtl(f,inp){
+  if(f.type==='bool')return inp.checked;
+  if(f.type==='int'||f.type==='float'){
+    var s=String(inp.value).trim();
+    return s===''?null:Number(s);
+  }
+  if(f.type==='strings'){
+    return String(inp.value).split(/\r?\n/).map(function(x){return x.trim()}).filter(Boolean);
+  }
+  if(f.type==='hours'){
+    var t=String(inp.value).trim();
+    if(!t)return null;
+    return t.split(/[,，\s]+/).filter(Boolean).map(Number);
+  }
+  if(f.type==='files'){
+    return String(inp.value).split(/\r?\n/).map(function(x){return x.trim()}).filter(Boolean).map(function(line){
+      var p=line.split('|').map(function(s){return s.trim()});
+      if(p.length>=3)return {tier:p[0],name:p[1],path:p[2]};
+      if(p.length===2)return {tier:p[0],name:'',path:p[1]};
+      return {tier:p[0]||'',name:'',path:''};
+    });
+  }
+  var s2=String(inp.value).trim();
+  return s2===''?null:s2;
+}
+
+function pending(){
+  var n=0,patch={};
+  ROWS.forEach(function(r){
+    var f=r.f;
+    if(f.type==='secret'){
+      if(r.clear&&r.clear.checked){n++;patch[f.key]=null;return;}
+      if(r.input.value.length){n++;patch[f.key]=r.input.value;}
+      return;
+    }
+    var cur=parseCtl(f,r.input);
+    if(JSON.stringify(normOf(f,cur))!==JSON.stringify(f._base)){n++;patch[f.key]=cur;}
+  });
+  return {n:n,patch:patch};
+}
+
+function updateDirty(){
+  var p=pending();
+  var t=$('dirtxt');
+  if(p.n>0){t.className='dirty';t.textContent='有 '+p.n+' 项改动还没保存 —— 离开这一页会丢';}
+  else{t.className='clean';t.textContent='没有改动';}
+  $('save').disabled=(p.n===0);
+}
+
+function showMsg(kind,text){
+  var box=$('msg');box.innerHTML='';
+  box.appendChild(el('div','msg '+kind,text));
+}
+
+function clearMarks(){
+  ROWS.forEach(function(r){r.tr.className='';r.errEl.textContent='';r.errEl.setAttribute('style','display:none')});
+}
+
+function rowByKey(key){
+  for(var i=0;i<ROWS.length;i++){if(ROWS[i].f.key===key)return ROWS[i];}
+  return null;
+}
+
+function labelOf(key){var r=rowByKey(key);return r?r.f.label:key}
+
+function save(){
+  var p=pending();
+  if(!p.n)return;
+  $('save').disabled=true;
+  $('save').textContent='保存中…';
+  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({patch:p.patch})})
+    .then(function(r){return r.json().then(function(d){return {status:r.status,d:d}})})
+    .then(function(o){
+      $('save').textContent='保存';
+      if(o.status===200&&o.d&&o.d.ok)onOk(o.d);
+      else onFail(o.d,o.status);
+      $('save').disabled=false;
+      updateDirty();
+    })
+    .catch(function(x){
+      $('save').textContent='保存';
+      showMsg('no','请求失败：'+x.message+'\n（一个字都没写盘）');
+      $('save').disabled=false;
+    });
+}
+
+function onOk(d){
+  var lines=[];
+  lines.push('已写入 '+d.file);
+  lines.push('磁盘上现在 '+d.bytes+' B，sha256 '+d.sha256);
+  lines.push('读回校验：'+d.readBack.checked+' 项，'+(d.readBack.match?'全部一致 ✓':'有不一致的 ✗'));
+  if(d.changed&&d.changed.length){
+    lines.push('');
+    d.changed.forEach(function(c){lines.push('  '+c.label+'（'+c.key+'）：'+c.before+' → '+c.after)});
+  }
+  if(d.restartRequired&&d.restartRequired.length){
+    lines.push('');
+    lines.push('要重启才生效：'+d.restartRequired.map(function(x){return x.label}).join('、'));
+  }
+  showMsg('ok',lines.join('\n'));
+  render(d);
+  setStatus('已保存 · '+clock());
+}
+
+function onFail(d,status){
+  clearMarks();
+  var errs=(d&&d.errors&&d.errors.length)?d.errors:[{field:'(请求)',message:(d&&(d.error||d.configError||d.fileError))||('HTTP '+status)}];
+  var lines=['没有写盘 —— 校验没过，一个字都没落盘',''];
+  var first=null;
+  errs.forEach(function(e){
+    lines.push('  · '+labelOf(e.field)+'（'+e.field+'）：'+e.message);
+    var r=rowByKey(e.field);
+    if(r){
+      r.tr.className='bad';
+      r.errEl.textContent=e.message;
+      r.errEl.setAttribute('style','display:block');
+      if(!first)first=r.tr;
+    }
+  });
+  showMsg('no',lines.join('\n'));
+  // ★ nearest 而不是 center：把错误行滚到中间，顶上那条「没有写盘」的汇总就被顶出视口了
+  if(first&&first.scrollIntoView)first.scrollIntoView({block:'nearest'});
+  setStatus('校验没过');
+}
+
+$('save').onclick=save;
+$('revert').onclick=function(){
+  if(pending().n===0){showMsg('ok','没有改动，不用丢。');return;}
+  if(!confirm('丢弃这一页的所有改动？'))return;
+  $('msg').innerHTML='';
+  load();
+};
+$('reload').onclick=function(){
+  if(pending().n>0&&!confirm('重新读会覆盖你没保存的改动，继续？'))return;
+  $('msg').innerHTML='';
+  load();
+};
+$('groups').addEventListener('input',updateDirty);
+$('groups').addEventListener('change',updateDirty);
+
+document.addEventListener('keydown',function(e){
+  if((e.ctrlKey||e.metaKey)&&String(e.key).toLowerCase()==='s'){e.preventDefault();save();}
+});
+
+document.querySelectorAll('nav a').forEach(function(a){
+  a.addEventListener('click',function(e){
+    var wip=a.getAttribute('data-wip');
+    if(wip){e.preventDefault();alert(wip+' —— 还没做');return;}
+    if(pending().n>0&&!confirm('有改动还没保存，离开就丢了。确定走？'))e.preventDefault();
+  });
+});
+
+window.addEventListener('beforeunload',function(e){
+  if(pending().n>0){e.preventDefault();e.returnValue='';}
+});
+
+load();
+</script></body></html>

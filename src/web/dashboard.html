@@ -1,0 +1,128 @@
+<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>agent-soul</title>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<style>
+:root{--bg:#131315;--panel:#1a1a1d;--panel2:#202024;--line:#28282d;--ink:#eae6de;--dim:#7d786f;--dim2:#585349;--amber:#d8a24a;--green:#63a05e;--red:#c4553f}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:'Lanxi-叮叮',ui-monospace,Consolas,monospace;font-size:13px;display:grid;grid-template-columns:176px 1fr;grid-template-rows:1fr 32px;height:100vh;overflow:hidden}
+nav{background:var(--panel);border-right:1px solid var(--line);padding:20px 0;display:flex;flex-direction:column}
+nav .brand{padding:0 16px 22px;font-family:'Lanxi-超粗黑',sans-serif;font-size:15px;letter-spacing:.04em}
+nav .brand i{font-style:normal;color:var(--amber)}
+nav .brand em{display:block;font-style:normal;font-family:'Lanxi-叮叮',monospace;font-size:9.5px;color:var(--dim2);letter-spacing:.18em;margin-top:4px}
+nav a{display:flex;align-items:center;gap:8px;padding:9px 16px;color:var(--dim);text-decoration:none;font-size:12.5px;border-left:2px solid transparent;transition:color .12s}
+nav a.on{color:var(--ink);border-left-color:var(--amber);background:var(--panel2)}
+nav a:hover{color:var(--ink)}
+nav a b{width:4px;height:4px;border-radius:50%;background:var(--dim2);flex:none}
+nav a.on b{background:var(--amber)}
+nav .sp{flex:1}
+nav .ver{padding:0 16px;font-size:9.5px;color:var(--dim2);letter-spacing:.1em}
+main{padding:24px 26px 30px;overflow-y:auto}
+header{display:flex;align-items:flex-end;gap:12px;margin-bottom:5px}
+h1{font-family:'Lanxi-超粗黑',sans-serif;font-size:21px;font-weight:400}
+header .t{font-size:10px;color:var(--dim2);margin-bottom:3px}
+.sub{color:var(--dim);font-size:11.5px;margin-bottom:22px;line-height:1.7}
+.sub b{color:var(--ink);font-weight:400}
+h2{font-size:10px;letter-spacing:.22em;color:var(--dim2);margin:26px 0 11px;font-weight:400;display:flex;align-items:center;gap:9px}
+h2:after{content:'';flex:1;height:1px;background:var(--line)}
+.grid{display:grid;gap:10px}
+.g6{grid-template-columns:repeat(6,1fr)}
+.g5{grid-template-columns:repeat(5,1fr)}
+.g2{grid-template-columns:1fr 1fr}
+.card{background:var(--panel);border:1px solid var(--line);padding:13px 14px;position:relative;overflow:hidden}
+.card .k{font-size:9.5px;letter-spacing:.14em;color:var(--dim2);margin-bottom:8px}
+.card .v{font-family:'Lanxi-超粗黑',sans-serif;font-size:23px;line-height:1.05;letter-spacing:-.01em}
+.card .v i{font-style:normal;font-size:11px;color:var(--dim);margin-left:3px;letter-spacing:0}
+.card .n{font-size:10px;color:var(--dim2);margin-top:6px;line-height:1.5}
+.card.ok .v{color:var(--ink)}
+.card.warn{border-color:#4a3a1e}.card.warn .v{color:var(--amber)}
+.card.bad{border-color:#4a2a22}.card.bad .v{color:var(--red)}
+.card .bar{position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--dim2)}
+.card.warn .bar{background:var(--amber)}.card.bad .bar{background:var(--red)}.card.ok .bar{background:var(--green)}
+table{width:100%;border-collapse:collapse;font-size:12px}
+td{padding:7px 0;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td:first-child{color:var(--dim);width:40%}
+.pill{display:inline-block;padding:1px 7px;border:1px solid var(--line);font-size:10px;color:var(--dim)}
+.pill.ok{color:var(--green);border-color:#29401f}.pill.no{color:var(--red);border-color:#412018}
+footer{border-top:1px solid var(--line);display:flex;align-items:center;gap:18px;padding:0 22px;font-size:11px;color:var(--dim2);grid-row:2/3;grid-column:1/3;background:var(--panel)}
+footer .dot{width:5px;height:5px;background:var(--green);border-radius:50%;display:inline-block;margin-right:6px;box-shadow:0 0 6px var(--green)}
+footer .r{margin-left:auto;display:flex;gap:16px}
+footer span{color:var(--dim)}
+footer button{background:none;border:1px solid var(--line);color:var(--dim);font-family:inherit;font-size:10px;padding:2px 9px;cursor:pointer}
+footer button:hover{color:var(--ink);border-color:var(--dim)}
+.empty{color:var(--dim2);font-size:11px;padding:16px 0}
+.sk{opacity:.55}
+.sk .v{color:var(--dim2)}
+@keyframes skp{0%,100%{opacity:.55}50%{opacity:.85}}
+.sk{animation:skp 1.6s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){.sk{animation:none}}
+</style></head><body>
+<nav><div class='brand'>agent<i>·</i>soul<em>CONSOLE</em></div>
+<a href='/' class='on'><b></b>概览</a><a href='/organs'><b></b>器官</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><a href='/params'><b></b>参数</a><a href='/settings'><b></b>设置</a><a href='/chat'><b></b>对话</a>
+<div class='sp'></div><div class='ver'>v0.1.0</div></nav>
+<main>
+<header><h1>概览</h1><span class='t' id='took'></span></header>
+<div class='sub' id='sub'>正在读……</div>
+<h2>数据</h2><div class='grid g6' id='cards'><div class='card sk'><div class='bar'></div><div class='k'>会话</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>会话</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>会话</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>会话</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>会话</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>会话</div><div class='v'>—</div></div></div>
+<h2>器官 · 看不见的东西</h2><div class='grid g5' id='organs'><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div></div>
+<h2>运行环境</h2><div class='grid g2'><div class='card' style='padding:6px 14px'><table id='env'></table></div>
+<div class='card' style='padding:6px 14px'><table id='more'></table></div></div>
+</main>
+<footer><span><i class='dot'></i><span id='st'>连接中</span></span><span id='at'></span>
+<span class='r'><button id='fresh'>强制刷新</button></span></footer>
+<script>
+var $=function(id){return document.getElementById(id)}
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+function card(k,v,unit,note,cls){var d=el('div','card '+(cls||'ok'));d.appendChild(el('div','bar'));d.appendChild(el('div','k',k));var vv=el('div','v',v);if(unit)vv.appendChild(el('i',null,unit));d.appendChild(vv);if(note)d.appendChild(el('div','n',note));return d}
+function row(t,label,val){var tr=el('tr');tr.appendChild(el('td',null,label));var td=el('td');td.appendChild(typeof val==='string'?document.createTextNode(val):val);tr.appendChild(td);t.appendChild(tr)}
+function pill(txt,ok){return el('span','pill '+(ok?'ok':'no'),txt)}
+function sec(n){return n>=3600?Math.floor(n/3600)+' 小时 '+Math.floor(n%3600/60)+' 分':n>=60?Math.floor(n/60)+' 分 '+(n%60)+' 秒':n+' 秒'}
+function num(n){return n==null?'—':Number(n).toLocaleString()}
+
+function loadData(fresh){
+  fetch('/api/overview'+(fresh?'?fresh=1':'')).then(function(r){return r.json()}).then(function(d){
+    $('took').textContent=d.cached?'（缓存 '+(d.cacheAgeMs||0)+'ms 前）':'（采集 '+d.tookMs+'ms）';
+    var sub=$('sub');sub.innerHTML='';
+    sub.appendChild(el('b',null,num(d.sessions)));
+    sub.appendChild(document.createTextNode(' 个会话 · '));
+    sub.appendChild(el('b',null,num(d.indexRows)));
+    sub.appendChild(document.createTextNode(' 行索引 · 库 '+d.dataMB+' MB'));
+    if(!d.llmReady){var w=el('span',null,' · 未配模型（能检索，不能对话）');w.style.color='var(--dim)';sub.appendChild(w)}
+    var g=$('cards');g.innerHTML='';
+    g.appendChild(card('会话',num(d.sessions),'个','容器'));
+    g.appendChild(card('索引行',num(d.indexRows),'','可检索的最小单位'));
+    g.appendChild(card('库',String(d.dataMB),'MB','frames + index',d.dataMB>2000?'warn':'ok'));
+    g.appendChild(card('检索', d.searchMs == null ? '—' : String(d.searchMs), d.searchMs == null ? '' : 'ms', d.searchMs == null ? '还没有会话可测' : ('命中 ' + d.searchHits + ' 条'), d.searchMs != null && d.searchMs > 200 ? 'warn' : 'ok'));
+    g.appendChild(card('内存',String(d.memMB),'MB','堆 '+d.heapMB,d.memMB>900?'warn':'ok'));
+    g.appendChild(card('运行',sec(d.uptimeSec),'','Node '+String(d.node).replace('v','')));
+    var e=$('env');e.innerHTML='';
+    row(e,'数据目录',String(d.dataMB)+' MB（缓存 '+d.cacheMB+' MB）');
+    row(e,'进程内存',d.memMB+' MB（堆 '+d.heapMB+' MB）');
+    row(e,'工具',d.tools+' 个');
+    row(e,'事件层',d.events.rules+' 条规则 · 已 tick '+d.events.ticks+' 次');
+    var m=$('more');m.innerHTML='';
+    var md=el('td');md.appendChild(pill(d.llmReady?'已配置':'未配置',d.llmReady));md.appendChild(document.createTextNode(' '+d.model));
+    row(m,'模型',md);
+    row(m,'人格',d.persona?(d.persona.used+' / '+d.persona.budget+' B'+(d.persona.dropped&&d.persona.dropped.length?'（丢 '+d.persona.dropped.join(',')+'）':'')):'未配置');
+    row(m,'会话数',num(d.sessions));
+    row(m,'采集耗时',d.tookMs+' ms');
+    $('st').textContent='在线';
+    $('at').textContent='采集于 '+new Date(d.at).toLocaleTimeString('zh-CN');
+  }).catch(function(x){$('st').textContent='连不上：'+x.message;$('sub').textContent='API 读不到 —— 数字没出来，说明这一页还没通。'})
+}
+
+function loadOrgans(){
+  fetch('/api/organs').then(function(r){return r.json()}).then(function(d){
+    var g=$('organs');g.innerHTML='';
+    (d.organs||[]).forEach(function(o){
+      if(o.error){g.appendChild(card(o.name||'?', '错误', '', String(o.error).slice(0,40), 'bad'));return}
+      g.appendChild(card(o.name, String(o.value), '', o.note, o.level));
+    });
+  }).catch(function(x){$('organs').innerHTML='';$('organs').appendChild(el('div','empty','器官读不到：'+x.message))})
+}
+
+$('fresh').onclick=function(){loadData(true);loadOrgans()};
+// 导航全部接真页，没有占位了
+loadData(false);
+loadOrgans();
+setInterval(loadOrgans, 60000);
+</script></body></html>

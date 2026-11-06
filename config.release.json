@@ -1,0 +1,42 @@
+{
+  "port": 7310,
+  "dataDir": "data",
+  "workspace": ".",
+  "llm": {
+    "baseUrl": "https://api.deepseek.com",
+    "apiKey": "",
+    "model": "deepseek-chat",
+    "maxTokens": 4096,
+    "temperature": 0.7
+  },
+  "context": {
+    "maxFrames": 60
+  },
+  "persona": {
+    "budget": 80000,
+    "files": []
+  },
+  "events": {
+    "intervalMs": 60000,
+    "silenceMs": 900000,
+    "session": null
+  },
+  "organs": {
+    "huanqi": {
+      "enabled": true,
+      "stallThreshold": 3
+    }
+  },
+  "diary": {
+    "dir": null,
+    "maxSnippet": 200
+  },
+  "mnemon": {
+    "runtimeDir": null
+  },
+  "chat": {
+    "enabled": false,
+    "port": 8898,
+    "host": "0.0.0.0"
+  }
+}

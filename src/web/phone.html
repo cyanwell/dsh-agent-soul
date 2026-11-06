@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#100e0c">
+<!-- ★ 这个页面由 src/chat/mobile.mjs 从 0.0.0.0 递出去，任何同网设备都能打开它。
+     所以它不许加载任何外部资源：字体、脚本、图片、样式一律不出网。
+     textContent 渲染消息（不用 innerHTML）是同一个理由 —— 消息可能是别人发的。 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'">
+<title>砚青 · 手机</title>
+<style>
+  :root{
+    --bg:#100e0c; --panel:#191613; --line:#2a2521;
+    --ink:#e9e3d9; --dim:#8b8377; --faint:#605a52;
+    --me:#2b2318; --me-edge:#3d3225;
+    --bad:#c25a44;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%;width:100%;max-width:100%;overflow-x:hidden}
+  body{
+    height:100dvh; height:100vh; height:100dvh;
+    display:flex; flex-direction:column; overflow:hidden;
+    background:var(--bg); color:var(--ink);
+    font:400 17px/1.65 -apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+    font-variant-numeric:tabular-nums;
+    -webkit-font-smoothing:antialiased;
+  }
+  /* ★ 这一条是实拍抓出来的：textarea 的固有宽度（默认 cols=20 ≈ 320px）+ 发送按钮 + 内边距
+     比 375 宽，而 flex item 的 min-width 默认是 auto —— 于是它把**整个 column 撑宽**，
+     右侧的气泡和按钮全被裁掉。body > * 限宽 + min-width:0 是一次性堵住这个口子。 */
+  body > *{max-width:100%;min-width:0}
+
+  /* ── 顶栏 ── */
+  header{
+    flex:0 0 auto; min-width:0; display:flex; align-items:baseline; gap:8px;
+    padding:calc(10px + env(safe-area-inset-top)) 16px 10px;
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,#16130f,#100e0c);
+  }
+  header .name{font-size:15px; letter-spacing:.14em; color:#d8cfc0}
+  header .sub{font-size:11px; color:var(--faint); letter-spacing:.08em}
+  header .dot{margin-left:auto; flex:0 0 auto; display:flex; align-items:center; gap:6px; font-size:11px; color:var(--dim); white-space:nowrap}
+  header .dot i{width:6px; height:6px; border-radius:50%; background:var(--faint); display:block}
+  header .dot.on i{background:#6f9d6a}
+  header .dot.off i{background:var(--bad)}
+
+  /* ── 那句必须一直看得见的话 ── */
+  .warn{
+    flex:0 0 auto; padding:6px 16px; font-size:11px; line-height:1.55; color:var(--faint);
+    border-bottom:1px solid var(--line); background:#131110;
+  }
+  .warn summary{list-style:none; cursor:pointer; color:var(--faint); outline:none}
+  .warn summary::-webkit-details-marker{display:none}
+  .warn .more{padding:6px 0 2px; color:var(--dim)}
+  .warn .more b{color:#a08a68; font-weight:400}
+  .warn .more code{font-size:10.5px; color:#9c8f7d; word-break:break-all}
+
+  /* ── 消息流 ── */
+  main{flex:1 1 auto; overflow-y:auto; overflow-x:hidden; padding:14px 14px 10px;
+       overscroll-behavior:contain; -webkit-overflow-scrolling:touch; min-width:0}
+  .row{display:flex; margin:0 0 12px}
+  .row.me{justify-content:flex-end}
+  .row.ai{justify-content:flex-start}
+  .row.sys{justify-content:center}
+  .col{display:flex; flex-direction:column; max-width:84%; min-width:0}
+  .row.sys .col{align-items:center; max-width:92%}
+  .bub{padding:9px 13px; border-radius:14px; word-break:break-word; overflow-wrap:anywhere; white-space:pre-wrap; max-width:100%}
+  .me .bub{background:var(--me); border:1px solid var(--me-edge); border-bottom-right-radius:5px; color:#f2e9d8}
+  .ai .bub{background:var(--panel); border:1px solid var(--line); border-bottom-left-radius:5px}
+  .sys .bub{background:none; border:none; color:#9c7a63; font-size:13px; text-align:center; padding:2px 10px}
+  .sys.err .bub{color:var(--bad)}
+  .t{font-size:10.5px; color:var(--faint); margin:3px 4px 0; letter-spacing:.04em}
+  .me .t{text-align:right}
+  .day{display:flex; align-items:center; gap:10px; margin:16px 4px 14px; color:var(--faint); font-size:11px}
+  .day:before,.day:after{content:""; flex:1; height:1px; background:var(--line)}
+  .empty{margin:34px 16px; color:var(--dim); font-size:14px; line-height:1.9; text-align:center}
+  .empty b{display:block; color:#b9a98f; font-weight:400; margin-bottom:6px}
+  .pending{opacity:.5}
+  .failed .bub{outline:1px solid rgba(194,90,68,.55)}
+
+  /* ── 回到底部 ── */
+  #jump{
+    position:absolute; left:50%; transform:translateX(-50%); bottom:96px;
+    padding:6px 14px; border-radius:999px; background:#241f19; border:1px solid var(--line);
+    color:#cbbda7; font-size:12px; display:none; z-index:5;
+  }
+  #jump.show{display:block}
+
+  /* ── 输入区 ── */
+  footer{
+    flex:0 0 auto; min-width:0; border-top:1px solid var(--line); background:#14110e;
+    padding:9px 12px calc(9px + env(safe-area-inset-bottom));
+  }
+  form{display:flex; gap:9px; align-items:flex-end; margin:0; min-width:0}
+  textarea{
+    flex:1 1 auto; min-width:0; width:100%; min-height:44px; max-height:132px; resize:none;
+    padding:11px 13px; border-radius:12px;
+    background:#1d1915; color:var(--ink); border:1px solid var(--line);
+    font:inherit; font-size:16px; line-height:1.45; outline:none;
+  }
+  textarea:focus{border-color:#3d3225}
+  textarea::placeholder{color:#5f584f}
+  button{
+    flex:0 0 auto; height:44px; min-width:64px; padding:0 16px;
+    border-radius:12px; border:1px solid #3d3225; background:#3a2d1d; color:#f0e2c8;
+    font:inherit; font-size:15px; letter-spacing:.1em;
+  }
+  button:disabled{opacity:.45}
+  .note{margin:7px 2px 0; font-size:11px; color:var(--faint); min-height:14px}
+  .note.bad{color:var(--bad)}
+</style>
+</head>
+<body>
+<header>
+  <span class="name">砚青</span>
+  <span class="sub">手机 · 轻量</span>
+  <span class="dot" id="dot"><i></i><span id="dotTxt">连…</span></span>
+</header>
+
+<div class="warn">
+  <details>
+    <summary>· 无认证 · 同一 WiFi 里任何设备都能打开这一页 · 点开看它做什么</summary>
+    <div class="more">
+      只做两件事：<b>读最近的消息</b>、<b>发一条消息</b>。发出去会叫醒 agent（agent 有它自己的工具）。<br>
+      不做：文件读写、上传、下载、命令执行、语音、改配置、列会话。<br>
+      关掉：<code>config.json → "chat": { "enabled": false }</code>，或环境变量 <code>AGENT_SOUL_CHAT=off</code>，重启。
+    </div>
+  </details>
+</div>
+
+<main id="log" aria-live="polite"></main>
+<button id="jump" type="button">↓ 新消息</button>
+
+<footer>
+  <form id="f" autocomplete="off">
+    <textarea id="t" rows="1" placeholder="说点什么…" enterkeyhint="send"></textarea>
+    <button id="b" type="submit">发</button>
+  </form>
+  <div class="note" id="note">回车发送 · Shift+回车换行</div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var log = document.getElementById("log");
+  var note = document.getElementById("note");
+  var ta = document.getElementById("t");
+  var btn = document.getElementById("b");
+  var dot = document.getElementById("dot");
+  var dotTxt = document.getElementById("dotTxt");
+  var jump = document.getElementById("jump");
+
+  var S = {
+    session: null, lastSeq: 0, firstSeq: Infinity,
+    seen: {}, lastDay: null, headDay: null,
+    loading: false, noMore: false, timer: null, backoff: 4000, placeholder: null, sending: false
+  };
+
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  function fmtTime(ms) { var d = new Date(ms); return pad(d.getHours()) + ":" + pad(d.getMinutes()); }
+  function dayKey(ms) { var d = new Date(ms); return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate(); }
+  function dayText(ms) {
+    var d = new Date(ms), n = new Date(), y = new Date(n.getTime() - 86400000);
+    var eq = function (a, b) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); };
+    if (eq(d, n)) return "今天";
+    if (eq(d, y)) return "昨天";
+    return (d.getMonth() + 1) + " 月 " + d.getDate() + " 日";
+  }
+
+  // ★ 一律 textContent，不拼 innerHTML —— 消息内容可能来自局域网里另一台设备。
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  /** 一条消息 → 一个 .row。结构：row > col > (bub, 时间) */
+  function build(m) {
+    var kind = m.type === "user" ? "me" : m.type === "assistant" ? "ai" : "sys";
+    var row = el("div", "row " + kind + (m.type === "error" ? " err" : ""));
+    var col = el("div", "col");
+    col.appendChild(el("div", "bub", (m.text || "") + (m.truncated ? "\n…（这一条太长，页面上截断了）" : "")));
+    if (m.t) col.appendChild(el("div", "t", fmtTime(m.t)));
+    row.appendChild(col);
+    if (m.seq != null) row.setAttribute("data-seq", String(m.seq));
+    return row;
+  }
+
+  /**
+   * 把一页消息插进日志。
+   * ★ 日期分隔要分方向算：追尾时和「已渲染的最后一天」比，前插时和「已渲染的最早一天」比。
+   *   不这么做的话，往上翻历史会在同一天里多出一条横线，而那正是最容易让人以为「丢消息了」的形状。
+   */
+  function appendItems(items, where) {
+    var made = 0;
+    var anchor = where === "top" ? log.firstChild : null;
+    var ld = where === "top" ? S.headDay : S.lastDay;
+    var firstDayKey = null;
+
+    for (var i = 0; i < items.length; i++) {
+      var m = items[i];
+      if (m.seq != null && S.seen[m.seq]) continue;
+      var frag = document.createDocumentFragment();
+      var k = m.t ? dayKey(m.t) : null;
+      if (k && (ld == null ? where !== "top" : k !== ld)) frag.appendChild(el("div", "day", dayText(m.t)));
+      if (k) { ld = k; if (firstDayKey == null) firstDayKey = k; }
+      frag.appendChild(build(m));
+      if (m.seq != null) { S.seen[m.seq] = 1; S.lastSeq = Math.max(S.lastSeq, m.seq); S.firstSeq = Math.min(S.firstSeq, m.seq); }
+      if (where === "top" && anchor) log.insertBefore(frag, anchor);
+      else log.appendChild(frag);
+      if (where === "top") anchor = frag.nextSibling;
+      made++;
+    }
+    if (where === "top") {
+      // 前插之后，「已渲染内容最上面那条是哪天」跟着换了 —— 下一次前插要比的是它
+      if (firstDayKey != null) S.headDay = firstDayKey;
+    } else {
+      S.lastDay = ld;
+    }
+    return made;
+  }
+
+  function dropPlaceholder() {
+    if (S.placeholder && S.placeholder.parentNode) S.placeholder.parentNode.removeChild(S.placeholder);
+    S.placeholder = null;
+  }
+
+  function placeholder(title, body) {
+    dropPlaceholder();
+    var e = el("div", "empty");
+    e.appendChild(el("b", null, title));
+    e.appendChild(document.createTextNode(body));
+    log.appendChild(e);
+    S.placeholder = e;
+  }
+
+  function nearBottom() { return log.scrollHeight - log.scrollTop - log.clientHeight < 120; }
+  function toBottom() { log.scrollTop = log.scrollHeight; jump.classList.remove("show"); }
+
+  log.addEventListener("scroll", function () {
+    if (nearBottom()) jump.classList.remove("show");
+    if (log.scrollTop < 48) loadOlder();
+  });
+  jump.addEventListener("click", toBottom);
+
+  function setDot(state, txt) { dot.className = "dot " + state; dotTxt.textContent = txt; }
+
+  function get(url) {
+    return fetch(url, { cache: "no-store" }).then(function (r) {
+      return r.json().then(function (j) { if (!r.ok) throw new Error(j.error ? (j.error + (j.hint ? " · " + j.hint : "")) : "HTTP " + r.status); return j; });
+    });
+  }
+
+  function loadFirst() {
+    get("/api/recent?limit=30").then(function (d) {
+      S.session = d.session || null;
+      if (!d.items || !d.items.length) {
+        placeholder(d.session ? "这里还没有消息" : "还没有会话",
+          d.hint || (d.session ? "下面说第一句吧。" : "先在电脑上发一句话，会话就有了。"));
+      } else {
+        dropPlaceholder();
+        appendItems(d.items, "end");
+        toBottom();
+      }
+      setDot("on", d.session ? "已连 · " + String(d.session).slice(-6) : "已连");
+      poll();
+    }).catch(function (e) {
+      setDot("off", "离线");
+      placeholder("连不上", String(e.message || e) + " —— 手机和电脑在同一个 WiFi 吗？服务还在跑吗？");
+      setTimeout(loadFirst, 5000);
+    });
+  }
+
+  function poll() {
+    clearTimeout(S.timer);
+    var url = "/api/recent?after=" + S.lastSeq + (S.session ? "&session=" + encodeURIComponent(S.session) : "");
+    get(url).then(function (d) {
+      S.backoff = 4000;
+      setDot("on", d.session ? "已连 · " + String(d.session).slice(-6) : "已连");
+      if (d.items && d.items.length) {
+        var wasBottom = nearBottom();
+        dropPlaceholder();
+        if (appendItems(d.items, "end")) {
+          if (wasBottom) toBottom(); else jump.classList.add("show");
+        }
+      }
+      S.timer = setTimeout(poll, document.hidden ? 15000 : 4000);
+    }).catch(function () {
+      setDot("off", "重连中");
+      S.backoff = Math.min(Math.round(S.backoff * 1.6), 20000);
+      S.timer = setTimeout(poll, S.backoff);
+    });
+  }
+
+  function loadOlder() {
+    if (S.loading || S.noMore || S.firstSeq === Infinity) return;
+    S.loading = true;
+    var prevH = log.scrollHeight, prevT = log.scrollTop;
+    var url = "/api/recent?before=" + S.firstSeq + "&limit=20" + (S.session ? "&session=" + encodeURIComponent(S.session) : "");
+    get(url).then(function (d) {
+      if (!d.items || !d.items.length) { S.noMore = true; return; }
+      appendItems(d.items, "top");
+      log.scrollTop = log.scrollHeight - prevH + prevT;   // 前插会顶起内容，把视线留在原来那条上
+    }).catch(function () {}).then(function () { S.loading = false; });
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) { clearTimeout(S.timer); poll(); }
+  });
+
+  function grow() { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 132) + "px"; }
+  ta.addEventListener("input", grow);
+  ta.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
+  });
+
+  function say(txt, bad) { note.textContent = txt; note.className = "note" + (bad ? " bad" : ""); }
+
+  function submit() {
+    var text = (ta.value || "").trim();
+    if (!text || S.sending) return;
+    S.sending = true;
+    btn.disabled = true;
+    say("发送中…");
+
+    // 乐观上屏：先看见自己这条，失败再改口（并把文字放回输入框）
+    var tmp = "tmp-" + Date.now();
+    var row = build({ seq: tmp, type: "user", text: text, t: Date.now() });
+    row.classList.add("pending");
+    dropPlaceholder();
+    var k = dayKey(Date.now());
+    if (S.lastDay && k !== S.lastDay) log.appendChild(el("div", "day", dayText(Date.now())));
+    S.lastDay = k;
+    log.appendChild(row);
+    toBottom();
+
+    fetch("/api/send" + (S.session ? "?session=" + encodeURIComponent(S.session) : ""), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text })
+    }).then(function (r) {
+      return r.json().then(function (j) { return { status: r.status, j: j }; });
+    }).then(function (x) {
+      var j = x.j || {};
+      if (!j.ok) throw new Error(j.hint || j.error || "发送失败");
+      row.className = "row me";
+      ta.value = "";
+      grow();
+      if (j.seq != null) { S.seen[j.seq] = 1; S.lastSeq = Math.max(S.lastSeq, j.seq); S.firstSeq = Math.min(S.firstSeq, j.seq); }
+      if (j.turn === "queued") say("已发 · 上一轮还在跑，这条排在第 " + j.pending + " 个");
+      else if (j.turned === false) say(j.hint || "已存进会话，但没有 agent 在跑");
+      else say("已发 · 等它回");
+    }).catch(function (e) {
+      row.className = "row me failed";
+      ta.value = text;
+      grow();
+      say("没发出去：" + String(e.message || e), true);
+    }).then(function () {
+      S.sending = false;
+      btn.disabled = false;
+      ta.focus();
+      setTimeout(function () { if (note.className.indexOf("bad") < 0) say("回车发送 · Shift+回车换行"); }, 7000);
+    });
+  }
+
+  document.getElementById("f").addEventListener("submit", function (e) { e.preventDefault(); submit(); });
+
+  grow();
+  loadFirst();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,315 @@
+<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>agent-soul · 砚台</title>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<style>
+:root{--bg:#131315;--panel:#1a1a1d;--panel2:#202024;--line:#28282d;--ink:#eae6de;--dim:#7d786f;--dim2:#585349;--amber:#d8a24a;--green:#63a05e;--red:#c4553f}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:'Lanxi-叮叮',ui-monospace,Consolas,monospace;font-size:13px;display:grid;grid-template-columns:176px 1fr;grid-template-rows:1fr 32px;height:100vh;overflow:hidden}
+nav{background:var(--panel);border-right:1px solid var(--line);padding:20px 0;display:flex;flex-direction:column}
+nav .brand{padding:0 16px 22px;font-family:'Lanxi-超粗黑',sans-serif;font-size:15px;letter-spacing:.04em}
+nav .brand i{font-style:normal;color:var(--amber)}
+nav .brand em{display:block;font-style:normal;font-family:'Lanxi-叮叮',monospace;font-size:9.5px;color:var(--dim2);letter-spacing:.18em;margin-top:4px}
+nav a{display:flex;align-items:center;gap:8px;padding:9px 16px;color:var(--dim);text-decoration:none;font-size:12.5px;border-left:2px solid transparent}
+nav a.on{color:var(--ink);border-left-color:var(--amber);background:var(--panel2)}
+nav a:hover{color:var(--ink)}
+nav a b{width:4px;height:4px;border-radius:50%;background:var(--dim2);flex:none}
+nav a.on b{background:var(--amber)}
+nav .sp{flex:1}
+nav .ver{padding:0 16px;font-size:9.5px;color:var(--dim2);letter-spacing:.1em}
+main{padding:22px 26px 30px;overflow-y:auto}
+header{display:flex;align-items:flex-end;gap:12px;margin-bottom:5px}
+h1{font-family:'Lanxi-超粗黑',sans-serif;font-size:21px;font-weight:400}
+header .t{font-size:10px;color:var(--dim2);margin-bottom:3px}
+.sub{color:var(--dim);font-size:11.5px;margin-bottom:16px;line-height:1.75}
+.sub b{color:var(--ink);font-weight:400}
+.sub .mono{color:var(--dim2);font-size:10.5px}
+h2{font-size:10px;letter-spacing:.22em;color:var(--dim2);margin:0 0 8px;font-weight:400;display:flex;align-items:center;gap:9px}
+h2:after{content:'';flex:1;height:1px;background:var(--line)}
+h2 .gid{letter-spacing:.05em;font-size:9.5px;opacity:.65}
+h2 .gcnt{margin-left:auto;letter-spacing:.05em;font-size:9.5px;color:var(--dim2);opacity:.8}
+.grp{margin:0 0 20px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start;margin:0 0 20px}
+.cols .grp{margin:0}
+.it.slim .tx{-webkit-line-clamp:2}
+#open,#recent{max-height:556px;overflow-y:auto}
+#open::-webkit-scrollbar,#recent::-webkit-scrollbar{width:6px}
+#open::-webkit-scrollbar-thumb,#recent::-webkit-scrollbar-thumb{background:var(--line)}
+.card{background:var(--panel);border:1px solid var(--line)}
+.stats{display:flex;gap:10px;margin-bottom:18px}
+.stat{background:var(--panel);border:1px solid var(--line);padding:9px 14px;min-width:132px}
+.stat b{display:block;font-family:'Lanxi-超粗黑',sans-serif;font-size:19px;font-weight:400;line-height:1.25}
+.stat span{font-size:9.5px;color:var(--dim2);letter-spacing:.1em}
+.stat.warn b{color:var(--amber)}
+.stat.bad b{color:var(--red)}
+.empty{color:var(--dim2);font-size:11px;padding:16px 14px}
+.errbox{border:1px solid #4a2a22;color:var(--red);font-size:11.5px;padding:10px 12px;margin-bottom:16px;line-height:1.7}
+.errbox .k{color:var(--ink)}
+.errbox code{font-family:inherit;color:var(--dim);font-size:10.5px;display:block;white-space:pre-wrap;margin-top:6px;line-height:1.6}
+.badge{display:inline-block;font-size:9px;padding:0 5px;border:1px solid var(--line);color:var(--dim2);margin:0 4px 3px 0;letter-spacing:.06em;line-height:16px}
+.badge.hot{color:var(--amber);border-color:#4a3a1e}
+.badge.off{color:var(--red);border-color:#4a2a22}
+.motto{background:var(--panel);border:1px solid var(--line);border-left:2px solid var(--amber);padding:11px 14px;margin:0 0 16px;font-size:12.5px;line-height:1.8}
+.motto b{font-family:'Lanxi-超粗黑',sans-serif;font-weight:400;color:var(--amber);letter-spacing:.02em}
+.motto em{display:block;font-style:normal;color:var(--dim2);font-size:10px;margin-top:5px}
+.wg{display:grid;grid-template-columns:216px 1fr;gap:20px;padding:14px}
+.wnum b{font-family:'Lanxi-超粗黑',sans-serif;font-size:32px;font-weight:400;line-height:1.15;display:block}
+.wnum span{font-size:9.5px;color:var(--dim2);letter-spacing:.12em}
+.wnum .s2{color:var(--dim);font-size:11px;margin-top:5px;letter-spacing:0;line-height:1.6}
+.bar{height:4px;background:var(--panel2);margin:10px 0 4px}
+.bar i{display:block;height:4px;background:var(--green)}
+.bar.warn i,.bar.alert i{background:var(--amber)}
+.bar.emergency i{background:var(--red)}
+.kv{font-size:11.5px;line-height:1.95;color:var(--dim)}
+.kv b{color:var(--ink);font-weight:400}
+.kv .mono{color:var(--dim2);font-size:10.5px}
+.verdict{font-size:12px;line-height:1.7;margin:10px 0 2px;padding-top:9px;border-top:1px solid var(--line);color:var(--dim)}
+.verdict b{font-weight:400}
+.verdict.warn b,.verdict.alert b{color:var(--amber)}
+.verdict.emergency b{color:var(--red)}
+.it{padding:9px 14px;border-bottom:1px solid var(--line);display:flex;gap:12px}
+.it:last-child{border-bottom:none}
+.it .tm{flex:none;width:118px;color:var(--dim2);font-size:10.5px;line-height:1.65}
+.it .bd{flex:1;min-width:0}
+.it .tx{font-size:12.5px;line-height:1.6;word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.it .mt{margin-top:3px;font-size:10px;color:var(--dim2);word-break:break-all;line-height:1.55}
+.it .feel{color:var(--amber);font-size:10.5px;margin-top:3px;line-height:1.55}
+.gate{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;gap:12px}
+.gate:last-child{border-bottom:none}
+.gate .k{flex:none;width:104px;font-size:12px}
+.gate .k em{display:block;font-style:normal;color:var(--dim2);font-size:9.5px;margin-top:3px;letter-spacing:.06em}
+.gate .c{flex:1;min-width:0}
+.gate .cmd{font-size:11.5px;color:var(--amber);word-break:break-all;cursor:pointer;line-height:1.55}
+.gate .cmd:hover{text-decoration:underline}
+.gate .no{font-size:11.5px;color:var(--red);line-height:1.55;word-break:break-all}
+.gate .hint{color:var(--dim2);font-size:10px;margin-top:3px;line-height:1.5;word-break:break-all}
+footer{border-top:1px solid var(--line);display:flex;align-items:center;gap:18px;padding:0 22px;font-size:11px;color:var(--dim2);grid-row:2/3;grid-column:1/3;background:var(--panel)}
+footer .dot{width:5px;height:5px;background:var(--green);border-radius:50%;display:inline-block;margin-right:6px}
+footer .dot.no{background:var(--red)}
+footer .r{margin-left:auto;display:flex;gap:16px}
+footer span{color:var(--dim)}
+footer button{background:none;border:1px solid var(--line);color:var(--dim);font-family:inherit;font-size:10px;padding:2px 9px;cursor:pointer}
+footer button:hover{color:var(--ink);border-color:var(--dim)}
+</style></head><body>
+<nav><div class='brand'>agent<i>·</i>soul<em>CONSOLE</em></div>
+<a href='/'><b></b>概览</a><a href='/organs'><b></b>器官</a><a href='/yantai' class='on'><b></b>砚台</a><a href='/diary'><b></b>日记</a><a href='/params'><b></b>参数</a><a href='/settings'><b></b>设置</a><a href='/chat'><b></b>对话</a>
+<div class='sp'></div><div class='ver'>v0.1.0</div></nav>
+<main>
+<header><h1>砚台</h1><span class='t' id='meta'></span></header>
+<div class='sub'>把「我现在是什么状态」摊开 —— <b>水位</b> / <b>未结的活</b> / <b>最近的账本</b> / <b>几扇门</b>。<span class='mono'>只读，不写状态。</span></div>
+
+<div class='motto' id='motto'><b>水位是安全网，不是考核。</b> 过线只该触发一个动作 —— 落盘；禁止第二个 —— 缩。
+<em>2026-10-14：「不要因为上下文紧张，所以自己缩紧思考……它是给你兜底的，不是过来压力你的。」</em></div>
+
+<div class='errbox' id='err' style='display:none'></div>
+<div class='stats' id='stats'></div>
+
+<div class='grp'><h2>水位<span class='gid'>water</span><span class='gcnt' id='wcnt'></span></h2>
+<div class='card' id='water'><div class='empty'>读水位中……</div></div></div>
+
+<div class='cols'>
+<div class='grp'><h2>未结的活<span class='gid'>promise / shelved</span><span class='gcnt' id='ocnt'></span></h2>
+<div class='card' id='open'><div class='empty'>读账本中……</div></div></div>
+
+<div class='grp'><h2>最近的账本<span class='gid'>ledger</span><span class='gcnt' id='rcnt'></span></h2>
+<div class='card' id='recent'><div class='empty'>读账本中……</div></div></div>
+</div>
+
+<div class='grp'><h2>几扇门<span class='gid'>gates · 点一下复制</span><span class='gcnt' id='gcnt'></span></h2>
+<div class='card' id='gates'><div class='empty'>读路径中……</div></div></div>
+</main>
+<footer><span><i class='dot' id='dot'></i><span id='st'>连接中</span></span><span id='at'></span>
+<span class='r'><button id='reload'>重新读</button></span></footer>
+<script>
+var $=function(id){return document.getElementById(id)}
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+function clock(){var d=new Date();return d.toLocaleTimeString('zh-CN')}
+function K(n){return n==null?'—':(n>=1024?Math.round(n/1024)+'K':String(n))}
+function bytes(n){if(n==null)return '—';if(n>=1048576)return (n/1048576).toFixed(1)+'MB';if(n>=1024)return Math.round(n/1024)+'KB';return n+'B'}
+function pct(v){return v==null?'—':(v*100).toFixed(1)+'%'}
+
+function copy(s){
+  if(!s)return;
+  var done=function(){$('st').textContent='已复制';setTimeout(function(){$('st').textContent='在线'},1200)};
+  var fail=function(){$('st').textContent='复制不了 —— 手动选中那段文字';setTimeout(function(){$('st').textContent='在线'},2600)};
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(s).then(done,fail);
+    }else{
+      var ta=document.createElement('textarea');ta.value=s;ta.style.position='fixed';ta.style.opacity='0';
+      document.body.appendChild(ta);ta.select();var ok=document.execCommand('copy');document.body.removeChild(ta);
+      ok?done():fail();
+    }
+  }catch(e){fail()}
+}
+
+function load(){
+  fetch('/api/yantai',{cache:'no-store'}).then(function(r){
+    return r.text().then(function(t){
+      if(!r.ok){throw new Error('HTTP '+r.status+' · '+String(t).slice(0,80))}
+      return JSON.parse(t);
+    });
+  }).then(render).catch(function(x){
+    $('dot').className='dot no';$('st').textContent='连不上';
+    var b=$('err');b.style.display='block';b.innerHTML='';
+    b.appendChild(el('div','k','这一页的数据口还没接上：/api/yantai'));
+    b.appendChild(el('div',null,'读到的错误：'+x.message));
+    b.appendChild(el('code','','在 src/web/server.mjs 里加两行（在其它 /api/* 路由旁边）：\n'+
+      "  import { gather } from '../yantai/panel.mjs'\n"+
+      "  if (p === '/api/yantai') return json(res, 200, await gather({ store, config, persona, ledger }))\n"+
+      '再把 /yantai 这个页面路由指到 src/web/yantai.html。'));
+  });
+}
+
+function render(d){
+  $('dot').className='dot';$('st').textContent='在线';
+  $('meta').textContent='（读于 '+clock()+'）';
+  $('at').textContent=d.tookMs!=null?('这一屏算了 '+d.tookMs+'ms'):'';
+  $('err').style.display='none';
+  var w=d.water||{},o=d.open||{},r=d.recent||{},g=d.gates||{};
+
+  // 顶部三个数 —— 一眼能读的就是这三样
+  var st=$('stats');st.innerHTML='';
+  st.appendChild(stat(K(w.left),'水位余量',w.level==='emergency'?'bad':(w.level==='warn'||w.level==='alert'?'warn':null)));
+  st.appendChild(stat(o.total==null?'—':o.total,'未结的活',o.stale>0?'warn':null));
+  st.appendChild(stat(o.stale==null?'—':o.stale,'其中陈账（>'+ (o.staleDays||7) +'天）',null));
+  st.appendChild(stat((g.ready==null?'—':g.ready)+' / '+(g.total==null?'—':g.total),'门可用',null));
+
+  renderWater(w);renderOpen(o);renderRecent(r,d);renderGates(g);
+}
+
+function stat(n,label,flag){
+  var d=el('div','stat'+(flag?' '+flag:''));
+  d.appendChild(el('b',null,n==null?'—':String(n)));
+  d.appendChild(el('span',null,label));
+  return d;
+}
+
+function renderWater(w){
+  var box=$('water');box.innerHTML='';
+  $('wcnt').textContent=w.ok?'':'没东西可量';
+  if(!w.ok){
+    box.appendChild(el('div','empty',w.hint||'读不到水位'));
+    return;
+  }
+  var g=el('div','wg');
+
+  // 左：余量为主位。★ 判据沿用 context.mjs：剩下多少比用掉多少有用。
+  var l=el('div','wnum');
+  l.appendChild(el('b',null,'还剩 '+K(w.left)));
+  l.appendChild(el('span',null,'WATERMARK · 分母 '+w.window));
+  l.appendChild(el('div','s2','用了 '+pct(w.pct)+'（'+(w.used||0)+' token）'));
+  var bar=el('div','bar '+(w.level||''));
+  var fill=el('i');fill.style.width=Math.min(100,Math.max(0,(w.pct||0)*100)).toFixed(1)+'%';
+  bar.appendChild(fill);l.appendChild(bar);
+  l.appendChild(el('div','s2',w.mark||''));
+  g.appendChild(l);
+
+  // 右：口径与三把尺子，分开写清
+  var k=el('div','kv');
+  var p=w.persona;
+  k.appendChild(line('口径',(w.ruler||'')));
+  k.appendChild(line('这一格','人格层 '+w.personaTokens+' + 最近 '+w.maxFrames+' 帧 '+w.frameTokens+' = '+(w.used||0)+' token · 实际算了 '+w.frameCount+' 帧'));
+  k.appendChild(line('另一把尺子','全帧（不截断）'+(w.usedAll==null?' 读不到':(' '+w.usedAll+' token'))+' · 只做对照，不做判据'));
+  if(p){
+    k.appendChild(line('人格层',p.used+'B / 预算 '+p.budget+'B（'+pct(p.pct)+'）'+(p.dropped&&p.dropped.length?(' · 丢了 '+p.dropped.length+' 项'):' · 没丢项')+' · '+(p.files==null?'':p.files+' 个文件')));
+  }else{
+    k.appendChild(line('人格层','未配置 —— config.persona.files 是空的'));
+  }
+  k.appendChild(line('会话',(w.session?('算的是最近在写的那个 '+String(w.session).slice(0,26)+'（'+w.sessionAge+'，'+bytes(w.sessionBytes)+'）'):'没有会话')+(w.skippedBig?(' · 跳过 '+w.skippedBig+' 个大会话（>16MB，整读会把页面卡死）'):'')));
+  g.appendChild(k);
+  box.appendChild(g);
+
+  // ★ 这句是 MOTTO 的落地：不写「请压缩」，不写「节省」
+  var v=el('div','verdict '+(w.level||''));
+  v.appendChild(el('b',null,w.verdict||''));
+  box.appendChild(v);
+}
+
+function line(k,v){
+  var d=el('div');
+  d.appendChild(el('b',null,k+'：'));
+  d.appendChild(document.createTextNode(v==null?'—':String(v)));
+  return d;
+}
+
+function renderOpen(o){
+  var box=$('open');box.innerHTML='';
+  $('ocnt').textContent=o.ok?(o.total+' 条 · 承诺 '+o.promise+' / 搁置 '+o.shelved):'';
+  if(!o.ok){box.appendChild(el('div','empty',o.hint||'读不到账本'));return}
+  if(!o.rows||!o.rows.length){box.appendChild(el('div','empty',o.hint||'没有欠着的活'));return}
+  o.rows.forEach(function(x){box.appendChild(rowEl(x,false))});   // 未结：三行（欠着的活要看清）
+  if(o.oldest){
+    var f=el('div','empty','最老一条 '+o.oldest.t.slice(0,10)+'（'+o.oldest.age+'）—— 数出来，不催。');
+    box.appendChild(f);
+  }
+}
+
+function renderRecent(r,d){
+  var box=$('recent');box.innerHTML='';
+  $('rcnt').textContent=r.ok?(r.total+' 条'+(r.stats?(' · 全账 '+r.stats.total+' 条'):'')):'';
+  if(!r.ok){box.appendChild(el('div','empty',r.hint||'读不到账本'));return}
+  if(!r.rows||!r.rows.length){box.appendChild(el('div','empty',r.hint||'账本还是空的'));return}
+  r.rows.forEach(function(x){var it=rowEl(x,true);it.className+=' slim';box.appendChild(it)});  // 最近：两行（是背景，不是欠账）
+  var foot=el('div','empty');
+  var bits=[];
+  if(d&&d.ledger){bits.push('这本账：'+(d.ledger.source||'?')+(d.ledger.exists?'':'（文件不在）'))}
+  if(r.lead){bits.push('当前主导：'+String(r.lead.by).slice(0,20))}
+  if(r.stats&&r.stats.byType){
+    var bt=[];Object.keys(r.stats.byType).forEach(function(t){if(r.stats.byType[t])bt.push(t+' '+r.stats.byType[t])});
+    bits.push(bt.join(' · '));
+  }
+  foot.textContent=bits.join(' ／ ');
+  box.appendChild(foot);
+}
+
+function rowEl(x,withType){
+  var it=el('div','it');
+  var tm=el('div','tm');
+  tm.appendChild(el('div',null,String(x.t||'').replace('T',' ').slice(0,16)));
+  tm.appendChild(el('div',null,x.age||''));
+  var badge=el('span','badge '+(x.type==='promise'?'hot':''));
+  badge.textContent=x.label||x.type||'?';
+  tm.appendChild(badge);
+  it.appendChild(tm);
+
+  var bd=el('div','bd');
+  // ★ 正文最多三行、全文挂在 title 上 —— 一屏要容得下「未结的活」这一块，
+  //   而一条账常常写了几百字。**截断要看得见**（省略号），全文随时悬停/翻账本可读。
+  var tx=el('div','tx',x.text||'（空）');
+  tx.title=x.text||'';
+  bd.appendChild(tx);
+  if(x.feel)bd.appendChild(el('div','feel','「'+x.feel+'」'));
+  if(x.ref)bd.appendChild(el('div','mt','└ '+x.ref));
+  if(x.by)bd.appendChild(el('div','mt','by '+(x.byNorm||x.by)));
+  it.appendChild(bd);
+  return it;
+}
+
+function renderGates(g){
+  var box=$('gates');box.innerHTML='';
+  $('gcnt').textContent=g.rows?(g.ready+' / '+g.total+' 可用'):'';
+  if(!g.ok||!g.rows||!g.rows.length){box.appendChild(el('div','empty',g.hint||'读不到路径'));return}
+  g.rows.forEach(function(x){
+    var d=el('div','gate');
+    var k=el('div','k');
+    k.appendChild(document.createTextNode(x.label));
+    k.appendChild(el('em',null,x.kind));
+    d.appendChild(k);
+    var c=el('div','c');
+    if(x.ready){
+      var cmd=el('div','cmd',x.cmd);
+      cmd.title='点一下复制';
+      cmd.onclick=function(){copy(x.cmd)};
+      c.appendChild(cmd);
+    }else{
+      c.appendChild(el('div','no',x.why||'未配置'));
+    }
+    c.appendChild(el('div','hint',x.hint||''));
+    d.appendChild(c);
+    box.appendChild(d);
+  });
+}
+
+$('reload').onclick=load;
+load();
+</script>
+</body></html>

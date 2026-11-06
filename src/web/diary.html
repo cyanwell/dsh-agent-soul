@@ -1,0 +1,252 @@
+<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>agent-soul · 日记</title>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<style>
+:root{--bg:#131315;--panel:#1a1a1d;--panel2:#202024;--line:#28282d;--ink:#eae6de;--dim:#7d786f;--dim2:#585349;--amber:#d8a24a;--green:#63a05e;--red:#c4553f}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:'Lanxi-叮叮',ui-monospace,Consolas,monospace;font-size:13px;display:grid;grid-template-columns:176px 1fr;grid-template-rows:1fr 32px;height:100vh;overflow:hidden}
+nav{background:var(--panel);border-right:1px solid var(--line);padding:20px 0;display:flex;flex-direction:column}
+nav .brand{padding:0 16px 22px;font-family:'Lanxi-超粗黑',sans-serif;font-size:15px;letter-spacing:.04em}
+nav .brand i{font-style:normal;color:var(--amber)}
+nav .brand em{display:block;font-style:normal;font-family:'Lanxi-叮叮',monospace;font-size:9.5px;color:var(--dim2);letter-spacing:.18em;margin-top:4px}
+nav a{display:flex;align-items:center;gap:8px;padding:9px 16px;color:var(--dim);text-decoration:none;font-size:12.5px;border-left:2px solid transparent;transition:color .12s}
+nav a.on{color:var(--ink);border-left-color:var(--amber);background:var(--panel2)}
+nav a:hover{color:var(--ink)}
+nav a b{width:4px;height:4px;border-radius:50%;background:var(--dim2);flex:none}
+nav a.on b{background:var(--amber)}
+nav .sp{flex:1}
+nav .ver{padding:0 16px;font-size:9.5px;color:var(--dim2);letter-spacing:.1em}
+main{padding:24px 26px 30px;overflow-y:auto}
+header{display:flex;align-items:flex-end;gap:12px;margin-bottom:5px}
+h1{font-family:'Lanxi-超粗黑',sans-serif;font-size:21px;font-weight:400}
+header .t{font-size:10px;color:var(--dim2);margin-bottom:3px}
+.sub{color:var(--dim);font-size:11.5px;margin-bottom:18px;line-height:1.75}
+.sub b{color:var(--ink);font-weight:400}
+.sub .mono{color:var(--dim2);font-size:10.5px}
+h2{font-size:10px;letter-spacing:.22em;color:var(--dim2);margin:0 0 8px;font-weight:400;display:flex;align-items:center;gap:9px}
+h2:after{content:'';flex:1;height:1px;background:var(--line)}
+h2 .gid{letter-spacing:.05em;font-size:9.5px;opacity:.65}
+h2 .gcnt{margin-left:auto;letter-spacing:.05em;font-size:9.5px;color:var(--dim2);opacity:.8}
+.grp{margin:0 0 22px}
+.gnote{color:var(--dim);font-size:10.5px;margin:0 0 4px;line-height:1.6}
+.grestart{color:var(--dim2);font-size:10px;margin:0 0 10px;line-height:1.6}
+.card{background:var(--panel);border:1px solid var(--line);padding:0 14px 2px}
+table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+th{text-align:left;font-weight:400;font-size:9px;letter-spacing:.14em;color:var(--dim2);padding:10px 10px 5px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 10px 9px 0;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:none}
+th:last-child,td:last-child{padding-right:0}
+tr.chg td:first-child{box-shadow:inset 2px 0 0 var(--amber);padding-left:10px}
+.nm{font-size:12.5px;line-height:1.4}
+.ky{font-size:9.5px;color:var(--dim2);letter-spacing:.02em;margin-top:3px;word-break:break-all}
+.val{font-size:12.5px;word-break:break-all;line-height:1.5}
+.val.hot{color:var(--amber)}
+.dfl{color:var(--dim2);font-size:11.5px;word-break:break-all;line-height:1.5}
+.imp{color:var(--dim);font-size:11px;line-height:1.65}
+.det{color:var(--dim2);font-size:10px;margin-top:3px;line-height:1.5;word-break:break-all}
+.det.bad{color:var(--red)}
+.badge{display:inline-block;font-size:9px;padding:0 5px;border:1px solid var(--line);color:var(--dim2);margin:0 4px 3px 0;letter-spacing:.06em;line-height:16px}
+.badge.hot{color:var(--amber);border-color:#4a3a1e}
+.badge.off{color:var(--red);border-color:#4a2a22}
+.badge.env{color:var(--ink);border-color:var(--dim2)}
+.badge.ok{color:var(--green);border-color:#29401f}
+.stats{display:flex;gap:10px;margin-bottom:20px}
+.stat{background:var(--panel);border:1px solid var(--line);padding:9px 14px;min-width:120px}
+.stat b{display:block;font-family:'Lanxi-超粗黑',sans-serif;font-size:19px;font-weight:400;line-height:1.25}
+.stat span{font-size:9.5px;color:var(--dim2);letter-spacing:.1em}
+.stat.warn b{color:var(--amber)}
+.empty{color:var(--dim2);font-size:11px;padding:16px 0}
+.errbox{border:1px solid #4a2a22;color:var(--red);font-size:11.5px;padding:10px 12px;margin-bottom:16px;line-height:1.7}
+footer{border-top:1px solid var(--line);display:flex;align-items:center;gap:18px;padding:0 22px;font-size:11px;color:var(--dim2);grid-row:2/3;grid-column:1/3;background:var(--panel)}
+footer .dot{width:5px;height:5px;background:var(--green);border-radius:50%;display:inline-block;margin-right:6px;box-shadow:0 0 6px var(--green)}
+footer .dot.no{background:var(--red);box-shadow:0 0 6px var(--red)}
+footer .r{margin-left:auto;display:flex;gap:16px}
+footer span{color:var(--dim)}
+footer button{background:none;border:1px solid var(--line);color:var(--dim);font-family:inherit;font-size:10px;padding:2px 9px;cursor:pointer}
+footer button:hover{color:var(--ink);border-color:var(--dim)}
+.bar{position:sticky;top:0;z-index:6;background:var(--bg);margin:0 -26px 16px;padding:10px 26px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;font-size:11.5px}
+.bar .dirty{color:var(--amber)}
+.bar .clean{color:var(--dim2)}
+.bar .grow{flex:1}
+.btn{background:var(--panel2);border:1px solid var(--line);color:var(--ink);font-family:inherit;font-size:11.5px;padding:6px 14px;cursor:pointer}
+.btn:hover{border-color:var(--dim)}
+.btn.primary{border-color:#4a3a1e;color:var(--amber)}
+.btn.primary:hover{background:#241c10}
+.btn:disabled{opacity:.35;cursor:default}
+.i{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);font-family:inherit;font-size:12.5px;padding:5px 8px;outline:none}
+.i:focus{border-color:var(--amber)}
+textarea.i{min-height:72px;resize:vertical;line-height:1.6}
+input[type=checkbox]{accent-color:var(--amber);width:14px;height:14px;vertical-align:-2px}
+.hint{color:var(--dim2);font-size:10px;margin-top:4px;line-height:1.5}
+.err{color:var(--red);font-size:10.5px;margin-top:4px;line-height:1.55}
+tr.bad td:first-child{box-shadow:inset 2px 0 0 var(--red);padding-left:10px}
+.msg{margin:0 0 14px;padding:9px 12px;border:1px solid var(--line);font-size:11.5px;line-height:1.75;white-space:pre-wrap}
+.msg.ok{border-color:#29401f;color:var(--green)}
+.msg.no{border-color:#4a2a22;color:var(--red)}
+.msg .k{color:var(--ink)}
+.rowin{display:flex;align-items:center;gap:9px}
+</style>
+<style>
+#vcp-root-none{}
+.dwrap{display:grid;grid-template-columns:300px 1fr;gap:0;height:calc(100vh - 92px);border:1px solid var(--line);border-radius:3px;overflow:hidden;background:var(--panel)}
+.dlist{border-right:1px solid var(--line);overflow-y:auto}
+.dlist .it{padding:11px 16px;border-bottom:1px solid #202024;cursor:pointer}
+.dlist .it:hover{background:var(--panel2)}
+.dlist .it.on{background:var(--panel2);border-left:2px solid var(--amber);padding-left:14px}
+.dlist .it .tt{font-size:12.5px;color:var(--ink);line-height:1.4}
+.dlist .it .mm{font-size:10.5px;color:var(--dim2);margin-top:3px;font-family:'Lanxi-叮叮',monospace}
+.dview{overflow-y:auto;padding:26px 34px}
+.dview h1{font-family:'Lanxi-超粗黑',sans-serif;font-size:20px;margin:0 0 6px;line-height:1.4}
+.dview h2{font-family:'Lanxi-超粗黑',sans-serif;font-size:15px;margin:22px 0 8px;color:#d8a24a}
+.dview h3{font-size:13px;margin:16px 0 6px;color:var(--ink)}
+.dview p{font-size:12.5px;line-height:1.95;color:#c9c3b8;margin:9px 0}
+.dview strong{color:var(--ink);font-weight:400;border-bottom:1px solid #3a3a40}
+.dview em{font-style:italic;color:#b8b2a8}
+.dview code{font-family:'Lanxi-叮叮',monospace;font-size:11.5px;background:var(--panel2);padding:1px 5px;border-radius:2px;color:#c9a86b}
+.dview pre{background:#101012;border:1px solid #26262b;border-radius:2px;padding:12px 14px;overflow-x:auto;margin:12px 0}
+.dview pre code{background:none;padding:0;color:#a8a29a;line-height:1.7;display:block}
+.dview blockquote{border-left:2px solid #3a3a40;padding:2px 0 2px 14px;margin:12px 0;color:#8f8a82;font-size:12.5px;line-height:1.85}
+.dview ul,.dview ol{margin:9px 0 9px 20px;font-size:12.5px;line-height:1.9;color:#c9c3b8}
+.dview li{margin:3px 0}
+.dview hr{border:0;border-top:1px solid #26262b;margin:20px 0}
+.dview a{color:var(--amber);text-decoration:none;border-bottom:1px solid #4a3f2a}
+.dview table{border-collapse:collapse;margin:12px 0;font-size:12px}
+.dview th,.dview td{border:1px solid #26262b;padding:6px 11px;text-align:left}
+.dview th{background:var(--panel2);color:var(--dim);font-weight:400}
+.dstate{padding:40px;text-align:center;color:var(--dim)}
+.dstate b{display:block;color:var(--amber);font-family:'Lanxi-超粗黑',sans-serif;font-size:14px;margin-bottom:10px}
+.dstate p{font-size:12px;line-height:1.9}
+.dstate code{font-family:'Lanxi-叮叮',monospace;background:var(--panel2);padding:2px 6px;border-radius:2px;color:#c9a86b}
+.dmeta{font-size:10.5px;color:var(--dim2);font-family:'Lanxi-叮叮',monospace;margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid #202024}
+</style></head><body>
+<nav><div class='brand'>agent<i>·</i>soul<em>DIARY</em></div>
+<a href='/'><b></b>概览</a>
+<a href='/organs'><b></b>器官</a>
+<a href='/diary' class='on'><b></b>日记</a>
+<a href='/yantai'><b></b>砚台</a><a href='/params'><b></b>参数</a>
+<a href='/settings'><b></b>设置</a>
+<a href='/chat'><b></b>对话</a>
+<div class='foot'>v0.1.0</div></nav>
+<main><h1>日记 <em style='font-style:normal;font-family:Lanxi-叮叮,monospace;font-size:11px;color:var(--dim2);font-weight:400'>一手层的一部分</em></h1>
+<div class='sub' id='sub'>读取中…</div>
+<div class='dwrap'><div class='dlist' id='list'><div class='dstate'>读取中…</div></div><div class='dview' id='view'><div class='dstate'>左边选一篇</div></div></div>
+</main>
+<footer><span id='st'>在线</span><span id='tm'></span></footer>
+<script>
+// ★ escape 必须先做 —— 先处理 markdown 语法再 escape 会把标签吃掉，
+//   而反过来（先 escape 再解析）才是安全的。日记是磁盘上的文本，不能当 HTML 信任。
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// 极简 markdown → HTML。够用就行，不追 CommonMark。
+function md(src){
+  const lines = String(src||'').split(/\r?\n/);
+  const out = [];
+  let i = 0, inCode = false, codeBuf = [], listBuf = [], listTag = '';
+  const flushList = () => { if (listBuf.length) { out.push('<' + listTag + '>' + listBuf.join('') + '</' + listTag + '>'); listBuf = []; listTag = ''; } };
+  const inline = (t) => {
+    let s = esc(t);
+    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+    return s;
+  };
+  while (i < lines.length) {
+    const ln = lines[i];
+    if (/^\s*```/.test(ln)) {
+      if (inCode) { out.push('<pre><code>' + esc(codeBuf.join('\n')) + '</code></pre>'); codeBuf = []; inCode = false; }
+      else { flushList(); inCode = true; }
+      i++; continue;
+    }
+    if (inCode) { codeBuf.push(ln); i++; continue; }
+    if (/^\s*$/.test(ln)) { flushList(); i++; continue; }
+    let m;
+    if ((m = ln.match(/^(#{1,6})\s+(.*)$/))) {
+      flushList();
+      const lv = Math.min(m[1].length, 3);
+      out.push('<h' + lv + '>' + inline(m[2]) + '</h' + lv + '>');
+      i++; continue;
+    }
+    if (/^\s*(---+|\*\*\*+)\s*$/.test(ln)) { flushList(); out.push('<hr>'); i++; continue; }
+    if ((m = ln.match(/^\s*>\s?(.*)$/))) { flushList(); out.push('<blockquote>' + inline(m[1]) + '</blockquote>'); i++; continue; }
+    if ((m = ln.match(/^\s*([-*+])\s+(.*)$/))) {
+      if (listTag !== 'ul') { flushList(); listTag = 'ul'; }
+      listBuf.push('<li>' + inline(m[2]) + '</li>'); i++; continue;
+    }
+    if ((m = ln.match(/^\s*(\d+)[.)]\s+(.*)$/))) {
+      if (listTag !== 'ol') { flushList(); listTag = 'ol'; }
+      listBuf.push('<li>' + inline(m[2]) + '</li>'); i++; continue;
+    }
+    flushList();
+    out.push('<p>' + inline(ln) + '</p>');
+    i++;
+  }
+  if (inCode && codeBuf.length) out.push('<pre><code>' + esc(codeBuf.join('\n')) + '</code></pre>');
+  flushList();
+  return out.join('\n');
+}
+
+function fmtSize(n){ return n < 1024 ? n + ' B' : (n/1024).toFixed(1) + ' KB'; }
+function fmtTime(ms){ const d = new Date(ms); const p = n => String(n).padStart(2,'0'); return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
+
+let CUR = null;
+async function loadDoc(name){
+  CUR = name;
+  document.querySelectorAll('.dlist .it').forEach(e => e.classList.toggle('on', e.dataset.n === name));
+  const v = document.getElementById('view');
+  v.innerHTML = '<div class="dstate">读取中…</div>';
+  try{
+    const r = await fetch('/api/diary/doc?name=' + encodeURIComponent(name));
+    const d = await r.json();
+    if (!d.ok) { v.innerHTML = '<div class="dstate"><b>' + esc(d.code) + '</b><p>' + esc(d.hint) + '</p></div>'; return; }
+    v.innerHTML = '<div class="dmeta">' + esc(d.name) + ' · ' + fmtSize(d.size) + ' · ' + fmtTime(d.mtime) + '</div>' + md(d.text);
+    v.scrollTop = 0;
+    document.getElementById('st').textContent = '在线 · ' + d.title;
+  }catch(e){ v.innerHTML = '<div class="dstate"><b>连不上服务</b><p>' + esc(String(e)) + '</p></div>'; }
+}
+
+function renderState(s){
+  const map = {
+    UNCONFIGURED: '还没配日记目录',
+    MISSING: '配的目录不存在',
+    NOT_DIR: '配的路径是个文件',
+    UNREADABLE: '目录读不了',
+  };
+  return '<div class="dstate"><b>' + esc(map[s.code] || s.code) + '</b><p>' + esc(s.hint) + '</p>' +
+    (s.dir ? '<p style="margin-top:10px;color:#585349">当前配置：<code>' + esc(s.dir) + '</code></p>' : '') + '</div>';
+}
+
+async function load(){
+  try{
+    const r = await fetch('/api/diary/list');
+    const d = await r.json();
+    const s = d.state, es = d.entries || [];
+    const sub = document.getElementById('sub');
+    const list = document.getElementById('list');
+    if (!s.ok) {
+      sub.textContent = '读不到 —— 原因在下面，不是「还没有日记」';
+      list.innerHTML = renderState(s);
+      document.getElementById('view').innerHTML = '<div class="dstate">先按上面的提示配上目录</div>';
+      document.getElementById('st').textContent = '✗ ' + s.code;
+      return;
+    }
+    sub.textContent = es.length + ' 篇 · ' + s.dir;
+    if (!es.length) {
+      list.innerHTML = '<div class="dstate"><b>这个目录里没有 .md</b><p>' + esc(s.dir) + '</p><p style="margin-top:8px;color:#585349">目录是通的、读得了，只是空的 —— 这和「读不到」是两件事。</p></div>';
+      document.getElementById('view').innerHTML = '<div class="dstate">还没有日记</div>';
+      return;
+    }
+    list.innerHTML = es.map(e =>
+      '<div class="it' + (e.name === CUR ? ' on' : '') + '" data-n="' + esc(e.name) + '" onclick="loadDoc(\'' + esc(e.name).replace(/'/g, "\\'") + '\')">' +
+      '<div class="tt">' + esc(e.title) + '</div>' +
+      '<div class="mm">' + fmtSize(e.size) + ' · ' + fmtTime(e.mtime) + '</div></div>'
+    ).join('');
+    document.getElementById('st').textContent = '在线 · ' + es.length + ' 篇';
+    if (!CUR) loadDoc(es[0].name);
+  }catch(e){
+    document.getElementById('list').innerHTML = '<div class="dstate"><b>连不上服务</b><p>' + esc(String(e)) + '</p></div>';
+  }
+  document.getElementById('tm').textContent = new Date().toLocaleTimeString('zh-CN',{hour12:false});
+}
+load();
+</script>
+</body></html>
