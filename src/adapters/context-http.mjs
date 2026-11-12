@@ -122,6 +122,67 @@ function readBody (req) {
   })
 }
 
+/**
+ * 换气主动巡视 —— 一份逻辑两处用。
+ *
+ * ★ 2026-11-13：原来它**只**存在于 /api/huanqi/auto 这个 HTTP 分支里，
+ *   意思是「等外部来调」。而在心跳插件被禁用之后，再没有人调它 ——
+ *   v4 的换气能力明明在，那只按时按它的手却断了。
+ *   抽成函数之后，内部定时器（autonomy 规则，30 分钟一闸）和 HTTP 走同一条路。
+ *
+ * @returns {Promise<object>} 结构化结果（调用方决定是发 HTTP 还是记日志）
+ */
+export async function autoHuanqi (input) {
+  const ab = input || {}
+  if (!_scanner) return { ok: false, error: '扫描器没接上' }
+  const activeMinutes = Number(ab.activeMinutes) > 0 ? Number(ab.activeMinutes) : 120
+  const dryRun = ab.dryRun !== false   // ★ 默认 true（只诊断，不动手）
+  const t0 = Date.now()
+  // ① 扫
+  let scanRes = null
+  try { scanRes = await _scanner({ activeMinutes }) } catch (e) {
+    return { ok: false, error: '扫描失败：' + String((e && e.message) || e) }
+  }
+  const list = (scanRes && Array.isArray(scanRes.sessions)) ? scanRes.sessions : []
+  // ② 筛
+  const hot = list.filter((x) => x && (x.level === 'intervene' || x.level === 'warn'))
+  const acted = []
+  // ③ 干预（带 cooldown）
+  if (_intervene) {
+    for (const s of hot.slice(0, 3)) {   // 一次最多 3 个，防止拖太久
+      const last = autoLastAt.get(s.sessionId) || 0
+      if (Date.now() - last < 10 * 60 * 1000) {
+        acted.push({ sessionId: s.sessionId, level: s.level, skipped: '10 分钟内干预过' })
+        continue
+      }
+      try {
+        const r = await _intervene({ sessionId: s.sessionId, dryRun })
+        autoLastAt.set(s.sessionId, Date.now())
+        acted.push({ sessionId: s.sessionId, level: s.level, median: s.median, stage: r && r.stage, ok: r && r.ok })
+      } catch (e) {
+        acted.push({ sessionId: s.sessionId, level: s.level, error: String((e && e.message) || e).slice(0, 120) })
+      }
+    }
+  }
+  const out = {
+    ok: true, dryRun,
+    activeMinutes,
+    scanned: list.length,
+    byLevel: (scanRes && scanRes.byLevel) || null,
+    hot: hot.length,
+    actedCount: acted.length,
+    acted,
+    ms: Date.now() - t0,
+    note: hot.length === 0 ? '没有到该干预的会话 —— 这是正常结果' : null,
+  }
+  // ★ log 由调用方传（原来这里直接用 handleContextApi 闭包里的 log —— 而 autoHuanqi
+  //   被抽出来之后就拿不到了，实测报 `log is not defined`。默认 no-op，绝不因为
+  //   打日志失败而让巡视本身失败）。
+  const say = (ab.log || (() => {}))
+  say('[huanqi/auto] 扫 ' + list.length + ' · 热 ' + hot.length + ' · 动 ' + acted.length + ' · ' + out.ms + 'ms')
+  return out
+}
+
 export async function handleContextApi (req, res, o) {
   let p = ''
   try { p = new URL(req.url, 'http://x').pathname } catch { return false }
@@ -147,49 +208,8 @@ export async function handleContextApi (req, res, o) {
     if (p === '/api/huanqi/auto') {
       if (!_scanner) { sendJson(res, 503, { ok: false, error: '扫描器没接上' }); return true }
       const ab = await readBody(req)
-      const activeMinutes = Number(ab.activeMinutes) > 0 ? Number(ab.activeMinutes) : 120
-      const dryRun = ab.dryRun !== false   // ★ 默认 true（只诊断，不动手）
-      const t0 = Date.now()
-      // ① 扫
-      let scanRes = null
-      try { scanRes = await _scanner({ activeMinutes }) } catch (e) {
-        sendJson(res, 500, { ok: false, error: '扫描失败：' + String((e && e.message) || e) })
-        return true
-      }
-      const list = (scanRes && Array.isArray(scanRes.sessions)) ? scanRes.sessions : []
-      // ② 筛
-      const hot = list.filter((x) => x && (x.level === 'intervene' || x.level === 'warn'))
-      const acted = []
-      // ③ 干预（带 cooldown）
-      if (_intervene) {
-        for (const s of hot.slice(0, 3)) {   // 一次最多 3 个，防止心跳拖太久
-          const last = autoLastAt.get(s.sessionId) || 0
-          if (Date.now() - last < 10 * 60 * 1000) {
-            acted.push({ sessionId: s.sessionId, level: s.level, skipped: '10 分钟内干预过' })
-            continue
-          }
-          try {
-            const r = await _intervene({ sessionId: s.sessionId, dryRun })
-            autoLastAt.set(s.sessionId, Date.now())
-            acted.push({ sessionId: s.sessionId, level: s.level, median: s.median, stage: r && r.stage, ok: r && r.ok })
-          } catch (e) {
-            acted.push({ sessionId: s.sessionId, level: s.level, error: String((e && e.message) || e).slice(0, 120) })
-          }
-        }
-      }
-      const out = {
-        ok: true, dryRun,
-        activeMinutes,
-        scanned: list.length,
-        byLevel: (scanRes && scanRes.byLevel) || null,
-        hot: hot.length,
-        actedCount: acted.length,
-        acted,
-        ms: Date.now() - t0,
-        note: hot.length === 0 ? '没有到该干预的会话 —— 这是正常结果' : null,
-      }
-      log('[huanqi/auto] 扫 ' + list.length + ' · 热 ' + hot.length + ' · 动 ' + acted.length + ' · ' + out.ms + 'ms')
-      sendJson(res, 200, out)
+      const out = await autoHuanqi({ activeMinutes: ab.activeMinutes, dryRun: ab.dryRun, log })
+      sendJson(res, out.ok ? 200 : 500, out)
       return true
     }
     // ★ 手动干预：调内嵌 LLM 诊断 + 可选修复

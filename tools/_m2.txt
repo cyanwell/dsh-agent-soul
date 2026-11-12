@@ -1,0 +1,24 @@
+fix(huanqi): 换气巡视自给自足 —— 心跳禁用后那条手断了
+
+【查出来的问题】
+/api/huanqi/auto 一直只存在于 HTTP 分支里，等 dsh-yanqing-heartbeat 的心跳来 POST。
+而心跳插件今晚被禁用 → v4 的换气能力明明在，触发它的手却断了。
+★ 界面上看不出来，日志里也没有报错 —— 沉默的断线。
+
+【修法】
+- 把 auto 的逻辑从 handleContextApi 里抽成 export async function autoHuanqi(input)
+  HTTP 分支只负责 sendJson，内部定时器和 HTTP 走同一条路
+- 挂进已有的 autonomy 规则（60 秒 tick），加 30 分钟时间闸
+  ★ 不新起 sched.rule：换气要扫全部活跃会话（一次几十秒），单独起规则更容易和 autonomy 撞同一个 tick
+- dryRun 默认 true（只诊断不动手）；要真清仍走手动 /api/huanqi/auto
+
+【踩到的两个坑】
+① 抽出来之后 autoHuanqi 里的 log 找不到 —— 那是 handleContextApi 的闭包变量（const log = o && o.log）
+   实测报 `log is not defined`。改成由调用方传，默认 no-op
+② 第一次删旧代码时留了个孤立的 try，`Missing catch or finally after try`
+
+【实测】
+  [huanqi/auto] 扫 1 · 热 0 · 动 0 · 1639ms
+  [换气/自主] 扫 1 · 热 0 · 1639ms
+
+版本 1.0.57

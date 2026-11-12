@@ -71,7 +71,7 @@ import { handleHuanqiScan, isHuanqiScanPath } from './adapters/huanqi-scan.mjs';
 import { handleHostScan, isHostScanPath } from './adapters/host-scan-http.mjs';
 import { scanActiveHostSessions } from './adapters/host-sessions.mjs';
 // ★ 2026-11-13：上下文手术的 HTTP 入口（v4 → bridge 的 cap='context'）。
-import { handleContextApi, isContextPath, setIntervener, setPurgedFile, setHostScanner } from './adapters/context-http.mjs';
+import { handleContextApi, isContextPath, setIntervener, setPurgedFile, setHostScanner, autoHuanqi } from './adapters/context-http.mjs';
 import { fileURLToPath } from 'node:url';
 // ★ 2026-11-12：静态资源要按「这个文件在哪」定位（和 server.mjs 的 HERE 同法）。
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -591,6 +591,33 @@ sched.rule({
       //     节拍仍是本规则这 60 秒一下，只是每个节拍先问一句「现在的主导是谁」。
       await leadTarget.refreshIfNeeded(autonomy.config);
       await hostAutonomy.tick();
+
+      // ★★★ 2026-11-13：换气主动巡视 —— 内部自己按时按，不再等人来调。
+      //
+      //   起因（这一条是查出来的，不是想出来的）：/api/huanqi/auto 一直只存在于
+      //   HTTP 分支里，等 dsh-yanqing-heartbeat 的心跳来 POST。而心跳插件今晚被禁用了，
+      //   于是「换气能力在、触发它的手断了」—— 界面上看不出来，日志里也没有报错。
+      //
+      //   ★ 为什么放在这里而不是新起一条 sched.rule：autonomy 已经是 60 秒一拍，
+      //     而换气要的是「低频扫全部活跃会话」（扫一次几十秒），单独起规则反而更容易
+      //     和 autonomy 撞在同一个 tick 上。这里加一道时间闸，30 分钟才真跑一次。
+      //   ★ dryRun 默认 true —— 只诊断不动手。要真清，仍走手动 /api/huanqi/auto。
+      const HUANQI_EVERY = 30 * 60 * 1000;
+      if (!globalThis.__lastHuanqiAutoAt || Date.now() - globalThis.__lastHuanqiAutoAt >= HUANQI_EVERY) {
+        globalThis.__lastHuanqiAutoAt = Date.now();
+        try {
+          const hu = await autoHuanqi({ activeMinutes: 120, dryRun: true, log: (m) => { if (!config.quiet) console.log('  ' + m) } });
+          if (!config.quiet) {
+            const brief = hu && hu.ok
+              ? ('扫 ' + hu.scanned + ' · 热 ' + hu.hot + ' · ' + hu.ms + 'ms')
+              : ('失败 ' + String((hu && hu.error) || '').slice(0, 80));
+            console.log('  [换气/自主] ' + brief);
+          }
+          globalThis.__lastHuanqiResult = hu;
+        } catch (e) {
+          if (!config.quiet) console.log('  [换气/自主] 巡视失败（不影响自主）：' + String((e && e.message) || e).slice(0, 100));
+        }
+      }
     } catch (e) {
       // ★ 投递器自己炸了不许把调度带下去；但要说出来，不许静默。
       if (!config.quiet) console.log('  [自主] tick 失败（不影响服务）：' + (e && e.message));
