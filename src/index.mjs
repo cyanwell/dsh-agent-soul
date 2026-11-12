@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { useStore as syncUseStore, roundAsync as syncRoundAsync, cancelSync as syncCancel, syncQuiesce as syncQuiesce } from '../tools/soul-sync.mjs';
 import { ControlHub } from './control/hub.mjs';
-import { loadConfig, ROOT, personaFilesOf } from './config.mjs';
+import { loadConfig, ROOT, personaFilesOf, devPathOr } from './config.mjs';
 import { readonlyEnabled, syncDisabled } from './security/write-manifest.mjs';
 import { installParentWatchdog } from './util/parent-watchdog.mjs';
 import { SessionStore } from './session/store.mjs';
@@ -431,7 +431,15 @@ const leadTarget = createLeadTargetResolver({
       return fs.readdirSync(root).map((name) => ({ id: name }))
     } catch { return [] }
   },
-  ledgerFile: (config.integrations && config.integrations.ledgerFile) || 'D:/AI/yanqing-soul/02-墨.jsonl',
+  // ★★★ 2026-11-13 修：这里是**唯一**没走 devFileOr 的硬编码（别处 2026-11-10 都改过了）。
+  //   后果：分发版装到新用户机上，ledgerFile 指向 'D:/AI/yanqing-soul/02-墨.jsonl' ——
+  //   一个**不存在的路径** → leadFromLedger 回「账本读不到」→ 自主永远 fail-closed。
+  //   ★ 它不崩，所以没人发现 —— 但那个用户**永远没有自主**，而自主是 v4 的一半。
+  //   现在：配了就用配的；没配就只在开发路径**真的存在**时用它；否则留空（= 没有账本）。
+  //   ★ 用 devPathOr('soulRoot', '') —— 那个 key 指向 D:/AI/yanqing-soul（**目录**），
+  //     目录真的存在才拼出 02-墨.jsonl；不存在就是 ''（= 没有账本，自主 fail-closed 但不再指空）。
+  ledgerFile: (config.integrations && config.integrations.ledgerFile)
+    || (devPathOr('soulRoot', '') ? devPathOr('soulRoot', '') + '/02-墨.jsonl' : ''),
   log: (m) => { if (!config.quiet) console.log('  [目标] ' + m); },
 });
 // ★ 2026-11-11：把**同一个**解析器交出去给状态台（水位卡要回答「本会话是哪一条」）。

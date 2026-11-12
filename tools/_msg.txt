@@ -1,0 +1,40 @@
+feat(setup): 安装包双选项 —— 新用户自动建骨架 / 老用户扫已有账本
+
+【安装包】Wizard 三页 → 四页，第 1 步就问「你是新用户还是老用户」
+- 新用户：装完在 <安装目录>\workspace\ 建 02-墨.jsonl（空账本）+ 10-宪章/README.md
+  + 20-档案/人格.md + 30-状态/ + 50-日记/ —— 空账本是合法状态（还没记任何事），v4 直接能读
+- 老用户：扫 02-墨.jsonl（手填 → %USERPROFILE%\yanqing-soul → D:\AI\yanqing-soul）
+  找不到就明说，退回建空白骨架 —— 不假装找到
+- 静默模式也支持：/UserMode=new|existing /SoulRoot=<路径>
+
+【config】新增 integrations.ledgerFile / integrations.soulRoot
+- 抽成独立的 WriteIntegrations(o)，无条件调用
+- 教训：第一版把它塞在 WriteConfig 里，而静默装不带 protocol/baseurl/model 任何一个参数
+  → ConfigureLlm=false → 整段不执行。「用向导装」和「用 /S 批量装」不该得到两种不同的产品
+
+【修复】src/index.mjs 唯一没走 devPathOr 的硬编码
+- ledgerFile 原来写死 D:/AI/yanqing-soul/02-墨.jsonl —— 分发版指向不存在的路径
+- 后果：自主永远 fail-closed（账本读不到），而界面上看不出来
+- 现在：开发路径真的存在才用，否则空
+
+【修复】版本号单一来源
+- release.mjs 先改 package.json 的 version 再拷进版本目录（顺序错了会拷旧值）
+- 页面 <meta agentsoul-build> 改成服务时现算（手写在 html 里迟早和 current.txt 分叉）
+- shell.html 补上构建标记（验收要核对首页，而首页原来没有）
+
+【修复】package.mjs 的 node 路径
+- 原来只写死旧安装位置，改了候选列表 + process.execPath 兜底
+
+【验收】acceptance-1.0.50.ps1
+- 从 1.0.5 派生，版本号参数化（temp/evidence/canary 用 $VT 拼）
+- 版本断言改成 1.0.49 + 当前版本（原来写死 1.0.1/1.0.2/1.0.3）
+- 起服务前检查有没有别的 AgentSoul 在跑（单实例互斥量会让新装的静默退出，看着像包坏了）
+- 起服务前把 config 的 port 改成验收端口（原来撞本机 7310）
+- 结果：fails=0
+
+【.gitignore】把 build/ 的源码放回版本控制
+- 原来 build/ 整个被忽略 → Installer.cs / SecretStore.cs / dist.ps1 / make-packages.ps1
+  / 全部验收脚本都不在仓库里，clone 下来只有 app 源码，拿不到怎么打安装包
+- 注意必须写 build/* 而不是 build/ —— 父目录被排除后 ! 无效（git 的规则）
+
+版本 1.0.55

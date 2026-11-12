@@ -4,12 +4,36 @@ dist/
 _deploy/
 _runtime/
 _verify/
-build/
 *.log
 *.bak*
 node_modules/
 tools/_*.mjs
-# 大文件
+
+# 二进制产物
 *.exe
 *.zip
 *.7z
+*.nupkg
+
+# ★ 2026-11-13：build/ 里**源码要进仓库**，只有编译产物不进。
+#   起因：Installer.cs / SecretStore.cs / dist.ps1 / make-packages.ps1 / 验收脚本
+#   全都躺在 build/ 下，而被上面那条 `build/` 一起忽略了 ——
+#   结果是「能 clone 到 app 源码，却拿不到怎么打安装包」。
+#   现在改成：忽略 build/ 的产物，但把源码目录放回来。
+# ★ 关键：必须写 `build/*` 而不是 `build/` ——
+#   git 的规则是「父目录被排除后，里面的文件无法用 ! 重新包含」，
+#   写 `build/` 会让下面所有 ! 全部失效（我第一次就是这么写的，status 里一条都没有）。
+build/*
+# ...但源码要进来
+!build/Launcher.cs
+!build/Shell.cs
+!build/build.ps1
+!build/make-icon.py
+!build/pack/
+!build/assets/
+
+# 产物仍然忽略
+build/*.exe
+build/*.dll
+build/webview2/
+build/*.nupkg

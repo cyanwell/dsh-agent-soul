@@ -57,9 +57,18 @@ const addDir = (absDir, relBase) => {
   }
 };
 
-const NODE = process.env.AGENT_SOUL_NODE
-  || 'C:/Users/pc/AppData/Local/Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies/node/bin/node.exe';
-if (!fs.existsSync(NODE)) { console.error('找不到 node.exe: ' + NODE); process.exit(1); }
+// ★ 2026-11-13 修：原来只写死了一个旧路径（AppData\Local\Programs\DeepSeek Harness\...），
+//   而本机 DSH 装在 **Desktop\deepseek harness\dsh沙箱\** 下 —— 那行永远找不到。
+//   改成候选列表 + 当前运行的 node 兜底。
+const NODE_CANDS = [
+  process.env.AGENT_SOUL_NODE,
+  process.execPath,   // ★ 最后一个兜底：正在跑这个脚本的 node 本身（最可靠）
+  'D:/AI/dsh/home/dsh-runtimes/dsh-primary-runtime/dependencies/node/bin/node.exe',
+  'C:/Users/pc/AppData/Local/Programs/DeepSeek Harness/resources/runtime/primary-runtime/dependencies/node/bin/node.exe',
+].filter(Boolean);
+const NODE = NODE_CANDS.find((p) => { try { return fs.existsSync(p) } catch { return false } });
+if (!NODE) { console.error('找不到 node.exe，试过：\n  ' + NODE_CANDS.join('\n  ')); process.exit(1); }
+console.log('  用 node: ' + NODE);
 entries.push({ name: 'runtime/node.exe', data: fs.readFileSync(NODE) });
 addDir(path.join(ROOT, 'src'), 'src');
 if (fs.existsSync(path.join(ROOT, 'docs'))) addDir(path.join(ROOT, 'docs'), 'docs');

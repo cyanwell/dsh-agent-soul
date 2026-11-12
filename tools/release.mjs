@@ -63,6 +63,19 @@ for (const part of PARTS) {
   fs.cpSync(s, path.join(verDir, part), { recursive: true })
   fileCount += countFiles(path.join(verDir, part))
 }
+// ★★★ 2026-11-13：**先**把 dev 的 package.json version 改成 target，**再**拷进版本目录。
+//   *顺序* 是这里唯一容易错的地方：先拷后改 → 版本目录里永远是**上一版**的 version，
+//   而页面 <meta agentsoul-build> 和服务端都读它 → 验收核对出版本对不上。
+//   我第一版就写在了拷贝之后，于是 app/1.0.52/package.json 里还是 1.0.49。
+try {
+  const pkgPath = path.join(DEV, 'package.json')
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
+  if (pkg.version !== target) {
+    pkg.version = target
+    fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + NL, 'utf8')
+    log('        package.json version -> ' + target)
+  }
+} catch (e) { log('        (package.json version 没同步上：' + (e && e.message) + ')') }
 fs.copyFileSync(path.join(DEV, 'package.json'), path.join(verDir, 'package.json'))
 log('  ' + fileCount + ' 个文件')
 log('  ★ 不复制 data/ —— 那是运行时目录，不是载荷')
@@ -88,6 +101,7 @@ const ver = [
 ].join(NL)
 fs.writeFileSync(path.join(verDir, 'VERSION.txt'), ver + NL, 'utf8')
 log('[2/4] VERSION.txt 写好')
+
 
 // ---------- ④ 校验（切之前）----------
 log('[3/4] 校验载荷')

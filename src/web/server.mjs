@@ -808,6 +808,17 @@ export function createServer({ store, loop, tools, config, bus, sched, persona, 
         //   **不新增一个「取 token」的 HTTP 口**，那种口等于把锁挂在门上。
         const injected = '<script>window.__SOUL_TOKEN=' + JSON.stringify(auth.token) + ';</script>';
         let html = fs.readFileSync(fs.existsSync(chat) ? chat : path.join(HERE, 'dashboard.html')).toString('utf8');
+// ★ 2026-11-13：首页也带上真实构建版本（验收要核对，用户也看得见是哪一版）。
+try {
+  const pkgVer = (() => {
+    try { return JSON.parse(fs.readFileSync(path.join(HERE, '..', '..', 'package.json'), 'utf8')).version || '' } catch { return '' }
+  })()
+  if (pkgVer && html.indexOf("agentsoul-build") >= 0) {
+    html = html.replace(/(<meta name='agentsoul-build' content=')[^']*(')/, '$1' + pkgVer + '$2')
+  } else if (pkgVer) {
+    html = html.replace('</title>', '</title>' + "<meta name='agentsoul-build' content='" + pkgVer + "'>")
+  }
+} catch { /* 换不动就原样发 */ }
         html = html.indexOf('</head>') >= 0 ? html.replace('</head>', injected + '</head>') : injected + html;
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': Buffer.byteLength(html) });
         return res.end(html);
@@ -816,7 +827,25 @@ export function createServer({ store, loop, tools, config, bus, sched, persona, 
       if (req.method === 'GET' && p === '/dashboard') {
         const f = path.join(HERE, 'dashboard.html');
         if (!fs.existsSync(f)) return json(res, 404, { error: '页面文件缺失：src/web/dashboard.html' });
-        const html = fs.readFileSync(f, 'utf8');
+        // ★ 2026-11-13：把页面里的 <meta name='agentsoul-build'> 换成**实际版本**。
+        //
+        //   起因：验收第 N 项要核对页面 build 标记 == 发布版本，而那个标记是**手写在**
+        //   dashboard.html 里的（当时写 1.0.5），发布到 1.0.50 后没人改它 → 验收 FAIL。
+        //   ★ 「文档里的数字要跟代码一致」这条已经吃过一次教训（2026-10-22 的发布纪律）。
+        //   与其靠人记，不如让它**每次服务时现算** —— 那就不可能忘。
+        let html = fs.readFileSync(f, 'utf8');
+        try {
+          const cfgForVer = (typeof config === 'object' && config) || {}
+          const ver = String((cfgForVer.releaseVersion || cfgForVer.version || '') || '')
+          const pkgVer = (() => {
+            try {
+              const p = path.join(HERE, '..', '..', 'package.json')
+              return JSON.parse(fs.readFileSync(p, 'utf8')).version || ''
+            } catch { return '' }
+          })()
+          const real = ver || pkgVer
+          if (real) html = html.replace(/(<meta name='agentsoul-build' content=')[^']*(')/, '$1' + real + '$2')
+        } catch { /* 换不动就原样发，绝不因为一个标记搞坏页面 */ }
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': Buffer.byteLength(html) });
         return res.end(html);
       }

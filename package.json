@@ -1,6 +1,6 @@
 {
   "name": "agent-soul",
-  "version": "1.0.49",
+  "version": "1.0.55",
   "private": true,
   "type": "module",
   "description": "agent-soul v4 —— 从 DSH 解耦出来的灵魂层运行时。会话 / 事件 / 记忆 / 人格，自带，任何 harness 都能接。",
