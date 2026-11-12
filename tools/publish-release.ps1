@@ -1,4 +1,4 @@
-<#
+﻿<#
   publish-release.ps1 — 一条命令发 GitHub Release（PAT 直连，不走 gh）
 
   为什么不用 gh：
