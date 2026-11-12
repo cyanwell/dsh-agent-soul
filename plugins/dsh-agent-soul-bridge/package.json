@@ -1,0 +1,38 @@
+{
+  "name": "dsh-agent-soul-bridge",
+  "version": "0.1.0",
+  "description": "agent-soul v4 控制通道的宿主端：连 ws://127.0.0.1:7310/control，自报能力、接 exec、回执、每轮上报上下文水位、断线指数退避重连。零第三方依赖。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./ws": "./ws.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "ws.js",
+    "pruner-adapter.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "context-surgeon.mjs"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "agent-soul",
+    "control-channel",
+    "websocket"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

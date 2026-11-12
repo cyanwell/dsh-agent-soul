@@ -1,0 +1,35 @@
+{
+  "name": "dsh-mcp-hub",
+  "version": "0.2.0",
+  "description": "本机 MCP 服务器的唯一入口：stdio / streamable-http 两种传输、管理界面与增删改查路由，把远端工具以 mcp__<server>__<tool> 注册进 ctx.tools",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "license": "MIT"
+}

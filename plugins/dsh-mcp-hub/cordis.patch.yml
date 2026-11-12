@@ -1,0 +1,6 @@
+# dsh-mcp-hub bundle patch。
+# 注册宿主半（MCP 连接 / 工具注册 / /mcp-hub/* 路由）；
+# 浏览器半由 package.json 的 dsh.client + exports["./client"] 自动拾取。
+- insert:
+    - id: dsh-mcp-hub
+      name: dsh-mcp-hub

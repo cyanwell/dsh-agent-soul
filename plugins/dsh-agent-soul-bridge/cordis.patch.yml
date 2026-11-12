@@ -1,0 +1,35 @@
+# dsh bundle patch —— 把本插件插进 profile 的层栈。
+#
+# ★ 名字必须与包名一致：加载器只在 profile 的 node_modules 里按这个名字找它。
+# ★ 它没有客户端半（不需要界面）—— 纯宿主：连控制通道、接指令、上报水位。
+#
+# ★ 2026-11-11 部署取舍（爀曦拍板）：**配置写在这里、随包走**。
+#   这样「装一次」就把 url / prunerLive 一起带过去 —— 是可重复的部署路径，
+#   不必去改 profile 的 cordis.patch.yml（那份归 Electron/profile 管，本插件不碰）。
+#   两份必须逐字一致：
+#     源    D:\AI\dsh-tools\dsh-agent-soul-bridge\cordis.patch.yml
+#     安装  D:\AI\dsh\home\profiles\desktop\node_modules\dsh-agent-soul-bridge\cordis.patch.yml
+#
+# 未列出的键沿用 index.js 的 DEFAULTS（退避重连 1s→30s、projCacheDir、log、stateMinGapMs…）。
+- insert:
+    - id: dsh-agent-soul-bridge
+      name: 'dsh-agent-soul-bridge'
+      config:
+        url: 'ws://127.0.0.1:7310/control'
+        hostName: 'dsh'
+        # ★ 2026-11-12：加 session —— v4 要能「往指定会话说一句 / 插一句」。
+        # ★★ 这里才是生效的那一份！index.js 的 DEFAULTS.caps 会被这份 config 覆盖，
+        #   只改 index.js 等于白改（今天为此多绕一圈：DSH 00:16 启动、文件 00:14 已改，
+        #   hello 里却仍报旧 caps —— 因为加载的是这份 yml）。
+        # ★ 2026-11-13：加 'context' —— 上下文手术（对 surface 动刀，不依赖 pruner）。
+        #   ★ 教训：**这份 yml 才是生效的**，index.js 的 DEFAULTS.caps 会被它覆盖。
+        #    改 index.js 白改 —— 今天为此又绕了一圈（第四次了）。
+        caps: ['followup', 'session', 'huanqi', 'pruner', 'context']
+        # ★ 首轮 stubCaps 里仍有 pruner：适配器装上了，但 v4 不会派活（hello.meta.stubs 会自报）。
+        #   摘掉它要等一次真实会话的手工 exec 拿到 ok:true（README「部署」一节 ②③），本轮不做。
+        stubCaps: ['huanqi', 'pruner']
+        # ★ prunerLive=true 只表示「pruner-adapter 装得上、可被手工 exec 调到」，
+        #   它不解除上面的 stub 声明 —— 两件事分开走，别混。
+        prunerLive: true
+        pingMs: 25000
+        statePerTurn: true
