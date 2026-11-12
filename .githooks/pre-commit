@@ -1,0 +1,32 @@
+#!/bin/sh
+# 2026-11-13：调 node 做真检查（hook 本身极薄，逻辑全在 secret-scan.mjs 里）
+#
+# ★ 为什么这里要找 node 而不是直接写 `node`：
+#   这台机器上 node 不在 PATH 里（实测 hook 报 `node: command not found`）。
+#   而 hook 失败的表现是「提交被拒但不知道为什么」—— 比不装 hook 更坏。
+#   所以先找，找不到就**明确说**找不到，而不是静默放行或静默失败。
+HERE=$(git rev-parse --show-toplevel)
+
+NODE=$(command -v node 2>/dev/null)
+if [ -z "$NODE" ]; then
+  for c in \
+    "$HERE/runtime/node.exe" \
+    "/d/AI/dsh/home/dsh-runtimes/dsh-primary-runtime/dependencies/node/bin/node.exe" \
+    "$LOCALAPPDATA/Programs/nodejs/node.exe" \
+    "/c/Program Files/nodejs/node.exe" \
+    "/usr/bin/node" \
+    "/usr/local/bin/node"; do
+    if [ -x "$c" ] || [ -f "$c" ]; then NODE="$c"; break; fi
+  done
+fi
+
+if [ -z "$NODE" ]; then
+  echo ''
+  echo '  ⛔ 提交被拒：找不到 node，密钥扫描跑不了。'
+  echo '     这道闸门宁可停下，也不静默放行 —— 它存在的理由见 .githooks/secret-scan.mjs 开头。'
+  echo '     装 node 或把它加进 PATH 再来。急着提交可以用 git commit --no-verify（想清楚再用）。'
+  echo ''
+  exit 1
+fi
+
+exec "$NODE" "$HERE/.githooks/secret-scan.mjs"
