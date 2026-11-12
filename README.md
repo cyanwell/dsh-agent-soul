@@ -74,7 +74,11 @@
 
 ```
 ① 装 agent-soul 本体
-   · 下载发布包，解压到任意目录（下称 <SOUL>）
+   · 下载发布包：[AgentSoul v4 1.0.63](https://github.com/cyanwell/dsh-agent-soul/releases/latest)（双击装，向导会问「新用户还是老用户」）
+     - `AgentSoul-Setup-1.0.63.exe` —— 大多数人选这个，双击装
+     - `AgentSoul-1.0.63-portable.zip` —— 不想装的人，解压即用（下称 <SOUL>）
+     - `AgentSoul-1.0.63-htmlpatch.zip` —— 已有安装，只换界面（129KB）
+   · 双击 <SOUL>\AgentSoul.exe 启动
    · 双击 <SOUL>\AgentSoul.exe 启动
    · ★ 必须用**当前用户身份**启动（key 是 DPAPI 密文，SYSTEM 身份解不开）
 
