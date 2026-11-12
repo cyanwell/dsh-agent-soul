@@ -134,6 +134,20 @@ export function readDshHuanqi(opts) {
     return out;
   }
   out.ledgerMtimeMs = lf.mtimeMs;
+
+  // ★★★ 2026-11-13：**这个账本可能已经是个孤儿了。**
+  //
+  //   起因：v4 换气自己跑起来之后，DSH 侧的 dsh-huanqi 插件已被移出 bundles。
+  //   而那之后 dsh-huanqi.json 就**不再更新** —— 但界面还把它当活数据在显示
+  //   （「DSH 额度 4/6 · 累计断 124 次」），看起来像现在仍然在受伤。
+  //
+  //   ★ 判据不靠「我记得移了 bundles」——靠**文件多久没动过**。
+  //     那才是事实上「它还在不在干活」的证据。
+  //     阈值 10 分钟：v3 活着时每轮都会写，10 分钟不动就是死了。
+  const STALE_MS = 10 * 60 * 1000;
+  const ageMs = Date.now() - lf.mtimeMs;
+  out.ledgerAgeMs = ageMs;
+  out.ledgerStale = ageMs > STALE_MS;
   let j = null;
   try { j = JSON.parse(fs.readFileSync(ledgerFile, 'utf8')); }
   catch (e) { out.why = '账本解析失败：' + String((e && e.message) || e); return out; }
@@ -174,11 +188,17 @@ export function readDshHuanqi(opts) {
 /** 两把尺子一起拿。**不合并成一个数** —— 合了就没法判断该看哪一把。 */
 export function readHuanqi(opts) {
   const o = opts || {};
+  // ★ 2026-11-13：先读 dsh（它带 ledgerStale），再决定 note 说什么。
+  //   我第一版把 out 用在这里 —— 那是 readDshHuanqi 内部的局部变量，
+  //   结果是整张卡显示 `错误 / out is not defined`（截图里抓到的）。
+  const dsh = readDshHuanqi(o);
   return {
     atMs: Date.now(),
-    note: '两个来源语义不同：本进程报「连续无产出 / 熔断阈值」，DSH 报「换气额度 credit」。不要相加、不要互相校验。',
+    note: dsh.ledgerStale
+      ? 'DSH 侧换气**已停用**（账本就停在 ' + Math.round(((Date.now() - (dsh.ledgerMtimeMs || Date.now())) / 60000)) + ' 分钟前）—— v4 换气已自己接手，这段旧数据只作历史。'
+      : '两个来源语义不同：本进程报「连续无产出 / 熔断阈值」，DSH 报「换气额度 credit」。不要相加、不要互相校验。',
     agentSoul: readDetectorMap(o.map),
-    dsh: readDshHuanqi(o),
+    dsh,
   };
 }
 

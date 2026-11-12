@@ -37,3 +37,7 @@ build/*.exe
 build/*.dll
 build/webview2/
 build/*.nupkg
+# ★ 2026-11-13：本机 config.json 里曾有明文 apiKey（群友指出）。
+#   它跟 config.release.json 不同 —— 后者是**发版用的干净模板**，前者是**我这台机器的实际配置**。
+#   实际配置永远不进仓库。
+config.json

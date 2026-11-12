@@ -606,7 +606,9 @@ sched.rule({
       if (!globalThis.__lastHuanqiAutoAt || Date.now() - globalThis.__lastHuanqiAutoAt >= HUANQI_EVERY) {
         globalThis.__lastHuanqiAutoAt = Date.now();
         try {
-          const hu = await autoHuanqi({ activeMinutes: 120, dryRun: true, log: (m) => { if (!config.quiet) console.log('  ' + m) } });
+          // ★ 2026-11-13：dryRun 传 false —— 但真正的闸在 autoHuanqi 里：
+          //   只有 level==='intervene'（红线 0.10）的会话才会真动手，warn 仍然只诊断。
+          const hu = await autoHuanqi({ activeMinutes: 120, dryRun: false, log: (m) => { if (!config.quiet) console.log('  ' + m) } });
           if (!config.quiet) {
             const brief = hu && hu.ok
               ? ('扫 ' + hu.scanned + ' · 热 ' + hu.hot + ' · ' + hu.ms + 'ms')

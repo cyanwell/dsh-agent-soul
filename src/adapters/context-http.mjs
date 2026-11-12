@@ -95,7 +95,11 @@ export function setHostScanner (fn) { _scanner = fn }
 export function isContextPath (req) {
   try {
     const p = new URL(req.url, 'http://x').pathname
-    return p === '/api/huanqi/context/candidates'
+    // ★★★ 2026-11-13：这里是**真正那道门** —— handleContextApi 里那个 KNOWN 数组不管路由，
+    //   是这道 isContextPath 决定请求能不能进到这个模块。加了新路由忘了这里，
+    //   表现是 `{"error":"没有这个路由: /api/huanqi/panel"}`（我踩了一次）。
+    return p === '/api/huanqi/panel'
+      || p === '/api/huanqi/context/candidates'
       || p === '/api/huanqi/context/purge'
       || p === '/api/huanqi/intervene'
       || p === '/api/huanqi/auto'
@@ -155,8 +159,19 @@ export async function autoHuanqi (input) {
         acted.push({ sessionId: s.sessionId, level: s.level, skipped: '10 分钟内干预过' })
         continue
       }
+      // ★★★ 2026-11-13（爀曦定）：**红线才真动手，预警只诊断。**
+      //
+      //   他说：「v4 的换气是有预警功能的，判据变成了检测推理文本的多样性，
+      //          低到预警红线的时候，就应该触发，并对上下文进行修复。」
+      //
+      //   所以 dryRun 不再是一个**全局开关**，而是**按会话的档位**决定：
+      //     level === 'intervene'（中位数 ≤ 0.10 红线）→ 真的清
+      //     level === 'warn'      （≤ 0.15）          → 只诊断，记下它热了
+      //   ★ 这个区分很重要：如果 warn 也动手，等于把「预警」变成「处分」，
+      //     而 warn 的阈值离正常值（0.42~0.60）还远 —— 那会误删好东西。
+      const perSessionDry = dryRun || s.level !== 'intervene'
       try {
-        const r = await _intervene({ sessionId: s.sessionId, dryRun })
+        const r = await _intervene({ sessionId: s.sessionId, dryRun: perSessionDry })
         autoLastAt.set(s.sessionId, Date.now())
         acted.push({ sessionId: s.sessionId, level: s.level, median: s.median, stage: r && r.stage, ok: r && r.ok })
       } catch (e) {
@@ -186,7 +201,7 @@ export async function autoHuanqi (input) {
 export async function handleContextApi (req, res, o) {
   let p = ''
   try { p = new URL(req.url, 'http://x').pathname } catch { return false }
-  const KNOWN = ['/api/huanqi/context/candidates', '/api/huanqi/context/purge', '/api/huanqi/intervene', '/api/huanqi/auto']
+  const KNOWN = ['/api/huanqi/panel', '/api/huanqi/context/candidates', '/api/huanqi/context/purge', '/api/huanqi/intervene', '/api/huanqi/auto']
   if (!KNOWN.includes(p)) return false
 
   const dispatch = o && o.dispatch
@@ -205,6 +220,52 @@ export async function handleContextApi (req, res, o) {
     //     ③ 同一会话 cooldown 分钟内只干预一次
     //
     //   ★ 没到阈值 → 什么都不做，返回 {acted:0} —— 那是**正常结果**，不是失败。
+    // ★★★ 2026-11-13（爀曦）：换气**面板** —— 原来这里只有「诊断」（一次一个会话的候选段）。
+    //   他要的是「展示不同活跃会话的预警状态、换气的出手记录」。
+    //   一份数据两件事：① 所有活跃会话的档位（谁在往红线走）② 已经清过什么。
+    //   ★ 只读：GET 一次扫一遍（几十秒），不做缓存 —— 面板看的就是**现在**。
+    if (p === '/api/huanqi/panel') {
+      if (!_scanner) { sendJson(res, 503, { ok: false, error: '扫描器没接上' }); return true }
+      const t0 = Date.now()
+      let scan = null
+      try { scan = await _scanner({ activeMinutes: 180 }) } catch (e) {
+        sendJson(res, 500, { ok: false, error: '扫描失败：' + String((e && e.message) || e) })
+        return true
+      }
+      const list = (scan && Array.isArray(scan.sessions)) ? scan.sessions : []
+      // 只把「有过长推理」的列出来 —— longTurns=0 的会话判据算不出来，列出来是噪音。
+      const rows = list.filter((x) => x && x.longTurns > 0).map((x) => ({
+        sessionId: x.sessionId,
+        level: x.level,
+        median: x.median,
+        window: x.window || [],
+        longTurns: x.longTurns,
+        totalTurns: x.totalTurns,
+        ageMinutes: x.ageMinutes,
+      }))
+      const out = {
+        ok: true,
+        at: new Date().toISOString(),
+        activeMinutes: 180,
+        scanned: list.length,
+        judged: rows.length,
+        byLevel: (scan && scan.byLevel) || {},
+        sessions: rows,
+        // purgedSeqs 是 Map<sessionId, Set<seq>> —— 摊平成数组给前端
+        purged: (() => {
+          const flat = []
+          for (const [sid, set] of purgedSeqs) for (const seq of set) flat.push({ sessionId: sid, seq })
+          return flat.slice(-80).reverse()
+        })(),
+        purgedCount: (() => { let n = 0; for (const set of purgedSeqs.values()) n += set.size; return n })(),
+        // ★ 阈值一起发出去 —— 面板要画出「离红线还有多远」，不能让前端猜。
+        thresholds: { watch: 0.25, warn: 0.15, intervene: 0.10 },
+        ms: Date.now() - t0,
+      }
+      log('[huanqi/panel] ' + rows.length + '/' + list.length + ' 可判 · ' + out.ms + 'ms')
+      sendJson(res, 200, out)
+      return true
+    }
     if (p === '/api/huanqi/auto') {
       if (!_scanner) { sendJson(res, 503, { ok: false, error: '扫描器没接上' }); return true }
       const ab = await readBody(req)

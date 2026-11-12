@@ -163,6 +163,96 @@ var SRC=[
  ['换气诊断','diagnose','organs/diagnose.mjs 回看最近活跃会话的全部帧，按四条判据挑出可疑段：绕圈（同指纹连续失败）/ 空转 / 重复 / 重影。**只指出不判决**','10 分钟缓存一次；点卡片看详情']
 ];
 
+// ★★★ 2026-11-13（爀曦）：换气**面板**。
+//
+//   他要的原话：「换气的台账，变成换气的面板，展示不同活跃会话的预警状态，换气的出手记录等。」
+//
+//   和下面那个「诊断」的区别（这个区别很重要，别混）：
+//     诊断 = 一个会话里的**可疑段落**（repeat/spin/empty/dup），是给人看的证据；
+//     面板 = **所有活跃会话现在离红线多远** + **已经清过什么**，是给人看的仪表。
+//   ★ 一个回答「哪段有问题」，一个回答「谁快出问题了」。
+var hpOpen=false;
+function toggleHuanqiPanel(box){
+  var old=$('hpbox');
+  if(old){ old.parentNode.removeChild(old); hpOpen=false; return; }
+  hpOpen=true;
+  var panel=el('div');panel.id='hpbox';
+  panel.style.cssText='margin:14px 0 0;padding:16px 18px;background:var(--as-glass-m2);border:1px solid var(--as-edge);border-radius:10px';
+  panel.appendChild(el('div','diagloading','正在扫活跃会话……（可能要十几秒）'));
+  var host2=$('organs');
+  (host2 && host2.parentNode ? host2.parentNode : box.parentNode).insertBefore(panel, host2 && host2.parentNode ? host2.nextSibling : null);
+
+  fetch('/api/huanqi/panel',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
+    panel.innerHTML='';
+    if(!d.ok){ panel.appendChild(el('div','errbox','读不出来：'+d.error)); return; }
+    var th=d.thresholds||{watch:.25,warn:.15,intervene:.1};
+    var head=el('div');
+    head.style.cssText='font-size:11.5px;color:var(--as-dim);line-height:1.9;margin-bottom:10px';
+    head.textContent='扫 '+d.scanned+' 个活跃会话 · 可判 '+d.judged+' 个（要有够长的推理才算得出）· '+d.ms+'ms';
+    panel.appendChild(head);
+
+    // ★ 阈值画在上面：面板要有「尺子」，不然 0.53 是近还是远没人知道。
+    var ruler=el('div');
+    ruler.style.cssText='font-size:11px;color:var(--as-weak-d);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--as-edge-2)';
+    ruler.textContent='红线 intervene ≤ '+th.intervene+' · 预警 warn ≤ '+th.warn+' · 观察 watch ≤ '+th.watch+' · 正常 0.42~0.60';
+    panel.appendChild(ruler);
+
+    if(!(d.sessions||[]).length){
+      var none=el('div',null,'现在没有可判的会话 —— 这不是故障，是「最近 3 小时没有够长的推理」。');
+      none.style.cssText='font-size:12px;color:var(--as-dim);line-height:1.8';
+      panel.appendChild(none);
+    }
+    (d.sessions||[]).forEach(function(s){
+      var row=el('div');
+      row.style.cssText='padding:10px 0;border-bottom:1px solid var(--as-edge-2)';
+      var col={intervene:'var(--as-err)',warn:'var(--as-warn)',watch:'var(--as-pend)',none:'var(--as-ok)',unknown:'var(--as-weak-d)'}[s.level]||'var(--as-dim)';
+      var line=el('div');
+      line.style.cssText='display:flex;align-items:baseline;gap:10px;flex-wrap:nowrap';
+      var tag=el('span',null,s.level);
+      tag.style.cssText='color:'+col+';font-size:10px;letter-spacing:.1em;min-width:66px';
+      line.appendChild(tag);
+      var med=el('span',null,s.median==null?'—':String(s.median));
+      med.style.cssText='font-family:ui-monospace,Consolas,monospace;font-size:15px;color:'+col+';min-width:56px';
+      line.appendChild(med);
+      var sid=el('span',null,String(s.sessionId).slice(0,30));
+      sid.style.cssText='font-size:11.5px;color:var(--as-dim)';
+      line.appendChild(sid);
+      var cnt=el('span',null,'长推理 '+s.longTurns+' 条');
+      cnt.style.cssText='font-size:10.5px;color:var(--as-weak-d);margin-left:auto';
+      line.appendChild(cnt);
+      row.appendChild(line);
+      // 窗口小方块：最近 3 条各自的多样性，一眼看出是不是在往下掉
+      var win=el('div');
+      win.style.cssText='margin-top:6px;display:flex;gap:4px;align-items:center';
+      (s.window||[]).forEach(function(v){
+        var b=el('span',null,String(v));
+        var c2=v<=th.intervene?'var(--as-err)':v<=th.warn?'var(--as-warn)':v<=th.watch?'var(--as-pend)':'var(--as-ok)';
+        b.style.cssText='font-family:ui-monospace,Consolas,monospace;font-size:10px;color:'+c2+';padding:1px 5px;border:1px solid '+c2+';border-radius:3px;opacity:.85';
+        win.appendChild(b);
+      });
+      var wl=el('span',null,'最近 '+((s.window||[]).length)+' 条');
+      wl.style.cssText='font-size:10px;color:var(--as-weak-d);margin-left:6px';
+      win.appendChild(wl);
+      row.appendChild(win);
+      panel.appendChild(row);
+    });
+
+    // 出手记录
+    var foot=el('div');
+    foot.style.cssText='margin-top:16px;padding-top:12px;border-top:1px solid var(--as-edge-2);font-size:11.5px;color:var(--as-dim);line-height:1.9';
+    foot.textContent='出手记录：累计清过 '+d.purgedCount+' 段'+(d.purgedCount?'（列出最近 '+(d.purged||[]).length+' 段）':' —— 还没动过手');
+    panel.appendChild(foot);
+    (d.purged||[]).slice(0,10).forEach(function(p){
+      var r2=el('div');
+      r2.style.cssText='font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--as-ok);margin-top:5px';
+      r2.textContent=String(p.sessionId).slice(0,26)+'  seq '+p.seq;
+      panel.appendChild(r2);
+    });
+  }).catch(function(e){
+    panel.innerHTML='';panel.appendChild(el('div','errbox','拉不动：'+e));
+  });
+}
+
 // ★ 展开/收起诊断详情。每次展开都重新拉 —— 明细比汇总值钱，不能拿缓存糊弄。
 var diagOpen=false;
 function toggleDiag(box){
@@ -239,11 +329,18 @@ function loadOrgans(){
         box.appendChild(el('div','v',String(o.value)));
         box.appendChild(el('div','n',o.note||''));
       }
-      // ★ 诊断那张卡可点 —— 它是唯一一张「汇总背后还有几十条明细」的卡。
-      //   别的卡点开没有意义（一个数就是一个数），所以只给它挂 onclick。
+      // ★ 两张卡可点：
+      //   换气     → 面板（所有活跃会话离红线多远 + 出手记录）
+      //   换气诊断 → 明细（一个会话里的可疑段落）
+      //   别的卡点开没有意义（一个数就是一个数），所以只给这两张挂 onclick。
+      if (o.key === 'huanqi') {
+        box.style.cursor='pointer';
+        box.title='点开看所有活跃会话的预警状态和出手记录';
+        box.onclick=function(){ toggleHuanqiPanel(box); };
+      }
       if (o.key === 'diagnose') {
         box.style.cursor='pointer';
-        box.title='点开看这 8 段分别是什么';
+        box.title='点开看这些段分别是什么';
         box.onclick=function(){ toggleDiag(box); };
       }
       host.appendChild(box);
@@ -254,8 +351,12 @@ function loadOrgans(){
       if (o.key === 'diagnose' && /[?&]open=1/.test(location.search)) {
         setTimeout(function(){ toggleDiag(box); }, 100);
       }
+      // ★ 2026-11-13：?panel=1 自动展开换气面板 —— 给无头浏览器截图验收用
+      if (o.key === 'huanqi' && /[?&]panel=1/.test(location.search)) {
+        setTimeout(function(){ toggleHuanqiPanel(box); }, 100);
+      }
     });
-    $('sub').textContent='七张卡都是现场读的 —— 每次刷新重新算，不是写死的数。60 秒自动刷一次，右上角可以立刻刷。★ 换气诊断那张可以点开看明细。';
+    $('sub').textContent='七张卡都是现场读的 —— 每次刷新重新算，不是写死的数。60 秒自动刷一次，右上角可以立刻刷。★ 「换气」点开是面板（谁快出问题 + 出手记录），「换气诊断」点开是明细（哪段有问题）。';
     $('meta').textContent='（读于 '+clock()+'）';
     $('st').textContent='在线';$('dot').className='dot';
     $('at').textContent='采集于 '+new Date(d.at).toLocaleTimeString('zh-CN');
