@@ -1,0 +1,889 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="/aurora.css">
+<script src="/aurora.js" defer></script>
+<title>AgentSoul · 状态球</title>
+<style>
+/* ── 状态球 · 点阵 · 六层（2026-11-11 重做）─────────────────────────────────
+   这一页是**唯一入口**：原来 /status 的三水位搬进左栏，六层明细留在右栏。
+   ① 球不再是六个实线环 —— 4200 个点铺在球面上，按面积均匀（Fibonacci 分布）。
+      点能表达连续的场（密度 / 亮度 / 流向），环只能表达一条线。
+   ② 球有**表情**：眼睛和嘴是**单独一层点**（球那 4200 个点摊开之后，
+      一只眼睛只分到二十来个，看起来是两小撮星点，不是眼；所以脸单独建）。
+   ③ 脸贴在**朝向相机的那一面**：它跟着拖拽转（你转到侧面它就转走，合理），
+      但不跟着自转 —— 自转是「球在喘气」，脸是「它的表情」，两件事。
+      ★ 取舍写在明处：可读性优先于物理正确。
+   ④ 表情的每个参数都由真读数算出（见 moodOf），没有一个是随机动画。
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* 左栏是深色玻璃板，极光亮起时 #8C9EB4 会掉到 4.5:1 以下（/status 页实测过的坑） */
+:root{--as-weak:#A9BACC}
+
+html{height:100%;background:var(--as-bg)}
+body{margin:0;height:100%;background:transparent;color:var(--as-ink);
+  font:13.5px/1.7 'Microsoft YaHei',system-ui,-apple-system,'Segoe UI',sans-serif;
+  overflow:hidden;display:flex;flex-direction:column}
+
+/* ── 导航 ── */
+#navline{flex:0 0 36px;display:flex;align-items:center;gap:2px;padding:0 14px;
+  background:var(--as-nav);border-bottom:1px solid var(--as-edge-2);white-space:nowrap;overflow-x:auto;z-index:9}
+#navline a{display:flex;align-items:center;gap:6px;flex:none;color:var(--as-dim);text-decoration:none;
+  font-size:12px;padding:5px 10px;border-radius:6px;transition:color .16s,background .16s}
+#navline a b{width:4px;height:4px;border-radius:50%;background:var(--as-weak);flex:none;transition:background .16s}
+#navline a:hover{color:var(--as-ink);background:var(--as-tint)}
+#navline a.on{color:var(--as-ink);background:var(--as-tint);box-shadow:inset 0 0 0 1px var(--as-edge)}
+#navline a.on b{background:var(--as-ok);box-shadow:0 0 8px var(--as-ok)}
+#navline .sp{flex:1}
+#navline .stamp{color:var(--as-weak);font-size:11px;letter-spacing:.06em;padding-right:4px;font-variant-numeric:tabular-nums}
+
+#app{flex:1;display:grid;grid-template-columns:304px minmax(0,1fr) 392px;min-height:0}
+
+/* ── 左：水位 + 读数（= 旧 /status 的主体） ── */
+.col-l{padding:20px 16px 14px 20px;display:flex;flex-direction:column;gap:15px;min-height:0;overflow-y:auto;
+  background:linear-gradient(158deg,rgba(255,255,255,.055),transparent 42%),
+             linear-gradient(158deg,rgba(18,38,62,.78),rgba(7,15,28,.70));
+  box-shadow:inset 0 1px 0 rgba(216,238,255,.20),inset -1px 0 0 rgba(150,200,255,.10)}
+.kicker{font-size:9.5px;letter-spacing:.34em;color:var(--as-weak);text-transform:uppercase}
+h1{font-family:'Lanxi-超粗黑',sans-serif;font-weight:400;font-size:25px;line-height:1.18;
+  margin:6px 0 3px;letter-spacing:.04em}
+h1 i{font-style:normal;color:var(--as-ok)}
+.sub{color:var(--as-dim);font-size:11.5px;letter-spacing:.03em}
+
+.sechead{display:flex;align-items:center;gap:9px;font-size:9.5px;letter-spacing:.28em;
+  color:var(--as-weak);text-transform:uppercase;margin-top:2px}
+.sechead:after{content:'';flex:1;height:1px;background:linear-gradient(90deg,rgba(150,200,255,.16),transparent)}
+
+/* 水位一块：主数字 + 细条 + 一行注解。三张 42px 的大字塞不进 304px。 */
+.wm{display:flex;flex-direction:column;gap:4px;padding-bottom:9px;border-bottom:1px solid rgba(150,200,255,.07)}
+.wm:last-child{border-bottom:none;padding-bottom:0}
+.wm .h{display:flex;align-items:center;gap:6px}
+.wm .h .k{font-size:11.5px;color:var(--as-dim);letter-spacing:.04em}
+.wm .h .tag{margin-left:auto;font-size:9px;letter-spacing:.16em;color:var(--as-weak);
+  border:1px solid rgba(150,200,255,.18);border-radius:99px;padding:0 6px;line-height:1.6;background:rgba(5,10,18,.5)}
+.wm .v{display:flex;align-items:baseline;gap:5px}
+.wm .v b{font-family:'Lanxi-超粗黑',sans-serif;font-weight:400;font-size:24px;line-height:1.15;
+  letter-spacing:.01em;font-variant-numeric:tabular-nums;color:var(--c,var(--as-ink))}
+.wm .v i{font-style:normal;font-size:11px;color:var(--as-dim)}
+.wm .v .void{font-family:'Lanxi-超粗黑',sans-serif;font-size:16px;color:var(--as-weak);letter-spacing:.04em}
+.wm .bar{height:2px;border-radius:2px;background:rgba(150,200,255,.13);overflow:hidden}
+.wm .bar span{display:block;height:100%;border-radius:2px;background:var(--c,var(--as-ok));transition:width .7s var(--as-ease)}
+.wm .n{font-size:11px;color:var(--as-weak);line-height:1.55;font-variant-numeric:tabular-nums}
+
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px;align-items:baseline}
+.kv .k{color:var(--as-weak);white-space:nowrap}
+.kv .v{text-align:right;color:var(--as-ink);font-variant-numeric:tabular-nums}
+.kv .v u{text-decoration:none;color:var(--as-weak);font-size:10.5px;margin-left:2px}
+
+.sum{display:flex;flex-wrap:wrap;gap:5px}
+.sum span{font-size:10.5px;letter-spacing:.06em;border-radius:5px;padding:1px 7px;
+  border:1px solid var(--as-edge);color:var(--as-dim)}
+.sum span.ok{color:var(--as-ok);border-color:var(--as-edge-ok);background:rgba(63,227,168,.07)}
+.sum span.warn{color:var(--as-warn);border-color:var(--as-edge-warn);background:rgba(242,193,92,.07)}
+.sum span.error{color:var(--as-err);border-color:var(--as-edge-err);background:rgba(255,122,104,.08)}
+
+.foot{margin-top:auto;padding-top:11px;border-top:1px solid var(--as-edge-2);
+  color:var(--as-weak);font-size:10.5px;line-height:1.75}
+.foot b{color:var(--as-dim);font-weight:400}
+.foot .warn{color:var(--as-warn)}
+
+/* ── 中：点阵舞台 ── */
+.col-c{position:relative;min-width:0;min-height:0;overflow:hidden}
+.col-c::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(56% 52% at 50% 44%,rgba(4,8,16,.74),rgba(4,8,16,.36) 62%,transparent 84%)}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#cv.drag{cursor:grabbing}
+.hint{position:absolute;left:18px;top:14px;font-size:10.5px;letter-spacing:.1em;color:var(--as-weak);
+  pointer-events:none;line-height:1.9}
+.hint b{color:var(--as-dim);font-weight:400}
+.mood{position:absolute;left:0;right:0;bottom:22px;text-align:center;pointer-events:none}
+.mood b{display:block;font-family:'Lanxi-超粗黑',sans-serif;font-weight:400;font-size:27px;
+  letter-spacing:.18em;color:var(--as-ink);text-shadow:0 2px 18px rgba(2,8,18,.85)}
+.mood span{display:block;font-size:11.5px;color:var(--as-dim);margin-top:5px;letter-spacing:.05em}
+.mood .why{color:var(--as-weak);font-size:10.5px;margin-top:2px;letter-spacing:.02em}
+
+/* ── 右：六层 + 明细 ── */
+.col-r{display:flex;flex-direction:column;min-height:0;
+  background:linear-gradient(158deg,rgba(255,255,255,.055),transparent 42%),
+             linear-gradient(158deg,rgba(18,38,62,.78),rgba(7,15,28,.70));
+  box-shadow:inset 0 1px 0 rgba(216,238,255,.20),inset 1px 0 0 rgba(150,200,255,.10)}
+.rhead{flex:none;padding:15px 18px 11px;display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  border-bottom:1px solid var(--as-edge-2)}
+.rhead .t{font-size:12px;letter-spacing:.28em;color:var(--as-dim)}
+.rhead .s{font-size:11px;color:var(--as-weak);font-variant-numeric:tabular-nums}
+#list{flex:none;padding:8px 10px 10px;display:flex;flex-direction:column;gap:3px}
+.row{display:grid;grid-template-columns:24px 1fr auto;gap:9px;align-items:center;
+  padding:8px 10px 8px 8px;border-radius:10px;cursor:pointer;border:1px solid transparent;
+  transition:background .16s var(--as-ease),border-color .16s var(--as-ease)}
+.row:hover{background:rgba(150,200,255,.055);border-color:var(--as-edge-2)}
+.row.sel{background:rgba(150,200,255,.085);border-color:var(--as-edge)}
+.row .no{font-family:'Lanxi-超粗黑',sans-serif;font-size:13px;line-height:1;text-align:center;color:var(--c);opacity:.92}
+.row .nm{min-width:0}
+.row .nm b{display:block;font-family:'Lanxi-超粗黑',sans-serif;font-weight:400;font-size:12.5px;
+  letter-spacing:.08em;color:var(--as-ink);line-height:1.4}
+.row .nm span{display:block;font-size:11px;color:var(--as-weak);line-height:1.5;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .rt{display:flex;align-items:center;gap:7px}
+.row .rt em{font-style:normal;font-size:11.5px;color:var(--as-dim);font-variant-numeric:tabular-nums}
+.row .dot{width:7px;height:7px;border-radius:50%;background:var(--c);box-shadow:0 0 8px var(--c)}
+.row[data-l="warn"] .rt em{color:var(--as-warn)}
+.row[data-l="error"] .rt em{color:var(--as-err)}
+
+#detail{flex:1;min-height:0;overflow-y:auto;padding:2px 18px 18px;border-top:1px solid var(--as-edge-2)}
+.dh{display:flex;align-items:baseline;gap:8px;padding:12px 0 8px;position:sticky;top:0;
+  background:linear-gradient(180deg,rgba(10,22,38,.97),rgba(10,22,38,.86));z-index:2}
+.dh b{font-family:'Lanxi-超粗黑',sans-serif;font-weight:400;font-size:14px;letter-spacing:.06em}
+.dh span{font-size:11px;color:var(--as-weak)}
+.dh .pill{margin-left:auto}
+.dnote{font-size:11.5px;color:var(--as-dim);line-height:1.75;padding:9px 11px;margin:0 0 10px;
+  border-left:2px solid var(--c,var(--as-edge));background:rgba(150,200,255,.045);border-radius:0 8px 8px 0}
+.dlist{display:flex;flex-direction:column}
+.drow{padding:7px 0;border-bottom:1px solid var(--as-edge-2)}
+.drow:last-child{border-bottom:none}
+.drow .t{display:flex;align-items:baseline;gap:10px}
+.drow .k{flex:none;max-width:44%;font-size:11.5px;color:var(--as-weak);line-height:1.6}
+.drow .v{margin-left:auto;text-align:right;font-size:12.5px;color:var(--as-ink);
+  font-variant-numeric:tabular-nums;word-break:break-word;line-height:1.6}
+.drow .v u{text-decoration:none;color:var(--as-weak);font-size:10.5px;margin-left:2px}
+.drow .v.na{color:var(--as-weak)}
+.drow .v.bad{color:var(--as-err)}
+.drow .s{font-size:10.5px;color:var(--as-weak);line-height:1.6;margin-top:2px;word-break:break-word}
+.drow .why{font-size:10.5px;color:var(--as-warn);line-height:1.6;margin-top:2px}
+.drow.wide .k{display:block;color:var(--as-weak);font-size:11.5px}
+.drow.wide .v{text-align:left;font-family:'Lanxi-叮叮',ui-monospace,Consolas,monospace;font-size:11.5px;
+  color:var(--as-dim);line-height:1.65;margin-top:3px}
+.empty{color:var(--as-weak);font-size:11.5px;padding:10px 0}
+
+#tip{position:fixed;z-index:40;pointer-events:none;opacity:0;transform:translateY(4px);
+  transition:opacity .14s var(--as-ease),transform .14s var(--as-ease);
+  padding:7px 11px;border-radius:10px;border:1px solid var(--as-edge);
+  background:linear-gradient(160deg,rgba(18,38,62,.96),rgba(8,17,31,.94));
+  box-shadow:0 18px 40px -20px #000,inset 0 1px 0 rgba(216,238,255,.22);
+  font-size:11.5px;color:var(--as-dim);white-space:nowrap}
+#tip.on{opacity:1;transform:none}
+#tip b{font-family:'Lanxi-超粗黑',sans-serif;font-weight:400;color:var(--as-ink);font-size:12.5px;letter-spacing:.06em}
+
+@media (max-width:1320px){
+  #app{grid-template-columns:272px minmax(0,1fr) 356px}
+  h1{font-size:22px}
+  .wm .v b{font-size:21px}
+}
+@media (max-width:1120px){
+  #app{grid-template-columns:238px minmax(0,1fr) 318px}
+  .col-l{padding:14px 10px 10px 12px;gap:11px}
+  .foot{font-size:10px}
+  #detail{padding:2px 12px 12px}
+  #list{padding:6px 6px 8px}
+  .row{grid-template-columns:20px 1fr auto;gap:6px;padding:7px 6px}
+  .row .nm span{display:none}
+}
+@media (max-height:760px){
+  .col-l{gap:10px;padding-top:14px}
+  h1{font-size:21px;margin:4px 0 2px}
+  .foot{display:none}
+  .mood b{font-size:23px}
+}
+@media (prefers-reduced-motion: reduce){
+  .wm .bar span{transition:none}
+}
+</style>
+</head>
+<body>
+<nav id="navline">
+  <a href='/dashboard'><b></b>概览</a>
+  <a href='/'><b></b>调度 LLM</a>
+  <a href='/lumen' class='on'><b></b>星系</a>
+  <a href='/organs'><b></b>器官</a>
+  <a href='/diary'><b></b>日记</a>
+  <a href='/yantai'><b></b>砚台</a>
+  
+  <a href='/settings'><b></b>设置</a>
+  <span class="sp"></span>
+  <span class="stamp" id="stamp">—</span>
+</nav>
+
+<main id="app">
+  <section class="col-l">
+    <div>
+      <div class="kicker">Agent Soul · Six Layers</div>
+      <h1>六层<i>·</i>状态球</h1>
+      <div class="sub">记忆 · 呼吸 · 能力 · 档案 · 运维 · 事件</div>
+    </div>
+    <div class="sum" id="sum"></div>
+
+    <div class="sechead">水位</div>
+    <div id="water"></div>
+
+    <div class="sechead">读数</div>
+    <div class="kv" id="kv"></div>
+
+    <div class="foot" id="foot">
+      <b>水位是安全网，不是考核。</b>过线只该触发一个动作 —— 落盘，禁止第二个 —— 缩。<br>
+      镜像 <b>≠</b> 水位：那是字符估算，两把尺子。<br>
+      <b>无读数 ≠ 0</b> —— 读不到就写读不到。<br>
+      <span id="coreline">—</span>
+    </div>
+  </section>
+
+  <section class="col-c">
+    <canvas id="cv" aria-label="六层点阵状态球"></canvas>
+    <div class="hint"><b>拖</b> 转球　<b>滚</b> 缩放　<b>点</b> 选层</div>
+    <div class="mood">
+      <b id="moodw">—</b>
+      <span id="moods">读取中…</span>
+      <span class="why" id="moodwhy"></span>
+    </div>
+  </section>
+
+  <aside class="col-r">
+    <div class="rhead"><div class="t">六层</div><div class="s" id="lsum">读取中…</div></div>
+    <div id="list"></div>
+    <div id="detail"><div class="empty">选择一层看明细。</div></div>
+  </aside>
+</main>
+
+<div id="tip"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var ORDER = ['echo', 'vital', 'capability', 'archive', 'ops', 'events'];
+  var NUM = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ', 'Ⅵ'];
+  var LV = { ok: '正常', warn: '注意', error: '异常', pending: '待读' };
+  /* 四态 → [r,g,b]。球面点的颜色由**该层的 level** 决定（一整条纬带变色），
+     所以「哪一层病了」在球上直接看得见，不需要读文字。 */
+  var RGB = { ok: [63, 227, 168], warn: [242, 193, 92], error: [255, 122, 104], pending: [111, 182, 255] };
+
+  var cv = document.getElementById('cv');
+  var ctx = cv.getContext('2d', { alpha: true });
+  var listEl = document.getElementById('list');
+  var detailEl = document.getElementById('detail');
+  var tipEl = document.getElementById('tip');
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ★ 验证钩子（只为「表情随状态变化」这一条验收）：?probe=error|warn|ok
+     把六层全推成同一个 level，只改渲染判据，不动 /api/status 的任何数据。 */
+  var probe = (location.search.match(/[?&]probe=(\w+)/) || [])[1] || '';
+
+  var S = {
+    rx: 12, ry: 0, zoom: 1, drag: false, lx: 0, ly: 0, vy: 0, moved: 0,
+    data: null, vit: null, sel: null, hov: -1,
+    T: 0, lastT: 0, W: 0, H: 0, dpr: 1, cx: 0, cy: 0, R: 0,
+    mood: null
+  };
+
+  /* ── 球壳点：4200 个，按**面积**均匀铺在单位球面 ────────────────────────
+     Fibonacci 球的关键是 y 等间距 —— 球带面积 = 2πR·Δy，所以 y 均匀就是面积均匀。
+     按 i 分六段 = 六个纬度带 = 六层。顺序与右栏一致：Ⅰ 在上、Ⅵ 在下。 */
+  var N = 4200, CH = N / 6;
+  var PX = new Float32Array(N), PY = new Float32Array(N);
+  var PA = new Float32Array(N), PS = new Float32Array(N);
+  var NX = new Float32Array(N), NY = new Float32Array(N), NZ = new Float32Array(N);
+  var EF = new Float32Array(N);                       // 层界压暗系数
+  (function () {
+    for (var i = 0; i < N; i++) {
+      var y = 1 - (i + 0.5) / N * 2;
+      var r = Math.sqrt(Math.max(0, 1 - y * y));
+      var th = i * 2.39996323;                 // 黄金角
+      NX[i] = Math.cos(th) * r; NY[i] = y; NZ[i] = Math.sin(th) * r;
+      /* 六层的「缝」：y = ±1/3、±2/3、0 这五条纬度线压暗。
+         没有缝的话，相邻两层同色时球读起来是「一整个」；有缝才是「六层叠起来的球壳」。 */
+      var fr = (y + 1) * 3;
+      var m = Math.abs(fr - Math.round(fr));
+      EF[i] = m < 0.055 ? 0.26 + 0.74 * (m / 0.055) : 1;
+    }
+  })();
+
+  /* ── 脸：单独一层点（不动球那 4200 个） ────────────────────────────────
+     眼 220×2 点、嘴 90 点。高斯分布撒在切平面上，z 由球面方程补 ——
+     所以脸是**贴在球面上**的，有透视，不是平面贴图。
+     ★ 用固定种子的 LCG：脸每次刷新长得一模一样。用 Math.random 的话，
+       同一张脸每帧重排，看起来在「抖」。 */
+  var EYE_X = 0.30, EYE_Y0 = 0.13;
+  var MOUTH_Y = -0.335;
+  var HL = [216, 255, 242];
+  var FACE = [];
+  (function () {
+    var seed = 20261111;
+    function rnd() { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+    function gauss() {
+      var u = Math.max(1e-6, rnd()), v = rnd();
+      var r = Math.sqrt(-2 * Math.log(u)), t = 6.283185307 * v;
+      return [r * Math.cos(t), r * Math.sin(t)];
+    }
+    for (var e = 0; e < 2; e++) {
+      for (var i = 0; i < 220; i++) {
+        var g = gauss();
+        FACE.push({ k: 0, ex: e ? EYE_X : -EYE_X, ey: EYE_Y0, gx: g[0], gy: g[1] });
+      }
+    }
+    for (var j = 0; j < 90; j++) {
+      var g2 = gauss();
+      FACE.push({ k: 1, t: (j / 89) * 2 - 1, gx: g2[0], gy: g2[1] });
+    }
+  })();
+
+  /* ── 小工具 ── */
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function fmtNum(v) {
+    if (typeof v !== 'number' || !isFinite(v)) return String(v == null ? '—' : v);
+    if (Math.abs(v) >= 1000) return v.toLocaleString('en-US');
+    return String(Math.round(v * 10) / 10);
+  }
+  function clamp(x, a, b) { return x < a ? a : (x > b ? b : x); }
+  function lvColor(lv) {
+    return 'var(--as-' + (lv === 'error' ? 'err' : lv === 'warn' ? 'warn' : lv === 'ok' ? 'ok' : 'pend') + ')';
+  }
+  function pctLevel(p) { return p == null ? 'pending' : (p >= 80 ? 'error' : p >= 45 ? 'warn' : 'ok'); }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     表情 —— 这一页的「人格」全在这一个函数里
+     ══════════════════════════════════════════════════════════════════════
+     输入全是真读数：六层 level、待答数、本会话水位、自主 phase、活跃会话数。
+     输出只有 10 个数字，没有一个是随机的，也没有一个随时间漂移 ——
+     同一次读数画出来的永远是同一张脸；数据变了，脸才变。
+     ────────────────────────────────────────────────────────────────────── */
+  function moodOf(s, v) {
+    var lay = (s && s.layers) || {};
+    var cnt = { ok: 0, warn: 0, error: 0, pending: 0 };
+    ORDER.forEach(function (k) {
+      var lv = (lay[k] && lay[k].level) || 'pending';
+      if (probe === 'ok' || probe === 'warn' || probe === 'error') lv = probe;
+      if (cnt[lv] === undefined) cnt.pending++; else cnt[lv]++;
+    });
+    var q = (v && v.openQuestions) || 0;
+    var wm = (s && s.watermarks) || {};
+    var leadPct = (wm.lead && wm.lead.pct != null) ? wm.lead.pct : 0;
+    var rt = (lay.vital && lay.vital.data && lay.vital.data.runtime) || null;
+    var running = !!(rt && rt.phase === 'active');
+
+    /* 压力：异常层 0.55 / 注意层 0.22 / 本会话水位过 60、80 再叠一档。封顶 1 ——
+       三个异常不等于三倍表情，那会变成表情包。 */
+    var stress = clamp(cnt.error * 0.55 + cnt.warn * 0.22
+      + (leadPct >= 80 ? 0.35 : leadPct >= 60 ? 0.15 : 0), 0, 1);
+    /* 警觉：待答越多眼睛越大（被拉去注意），其次异常 / 注意。 */
+    var alert = q > 0 ? clamp(0.45 + q * 0.12, 0, 1) : (cnt.error ? 1 : cnt.warn ? 0.62 : 0.28);
+
+    return {
+      stress: stress, alert: alert, err: cnt.error, warn: cnt.warn, ok: cnt.ok,
+      open: q, running: running, leadPct: leadPct,
+      /* 眼：睁大 = 横向撑开 + 眼位略抬；压力大 = 纵向压扁（眯）。两个方向叠一起才是「表情」 */
+      eyeX: clamp(0.082 + 0.020 * alert, 0.07, 0.11),
+      eyeY: clamp(0.075 - 0.032 * stress, 0.032, 0.085),
+      eyeLift: 0.035 * alert,
+      /* 嘴：全绿轻微上扬；注意压平；异常下弯。幅度刻意小 —— 不是笑脸 */
+      mouthC: cnt.error ? -0.22 : cnt.warn ? -0.03 : 0.14,
+      mouthW: 0.245 + 0.05 * stress,
+      mouthA: 0.80 + 0.35 * stress,
+      /* 姿态：向内收紧、整体下沉、呼吸变快、自转加快、整体压暗 */
+      tight: stress * 0.08,
+      droop: cnt.error * 2.4 + cnt.warn * 0.6,
+      period: 5.4 - 2.0 * stress,
+      spin: 3.0 + 4.5 * stress,
+      lum: 1 - 0.20 * stress
+    };
+  }
+
+  /* ── 画布尺寸 ── */
+  function resize() {
+    var r = cv.getBoundingClientRect();
+    S.W = Math.max(200, r.width); S.H = Math.max(200, r.height);
+    S.dpr = Math.min(2, window.devicePixelRatio || 1);
+    cv.width = Math.round(S.W * S.dpr); cv.height = Math.round(S.H * S.dpr);
+    ctx.setTransform(S.dpr, 0, 0, S.dpr, 0, 0);
+    S.cx = S.W * 0.5; S.cy = S.H * 0.462;
+    S.R = Math.min(S.W * 0.415, S.H * 0.372);
+    S.glow = null;
+  }
+
+  /* ── 主绘制 ── */
+  function draw() {
+    var W = S.W, H = S.H;
+    ctx.clearRect(0, 0, W, H);
+    var M = S.mood = moodOf(S.data, S.vit);
+    var t = S.T;
+    var breath = 1 + 0.016 * Math.sin(t * Math.PI * 2 / M.period);
+    var R = S.R * S.zoom * (1 - M.tight) * breath;
+    var cx = S.cx, cy = S.cy + M.droop;
+
+    /* 球心柔光：让点阵「有底」，不是悬空的一片点。缓存在 S.glow，resize 时重建。 */
+    if (!S.glow) {
+      var gg = ctx.createRadialGradient(0, 0, 0, 0, 0, S.R * 1.5);
+      gg.addColorStop(0, 'rgba(58,150,150,.13)');
+      gg.addColorStop(0.45, 'rgba(34,96,132,.065)');
+      gg.addColorStop(1, 'rgba(20,60,100,0)');
+      S.glow = gg;
+    }
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.fillStyle = S.glow;
+    ctx.fillRect(-S.R * 1.5, -S.R * 1.5, S.R * 3, S.R * 3);
+    ctx.restore();
+
+    var a = (S.ry + t * M.spin) * Math.PI / 180;      // 绕 Y：自转 + 拖拽
+    var b = S.rx * Math.PI / 180;                    // 绕 X：俯仰
+    var ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b);
+
+    /* ── 第一遍：球壳点的几何 ── */
+    for (var i = 0; i < N; i++) {
+      var x0 = NX[i], y0 = NY[i], z0 = NZ[i];
+      var x1 = x0 * ca + z0 * sa;
+      var z1 = -x0 * sa + z0 * ca;
+      var y2 = y0 * cb - z1 * sb;
+      var z2 = y0 * sb + z1 * cb;
+
+      var k = 1 / (1 - z2 * 0.17);                     // 透视：前大后小
+      PX[i] = cx + x1 * R * k;
+      PY[i] = cy - y2 * R * k;
+
+      var dep = (z2 + 1) * 0.5;                        // 0 = 最远，1 = 最近
+      var al = 0.15 + 0.74 * Math.pow(dep, 1.5);
+
+      /* 选中某层时，其余五带压暗（保留一点体积感，不是看不见） */
+      if (S.sel != null) {
+        var band = Math.floor(i / CH);
+        if (band !== S.sel) al *= 0.34;
+      }
+      /* 「在跑」：沿前后方向的行波 —— 点像被推着往外走 */
+      if (M.running) al *= 0.74 + 0.52 * (0.5 + 0.5 * Math.sin(t * 2.2 - z2 * 3.4));
+
+      al = al * EF[i] * M.lum;
+      PA[i] = al > 1 ? 1 : al;
+      /* 点画小 —— 1px 上下。大块 fillRect 在这套配色里会读成「马赛克」，
+         小点 + 密集才是「点阵」。 */
+      PS[i] = 0.52 + 0.95 * dep;
+    }
+
+    /* ── 第二遍：按带画（同一带同一个 fillStyle，只有 alpha 逐点变 ——
+       lighter 合成可交换，所以按带分组不改变结果，却省掉 4200 次字符串拼接） ── */
+    ctx.globalCompositeOperation = 'lighter';
+    for (var bnd = 0; bnd < 6; bnd++) {
+      var s0 = Math.round(bnd * CH), s1 = Math.round((bnd + 1) * CH);
+      var c = RGB[bandLevel(bnd)] || RGB.pending;
+      ctx.fillStyle = 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')';
+      for (var j = s0; j < s1; j++) {
+        var av = PA[j]; if (av < 0.014) continue;
+        var sz = PS[j];
+        ctx.globalAlpha = av;
+        ctx.fillRect(PX[j] - sz * 0.5, PY[j] - sz * 0.5, sz, sz);
+      }
+    }
+
+    /* ── 第三遍：脸 ──
+       用 S.ry（不含自转）算旋转：拖拽时脸跟着转走，自转时脸不动。
+       眼睛张开度、嘴的曲率都是 M 里的数 —— 这里不出现任何常量以外的自由参数。 */
+    var fca = Math.cos(S.ry * Math.PI / 180), fsa = Math.sin(S.ry * Math.PI / 180);
+    var ebx = M.eyeX, eby = M.eyeY, eyl = M.eyeLift;
+    var mw = M.mouthW, mc = M.mouthC;
+    var hl = 'rgb(' + HL[0] + ',' + HL[1] + ',' + HL[2] + ')';
+    ctx.fillStyle = hl;
+    for (var fi = 0; fi < FACE.length; fi++) {
+      var fp = FACE[fi], fx, fy;
+      if (fp.k === 0) { fx = fp.ex + fp.gx * ebx; fy = fp.ey + eyl + fp.gy * eby; }
+      else { fx = fp.t * mw; fy = MOUTH_Y + mc * fx * fx + fp.gy * 0.010; }
+      var fz = Math.sqrt(Math.max(0.04, 1 - fx * fx - fy * fy));
+      var qx = fx * fca + fz * fsa;
+      var qz = -fx * fsa + fz * fca;
+      var qy = fy * cb - qz * sb;
+      var qzz = fy * sb + qz * cb;
+      if (qzz < 0.16) continue;                        // 转到背面就不画了
+      var kk = 1 / (1 - qzz * 0.17);
+      var sxp = cx + qx * R * kk, syp = cy - qy * R * kk;
+      /* 眼：alpha 按到眼心的距离轻微衰减（高斯外围的点淡一点）；嘴整体略暗于眼 */
+      var fa = (0.30 + 0.62 * qzz) * M.lum;
+      if (fp.k === 1) fa *= M.mouthA;
+      else fa *= Math.max(0.42, 1.06 - 0.30 * Math.sqrt(fp.gx * fp.gx + fp.gy * fp.gy));
+      ctx.globalAlpha = fa > 1 ? 1 : fa;
+      var fsz = 1.45 + 0.95 * qzz;
+      ctx.fillRect(sxp - fsz * 0.5, syp - fsz * 0.5, fsz, fsz);
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    S.cosb = cb; S.lastR = R; S.lastCx = cx; S.lastCy = cy;
+  }
+
+  /* 某一带的 level（probe 会覆盖它 —— 与 moodOf 用同一套判据） */
+  function bandLevel(b) {
+    var lay = (S.data && S.data.layers) || {};
+    var lv = (lay[ORDER[b]] && lay[ORDER[b]].level) || 'pending';
+    if (probe === 'ok' || probe === 'warn' || probe === 'error') lv = probe;
+    return lv;
+  }
+
+  /* ── 循环 ── */
+  var raf = 0;
+  function loop(t) {
+    raf = requestAnimationFrame(loop);
+    if (document.hidden) return;
+    if (!S.lastT) S.lastT = t;
+    var dt = Math.min(64, t - S.lastT) / 1000; S.lastT = t;
+    if (!reduce) {
+      S.T += dt;
+      if (!S.drag) {
+        if (Math.abs(S.vy) > 0.05) { S.ry += S.vy * dt; S.vy *= Math.pow(0.12, dt); }
+        /* ry 的自转增量由 draw 里的 t*spin 负责，这里只处理拖拽惯性 */
+      }
+      draw();
+    }
+  }
+  var once = 0;
+  function drawOnce() {
+    clearTimeout(once);
+    once = setTimeout(function () { draw(); }, 40);
+  }
+
+  /* ── 交互：拖 / 滚 / 点 ── */
+  cv.addEventListener('pointerdown', function (e) {
+    S.drag = true; S.lx = e.clientX; S.ly = e.clientY; S.vy = 0; S.moved = 0;
+    cv.classList.add('drag');
+    try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  cv.addEventListener('pointermove', function (e) {
+    if (!S.drag) {
+      hoverAt(e.clientX, e.clientY);
+      if (reduce) drawOnce();
+      return;
+    }
+    var dx = e.clientX - S.lx, dy = e.clientY - S.ly;
+    S.lx = e.clientX; S.ly = e.clientY;
+    S.moved += Math.abs(dx) + Math.abs(dy);
+    S.ry += dx * 0.32; S.vy = dx * 0.32 * 12;
+    S.rx = clamp(S.rx - dy * 0.24, -58, 58);
+    if (reduce) drawOnce();
+  });
+  function endDrag(e) {
+    if (!S.drag) return;
+    S.drag = false; cv.classList.remove('drag');
+    try { cv.releasePointerCapture(e.pointerId); } catch (err) {}
+    if (S.moved <= 8) {
+      var band = bandAtY(e.clientY);
+      select(band >= 0 ? ORDER[band] : null);
+    }
+  }
+  cv.addEventListener('pointerup', endDrag);
+  cv.addEventListener('pointercancel', endDrag);
+  cv.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    S.zoom = clamp(S.zoom * Math.exp(-e.deltaY * 0.0011), 0.72, 1.34);
+    if (reduce) drawOnce();
+  }, { passive: false });
+  cv.addEventListener('pointerleave', function () { setHover(-1); });
+
+  /* 命中：绕 Y 转不改纬度 → 屏幕 y 仍然能定位到带（俯仰 ≤58° 时误差可接受）。
+     ★ 这是近似，不是精确求交 —— 判据是「点下去落在哪一带」，够用。 */
+  function bandAtY(py) {
+    if (!S.lastR) return -1;
+    var best = -1, bd = 1e9;
+    for (var b = 0; b < 6; b++) {
+      var y0 = 1 - (2 * b + 1) / 6;
+      var sy = S.lastCy - (y0 * (S.cosb || 1)) * S.lastR;
+      var d = Math.abs(py - sy);
+      if (d < bd) { bd = d; best = b; }
+    }
+    return bd < (S.lastR * 0.55) ? best : -1;
+  }
+
+  function hoverAt(px, py) {
+    var r = cv.getBoundingClientRect();
+    var dx = px - r.left - S.lastCx, dy = py - r.top - S.lastCy;
+    if (Math.sqrt(dx * dx + dy * dy) > S.lastR * 1.12) { setHover(-1); return; }
+    setHover(bandAtY(py - r.top));
+  }
+
+  function setHover(band) {
+    if (S.hov === band) return;
+    S.hov = band;
+    if (band < 0) { tipEl.classList.remove('on'); return; }
+    var lay = (S.data && S.data.layers) || {};
+    var L = lay[ORDER[band]] || { name: NUM[band], title: '', level: 'pending' };
+    tipEl.innerHTML = '<b>' + esc(L.name || NUM[band]) + '</b>　' + esc(L.title || '') +
+      '　<span class="as-pill ' + esc(L.level || 'pending') + '">' + esc(LV[L.level] || '') + '</span>';
+    tipEl.classList.add('on');
+  }
+  window.addEventListener('pointermove', function (e) {
+    if (S.hov >= 0) { tipEl.style.left = (e.clientX + 16) + 'px'; tipEl.style.top = (e.clientY + 18) + 'px'; }
+  });
+
+  window.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { select(null); return; }
+    var i = '123456'.indexOf(e.key);
+    if (i >= 0) select(ORDER[i]);
+  });
+
+  function select(key) {
+    S.sel = key;
+    paintSel(); renderDetail();
+    if (reduce) drawOnce();
+  }
+  function paintSel() {
+    ORDER.forEach(function (k) {
+      var row = listEl.querySelector('[data-k="' + k + '"]');
+      if (row) row.classList.toggle('sel', S.sel === k);
+    });
+  }
+
+  /* ══ 右栏 ══ */
+  function norm(it) {
+    if (it == null || typeof it !== 'object') return { k: '·', v: String(it), unit: '', sub: '', na: false, why: '', bad: false };
+    var v = it.value !== undefined ? it.value : (it.v !== undefined ? it.v : null);
+    return {
+      k: it.label || it.k || it.name || '·',
+      v: v, unit: it.unit || '',
+      sub: it.sub || it.note || it.desc || '',
+      at: it.at || '',
+      na: (it.na === true) || (v === null || v === undefined),
+      why: it.why || '',
+      bad: it.bad === true || it.level === 'error' || it.level === 'warn'
+    };
+  }
+
+  function renderList() {
+    var lay = (S.data && S.data.layers) || {};
+    var counts = { ok: 0, warn: 0, error: 0, pending: 0 };
+    var html = '';
+    ORDER.forEach(function (key, i) {
+      var L = lay[key] || { name: NUM[i] + ' · ' + key.toUpperCase(), title: '—', level: 'pending', items: [] };
+      var lv = probe || L.level || 'pending';
+      if (counts[lv] !== undefined) counts[lv]++;
+      html += '<div class="row" data-k="' + key + '" data-l="' + esc(L.level || 'pending') + '" style="--c:' + lvColor(lv) + '">' +
+        '<span class="no">' + NUM[i] + '</span>' +
+        '<span class="nm"><b>' + esc(String(L.name || '').replace(/^[ⅠⅡⅢⅣⅤⅥ]\s*·\s*/, '')) + '</b>' +
+        '<span>' + esc(L.title || '') + '</span></span>' +
+        '<span class="rt"><em>' + (L.items || []).length + '</em><i class="dot"></i></span></div>';
+    });
+    listEl.innerHTML = html;
+    listEl.querySelectorAll('.row').forEach(function (row) {
+      row.addEventListener('click', function () { select(row.dataset.k); });
+    });
+    var sum = [];
+    if (counts.error) sum.push(counts.error + ' 异常');
+    if (counts.warn) sum.push(counts.warn + ' 注意');
+    if (counts.ok) sum.push(counts.ok + ' 正常');
+    if (counts.pending) sum.push(counts.pending + ' 待读');
+    document.getElementById('lsum').textContent = sum.join(' · ') || '—';
+
+    var sb = '';
+    if (counts.ok) sb += '<span class="ok">' + counts.ok + ' 正常</span>';
+    if (counts.warn) sb += '<span class="warn">' + counts.warn + ' 注意</span>';
+    if (counts.error) sb += '<span class="error">' + counts.error + ' 异常</span>';
+    if (counts.pending) sb += '<span>' + counts.pending + ' 待读</span>';
+    document.getElementById('sum').innerHTML = sb;
+    paintSel(); renderDetail();
+  }
+
+  function attentionKey() {
+    var lay = (S.data && S.data.layers) || {};
+    var order = ['error', 'warn', 'pending', 'ok'];
+    for (var l = 0; l < order.length; l++) {
+      for (var i = 0; i < ORDER.length; i++) {
+        if ((lay[ORDER[i]] || {}).level === order[l]) return ORDER[i];
+      }
+    }
+    return ORDER[0];
+  }
+
+  function renderDetail() {
+    var key = S.sel || attentionKey();
+    var lay = (S.data && S.data.layers) || {};
+    var L = lay[key];
+    if (!L || !S.data) { detailEl.innerHTML = '<div class="empty">选择一层看明细。</div>'; return; }
+    var lv = probe || L.level || 'pending';
+    var color = lvColor(lv);
+    var html = '<div class="dh" style="--c:' + color + '"><b>' + esc(L.name || '') + '</b>' +
+      '<span>' + esc(L.title || '') + (S.sel ? '' : '　· 建议先看') + '</span>' +
+      '<span class="pill as-pill ' + esc(lv) + '">' + esc(LV[lv] || lv) + '</span></div>';
+    if (L.note) html += '<div class="dnote" style="--c:' + color + '">' + esc(L.note) + '</div>';
+    html += '<div class="dlist">';
+    (L.items || []).forEach(function (raw) {
+      var it = norm(raw);
+      var val = it.na ? '不适用' : fmtNum(it.v);
+      var wide = String(val).length > 30;
+      html += '<div class="drow' + (wide ? ' wide' : '') + '">' +
+        (wide
+          ? '<span class="k">' + esc(it.k) + '</span><div class="v">' + esc(val) + '</div>'
+          : '<div class="t"><span class="k">' + esc(it.k) + '</span>' +
+            '<span class="v' + (it.na ? ' na' : '') + (it.bad && !it.na ? ' bad' : '') + '">' + esc(val) +
+            (it.unit ? '<u>' + esc(it.unit) + '</u>' : '') + '</span></div>') +
+        (it.sub ? '<div class="s">' + esc(it.sub) + '</div>' : '') +
+        (it.why ? '<div class="why">' + esc(it.why) + '</div>' : '') +
+        '</div>';
+    });
+    html += '</div>';
+    detailEl.innerHTML = html;
+  }
+
+  /* ══ 左栏：三水位（旧 /status 的主体搬到这里，口径一字未改） ══ */
+  function wmCard(o) {
+    var lv = o.level || 'pending';
+    var c = lvColor(lv);
+    var big = o.pct == null
+      ? '<span class="void">' + esc(o.void || '无读数') + '</span>'
+      : '<b>' + o.pct + '</b><i>%</i>';
+    var bar = o.pct == null ? '' :
+      '<div class="bar"><span style="width:' + clamp(o.pct, 0, 100).toFixed(1) + '%;background:' + c + '"></span></div>';
+    return '<div class="wm" style="--c:' + c + '">' +
+      '<div class="h"><span class="k">' + esc(o.title) + '</span><span class="tag">' + esc(o.tag) + '</span></div>' +
+      '<div class="v">' + big + (o.unit ? '<i>' + esc(o.unit) + '</i>' : '') + '</div>' +
+      bar + (o.n ? '<div class="n">' + o.n + '</div>' : '') + '</div>';
+  }
+
+  function renderWater(s) {
+    var box = document.getElementById('water');
+    var w = (s && s.watermarks) || {};
+    var lead = w.lead || {}, act = w.active || {}, mir = w.mirror || {};
+    var html = '';
+
+    html += wmCard({
+      title: '本会话水位', tag: 'LEAD',
+      level: pctLevel(lead.ok ? lead.pct : null),
+      pct: lead.ok && lead.pct != null ? Math.round(lead.pct * 10) / 10 : null,
+      n: lead.ok
+        ? fmtNum(lead.used) + ' / ' + fmtNum(lead.window) + ' token'
+          + (lead.title ? '　·　' + esc(lead.title) : '')
+        : esc(lead.why || '读不到')
+    });
+
+    html += wmCard({
+      title: '活跃会话', tag: 'ACTIVE',
+      level: pctLevel(act.top ? act.top.pct : null),
+      pct: null, void: (act.count == null ? '—' : act.count + ' 条'), unit: '',
+      n: act.top
+        ? '最高 ' + act.top.pct + '%　·　' + esc(act.windowLabel || '30 分钟窗口')
+        : esc(act.why || '窗口内没有活跃会话')
+    });
+
+    html += wmCard({
+      title: '镜像估算', tag: '≠ 水位',
+      level: mir.pct == null ? 'pending' : 'ok',
+      pct: mir.pct != null ? Math.round(mir.pct * 10) / 10 : null,
+      n: mir.pct != null
+        ? fmtNum(mir.used) + ' / ' + fmtNum(mir.window) + '　字符估算，不是水位'
+        : esc(mir.note || '无读数')
+    });
+
+    box.innerHTML = html;
+  }
+
+  /* ══ 左栏：读数 ══ */
+  function renderVitals(v) {
+    var box = document.getElementById('kv');
+    if (!v || !v.ok) { box.innerHTML = '<span class="k">读数</span><span class="v">不可用</span>'; return; }
+    var p = v.persona || {};
+    var up = v.uptimeSec || 0;
+    var upTxt = up > 3600 ? (Math.floor(up / 3600) + ' 时 ' + Math.floor(up % 3600 / 60) + ' 分')
+                          : (Math.floor(up / 60) + ' 分');
+    var rows = [
+      ['人格层', (p.chars != null ? fmtNum(p.chars) + ' / ' + fmtNum(p.budget) : '—'), '字'],
+      ['会话容器', (v.sessions != null ? v.sessions : '—'), '个'],
+      ['待答', (v.openQuestions != null ? v.openQuestions : '—'), '条'],
+      ['内存', (v.memMB != null ? v.memMB : '—'), 'MB'],
+      ['已跑', upTxt, '']
+    ];
+    box.innerHTML = rows.map(function (r) {
+      return '<span class="k">' + r[0] + '</span><span class="v">' + esc(String(r[1])) +
+        (r[2] ? '<u>' + r[2] + '</u>' : '') + '</span>';
+    }).join('');
+  }
+
+  function renderCore(c) {
+    if (!c) { document.getElementById('coreline').textContent = '—'; return; }
+    var hms = function (ms) {
+      if (!ms) return '—';
+      var d = new Date(ms);
+      var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+      return pad(d.getHours()) + ':' + pad(d.getMinutes());
+    };
+    document.getElementById('coreline').innerHTML =
+      'pid <b>' + esc(c.pid) + '</b> · 启动 <b>' + hms(c.startedAtMs) + '</b> · 配置快照 <b>' + hms(c.configMtimeMs) + '</b>' +
+      (c.configNewerThanBoot ? ' <span class="warn">（配置晚于启动 —— 进程持旧快照）</span>' : '');
+  }
+
+  /* ══ 表情文案 ══
+     这一个词是「球现在什么表情」的人话版；副标题写的是**驱动它的读数**，
+     所以任何人都能核对「它为什么是这张脸」。 */
+  function renderMood() {
+    var M = S.mood || moodOf(S.data, S.vit);
+    var w = Math.round(clamp(M.leadPct, 0, 100));
+    var word, sub, why;
+    if (M.err > 0) {
+      word = '警觉';
+      sub = M.err + ' 层异常 · 向内收紧 · 眼小而成点';
+      why = '六层 ' + M.ok + ' 正常 / ' + M.warn + ' 注意 / ' + M.err + ' 异常';
+    } else if (M.warn > 0) {
+      word = '留意';
+      sub = M.warn + ' 层注意 · 呼吸变浅 · 瞳孔略缩';
+      why = '六层 ' + M.ok + ' 正常 / ' + M.warn + ' 注意 · 水位 ' + w + '%';
+    } else if (M.running) {
+      word = '在跑';
+      sub = '自主循环活跃 · 点向外流动';
+      why = '六层全绿 · 自主 phase=active';
+    } else {
+      word = '平稳';
+      sub = '六层全绿 · 缓慢呼吸 · 点向外舒展';
+      why = '六层 6 正常 · 水位 ' + w + '% · 待答 ' + M.open;
+    }
+    document.getElementById('moodw').textContent = word;
+    document.getElementById('moods').textContent = sub;
+    document.getElementById('moodwhy').textContent = why;
+    document.getElementById('moodw').style.color =
+      M.err ? 'var(--as-err)' : M.warn ? 'var(--as-warn)' : 'var(--as-ink)';
+  }
+
+  /* ══ 取数 ══ */
+  var first = true;
+  function load() {
+    fetch('/api/status', { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (s) {
+      if (!s || !s.layers) throw new Error('无 layers');
+      S.data = s;
+      S.mood = moodOf(s, S.vit);
+      var keep = S.sel;
+      renderList(); renderWater(s); renderCore(s.core); renderMood();
+      S.sel = keep && s.layers[keep] ? keep : null;
+      paintSel(); renderDetail();
+      document.getElementById('stamp').textContent =
+        'pid ' + ((s.core && s.core.pid) || '—') + ' · 采集 ' + (s.tookMs != null ? s.tookMs + 'ms' : '—') +
+        ' · ' + new Date().toTimeString().slice(0, 5);
+      if (first) { first = false; draw(); }
+      if (reduce) drawOnce();
+    }).catch(function (e) {
+      document.getElementById('stamp').textContent = '离线 · ' + (e && e.message || '');
+      detailEl.innerHTML = '<div class="empty">读不到 /api/status：' + esc(e && e.message || '') + '</div>';
+    });
+
+    fetch('/api/vitals', { cache: 'no-store' }).then(function (r) { return r.json(); })
+      .then(function (v) {
+        S.vit = v;
+        renderVitals(v);
+        S.mood = moodOf(S.data, v);
+        renderMood();
+        if (reduce) drawOnce();
+      }).catch(function () {});
+  }
+
+  /* ══ 启动 ══ */
+  resize();
+  new ResizeObserver(function () { resize(); if (reduce) drawOnce(); else draw(); }).observe(cv);
+  window.addEventListener('resize', function () { resize(); if (reduce) drawOnce(); });
+
+  if (reduce) { draw(); requestAnimationFrame(function () { draw(); }); }
+  else { raf = requestAnimationFrame(loop); }
+
+  load();
+  setInterval(load, 8000);
+})();
+</script>
+
+</body>
+</html>

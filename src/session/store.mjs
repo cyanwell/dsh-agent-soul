@@ -53,6 +53,18 @@ function readFirstLine(fp) {
   finally { if (fd !== undefined) try { fs.closeSync(fd); } catch {} }
 }
 
+/**
+ * 让出事件循环一次，让排队中的 I/O（HTTP 请求 / 定时器）先跑完它们的回调。
+ * ★ setImmediate 走 libuv 的 check 阶段：让出一次几十微秒；setTimeout(0) 在 Windows
+ *   上有 ~1ms 的定时器粒度，几百次让出就是几百毫秒 —— 所以优先用前者。
+ */
+function yieldToLoop() {
+  return new Promise((resolve) => {
+    if (typeof setImmediate === 'function') setImmediate(resolve);
+    else setTimeout(resolve, 0);
+  });
+}
+
 export class SessionStore {
   constructor(dataDir) {
     this.root = path.join(dataDir, 'sessions');
@@ -84,6 +96,17 @@ export class SessionStore {
     this.cacheFile = path.join(dataDir, '_index.cache');
     this.fpFile = path.join(dataDir, '_index.fp');
     this.ixDirty = false;
+    /**
+     * 建库令牌 —— 分片建库（buildIndexAsync）每让出一次就回头看一眼它。
+     * ★ 为什么需要：分片期间事件循环是活的，任何一次检索都可能走同步 buildIndex
+     *   抢先把库建完。**后动手的那个赢**：先动手的分片版看见令牌变了就放弃自己的暂存，
+     *   不重复干一遍（3 秒的活干两遍，正是这次要消灭的那种浪费）。
+     */
+    this.ixBuildToken = 0;
+    /** 写索引计数器 —— 分片写缓存期间若它变了，说明有新帧进来，就不许把 dirty 清掉 */
+    this.ixRev = 0;
+    /** 正在跑的分片建库 Promise（或 null）—— 同时只允许一路 */
+    this.ixBuilding = null;
     /** 每帧追加时，把这个会话标脏 */
     this.dirtySessions = new Set();
   }
@@ -131,19 +154,8 @@ export class SessionStore {
   if (!(opts && opts.fresh) && this.listCache && now - this.listAt < 30000) return this.listCache;
     const out = [];
     for (const name of fs.readdirSync(this.root)) {
-      const f = path.join(this.root, name, 'frames.jsonl');
-      if (!fs.existsSync(f)) continue;
-      try {
-        // ★ 只读头部 4KB —— 原来写的是 readFileSync(f) 然后取第一行，
-        //   那是**读整个文件**。实测：1006 个会话 list 一次 6.3 秒，
-        //   因为其中一个会话是 308MB。改成只读头 4KB 后掉到 130ms。
-        const first = readFirstLine(f);
-        if (!first) continue;
-        const h = JSON.parse(first);
-        if (h.type !== FRAME.SESSION) continue;
-        const stat = fs.statSync(f);
-        out.push({ id: h.id, cwd: h.cwd, persona: h.persona, createdAt: h.t, mtime: stat.mtimeMs, bytes: stat.size });
-      } catch { /* 跳过坏目录 */ }
+      const m = this.#metaOf(name);
+      if (m) out.push(m);
     }
     out.sort((a, b) => b.mtime - a.mtime);
     this.listCache = out;
@@ -151,20 +163,55 @@ export class SessionStore {
     return out;
   }
 
+  /** 会话目录 → 一条 meta。不是会话目录 / 坏目录 → null。list 与 buildIndex* 共用一份判定。 */
+  #metaOf(name) {
+    const f = path.join(this.root, name, 'frames.jsonl');
+    if (!fs.existsSync(f)) return null;
+    try {
+      // ★ 只读头部 4KB —— 原来写的是 readFileSync(f) 然后取第一行，
+      //   那是**读整个文件**。实测：1006 个会话 list 一次 6.3 秒，
+      //   因为其中一个会话是 308MB。改成只读头 4KB 后掉到 130ms。
+      const first = readFirstLine(f);
+      if (!first) return null;
+      const h = JSON.parse(first);
+      if (h.type !== FRAME.SESSION) return null;
+      const stat = fs.statSync(f);
+      return { id: h.id, cwd: h.cwd, persona: h.persona, createdAt: h.t, mtime: stat.mtimeMs, bytes: stat.size };
+    } catch { return null; }
+  }
+
+  /** 每个会话 index.jsonl 的指纹 size:mtime。缺失记 '0:0'。 */
+  #fpNow(metas) {
+    const now = {};
+    for (const m of metas) {
+      try { const st = fs.statSync(path.join(this.dir(m.id), 'index.jsonl')); now[m.id] = st.size + ':' + st.mtimeMs; }
+      catch { now[m.id] = '0:0'; }
+    }
+    return now;
+  }
+
+  /** 缓存文件的一行 → 字段。坏行 → null（当它不存在）。 */
+  #splitCacheLine(line) {
+    const p = line.split('\u0001');
+    if (p.length < 5) return null;
+    return { sid: p[0], seq: Number(p[1]), t: Number(p[2]), type: p[3], text: p[4] };
+  }
+
   /**
    * 建内存索引（懒建，第一次检索时触发）。
    * ★ 只读 index.jsonl，不碰 frames.jsonl —— 后者体积大得多。
+   * ★★ 这是**同步**版：整块跑完，跑的那几秒里事件循环是死的。
+   *   启动期请用 buildIndexAsync —— 否则关窗请求（POST /api/shutdown）
+   *   在这几秒里根本进不来，壳等不到就强杀，索引缓存跟着一起没写，
+   *   下次启动又是全量重建。这条闭环就是「关了再开还是慢」的真身。
    */
   buildIndex() {
     if (this.ixBuilt) return this.ix.size;
+    this.ixBuildToken++;      // ★ 抢跑：正在分片建库的那一路看见令牌变了会让步
     this.ix.clear();
 
     const metas = this.list();
-    const now = {};
-    for (const m of metas) {
-      const f = path.join(this.dir(m.id), 'index.jsonl');
-      try { const st = fs.statSync(f); now[m.id] = st.size + ':' + st.mtimeMs; } catch { now[m.id] = '0:0'; }
-    }
+    const now = this.#fpNow(metas);
 
     // ① 试缓存
     let fp = null;
@@ -173,17 +220,15 @@ export class SessionStore {
       const t = Date.now();
       try {
         const buf = fs.readFileSync(this.cacheFile, 'utf8');
-        let same = 0, diff = 0;
+        let same = 0;
         for (const line of buf.split('\n')) {
           if (!line) continue;
-          const p = line.split('\u0001');
-          if (p.length < 5) continue;
-          const sid = p[0];
-          if (fp[sid] !== now[sid]) { diff++; continue; }   // 变过的会话，这行不可信
-          let a = this.ix.get(sid);
-          if (!a) { a = []; this.ix.set(sid, a); }
-          const txt = p[4];
-          a.push({ seq: Number(p[1]), t: Number(p[2]), type: p[3], text: txt, tl: txt.toLowerCase() });
+          const r = this.#splitCacheLine(line);
+          if (!r) continue;
+          if (fp[r.sid] !== now[r.sid]) continue;   // 变过的会话，这行不可信
+          let a = this.ix.get(r.sid);
+          if (!a) { a = []; this.ix.set(r.sid, a); }
+          a.push({ seq: r.seq, t: r.t, type: r.type, text: r.text, tl: r.text.toLowerCase() });
           same++;
         }
         // 只重读变过 / 没出现过的会话
@@ -213,8 +258,161 @@ export class SessionStore {
     return this.ix.size;
   }
 
-  /** 读一个会话的 index.jsonl 进内存 */
-  #readOne(id) {
+  /**
+   * 分片版 buildIndex —— **同样的输入产出同样的索引**，只是在项与项之间让出事件循环。
+   *
+   * ★ 为什么必须有它（2026-11-10 实证）：
+   *   data/shutdown.log 里有一行 {reason:"shell:timeout", graceful:false, httpDrained:false}。
+   *   链子是这样的：首次启动 → 同步 buildIndex 读 84MB 缓存 / 扫 1000+ 会话，
+   *   事件循环被占住 3–40 秒 → 用户这时候关窗口 → 壳 POST /api/shutdown，
+   *   但 HTTP 处理不到 → 壳 10 秒超时 → TerminateProcess → closeAll() 与
+   *   saveIndexCache() 都没执行 → 下次启动还是全量重建。
+   *   **慢导致了关窗失败，关窗失败又导致了下次还慢。**
+   *
+   * ★ 只让出、不改语义：步骤顺序、指纹判定、行的构造方式与同步版逐条对应，
+   *   「哪些会话重读」「哪些行采用」「末尾补空数组」一字不差。
+   *
+   * ★ 为什么用 setImmediate 而不是 setTimeout(0)：setImmediate 走 check 阶段，
+   *   让出一次只花几十微秒；Windows 上 setTimeout(0) 有 ~1ms 的定时器粒度，
+   *   几百次让出就是几百毫秒。
+   *
+   * @param {object} [opts]
+   * @param {number} [opts.yieldMs=8] 攒够多少毫秒的活就让出一次
+   * @returns {Promise<{size:number, aborted:boolean, yields:number, phases:object}>}
+   */
+  async buildIndexAsync(opts) {
+    const o = opts || {};
+    const yieldMs = Number(o.yieldMs) > 0 ? Number(o.yieldMs) : 8;
+    if (this.ixBuilt) return { size: this.ix.size, aborted: false, yields: 0, phases: {} };
+    if (this.ixBuilding) return this.ixBuilding;   // 同时只允许一路在分片建
+
+    const run = (async () => {
+      const token = ++this.ixBuildToken;
+      const t0 = Date.now();
+      const phases = {};
+      let yields = 0;
+      let last = Date.now();
+
+      // 让出一次；返回 false 表示「该放弃了」（有同步建库抢先建完）
+      const pace = async (phase) => {
+        if (Date.now() - last < yieldMs) return true;
+        phases[phase] = (phases[phase] || 0) + (Date.now() - last);
+        await yieldToLoop();
+        yields++;
+        last = Date.now();
+        return this.ixBuildToken === token && !this.ixBuilt;
+      };
+      const stop = (why) => ({ size: this.ix.size, aborted: true, yields, phases, why });
+
+      // ★ 暂存 —— 中途有同步 buildIndex 抢跑时，它建它自己的 this.ix，
+      //   我们这份没人看见过的半成品直接丢掉即可：谁也不会读到「半个索引」。
+      const ix = new Map();
+
+      // ① 会话清单（沿用 list() 的 30 秒缓存判定）
+      let tp = Date.now();
+      let metas;
+      const cached = (!o.fresh && this.listCache && Date.now() - this.listAt < 30000) ? this.listCache : null;
+      if (cached) metas = cached;
+      else {
+        metas = [];
+        let seen = 0;
+        for (const name of fs.readdirSync(this.root)) {
+          const m = this.#metaOf(name);
+          if (m) metas.push(m);
+          if ((++seen & 31) === 0 && !(await pace('list'))) return stop('list');
+        }
+        metas.sort((a, b) => b.mtime - a.mtime);
+        this.listCache = metas;
+        this.listAt = Date.now();
+      }
+      phases.scan = Date.now() - tp;
+
+      // ② 指纹
+      tp = Date.now();
+      const now = {};
+      let i = 0;
+      for (const m of metas) {
+        try { const st = fs.statSync(path.join(this.dir(m.id), 'index.jsonl')); now[m.id] = st.size + ':' + st.mtimeMs; }
+        catch { now[m.id] = '0:0'; }
+        if ((++i & 31) === 0 && !(await pace('stat'))) return stop('stat');
+      }
+      phases.stat = Date.now() - tp;
+
+      // ③ 试缓存
+      tp = Date.now();
+      let fp = null;
+      try { fp = JSON.parse(fs.readFileSync(this.fpFile, 'utf8')); } catch {}
+      if (fp && fs.existsSync(this.cacheFile)) {
+        let buf = null;
+        // ★ 读文件走异步 I/O：84MB 的同步读本身也是一次阻塞（页缓存冷的时候更久）
+        try { buf = await fs.promises.readFile(this.cacheFile, 'utf8'); } catch { buf = null; }
+        if (buf != null) {
+          let pos = 0, same = 0, k = 0;
+          const n = buf.length;
+          while (pos < n) {
+            const nl = buf.indexOf('\n', pos);
+            const end = nl < 0 ? n : nl;
+            const line = end > pos ? buf.slice(pos, end) : '';
+            pos = nl < 0 ? n : nl + 1;
+            if (!line) continue;
+            const r = this.#splitCacheLine(line);
+            if (r && fp[r.sid] === now[r.sid]) {
+              let a = ix.get(r.sid);
+              if (!a) { a = []; ix.set(r.sid, a); }
+              a.push({ seq: r.seq, t: r.t, type: r.type, text: r.text, tl: r.text.toLowerCase() });
+              same++;
+            }
+            if ((++k & 511) === 0 && !(await pace('cache'))) return stop('cache');
+          }
+          phases.cache = Date.now() - tp;
+
+          // ④ 只重读变过 / 没出现过的会话
+          tp = Date.now();
+          const need = metas.filter(m => fp[m.id] !== now[m.id]);
+          let rd = 0;
+          for (const m of need) {
+            const ok = await this.#readOneAsync(m.id, ix, pace);
+            if (ok === false) return stop('reread');
+            if ((++rd & 15) === 0 && !(await pace('reread'))) return stop('reread');
+          }
+          phases.reread = Date.now() - tp;
+
+          for (const m of metas) if (!ix.has(m.id)) ix.set(m.id, []);
+          if (this.ixBuildToken !== token) return stop('raced');   // 中途有人同步建完了
+          this.ix = ix;
+          this.ixBuilt = true;
+          this.ixCacheMs = Date.now() - t0;
+          this.ixReused = same;
+          this.ixReindexed = need.length;
+          return { size: this.ix.size, aborted: false, yields, phases };
+        }
+      }
+
+      // ⑤ 全量建
+      tp = Date.now();
+      let fd = 0;
+      for (const m of metas) {
+        const ok = await this.#readOneAsync(m.id, ix, pace);
+        if (ok === false) return stop('full');
+        if ((++fd & 15) === 0 && !(await pace('full'))) return stop('full');
+      }
+      phases.full = Date.now() - tp;
+      if (this.ixBuildToken !== token) return stop('raced');
+      this.ix = ix;
+      this.ixBuilt = true;
+      this.ixCacheMs = 0;
+      this.ixReused = 0;
+      this.ixReindexed = metas.length;
+      this.ixDirty = true;
+      return { size: this.ix.size, aborted: false, yields, phases };
+    })();
+
+    this.ixBuilding = run;
+    try { return await run; } finally { this.ixBuilding = null; }
+  }
+
+  /** 读一个会话的 index.jsonl 进内存（同步）。target 缺省 this.ix —— 分片版传暂存表。 */
+  #readOne(id, target) {
     const rows = [];
     const f = path.join(this.dir(id), 'index.jsonl');
     try {
@@ -227,7 +425,40 @@ export class SessionStore {
         } catch { /* skip */ }
       }
     } catch { /* 没有索引文件 */ }
-    this.ix.set(id, rows);
+    (target || this.ix).set(id, rows);
+  }
+
+  /** 分片版 #readOne：读文件走异步 I/O，解析按块让出。checkpoint 返回 false → 放弃。 */
+  async #readOneAsync(id, target, checkpoint) {
+    const f = path.join(this.dir(id), 'index.jsonl');
+    const rows = [];
+    let txt = null;
+    try { txt = await fs.promises.readFile(f, 'utf8'); } catch { txt = null; }
+    if (txt != null) {
+      let pos = 0;
+      const n = txt.length;
+      let k = 0;
+      while (pos < n) {
+        const nl = txt.indexOf('\n', pos);
+        const end = nl < 0 ? n : nl;
+        const line = end > pos ? txt.slice(pos, end) : '';
+        pos = nl < 0 ? n : nl + 1;
+        if (!line) continue;
+        try {
+          const r = JSON.parse(line);
+          const t = String(r.text || '');
+          rows.push({ seq: r.seq, t: r.t, type: r.type, text: t, tl: t.toLowerCase() });
+        } catch { /* skip */ }
+        if ((++k & 255) === 0 && checkpoint) { if (!(await checkpoint('readOne'))) return false; }
+      }
+    }
+    target.set(id, rows);
+    return true;
+  }
+
+  /** 缓存文件里的一行 —— 同步版与分片版共用，保证两边字节一致 */
+  #cacheLine(id, r) {
+    return [id, r.seq, r.t, r.type, String(r.text || '').replace(/[\n\r\u0001]/g, ' ')].join('\u0001');
   }
 
   /** 落盘索引缓存（脏的时候才写） */
@@ -239,9 +470,7 @@ export class SessionStore {
       const f = path.join(this.dir(m.id), 'index.jsonl');
       try { const st = fs.statSync(f); fp[m.id] = st.size + ':' + st.mtimeMs; } catch { fp[m.id] = '0:0'; }
       const rows = this.ix.get(m.id) || [];
-      for (const r of rows) {
-        parts.push([m.id, r.seq, r.t, r.type, String(r.text || '').replace(/[\n\r\u0001]/g, ' ')].join('\u0001'));
-      }
+      for (const r of rows) parts.push(this.#cacheLine(m.id, r));
     }
     try {
       fs.writeFileSync(this.cacheFile, parts.join('\n'), 'utf8');
@@ -249,6 +478,69 @@ export class SessionStore {
       this.ixDirty = false;
       return parts.length;
     } catch (e) {
+      return 0;
+    }
+  }
+
+  /**
+   * 分片版 saveIndexCache —— **产物与同步版逐字节一致**，只是不占住事件循环。
+   *
+   * ★ 为什么需要它：启动期 warmup 在「建完索引」之后要写一次缓存（这是下次启动快的
+   *   唯一保证）。实测 320k 行 / 98MB，同步写要 2–4 秒 —— 用户正好在这几秒里关窗的话，
+   *   POST /api/shutdown 又进不来。把「建库」修好只解决一半：写缓存是同一条路上的另一半。
+   *
+   * ★ 与同步版的差别只有两处：① 行是分批拼的；② 文件用异步 fd 分批写。
+   *   行的格式、行的顺序、fp 的序列化方式全都一样。验收办法：两边对同一份数据各跑一遍，
+   *   _index.cache 与 _index.fp 的 sha256 必须相同。
+   *
+   * @param {object} [opts]
+   * @param {number} [opts.yieldMs=8] 攒够多少毫秒就让出一次
+   * @param {number} [opts.chunkBytes=4194304] 每次写多少字节
+   * @returns {Promise<number>} 写出的行数（0 = 没写）
+   */
+  async saveIndexCacheAsync(opts) {
+    const o = opts || {};
+    if (!this.ixBuilt || !this.ixDirty) return 0;
+    const yieldMs = Number(o.yieldMs) > 0 ? Number(o.yieldMs) : 8;
+    const chunkBytes = Number(o.chunkBytes) > 0 ? Number(o.chunkBytes) : 4194304;
+
+    const revAtStart = this.ixRev || 0;
+    let last = Date.now();
+    const pace = async () => {
+      if (Date.now() - last < yieldMs) return;
+      await yieldToLoop();
+      last = Date.now();
+    };
+
+    const metas = this.list();
+    const fp = {};
+    let fh = null;
+    try {
+      fh = await fs.promises.open(this.cacheFile, 'w');
+      let buf = '';
+      let first = true;
+      let rowsOut = 0;
+      for (const m of metas) {
+        const f = path.join(this.dir(m.id), 'index.jsonl');
+        try { const st = fs.statSync(f); fp[m.id] = st.size + ':' + st.mtimeMs; } catch { fp[m.id] = '0:0'; }
+        const rows = this.ix.get(m.id) || [];
+        for (const r of rows) {
+          // ★ 不在结尾多写换行 —— 与同步版 parts.join('\n') 的字节完全一致
+          buf += (first ? '' : '\n') + this.#cacheLine(m.id, r);
+          first = false;
+          rowsOut++;
+          if (buf.length >= chunkBytes) { await fh.write(buf); buf = ''; await pace(); }
+        }
+      }
+      if (buf.length) await fh.write(buf);
+      await fh.close();
+      fh = null;
+      await fs.promises.writeFile(this.fpFile, JSON.stringify(fp), 'utf8');
+      // ★ 写的过程中有新帧进来（写路径会 push 进内存索引）→ 保持脏，让退出时再写一次
+      this.ixDirty = (this.ixRev || 0) !== revAtStart;
+      return rowsOut;
+    } catch (e) {
+      try { if (fh) await fh.close(); } catch { /* ignore */ }
       return 0;
     }
   }
@@ -261,6 +553,7 @@ export class SessionStore {
 
   /** 追加一帧到内存索引（写路径顺手调） */
   #ixPush(id, row) {
+    this.ixRev = (this.ixRev || 0) + 1; // 记账：分片写缓存时用它判「这期间有没有新帧」
     if (!this.ixBuilt) return;          // 还没建就不管，建的时候会读到
     const a = this.ix.get(id);
     const txt = String(row.text || '');

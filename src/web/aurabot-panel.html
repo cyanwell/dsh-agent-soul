@@ -1,0 +1,115 @@
+<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>agent-soul · aurabot</title>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<link rel='stylesheet' href='/aurora.css'>
+<!-- ★★ 2026-11-12：天空层（.as-sky）是 aurora.js 注入的，不是 CSS 画的。
+     只引 aurora.css 不引 aurora.js → **背景纯黑**（我第一版就是这样）。
+     organs.html 两个都引，我照模板写却漏了这一个。 -->
+<script src='/aurora.js' defer></script>
+<style>
+/* ★ 2026-11-12：这一页装的是 aurabot 自己的面板 —— 它的 CSS 变量前缀是 --dsw-alias-*，
+   而 v4 用的是 --as-*。所以这里**把 DSH 的那套变量映射到 v4 的**，
+   否则它整页会是白底黑字或者全透明（我试过，看起来像没样式）。
+   ★ 只映射颜色和字体，不动布局 —— 它的布局是它自己的。 */
+/* ★★★ 2026-11-12 修正：第一版这 12 条**变量名全是我猜的**，一个都不存在。
+   真实名字是从 client.js 里 grep 出来的 14 个 —— 差在 label vs text、
+   border-l1 vs border-default、bg-layer-N vs bg-panel。
+   ★ 猜错名字的后果不是报错，是**静默无效**（变量没定义 → 浏览器用默认黑字），
+     所以整页看起来是白底黑字。**爀曦一眼就看出来了。** */
+:root{
+  /* 底与层 */
+  --dsw-alias-bg-base: transparent;
+  --dsw-alias-bg-layer-1: var(--as-tint);
+  --dsw-alias-bg-layer-2: rgba(255,255,255,.055);
+  --dsw-alias-interactive-bg-hover: rgba(255,255,255,.09);
+  /* 文字三级 */
+  --dsw-alias-label-primary: var(--as-ink);
+  --dsw-alias-label-secondary: var(--as-dim);
+  --dsw-alias-label-tertiary: var(--as-dim2);
+  /* 边框两级 */
+  --dsw-alias-border-l1: var(--as-edge-2);
+  --dsw-alias-border-l2: rgba(255,255,255,.10);
+  /* 状态色 */
+  --dsw-alias-state-error-primary: var(--as-red);
+  --dsw-alias-state-success-primary: var(--as-green);
+  --dsw-alias-state-warn-primary: var(--as-amber);
+  /* toast */
+  --dsw-alias-toast-bg: rgba(20,28,40,.96);
+  --dsw-alias-toast-label: var(--as-ink);
+  font-family: 'Microsoft YaHei','PingFang SC',sans-serif;
+}
+/* ★ 2026-11-12：天空层（.as-sky）是 fixed + z-index:-1，画在 html 之上、body 之下。
+   body 一旦有不透明底，极光整层被盖死 —— 表现为「纯黑背景」。
+   ★ 这条在 organs.html 里写着（2026-11-10 修过同一处），我这次又踩了一遍。
+   → 底色只铺 html，body 透明。 */
+html{background:var(--as-bg)}
+body{background:transparent;color:var(--as-ink);margin:0;padding:0}
+#root{min-height:100vh}
+/* ★ 返回主界面：固定在左上角，玻璃质感，不抢面板自己的布局 */
+#back{position:fixed;left:14px;top:12px;z-index:50;display:inline-flex;align-items:center;gap:7px;
+  padding:7px 13px;border-radius:9px;border:1px solid var(--as-edge-2);
+  background:rgba(16,22,32,.72);backdrop-filter:blur(10px);
+  color:var(--as-dim);text-decoration:none;font-size:12.5px;
+  font-family:'Microsoft YaHei','PingFang SC',sans-serif;transition:color .15s,border-color .15s}
+#back:hover{color:var(--as-ink);border-color:var(--as-amber)}
+#back svg{width:13px;height:13px;flex:none;opacity:.9}
+#boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:var(--as-dim);font-family:'Microsoft YaHei',sans-serif;font-size:13px}
+</style></head><body>
+<!-- ★ 返回 soul 主界面 -->
+<a id='back' href='/'>
+  <svg viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><path d='M10 3 5 8l5 5'/></svg>
+  回主界面
+</a>
+<div id='boot'>正在装载 aurabot 面板…</div>
+<div id='root'></div>
+
+<!-- React（本地 vendor，不走 CDN） -->
+<script src='/vendor/react.min.js'></script>
+<script src='/vendor/react-dom.min.js'></script>
+
+<script>
+// ★★ 2026-11-12：aurabot 的 client.js 是 cordis 的模块格式：
+//   window.__ModuleLoader__.load({ id, factory: (require) => ({...}) })
+//   ★ 这里给它一个「够用的」ModuleLoader —— 它只要 react 一个依赖，
+//     所以 require('react') 返回全局 React 就行。**不改它的源码一行。**
+window.__ModuleLoader__ = {
+  load (def) {
+    try {
+      const req = (name) => {
+        if (name === 'react') return window.React
+        if (name === 'react-dom') return window.ReactDOM
+        if (name === 'react-dom/client') return window.ReactDOM
+        return {}
+      }
+      window.__AURABOT_MODULE__ = def.factory(req)
+      window.__AURABOT_LOADED__ = true
+    } catch (e) {
+      window.__AURABOT_ERROR__ = String((e && e.message) || e)
+      console.error('[aurabot] 模块装载失败', e)
+    }
+  },
+}
+</script>
+<script src='/aurabot-client.js'></script>
+<script>
+(function () {
+  const boot = document.getElementById('boot')
+  const root = document.getElementById('root')
+  function fail (msg) {
+    boot.textContent = 'aurabot 面板装载失败：' + msg
+    boot.style.color = '#e06c75'
+  }
+  if (window.__AURABOT_ERROR__) return fail(window.__AURABOT_ERROR__)
+  const mod = window.__AURABOT_MODULE__
+  if (!mod) return fail('client.js 没有注册模块')
+  const Page = mod.AurabotPage
+  if (typeof Page !== 'function') return fail('AurabotPage 不是组件（导出：' + Object.keys(mod).join(',') + '）')
+  boot.style.display = 'none'
+  try {
+    ReactDOM.createRoot(root).render(React.createElement(Page))
+  } catch (e) {
+    boot.style.display = 'flex'
+    fail('渲染失败：' + ((e && e.message) || e))
+  }
+})();
+</script>
+</body></html>

@@ -17,6 +17,12 @@ async function check(name, fn) {
 
 const cfg = loadConfig();
 cfg.dataDir = path.join(ROOT, 'data', 'selftest-' + Date.now());
+// ★ 2026-11-11：这个自检下面有一条「没配 key 时回合报错但不崩」。
+//   它以前跑得通，是因为当时 config 里确实没有 key；现在 config 有 key 了，
+//   于是它真的连去 LLM，报的是 400（tool_calls 没配对），不是「未配置」。
+//   测「无 key 路径」就必须把 key 打掉 —— 否则测的是另一个场景。
+//   ★ 这不是「让测试变绿」：断言一个字没改，改的是**输入**。
+cfg.llm = Object.assign({}, cfg.llm, { apiKey: '', apiKeyRef: null });
 const store = new SessionStore(cfg.dataDir);
 const tools = new ToolRegistry();
 const llm = new LlmClient(cfg.llm);
@@ -46,8 +52,12 @@ await check('检索命中', () => {
 
 await check('工具注册与清单', () => {
   const names = [...tools.tools.keys()];
-  if (names.length !== 4) throw new Error('应有 4 个，实际 ' + names.length);
-  if (tools.specs().length !== 4) throw new Error('specs 数不对');
+  // ★ 2026-11-11：不再写死「4 个」。工具数会随功能涨（现在 7 个），
+  //   这条要证的是「注册表和 specs 一致」+「四个核心工具都在」，不是一个常数。
+  const CORE = ['read_file', 'write_file', 'list_dir', 'run_shell'];
+  const missing = CORE.filter((n) => !names.includes(n));
+  if (missing.length) throw new Error('缺核心工具: ' + missing.join(','));
+  if (tools.specs().length !== names.length) throw new Error('specs 与注册数不一致: ' + tools.specs().length + ' vs ' + names.length);
   return names.join(', ');
 });
 
@@ -90,7 +100,11 @@ await check('HTTP 服务 + 接口 + 五槽位', async () => {
     if (!se.hits.length) throw new Error('检索没命中');
     // ★ 2026-11-07 改：/ 现在是仪表盘（数据 + 器官 + 环境），五槽位搬到 /chat 去了。
     //   这不是放宽，是判据跟着设计走：**每一条检查它该检查的那个页**。
-    const dash = await (await fetch(base + '/')).text();
+    // ★ 2026-11-11：dashboard 已挪到 /dashboard（server.mjs:780 写着「/ 给对话，dashboard 挪到 /dashboard」）。
+    //   旧断言还在查 /，而 / 现在是 shell.html —— 于是它永远找不到 cards。
+    const dash = await (await fetch(base + '/dashboard')).text();
+    // ★ 2026-11-11：dashboard.html 用的是**单引号** id（<div class='grid g6' id='cards'>）。
+    //   之前这条红，不是引号问题，是它查的 / 已经变成 shell.html（对话页）—— 页面根本不对。
     for (const need of ["id='cards'", "id='organs'", '/api/overview']) {
       if (!dash.includes(need)) throw new Error('仪表盘缺: ' + need);
     }

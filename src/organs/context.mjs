@@ -1,3 +1,6 @@
+import fsMod from 'node:fs';
+import pathMod from 'node:path';
+
 // 上下文器官 —— 时间 + 水位
 //
 // ★ 从老 clock（1,023 行）和 dsh-yanqing-memory 的推送层（334 行）各搬一半。
@@ -152,4 +155,68 @@ export function usedTokens(store, sid, personaText) {
     total += estimateTokens(f.text) + 4;   // 每帧 4 个 token 的框架开销
   }
   return total;
+}
+
+/**
+ * 读宿主（DSH）自己算的水位 —— **唯一权威口径**。
+ *
+ * ★ 2026-11-09 修的一个真 bug：`soul_context` 曾把 session-7aa72f04 报成
+ *   2,199,393 tokens / 209.8%，而 DSH 侧同一会话只有 52,036 / 4.96%（差 42 倍）。
+ *   根因是 `usedTokens` 数的是「v4 加载的全量帧」，只跳过 `compaction.summary` 覆盖的区间；
+ *   可 v4 现在量的是 **DSH 会话**，DSH 的压缩记录格式 v4 认不出 → covered 为空
+ *   → 整条 7.6 MB 历史全被算成「当前上下文」。
+ *   **它报的不是水位，是历史总量。**
+ *
+ * ★ 判据（2026-09-27 实测，别再改回去）：
+ *   水位只有一种读法是准的 —— `contextPressure.pressureTokens`（= input + cacheRead）。
+ *   `surfaceTokens` 只是「可见消息面」，**不是水位**（GUI 把两把尺子画在一张图上）。
+ *
+ * ★ 读不到就明说读不到，**不许拿自算的数冒充宿主口径**。
+ *
+ * @param {string} sessionId  会话 id（可带或不带 `session-` 前缀）
+ * @param {{dshHome?:string, staleMs?:number}} [opts]
+ * @returns {{ok:true, tokens:number, window:number|null, surfaceTokens:number|null,
+ *            mtimeMs:number, stale:boolean}
+ *          |{ok:false, reason:string}}
+ */
+export function hostPressure(sessionId, opts) {
+  const o = opts || {};
+  try {
+    const sid = String(sessionId || '').trim();
+    if (!sid) return { ok: false, reason: '没有会话 id' };
+
+    // ★ 只允许安全字符：会话 id 会拼进路径，不许有 .. 或分隔符
+    if (!/^[A-Za-z0-9._-]+$/.test(sid)) return { ok: false, reason: '会话 id 含非法字符' };
+
+    const home = String(o.dshHome || process.env.DSH_HOME || 'D:/AI/dsh/home');
+    const name = (sid.startsWith('session-') ? sid : 'session-' + sid) + '.json';
+    const file = pathMod.join(home, 'storages', 'session_projcache', 'sessions', name);
+
+    if (!fsMod.existsSync(file)) return { ok: false, reason: 'projcache 里没有这个会话：' + file };
+
+    const st = fsMod.statSync(file);
+    const j = JSON.parse(fsMod.readFileSync(file, 'utf8'));
+    const rows = (j && j.record && j.record.rows) || (j && j.rows) || null;
+    const cp = rows && rows.contextPressure && rows.contextPressure.val;
+    if (!cp) return { ok: false, reason: 'projcache 里没有 contextPressure 段' };
+
+    const tokens = Number(cp.pressureTokens);
+    if (!Number.isFinite(tokens) || tokens < 0) {
+      return { ok: false, reason: 'pressureTokens 不是有效数字：' + String(cp.pressureTokens) };
+    }
+
+    const staleMs = Number.isFinite(o.staleMs) ? o.staleMs : 30 * 60 * 1000;
+    const age = Date.now() - st.mtimeMs;
+
+    return {
+      ok: true,
+      tokens,
+      window: Number.isFinite(Number(cp.contextWindow)) ? Number(cp.contextWindow) : null,
+      surfaceTokens: Number.isFinite(Number(cp.surfaceTokens)) ? Number(cp.surfaceTokens) : null,
+      mtimeMs: st.mtimeMs,
+      stale: age > staleMs,
+    };
+  } catch (e) {
+    return { ok: false, reason: '读宿主水位失败：' + (e && e.message ? e.message : String(e)) };
+  }
 }

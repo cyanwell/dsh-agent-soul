@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta charset="utf-8"><title>t</title>
+<style>html,body{margin:0;height:100%;background:#050A12;overflow:hidden}</style></head>
+<body><canvas id="c"></canvas>
+<script type="module">
+import * as THREE from '/vendor/three.module.min.js';
+const r = new THREE.WebGLRenderer({canvas:document.getElementById('c'),antialias:true});
+r.setSize(600,400); r.setClearColor(0x050A12,1);
+const sc = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(45,600/400,0.1,100); cam.position.set(0,0,4);
+const g = new THREE.SphereGeometry(1,48,32);
+const m = new THREE.ShaderMaterial({
+  uniforms:{uT:{value:0}},
+  vertexShader:'varying vec3 vN; varying vec3 vP; void main(){vN=normalize(normalMatrix*normal); vP=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
+  fragmentShader:'varying vec3 vN; varying vec3 vP; uniform float uT; void main(){ float f=pow(1.0-abs(vN.z),2.0); vec3 c=mix(vec3(0.09,0.45,0.62),vec3(0.55,0.95,0.85),f); gl_FragColor=vec4(c,1.0);}'
+});
+sc.add(new THREE.Mesh(g,m));
+r.render(sc,cam);
+document.title = 'WEBGL_OK_' + (r.info.render.calls) + '_' + (r.getContext().getParameter(r.getContext().VERSION));
+</script></body></html>

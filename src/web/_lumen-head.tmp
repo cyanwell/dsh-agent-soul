@@ -1,0 +1,58 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>AgentSoul · 极光腔</title>
+<style>*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#050A12;color:#F6FAFF;overflow:hidden;
+  font:13px/1.6 "Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block}
+.vig{position:fixed;inset:0;pointer-events:none;z-index:1;
+  background:radial-gradient(120% 90% at 50% 42%,rgba(5,10,18,0) 30%,rgba(5,10,18,.55) 72%,rgba(5,10,18,.92) 100%)}
+header{position:fixed;left:26px;top:22px;z-index:5;pointer-events:none}
+.kick{font-size:9.5px;letter-spacing:.34em;color:#6C7C90;text-transform:uppercase}
+h1{margin:7px 0 2px;font-size:23px;font-weight:400;letter-spacing:.05em;
+  font-family:"Lanxi-超粗黑","Microsoft YaHei",sans-serif}
+h1 i{font-style:normal;color:#3ED598}
+.sub{font-size:11.5px;color:#B6C4D4;letter-spacing:.03em}
+#stamp{position:fixed;right:26px;top:24px;z-index:5;font-size:11px;color:#6C7C90;
+  font-variant-numeric:tabular-nums;letter-spacing:.04em;text-align:right}
+#labels{position:fixed;inset:0;z-index:3;pointer-events:none}
+.lb{position:absolute;transform:translate(-50%,-50%);font-size:10.5px;letter-spacing:.16em;
+  color:#A9BACC;white-space:nowrap;opacity:.9;text-shadow:0 0 10px rgba(5,10,18,.95);transition:color .2s,opacity .2s}
+.lb b{font-weight:400;color:#F6FAFF}
+.lb.on{color:#F6FAFF;opacity:1}
+#panel{position:fixed;right:22px;top:74px;bottom:96px;width:352px;z-index:6;overflow:auto;
+  padding:16px 16px 18px;border-radius:14px;opacity:0;transform:translateX(14px);
+  transition:opacity .28s,transform .28s;pointer-events:none;
+  background:linear-gradient(160deg,rgba(20,40,64,.78),rgba(7,15,28,.72));
+  border:1px solid rgba(150,200,255,.14);box-shadow:inset 0 1px 0 rgba(216,238,255,.14),0 20px 60px rgba(0,0,0,.5);
+  backdrop-filter:blur(18px)}
+#panel.show{opacity:1;transform:none;pointer-events:auto}
+#panel h2{margin:0 0 2px;font-size:16px;font-weight:400;letter-spacing:.04em}
+#panel .pm{font-size:10.5px;color:#6C7C90;letter-spacing:.12em;margin-bottom:12px}
+#panel .pi{display:flex;justify-content:space-between;gap:12px;padding:8px 0;
+  border-bottom:1px solid rgba(150,200,255,.07);font-size:12px}
+#panel .pi b{font-weight:400;color:#B6C4D4}
+#panel .pi span{color:#F6FAFF;text-align:right;font-variant-numeric:tabular-nums}
+#panel .pi.na span{color:#6C7C90}
+#panel .note{margin-top:12px;font-size:11px;color:#6C7C90;line-height:1.7}
+#rail{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;justify-content:center;
+  gap:8px;padding:16px 20px 20px;flex-wrap:nowrap;overflow-x:auto}
+.chip{display:flex;align-items:center;gap:8px;padding:7px 13px;border-radius:999px;cursor:pointer;
+  font-size:11.5px;letter-spacing:.06em;color:#B6C4D4;white-space:nowrap;
+  background:rgba(14,28,46,.62);border:1px solid rgba(150,200,255,.12);transition:.18s}
+.chip:hover{color:#F6FAFF;border-color:rgba(150,200,255,.28)}
+.chip.on{color:#F6FAFF;background:rgba(24,48,76,.82);border-color:rgba(150,200,255,.34)}
+.chip u{width:6px;height:6px;border-radius:50%;text-decoration:none;flex:none;box-shadow:0 0 8px currentColor}
+.chip s{text-decoration:none;color:#6C7C90;font-size:10px;letter-spacing:.1em}
+#fallback{position:fixed;inset:0;display:none;place-items:center;z-index:9;color:#B6C4D4;font-size:13px}</style>
+<script type="importmap">{"imports":{"three":"/vendor/three.module.min.js"}}</script>
+</head><body>
+<canvas id="c"></canvas><div class="vig"></div><div id="labels"></div>
+<header><div class="kick">AgentSoul v4 · 六层运行状态</div>
+<h1>极光<i>腔</i></h1>
+<div class="sub">六条帘各是一层 · 中心那枚玻璃核是此刻在跑的那个我</div></header>
+<div id="stamp">读取中…</div>
+<aside id="panel"></aside>
+<div id="rail"></div>
+<div id="fallback">这个浏览器没有 WebGL —— 极光腔需要它。</div>

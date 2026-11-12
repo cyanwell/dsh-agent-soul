@@ -1,25 +1,15 @@
-# 用户数据 —— 绝不入库
+# 数据与产物不进仓库
 data/
-*.log
-
-# 构建产物（35MB，每次重打包都变）
-build/*.exe
-build/*.dll
-build/*.pdb
-build/*.zip
-
-# 截图/验证产物（356MB）
+dist/
+_deploy/
+_runtime/
 _verify/
-
-# 本机开发配置（含真实路径）
-config.json
-config.local.json
-
-# 依赖与缓存
+build/
+*.log
+*.bak*
 node_modules/
-*.cache
-
-# 系统
-Thumbs.db
-desktop.ini
-.DS_Store
+tools/_*.mjs
+# 大文件
+*.exe
+*.zip
+*.7z

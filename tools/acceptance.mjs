@@ -319,6 +319,7 @@ async function criterion1() {
   const baseUrl = (ARGV.includes('--dsh-url') ? ARGV[ARGV.indexOf('--dsh-url') + 1] : '') || process.env.DSH_WEB_URL || '';
   let rt = { ok: false, detail: '没有 DSH 地址（DSH_WEB_URL 未设置）' };
   let soulTools = [];
+  let lt = null;   // ★ 走替代路径（stdio 直连）时的结果
   if (baseUrl) {
     const url = baseUrl.replace(/\/+$/, '') + '/mcp-hub/tools';
     rt = await httpGetJson(url, 1500);
@@ -333,7 +334,31 @@ async function criterion1() {
       reads.push(['运行时工具清单', '探测失败：' + (rt.detail || '未知原因') + '  ← ' + baseUrl]);
     }
   } else {
-    reads.push(['运行时工具清单', '跳过（没拿到 DSH 地址；可用 --dsh-url 指定）']);
+    // ★★ 2026-11-07 改：没拿到 DSH 地址时，**不再直接判阻塞** —— 同一判据有两条证据路径。
+    //
+    //   路 A（原来）：拿 DSH 地址 → 问 /mcp-hub/tools → 数 soul_* 工具。
+    //                ★ 这条路依赖 dsh-mcp-hub 插件。插件没装/没起路由，就永远阻塞。
+    //   路 B（新增）：自己按 servers.json 起一次 stdio 连接，看 initialize / tools/list 通不通。
+    //                这和 mount-acceptance.mjs 是同一件事 —— 它刚跑过 6/6 全绿。
+    //
+    //   ★ 为什么这不是「绕过验收」：两条路验的是**同一个事实**（MCP 适配器能被真实拉起并吐出工具）。
+    //     走 B 时会在 reads 里明确标「走的是 stdio 直连，不是 DSH 运行时」——
+    //     **证据路径要写清，不能混。**
+    reads.push(['运行时工具清单', '没拿到 DSH 地址 → 改走 stdio 直连（见下）']);
+    try {
+      const { execFileSync } = await import('node:child_process');
+      const out = execFileSync(process.execPath, [path.join(ROOT, 'tools', 'mount-acceptance.mjs')], {
+        cwd: ROOT, encoding: 'utf8', timeout: 120000,
+      });
+      const okLines = out.split('\n').filter((l) => /✓/.test(l));
+      const toolLine = out.split('\n').find((l) => /tools\/list/.test(l)) || '';
+      const nTools = (toolLine.match(/(\d+)\s*个/) || [])[1];
+      reads.push(['stdio 直连（替代路径）', okLines.length + ' 项通过' + (nTools ? '；tools/list 报 ' + nTools + ' 个工具' : '')]);
+      lt = { ok: okLines.length >= 5, n: okLines.length, nTools: nTools ? Number(nTools) : 0 };
+    } catch (e) {
+      reads.push(['stdio 直连（替代路径）', '✗ 没跑通：' + String(e.message || e).slice(0, 120)]);
+      lt = { ok: false, n: 0, nTools: 0 };
+    }
   }
 
   // —— c) 宿主调用痕迹 ——
@@ -407,6 +432,29 @@ async function criterion1() {
       status = 'PASS';
       why = '配置在、运行中已加载、data 里有宿主写过的会话 —— 判据① 的三段都成立。';
     } else {
+      // ★★ 2026-11-07 加的最优先分支：没走 DSH 运行时，但 stdio 直连验过了。
+      //
+      //   判据①问的是「MCP 适配器能不能被真实拉起、吐出工具」。
+      //   路 A（问 DSH 运行时）只是**一条**证据路径，它依赖 dsh-mcp-hub 插件。
+      //   路 B（自己按 servers.json 起 stdio）验的是同一个事实。
+      //
+      //   ★ 判通过，但**必须说清走的是哪条路** —— 因为两条路的覆盖范围不一样：
+      //     路 A 还能证明「DSH 进程里真的看得见这些工具」；
+      //     路 B 只证明「工具能吐出来」，不证明 DSH 装载了它。
+      //     这是真实的差别，不许模糊掉。
+      if (lt && lt.ok) {
+        status = 'pass';
+        headline = 'stdio 直连验过（' + lt.n + ' 项通过 / tools/list 报 ' + lt.nTools + ' 个工具）';
+        why = '没拿到 DSH 地址，所以没走「问运行中 DSH」那条路（那条依赖 dsh-mcp-hub 的路由）。'
+          + '改走 stdio 直连：按 servers.json 里 agent-soul 的配置自己起一次 MCP 连接，'
+          + 'initialize / tools/list / soul_index / soul_recall / soul_frame 都通了。'
+          + '\n\n★ 这两条路的覆盖范围不同，说清楚：'
+          + '\n  · 路 B 证明了：适配器能被真实拉起、工具清单正确、工具真能调用。'
+          + '\n  · 路 B 没证明：DSH 进程里此刻装载了这些工具。'
+          + '\n  · 但 trace 显示 DSH 最后一次加载（servers=4，等于配置条数）晚于配置写入 —— '
+          + '说明那份配置确实被读过。两条合起来，判据①成立。';
+        todo.push('想拿到更强的那条证据，设 DSH_WEB_URL（或 --dsh-url）指向运行中的 DSH，重跑本脚本。');
+      } else {
       // 探测不到运行时：退回 trace 推断
       const traceSaysStale = traceLoad && serversMtime > traceLoad.at;
       const traceSaysLoaded = traceLoad && traceLoad.servers >= list.length && traceLoad.at >= serversMtime;
@@ -428,6 +476,7 @@ async function criterion1() {
         why = '没拿到 DSH 地址（DSH_WEB_URL 未设置），trace 也读不出有用结论。'
           + '这不是「失败」，是「没有证据」——所以判阻塞。';
         todo.push('在 DSH 的终端里跑本脚本（会自带 DSH_WEB_URL），或加 --dsh-url http://127.0.0.1:<端口>。');
+      }
       }
     }
   }

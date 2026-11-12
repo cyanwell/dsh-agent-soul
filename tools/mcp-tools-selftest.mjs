@@ -72,6 +72,34 @@ let noTool = null;
 try { await callTool('nope', {}); } catch (e) { noTool = e; }
 push('未知工具抛 NO_TOOL', noTool && noTool.code === 'NO_TOOL', noTool && noTool.message);
 
+// 10. ★ soul_context 不传 session —— 2026-11-09 之前这里必抛 ReferenceError：
+//     soul_context 分支写着裸 `ctx.sessionId`，而 callTool 当时只有两个参数。
+//     坏了多久没人发现，是因为**所有调用都显式给了 session**。
+//     断言三件事：不抛 / 可读 / 说清取的是谁。
+let ctxErr = null; let ctxOut = '';
+try { ctxOut = await callTool('soul_context', {}); } catch (e) { ctxErr = e; }
+push('★ soul_context 不传 session 不抛', !ctxErr,
+  ctxErr ? (ctxErr.constructor.name + ': ' + ctxErr.message) : '没抛，返回 ' + String(ctxOut).split('\n').length + ' 行');
+push('★ 不传 session 时输出可读（有时间 + 说清取谁）',
+  typeof ctxOut === 'string' && ctxOut.includes('现在：') &&
+    /取最近写过的那条|一条会话都没有|取调用者/.test(ctxOut),
+  String(ctxOut).split('\n').slice(0, 2).join(' / '));
+push('★ 退回「最近写过的那条」时明说不一定是你',
+  ctxOut.includes('这可能不是你') || ctxOut.includes('一条会话都没有'),
+  String(ctxOut).split('\n')[1]);
+
+// 11. 显式给了 session 就不该再解释「没指定会话」
+//     —— 第一版修的时候把这段写成 if/else 链没加 args.session 守卫，踩过一次。
+const explicit = await callTool('soul_context', { session: 'host-batch-1' });
+push('显式 session 不解释来源（不冒领）', !explicit.includes('没指定会话'),
+  String(explicit).split('\n').slice(0, 2).join(' / '));
+
+// 12. ★ 传第三参数 ctx 时真的读到它 —— 锁住「不再写回裸 ctx」。
+//     形状照 src/tools/registry.mjs 的 execute(name, args, ctx)。
+const viaCtx = await callTool('soul_context', {}, { sessionId: 'host-batch-2' });
+push('★ ctx.sessionId 当作调用者', viaCtx.includes('取调用者：host-batch-2'),
+  String(viaCtx).split('\n')[1] || viaCtx);
+
 try { fs.rmSync(DATA, { recursive: true, force: true }); } catch {}
 
 console.log(''); console.log('=== MCP 工具层自检 ==='); console.log('');

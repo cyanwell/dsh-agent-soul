@@ -34,6 +34,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { FRAME } from '../session/frame.mjs';
+// ★ 2026-11-10（G2a）：写面判据只有一份 —— 手机通道也问它，不自己判。
+import { readonlyEnabled, classifyHttp, rejection } from '../security/write-manifest.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PHONE_HTML = path.join(HERE, '..', 'web', 'phone.html');
@@ -346,6 +348,21 @@ export function createMobileServer({ store, loop, config, log = () => {} }) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://' + (req.headers.host || 'phone.local'));
     const p = url.pathname;
+
+    // ★★ 2026-11-10（G2a）：**这台监听也是写面，而且原先完全没有门。**
+    //   POST /api/send 会 store.append 一帧、再跑整轮（mobile.mjs:446 起）——
+    //   写面冻结如果只盖 7310，那一句「manifest 之外默认拒绝」就是假的。
+    //   判据仍然是同一份（src/security/write-manifest.mjs），不另开一张表：
+    //   手机通道只有一条 POST，它落进「manifest 里没有这条 POST」→ 默认拒绝。
+    //   ★ 行为边界（只读模式才有）：非 GET/HEAD 一律 403 + reason=UNAVAILABLE；
+    //     已下线路由此刻也回 403 而不是 410 —— 只读模式本来就不该指望任何写动作有区分度。
+    //   ★ 没有 AGENT_SOUL_READONLY=1 时这一段不执行，8901 的行为一个字都不变。
+    if (readonlyEnabled()) {
+      const v = classifyHttp(req.method, p);
+      if (v.verdict !== 'read' && v.verdict !== 'control' && v.verdict !== 'delegate') {
+        return json(res, 403, rejection('http', v, { method: req.method, path: p, via: 'chat-8901' }));
+      }
+    }
 
     try {
       // —— 手机页：每次请求重新读盘 ⇒ 改页面不用重启 ——

@@ -6,11 +6,22 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(new URL('..', import.meta.url).pathname.replace(/^\//, ''));
+const ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+// ★ 2026-11-09：数据目录可隔离。
+//   以前这里硬编码 ROOT/data，预演会往生产 data/sessions/preflight-1 写一帧再删；
+//   P0 要在不碰生产的前提下跑它，于是改成认 AGENT_SOUL_DATA（与 src/config.mjs 同一个变量）。
+//   ★ 不给这个变量时退回 ROOT/data —— 默认行为与改动前完全一致。
+const DATA_DIR = path.resolve(process.env.AGENT_SOUL_DATA || path.join(ROOT, 'data'));
+const DATA_ARG = DATA_DIR.replace(/\\/g, '/');
+const SESSION = 'preflight-1';
+const SESSION_DIR = path.join(DATA_DIR, 'sessions', SESSION);
+
 const p = spawn(process.execPath, ['src/adapters/mcp.mjs'], {
   cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'],
-  env: { ...process.env, AGENT_SOUL_DATA: path.join(ROOT, 'data').replace(/\\/g, '/') },
+  env: { ...process.env, AGENT_SOUL_DATA: DATA_ARG },
 });
 
 const t0 = Date.now();
@@ -61,6 +72,8 @@ const total = rows.reduce((s, r) => s + r[1], 0);
 console.log('');
 console.log('=== 挂载预演（模拟 DSH 启动序列）===');
 console.log('');
+console.log('  数据目录 ' + DATA_DIR + (process.env.AGENT_SOUL_DATA ? '（AGENT_SOUL_DATA 指定）' : '（默认 ROOT/data）'));
+console.log('');
 for (const [name, ms] of rows) {
   const bar = '█'.repeat(Math.min(40, Math.max(1, Math.round(ms / 60))));
   console.log('  ' + name.padEnd(36) + String(ms).padStart(6) + 'ms  ' + bar);
@@ -79,14 +92,14 @@ console.log('    第二次检索 < 500ms  ' + (secondRecall < 500 ? '✓ ' + sec
 console.log('    首次检索 ≤ 5000ms   ' + (firstRecall <= 5000 ? '✓ ' + firstRecall + 'ms（建索引）' : '✗ ' + firstRecall + 'ms'));
 console.log('');
 
-// 检查写入的帧真落盘了
-const f = path.join(ROOT, 'data', 'sessions', 'preflight-1', 'frames.jsonl');
+// 检查写入的帧真落盘了（落点跟着 DATA_DIR 走，不再钉死 ROOT/data）
+const f = path.join(SESSION_DIR, 'frames.jsonl');
 if (fs.existsSync(f)) {
   const n = fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).length;
-  console.log('  落盘校验: preflight-1 有 ' + n + ' 帧   ' + (n >= 2 ? '✓' : '✗'));
-  fs.rmSync(path.join(ROOT, 'data', 'sessions', 'preflight-1'), { recursive: true, force: true });
+  console.log('  落盘校验: ' + SESSION + ' 有 ' + n + ' 帧   ' + (n >= 2 ? '✓' : '✗'));
+  fs.rmSync(SESSION_DIR, { recursive: true, force: true });
 } else {
-  console.log('  落盘校验: ✗ 找不到 preflight-1');
+  console.log('  落盘校验: ✗ 找不到 ' + SESSION + '（' + SESSION_DIR + '）');
 }
 
 p.kill();

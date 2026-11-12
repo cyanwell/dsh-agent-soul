@@ -1,0 +1,41 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>AgentSoul · 星系</title><style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#04070E;color:#F6FAFF;overflow:hidden;font:13px/1.65 "Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block}
+.vig{position:fixed;inset:0;pointer-events:none;z-index:1;background:radial-gradient(130% 90% at 50% 44%,rgba(4,7,14,0) 34%,rgba(4,7,14,.50) 74%,rgba(4,7,14,.90) 100%)}
+header{position:fixed;left:28px;top:24px;z-index:5;pointer-events:none}
+.kick{font-size:9.5px;letter-spacing:.36em;color:#7B8CA3;text-transform:uppercase}
+h1{margin:8px 0 3px;font-size:24px;font-weight:400;letter-spacing:.06em;font-family:"Lanxi-超粗黑","Microsoft YaHei",sans-serif}
+h1 i{font-style:normal;color:#6FE3B4}
+.sub{font-size:11.5px;color:#9FB0C4;letter-spacing:.03em}
+#stamp{position:fixed;right:28px;top:26px;z-index:5;font-size:11px;color:#7B8CA3;font-variant-numeric:tabular-nums;letter-spacing:.04em;text-align:right}
+#labels{position:fixed;inset:0;z-index:3;pointer-events:none}
+.lb{position:absolute;transform:translate(-50%,-50%);font-size:10.5px;letter-spacing:.18em;color:#A9BACC;white-space:nowrap;text-shadow:0 0 12px rgba(4,7,14,.95);transition:color .2s,opacity .2s}
+.lb b{font-weight:400;color:#F6FAFF}
+.lb.on{color:#FFFFFF}
+#panel{position:fixed;right:24px;top:78px;bottom:100px;width:344px;z-index:6;overflow:auto;padding:18px 18px 20px;border-radius:18px;opacity:0;transform:translateX(12px);transition:opacity .3s,transform .3s;pointer-events:none;background:linear-gradient(158deg,rgba(28,52,80,.52),rgba(8,16,28,.62));border:1px solid rgba(190,225,255,.16);box-shadow:inset 0 1px 0 rgba(220,240,255,.22),0 24px 70px rgba(0,0,0,.55);backdrop-filter:blur(26px) saturate(1.25)}
+#panel.show{opacity:1;transform:none;pointer-events:auto}
+#panel h2{margin:0 0 2px;font-size:16px;font-weight:400;letter-spacing:.05em}
+#panel .pm{font-size:10.5px;color:#7B8CA3;letter-spacing:.14em;margin-bottom:14px}
+#panel .pi{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid rgba(180,215,255,.10);font-size:12px}
+#panel .pi b{font-weight:400;color:#A9BACC}
+#panel .pi span{color:#F6FAFF;text-align:right;font-variant-numeric:tabular-nums}
+#panel .pi.na span{color:#7B8CA3}
+#panel .note{margin-top:14px;font-size:11px;color:#7B8CA3;line-height:1.75}
+#rail{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;justify-content:center;gap:9px;padding:18px 22px 22px;flex-wrap:nowrap;overflow-x:auto}
+.chip{display:flex;align-items:center;gap:9px;padding:8px 15px;border-radius:999px;cursor:pointer;font-size:11.5px;letter-spacing:.06em;color:#A9BACC;white-space:nowrap;background:linear-gradient(160deg,rgba(30,54,82,.46),rgba(8,16,28,.56));border:1px solid rgba(190,225,255,.14);transition:.2s;backdrop-filter:blur(18px) saturate(1.2)}
+.chip:hover{color:#F6FAFF;border-color:rgba(190,225,255,.34)}
+.chip.on{color:#F6FAFF;border-color:rgba(190,225,255,.46);box-shadow:inset 0 1px 0 rgba(220,240,255,.26),0 8px 26px rgba(0,0,0,.5)}
+.chip u{width:6px;height:6px;border-radius:50%;text-decoration:none;flex:none;box-shadow:0 0 10px currentColor}
+.chip s{text-decoration:none;color:#7B8CA3;font-size:10px;letter-spacing:.1em}
+#fallback{position:fixed;inset:0;display:none;place-items:center;z-index:9;color:#9FB0C4}
+</style>
+<script type="importmap">{"imports":{"three":"/vendor/three.module.min.js"}}</script>
+</head><body><canvas id="c"></canvas><div class="vig"></div><div id="labels"></div>
+<header><div class="kick">AgentSoul v4 · 六层运行状态</div><h1>星<i>系</i></h1>
+<div class="sub">六条旋臂各是一层 · 中心的核球是此刻在跑的那个我</div></header>
+<div id="stamp">读取中…</div><aside id="panel"></aside><div id="rail"></div>
+<div id="fallback">这个浏览器没有 WebGL。</div>

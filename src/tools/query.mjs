@@ -28,6 +28,17 @@
 //   这一版让片段永远是原文的连续子串，所以 **ref / feel 不参与匹配**，只随行返回。
 //   要按出处路径找东西，走书房检索，别指望这扇门。
 //
+// ★★ log: 门牌怎么解析（2026-11-11 修——原来只按容器 seq 查，会取错原文）
+//   log:<sid>#seq=n 的 n 有**两个可能的主人**：
+//     · 宿主原帧号 —— DSH 的 seq，同步进来时落在 frames[i].meta.seq（toFrames 原样带的）
+//     · 容器帧号   —— 本软件自己 append 时分配的 frames[i].seq（1,2,3…）
+//   两个都在同一个会话里递增，**同一个 n 通常指向两帧不同内容**。
+//   而 cleanup 回执 / 压缩门牌给的是**宿主 seq**（pruner 按宿主帧号裁剪），
+//   所以先精确匹配 meta.seq；只有没有 meta 匹配时才回退容器 seq（旧内部帧兼容）。
+//   ★ 多个宿主帧命中但内容不同 → **报歧义并列候选，绝不静默任选**。
+//     这与本文件开头的判据同一条：「错的地址比没有更坏」。
+//   ★ 返回里一定带 matchedBy / containerSeq / hostSeq —— 取到的是哪一路，必须能核对。
+//
 // ★ 依赖：只用 node: 与 ../session/frame.mjs 的纯文本提取。
 //   不 import 任何器官实例 —— 这样它能被单测，也能被别的宿主复用。
 
@@ -85,6 +96,129 @@ function clipAt(text, at) {
   const s = Math.max(0, at - FRAG_LEAD);
   const body = text.slice(s, s + FRAG_LEN).replace(/\n/g, ' ').trim();
   return (s > 0 ? '…' : '') + body + (s + FRAG_LEN < text.length ? '…' : '');
+}
+
+/**
+ * 帧的**完整原文**。
+ * ★ 不用 index.jsonl 里那条 —— 它在写入时被截到 500 字（索引是门牌，不是原文）。
+ *   frames.jsonl 里的帧是完整的一手内容；这里只按帧类型拼正文，**不截断**。
+ *   tool_call / tool_result / error 的正文不在 text 字段里，取它们自己的字段；
+ *   字段缺失才退回 extractText（老帧可能就是只有 text 的形状）。
+ */
+export function frameFullText(fr) {
+  if (!fr || typeof fr !== 'object') return '';
+  const t = String(fr.type || '');
+  const own = fr.text == null ? '' : String(fr.text);
+  if (t === 'tool_call') {
+    const a = jsonText(fr.args);
+    const head = '[工具] ' + String(fr.name || '');
+    return a ? (head + ' ' + a).trim() : (own || head.trim());
+  }
+  if (t === 'tool_result') {
+    const c = fr.content == null ? '' : String(fr.content);
+    return c ? ('[结果] ' + c) : own;
+  }
+  if (t === 'error') {
+    return fr.message == null ? own : ('[错误] ' + String(fr.message));
+  }
+  return own || (typeof extractText === 'function' ? extractText(fr) : '');
+}
+
+/** JSON 化，但**不截断**（extractText 里的 safeJson 会截到 500 —— 原文路径不能用它）。 */
+function jsonText(v) {
+  if (v === undefined || v === null) return '';
+  if (typeof v === 'string') return v;
+  try { return JSON.stringify(v); } catch { return ''; }
+}
+
+/** 帧自带的宿主原帧号（DSH seq）。没有 / 不是非负整数 → null。 */
+function hostSeqOf(fr) {
+  if (!fr || !fr.meta || typeof fr.meta !== 'object') return null;
+  const v = fr.meta.seq;
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+/** 两帧「是不是同一帧」的判据：类型 + 完整原文。时间不参与 —— 重复回放的 t 不同。 */
+function frameIdentity(fr) {
+  return String(fr.type || '') + '\u0001' + frameFullText(fr);
+}
+
+/** 候选摘要（歧义时报出来，不返回正文 —— 正文只给唯一确定的那一帧）。 */
+function summarizeFrame(fr) {
+  return {
+    containerSeq: fr.seq,
+    hostSeq: hostSeqOf(fr),
+    type: fr.type || '',
+    when: fr.t ? localIso(new Date(fr.t)) : '',
+    snippet: frameFullText(fr).slice(0, 80).replace(/\n/g, ' '),
+  };
+}
+
+function hostSeqRange(frames) {
+  let min = null, max = null, n = 0;
+  for (const f of frames) {
+    const s = hostSeqOf(f);
+    if (s === null) continue;
+    n++;
+    if (min === null || s < min) min = s;
+    if (max === null || s > max) max = s;
+  }
+  return n ? { min, max, frames: n } : null;
+}
+
+/**
+ * log 门牌的解析核心 —— 纯函数，单独可测。
+ *
+ * @param {object[]} frames 会话的全部帧（含帧 0）
+ * @param {number} seq 门牌里的 n
+ * @returns {{ok:true,frame:object,matchedBy:'host-meta'|'container-seq',hostMatches:number,
+ *            containerCandidates?:object[],containerSeqs?:number[]} |
+ *           {ok:false,code:'AMBIGUOUS_LOG_PTR',hostMatches:number,candidates:object[]} |
+ *           {ok:false,code:'NO_SUCH_FRAME',hostMatches:0,hostSeqRange:object|null}}
+ */
+export function resolveLogFrame(frames, seq) {
+  const list = Array.isArray(frames)
+    ? frames.filter((f) => f && typeof f === 'object' && Number.isFinite(Number(f.seq)))
+    : [];
+
+  // ① 宿主原帧优先：meta.seq === n
+  const host = list.filter((f) => hostSeqOf(f) === seq);
+  if (host.length === 1) {
+    return { ok: true, frame: host[0], matchedBy: 'host-meta', hostMatches: 1 };
+  }
+  if (host.length > 1) {
+    const same = new Set(host.map(frameIdentity));
+    if (same.size === 1) {
+      // 同一帧被重复回放（实测有过 392 条重复 meta.seq）—— 内容一致，取哪条都是同一段原文。
+      return {
+        ok: true, frame: host[0], matchedBy: 'host-meta', hostMatches: host.length,
+        containerSeqs: host.map((f) => f.seq),
+      };
+    }
+    return {
+      ok: false, code: 'AMBIGUOUS_LOG_PTR', hostMatches: host.length,
+      candidates: host.map(summarizeFrame),
+    };
+  }
+
+  // ② 没有宿主匹配 → 回退容器 seq（旧内部帧 / 本软件自己 append 的帧）
+  const bySeq = list.filter((f) => Number(f.seq) === seq);
+  if (bySeq.length === 1) {
+    return { ok: true, frame: bySeq[0], matchedBy: 'container-seq', hostMatches: 0 };
+  }
+  if (bySeq.length > 1) {
+    const same = new Set(bySeq.map(frameIdentity));
+    if (same.size === 1) {
+      return { ok: true, frame: bySeq[0], matchedBy: 'container-seq', hostMatches: 0, containerSeqs: bySeq.map((f) => f.seq) };
+    }
+    return {
+      ok: false, code: 'AMBIGUOUS_LOG_PTR', hostMatches: 0,
+      candidates: bySeq.map(summarizeFrame),
+    };
+  }
+  return { ok: false, code: 'NO_SUCH_FRAME', hostMatches: 0, hostSeqRange: hostSeqRange(list) };
 }
 
 export class Query {
@@ -340,14 +474,39 @@ export class Query {
       const seq = Number(m[2]);
       let entry = null;
       try { entry = this.store.load(sid); } catch { entry = null; }
-      const fr = entry && (entry.frames || []).find((f) => f.seq === seq);
-      if (!fr) {
-        return { ok: false, code: 'NO_SUCH_FRAME', hint: '会话 ' + sid + ' 里没有 seq=' + seq + '。会话可能被删了，或 id 不对。' };
+      const frames = entry && Array.isArray(entry.frames) ? entry.frames : [];
+      const r = resolveLogFrame(frames, seq);
+
+      if (!r.ok && r.code === 'AMBIGUOUS_LOG_PTR') {
+        // ★ 多个宿主帧同号且内容不同 → 取哪个都会取错。列候选，不返回正文。
+        return {
+          ok: false, code: 'AMBIGUOUS_LOG_PTR', ptr, sessionId: sid, seq,
+          hostMatches: r.hostMatches, candidates: r.candidates,
+          hint: '宿主 seq=' + seq + ' 在会话 ' + sid + ' 下匹配到 ' + r.hostMatches +
+            ' 帧内容不同的记录 —— 取哪一个都可能取错，所以不替你选。' +
+            '按 candidates[].containerSeq 用 soul_frame {session:"' + sid + '", seq:<containerSeq>} 精确取。',
+        };
       }
+      if (!r.ok) {
+        return {
+          ok: false, code: 'NO_SUCH_FRAME',
+          hint: '会话 ' + sid + ' 里没有 seq=' + seq + '：宿主 meta.seq 与容器 seq 都查过了。会话可能被删了，或 id 不对。',
+          ...(entry ? { frames: frames.length, hostSeqRange: r.hostSeqRange || null } : {}),
+        };
+      }
+
+      const fr = r.frame;
       return {
-        ok: true, ptr, kind: 'log', sessionId: sid, seq,
+        ok: true, ptr, kind: 'log', sessionId: sid,
+        seq,                          // 指针里的 n（旧字段，保持兼容）
+        matchedBy: r.matchedBy,        // 'host-meta' | 'container-seq' —— 取到的是哪一路，必须能核对
+        containerSeq: fr.seq,
+        hostSeq: hostSeqOf(fr),
+        hostMatches: r.hostMatches,
+        ...(Array.isArray(r.containerSeqs) && r.containerSeqs.length > 1 ? { containerSeqs: r.containerSeqs } : {}),
         when: fr.t ? localIso(new Date(fr.t)) : '', type: fr.type || '',
-        text: extractText(fr), frame: fr,
+        text: frameFullText(fr),      // 完整原文，不用索引里那条 500 字截断
+        frame: fr,
       };
     }
 

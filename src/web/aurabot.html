@@ -1,0 +1,159 @@
+<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>agent-soul · aurabot</title>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<link rel='stylesheet' href='/aurora.css'>
+<script src='/aurora.js' defer></script>
+<style>
+:root{--bg:var(--as-bg);--panel:linear-gradient(148deg,var(--as-glass-m1),var(--as-glass-m2));--panel2:var(--as-tint);--line:var(--as-edge-2);--ink:var(--as-ink);--dim:var(--as-dim);--dim2:var(--as-dim2);--amber:var(--as-amber);--green:var(--as-green);--red:var(--as-red)}
+*{box-sizing:border-box;margin:0;padding:0}
+html{background:var(--bg)}
+body{background:transparent;color:var(--ink);font-family:'Microsoft YaHei','PingFang SC',sans-serif;font-size:13.5px;line-height:1.75;display:grid;grid-template-columns:176px 1fr;min-height:100vh}
+nav{background:var(--panel);border-right:1px solid var(--line);padding:20px 0;display:flex;flex-direction:column}
+nav .brand{padding:0 16px 22px;font-family:'Lanxi-超粗黑',sans-serif;font-size:15px;letter-spacing:.04em}
+nav .brand i{font-style:normal;color:var(--amber)}
+nav .brand em{display:block;font-style:normal;font-size:9.5px;color:var(--dim);letter-spacing:.18em;margin-top:4px}
+nav a{display:flex;align-items:center;gap:8px;padding:9px 16px;color:var(--dim);text-decoration:none;font-size:12.5px;border-left:2px solid transparent}
+nav a.on{color:var(--ink);border-left-color:var(--amber);background:var(--panel2)}
+nav a:hover{color:var(--ink)}
+nav a b{width:4px;height:4px;border-radius:50%;background:var(--dim2);flex:none}
+nav a.on b{background:var(--amber)}
+nav .sp{flex:1}
+nav .ver{padding:0 16px;font-size:9.5px;color:var(--dim)}
+main{padding:22px 26px 30px;overflow-y:auto}
+.idcard{background:var(--panel);border:1px solid var(--line);padding:16px 18px;margin-bottom:16px;display:flex;align-items:center;gap:14px}
+.avatar{width:56px;height:56px;border-radius:50%;background:var(--panel2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:22px;flex:none;font-family:'Lanxi-超粗黑',sans-serif}
+.idcard .who .nm{font-family:'Lanxi-超粗黑',sans-serif;font-size:19px}
+.idcard .who .sub{color:var(--dim);font-size:11.5px;margin-top:2px}
+.badges{margin-top:6px}
+.badge{display:inline-block;font-size:10px;padding:1px 7px;border:1px solid var(--line);color:var(--dim2);margin:0 5px 3px 0;letter-spacing:.04em;border-radius:2px}
+.badge.ok{color:var(--green);border-color:var(--as-edge-ok)}
+.badge.off{color:var(--red);border-color:var(--as-edge-err)}
+.badge.hot{color:var(--amber);border-color:var(--as-edge-warn)}
+.idcard .right{margin-left:auto;text-align:right;font-size:12px}
+.idcard .right .k{color:var(--dim);font-size:10.5px}
+.idcard .right .v{font-family:'Lanxi-超粗黑',sans-serif;font-size:14px}
+h2{font-size:10px;letter-spacing:.22em;color:var(--dim);margin:0 0 8px;font-weight:400;display:flex;align-items:center;gap:9px}
+h2:after{content:'';flex:1;height:1px;background:var(--line)}
+.tiles{display:flex;gap:10px;margin-bottom:18px}
+.tile{flex:1;background:var(--panel);border:1px solid var(--line);padding:11px 14px;min-width:0}
+.tile .n{font-family:'Lanxi-超粗黑',sans-serif;font-size:24px;line-height:1.2}
+.tile .k{color:var(--dim);font-size:11px;margin-top:2px}
+.cols{display:flex;gap:12px}
+.col{flex:1;background:var(--panel);border:1px solid var(--line);padding:14px 16px;min-width:0}
+.col h3{font-size:10px;letter-spacing:.2em;color:var(--dim);font-weight:400;margin-bottom:10px}
+.rowkv{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.rowkv:last-child{border-bottom:none}
+.rowkv .k{color:var(--dim)}
+.rowkv .v{text-align:right;word-break:break-all}
+.moodbar{height:7px;background:var(--panel2);border:1px solid var(--line);margin:8px 0 6px;position:relative;overflow:hidden}
+.moodbar i{display:block;height:100%;background:var(--amber);opacity:.75}
+.note{color:var(--dim);font-size:11.5px;line-height:1.85;margin:10px 0 0}
+.note .hl{color:var(--ink)}
+.chatlist{margin-top:6px}
+.chatlist div{font-size:11.5px;color:var(--dim);padding:3px 0;border-bottom:1px dashed var(--line)}
+.chatlist div:last-child{border-bottom:none}
+.chatlist .t{color:var(--ink)}
+</style></head><body>
+<nav>
+  <div class='brand'>砚青 <i>·</i> 器官<em>AGENT SOUL</em></div>
+  <a href='/dashboard'><b></b>概览</a>
+  <a href='/chat'><b></b>调度LLM</a>
+  <a href='/lumen'><b></b>星系</a>
+  <a href='/organs'><b></b>器官</a>
+  <a href='/aurabot' class='on'><b></b>aurabot</a>
+  <a href='/diary'><b></b>日记</a>
+  <a href='/yantai'><b></b>砚台</a>
+  
+  <a href='/settings'><b></b>设置</a>
+  <div class='sp'></div>
+  <div class='ver' id='ver'>—</div>
+</nav>
+<main>
+  <div class='idcard'>
+    <div class='avatar' id='av'>鱼</div>
+    <div class='who'>
+      <div class='nm' id='nm'>—</div>
+      <div class='sub' id='sub'>—</div>
+      <div class='badges' id='badges'></div>
+    </div>
+    <div class='right'>
+      <div class='k'>总开关</div><div class='v' id='sw'>—</div>
+    </div>
+  </div>
+  <div class='tiles' id='tiles'></div>
+  <div class='cols'>
+    <div class='col'>
+      <h3>她现在</h3>
+      <div id='mood'></div>
+    </div>
+    <div class='col'>
+      <h3>连接与开关</h3>
+      <div id='switches'></div>
+    </div>
+  </div>
+  <div class='cols' style='margin-top:12px'>
+    <div class='col'>
+      <h3>QQ 会话</h3>
+      <div class='chatlist' id='chats'></div>
+    </div>
+    <div class='col'>
+      <h3>说明</h3>
+      <p class='note'>这一页读 aurabot（原 DSH 插件）的状态文件，<span class=\"hl\">只读</span>。改配置去它原面板。</p>
+      <p class='note'>脱敏口径是<span class=\"hl\">白名单</span>：只给确认过的键，token / apiKey 之类一个都不会出现在这里（黑名单会漏，白名单不会）。</p>
+      <p class='note'>右上角那个「总开关」是<span class=\"hl\">显示</span>，不是按钮 —— v4 不改它的配置。</p>
+    </div>
+  </div>
+</main>
+<script>
+const token = (window.__SOUL_TOKEN__ || '');
+function esc (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) }
+async function api (p) {
+  const r = await fetch(p, { headers: token ? { 'X-Soul-Token': token } : {} });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+function kv (k, v, cls) { return '<div class="rowkv"><span class="k">' + esc(k) + '</span><span class="v ' + (cls || '') + '">' + v + '</span></div>' }
+function tile (n, k) { return '<div class="tile"><div class="n">' + esc(n) + '</div><div class="k">' + esc(k) + '</div></div>' }
+function render (d) {
+  const c = d.config || {}
+  const cfgd = d.configured || {}
+  const cnt = d.counts || {}
+  document.getElementById('nm').textContent = c.ownerName || '—'
+  document.getElementById('sub').textContent = 'QQ ' + (c.botQQ || '?') + ' · ' + (c.ownerName || '') + ' · ' + (c.gateway || '?')
+  document.getElementById('av').textContent = String(c.ownerName || '鱼').slice(0, 1)
+  document.getElementById('sw').textContent = c.enabled ? '开' : '关'
+  document.getElementById('badges').innerHTML = [
+    c.setupDone ? '<span class="badge ok">已初始化</span>' : '<span class="badge off">未初始化</span>',
+    c.dryRun ? '<span class="badge hot">试运行</span>' : '',
+    c.enabled ? '<span class="badge ok">启用</span>' : '<span class="badge off">停用</span>',
+    '<span class="badge">' + esc(c.ownerLevel || '?') + '</span>',
+  ].join('')
+  document.getElementById('tiles').innerHTML = [
+    tile(cnt.stickers || 0, '表情库'),
+    tile(cnt.voiceCache || 0, '语音缓存'),
+    tile(d.chats ? d.chats.count : 0, 'QQ 会话'),
+    tile(cnt.personas || 0, '人格'),
+  ].join('')
+  const m = d.mood
+  document.getElementById('mood').innerHTML = m
+    ? '<div class="rowkv"><span class="k">心情</span><span class="v">' + m.value + ' / 100</span></div>' +
+      '<div class="moodbar"><i style="width:' + Math.max(0, Math.min(100, m.value)) + '%"></i></div>' +
+      (m.reason ? '<p class="note">' + esc(m.reason) + '</p>' : '') +
+      '<div class="rowkv"><span class="k">心情记录</span><span class="v">' + (m.historyLen || 0) + ' 条</span></div>'
+    : '<p class="note">读不到 mood.json</p>'
+  document.getElementById('switches').innerHTML = [
+    kv('总开关', c.enabled ? '开' : '关', c.enabled ? 'ok' : 'off'),
+    kv('试运行', c.dryRun ? '是' : '否', c.dryRun ? 'hot' : ''),
+    kv('长任务', c.longTasks ? '开' : '关'),
+    kv('SnowLuma 凭据', cfgd.snowluma ? '已配' : '未配', cfgd.snowluma ? 'ok' : 'off'),
+    kv('生图凭据', cfgd.imageGen ? '已配' : '未配', cfgd.imageGen ? 'ok' : ''),
+  ].join('')
+  const chats = (d.chats && d.chats.items) || []
+  document.getElementById('chats').innerHTML = chats.length
+    ? chats.map((x) => '<div><span class="t">' + esc(x.title) + '</span> · ' + esc(x.preset) + '</div>').join('')
+    : '<p class="note">没有会话</p>'
+  document.getElementById('ver').textContent = 'aurabot · 只读'
+}
+api('/api/aurabot').then(render).catch((e) => {
+  document.getElementById('tiles').innerHTML = '<div class="tile"><div class="n">—</div><div class="k">读不到：' + esc(e.message) + '</div></div>'
+})
+</script></body></html>

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>状态台 · 已并入状态球</title>
+<link rel="stylesheet" href="/aurora.css">
+<script src="/aurora.js" defer></script>
+<meta http-equiv="refresh" content="0; url=/sphere">
+<style>
+/* ── /status 已并入 /sphere（2026-11-11）─────────────────────────────────────
+   为什么保留这个地址而不是直接删：它可能被书签、心跳、外部脚本引用着，
+   404 出去比多一次跳转更难查。所以这里只做一件事 —— 立刻转到唯一入口。
+   ★ 没走 server.mjs 的 307：那要重启 core 才生效，而这一页改完刷新就是。
+     下次 core 重启时可以把这条改成真正的 307 再删掉本文件。
+   ───────────────────────────────────────────────────────────────────────── */
+html{height:100%;background:var(--as-bg)}
+body{margin:0;min-height:100vh;background:transparent;color:var(--as-ink);display:flex;
+  align-items:center;justify-content:center;
+  font:13.5px/1.8 'Microsoft YaHei',system-ui,-apple-system,'Segoe UI',sans-serif}
+.box{text-align:center;padding:28px 34px;border:1px solid var(--as-edge);border-radius:var(--as-r);
+  background:linear-gradient(158deg,rgba(18,38,62,.78),rgba(7,15,28,.70));
+  box-shadow:inset 0 1px 0 rgba(216,238,255,.20),0 18px 44px -22px #000}
+h1{font-family:'Lanxi-超粗黑',sans-serif;font-weight:400;font-size:22px;letter-spacing:.06em;margin:0 0 6px}
+p{margin:0 0 14px;color:var(--as-dim);font-size:12.5px}
+a{color:var(--as-ok);text-decoration:none;border-bottom:1px solid rgba(63,227,168,.4);padding-bottom:1px}
+a:hover{color:var(--as-ink);border-color:var(--as-ink)}
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>状态台已并入状态球</h1>
+  <p>三水位、六层、读数现在都在同一页 —— 不用在两个表之间来回切。</p>
+  <a href="/lumen">去状态球 →</a>
+</div>
+<script>
+  /* 立刻转，不等 meta refresh（那只是 JS 被禁时的兜底）。
+     用 replace 不留历史记录 —— 否则点浏览器「后退」会回到这张过渡页，再被弹走，成了死循环。 */
+  location.replace('/sphere');
+</script>
+</body>
+</html>

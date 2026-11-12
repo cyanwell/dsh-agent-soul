@@ -1,0 +1,310 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   aurora.css · 极光 / 液态玻璃 · 全站唯一样式源（八页共用）
+   2026-11-11 视觉层重做
+
+   【这一版的三条判据】
+   ① 天空是活的：26 道帘子（随机宽/高/相位，各自 20–50s 摆动）+ 三道大帷幕
+      （74–112s 漂移）+ 顶弧 + 星尘 + 地平雾 + 暗角。运动只碰 transform/opacity。
+   ② 玻璃不用 backdrop-filter（WebView2 掉帧）：靠四样东西做「厚度」——
+      双段渐变底（上亮下暗 = 有体积）/ 1px 折射边（mask 挖出的环，左上冷白右下青绿
+      = 有反光）/ 顶高光 + 底部内阴影（有厚度）/ 3° 斜向扫光（有液面）。
+   ③ 可读性优先：玻璃底 ≥ .62 不透明；帘子峰值留在上半屏；--as-weak 抬到 #8C9EB4。
+
+   【八页共用的契约】各页自己的 <style> 只走 --as-* 这套变量，
+   所以「换材质」= 只改本文件的 :root。
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+:root{
+  /* ── 天色 ───────────────────────────────────────────────────────────── */
+  --as-bg:#04070E;
+
+  /* ── 文字三级（压在玻璃上的实测档） ───────────────────────────────────── */
+  --as-ink:#EDF4FF;
+  --as-dim:#B9C8DB;
+  --as-weak:#8C9EB4;
+  --as-weak-d:#93A6BC;
+
+  /* ── 四态：ok 青绿 / warn 琥珀 / err 珊瑚 / pend 冰蓝 ─────────────────── */
+  --as-ok:#3FE3A8;
+  --as-warn:#F2C15C;
+  --as-err:#FF7A68;
+  --as-pend:#6FB6FF;
+  --as-violet:#9E8BF5;
+
+  /* ── 液态玻璃三档（A 氛围 / B 表格 / C 密集） ────────────────────────── */
+  --as-glass-1:rgba(23,47,75,.60);
+  --as-glass-2:rgba(9,20,36,.50);
+  --as-glass-m1:rgba(22,46,74,.74);
+  --as-glass-m2:rgba(9,20,36,.64);
+  --as-glass-d1:rgba(19,42,68,.86);
+  --as-glass-d2:rgba(8,17,31,.80);
+
+  /* ── 描边 ────────────────────────────────────────────────────────────── */
+  --as-edge:rgba(150,200,255,.18);
+  --as-edge-2:rgba(150,200,255,.09);
+  --as-edge-3:rgba(150,200,255,.05);
+  --as-edge-hi:rgba(170,215,255,.42);
+  --as-edge-ok:rgba(63,227,168,.36);
+  --as-edge-warn:rgba(242,193,92,.38);
+  --as-edge-err:rgba(255,122,104,.42);
+
+  /* ── 淡色底 ──────────────────────────────────────────────────────────── */
+  --as-tint:rgba(111,182,255,.12);
+  --as-tint-ok:rgba(63,227,168,.12);
+  --as-tint-warn:rgba(242,193,92,.12);
+  --as-tint-err:rgba(255,122,104,.12);
+
+  /* ── 圆角 / 高光 / 阴影 ──────────────────────────────────────────────── */
+  --as-r:18px; --as-r-sm:13px; --as-r-pill:99px;
+  --as-hi:inset 0 1px 0 rgba(214,236,255,.24);
+  --as-hi-2:inset 0 1px 0 rgba(214,236,255,.34);
+  --as-drop:0 18px 44px -22px rgba(0,0,0,.82);
+  --as-shadow:inset 0 1px 0 rgba(220,240,255,.30),
+              inset 0 -26px 36px -30px rgba(4,10,20,.95),
+              0 18px 44px -22px rgba(0,0,0,.82);
+  --as-glow:0 0 42px rgba(111,182,255,.28);
+  --as-text-shadow:0 1px 3px rgba(2,6,14,.9),0 0 22px rgba(2,6,14,.6);
+  --as-ease:cubic-bezier(.32,.72,.24,1);
+
+  /* ── 间距 / 字体 ─────────────────────────────────────────────────────── */
+  --as-s1:4px; --as-s2:8px; --as-s3:12px; --as-s4:16px; --as-s5:24px; --as-s6:32px;
+  --as-font:'Microsoft YaHei',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --as-font-title:'Lanxi-超粗黑',system-ui,sans-serif;
+  --as-font-mono:'Lanxi-叮叮',ui-monospace,Consolas,monospace;
+
+  /* ── 壳层 ────────────────────────────────────────────────────────────── */
+  --as-nav:linear-gradient(180deg,rgba(12,24,42,.86),rgba(6,13,24,.80));
+  --as-scrim-soft:linear-gradient(180deg,rgba(4,7,14,.36),rgba(4,7,14,.58) 38%,rgba(4,7,14,.76));
+  --as-scrim-mid:linear-gradient(180deg,rgba(4,7,14,.46),rgba(4,7,14,.64) 40%,rgba(4,7,14,.80));
+  --as-scrim-dense:linear-gradient(180deg,rgba(4,7,14,.62),rgba(4,7,14,.76) 40%,rgba(4,7,14,.88));
+}
+
+/* ══ 0 · 底 —— 底色只铺 html，body 必须透明 ═══════════════════════════════
+   .as-sky 是 fixed + z-index:-1：画在 html 画布之上、body 盒子背景之下。
+   body 有不透明底就整层盖死（2026-11-10 实证过的坑，这里守死）。 */
+*,*::before,*::after{box-sizing:border-box}
+html{background:var(--as-bg);color-scheme:dark}
+/* min-height：底色铺在 html 上（天空层要用），于是 body 的背景不再传播到画布。
+   body 自己撑满一屏 —— 否则浅色页（/ask 那张纸）只铺到内容高度，下面露出深色，像被截断。 */
+body{background:transparent;color:var(--as-ink);-webkit-font-smoothing:antialiased;min-height:100vh}
+::selection{background:rgba(63,227,168,.26);color:#fff}
+:focus-visible{outline:2px solid var(--as-pend);outline-offset:2px;border-radius:5px}
+/* 全局禁 backdrop-filter：页面里有历史遗留（#main/#sidebar 等） */
+*,*::before,*::after{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:rgba(4,8,15,.34)}
+::-webkit-scrollbar-thumb{background:rgba(120,160,210,.22);border-radius:99px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(120,170,225,.38);background-clip:padding-box}
+
+/* ══ 1 · 天空层 ═══════════════════════════════════════════════════════════
+   DOM 由 aurora.js 注入：底 → 顶弧 → 帷幕×3 → 帘子×26 → 星尘×3 → 横掠 → 地平雾 → 暗角 → 细纹 */
+.as-sky{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;
+  --mx:0;--my:0}
+.as-sky>*{position:absolute;pointer-events:none}
+
+.as-base{inset:0;
+  background:
+    radial-gradient(120% 80% at 50% -12%,#071628 0%,transparent 62%),
+    radial-gradient(90% 60% at 86% 8%,rgba(26,72,96,.34) 0%,transparent 58%),
+    radial-gradient(80% 60% at 12% 16%,rgba(48,32,92,.26) 0%,transparent 62%),
+    linear-gradient(180deg,#03060C 0%,#050C18 34%,#061020 58%,#071425 78%,#04080F 100%)}
+
+/* ★ 2026-11-11 21:44：这个「顶弧」是一个 3167×1150 的椭圆。
+   椭圆的底边落在 y≈594，在画面中下部看起来就是一条**水平直线** ——
+   找了半天的硬边就是它。现在用 mask 让下半部淡出，椭圆只剩顶部那一道弧光。 */
+.as-crown{left:-35%;right:-35%;top:-58%;height:120%;border-radius:50%;
+  border-top:1px solid rgba(120,255,215,.26);
+  box-shadow:0 -1px 0 rgba(150,255,225,.10),inset 0 44px 90px -46px rgba(64,235,180,.24);
+  -webkit-mask-image:linear-gradient(180deg,#000 0%,#000 38%,transparent 58%);
+  mask-image:linear-gradient(180deg,#000 0%,#000 38%,transparent 58%)}
+
+/* ── 星云：有结构的云气（不是一团柔光）。四个错开色团 + 一层极淡的斜向纹 ── */
+.as-nebula{inset:-16%;filter:blur(52px);opacity:.66;
+  -webkit-mask-image:radial-gradient(120% 120% at 50% 50%,#000 62%,transparent 100%);
+  mask-image:radial-gradient(120% 120% at 50% 50%,#000 62%,transparent 100%);
+  background:
+    radial-gradient(34% 24% at 24% 30%,rgba(50,196,180,.36),transparent 64%),
+    radial-gradient(28% 20% at 63% 22%,rgba(92,124,238,.28),transparent 66%),
+    radial-gradient(24% 18% at 79% 57%,rgba(162,112,244,.24),transparent 64%),
+    radial-gradient(32% 22% at 41% 71%,rgba(38,152,212,.26),transparent 66%);
+  animation:as-neb 148s ease-in-out infinite alternate;will-change:transform,opacity}
+@keyframes as-neb{0%{transform:translate3d(-1.6%,1.2%,0) scale(1.02,1);opacity:.52}
+  100%{transform:translate3d(1.8%,-1.4%,0) scale(1.06,1.04);opacity:.74}}
+/* ── 横向极光条带：极光是横的，这是全站的「经纬」 ── */
+/* 横带不是扫描线 —— 是三条宽阔的水平光幕，横跨天空，缓慢起伏。
+   细密重复线会读成「纱窗」，这是 2026-11-11 改掉的那一版。 */
+/* ★ 2026-11-11 21:38：**不要 filter:blur**。
+   blur 在元素边界会被裁掉，于是元素的顶/底边变成一条可见的硬直线
+   （就是 60% 处那条）。现在改用「多段宽渐变 + 上下 mask 淡出」，
+   过渡全靠 gradient 的 stop 距离，不依赖任何像素级模糊。 */
+/* ★ 2026-11-11 21:40 · 层级（爀曦原话：「极光是地球气候，星云、星星是太空，会有层级区别」）
+   极光是**大气层内**的东西 —— 它只能出现在下半部（贴着地面往上看），
+   往上必须淡出到「太空」里去。之前把它铺满全屏，等于把大气层和太空画在同一层，
+   于是每一条渐变带的边缘都成了一条硬线。
+   现在：极光只占底部 75%，向上 mask 到透明；星云是中景；星星最远。      */
+.as-bands{left:-10%;right:-10%;bottom:-18%;height:78%;opacity:.62;
+  background:
+    linear-gradient(180deg,transparent 0%,rgba(60,190,170,.055) 34%,rgba(84,224,196,.115) 52%,rgba(120,236,214,.14) 64%,rgba(64,186,180,.075) 80%,transparent 100%),
+    linear-gradient(180deg,transparent 0%,rgba(96,150,240,.045) 46%,rgba(120,168,250,.075) 62%,transparent 92%);
+  -webkit-mask-image:linear-gradient(180deg,transparent 0%,#000 46%,#000 100%);
+  mask-image:linear-gradient(180deg,transparent 0%,#000 46%,#000 100%);
+  animation:as-bands 54s ease-in-out infinite alternate;will-change:transform,opacity}
+@keyframes as-bands{0%{transform:translate3d(-1.2%,0,0) scaleY(1);opacity:.62}
+  100%{transform:translate3d(1.6%,-2%,0) scaleY(1.10);opacity:.88}}
+
+.as-veil{border-radius:50%;will-change:transform,opacity;transition:transform 1.2s var(--as-ease)}
+.as-v1{left:-28%;top:-6%;width:96%;height:62%;
+  background:radial-gradient(58% 62% at 46% 44%,rgba(46,232,176,.40),rgba(30,150,180,.20) 46%,transparent 76%);
+  animation:as-veil-a 74s ease-in-out infinite alternate;animation-delay:-4s}
+.as-v2{left:18%;top:-14%;width:104%;height:66%;
+  background:radial-gradient(56% 60% at 54% 42%,rgba(64,190,255,.32),rgba(90,120,235,.18) 48%,transparent 78%);
+  animation:as-veil-b 96s ease-in-out infinite alternate;animation-delay:-31s}
+.as-v3{left:-14%;top:2%;width:88%;height:56%;
+  background:radial-gradient(52% 58% at 50% 50%,rgba(160,110,240,.28),rgba(80,140,220,.15) 46%,transparent 76%);
+  animation:as-veil-c 112s ease-in-out infinite alternate;animation-delay:-63s}
+@keyframes as-veil-a{0%{transform:translate3d(-3%,2%,0) scale(1,1) rotate(-2deg);opacity:.72}
+  100%{transform:translate3d(4%,-3%,0) scale(1.12,1.06) rotate(2.5deg);opacity:1}}
+@keyframes as-veil-b{0%{transform:translate3d(3%,-1%,0) scale(1.06,.96) rotate(1.6deg);opacity:.62}
+  100%{transform:translate3d(-4%,3%,0) scale(1,.98) rotate(-1.8deg);opacity:.92}}
+@keyframes as-veil-c{0%{transform:translate3d(-2%,-2%,0) scale(.98,1.04) rotate(-1.4deg);opacity:.55}
+  100%{transform:translate3d(3%,4%,0) scale(1.08,.98) rotate(1.2deg);opacity:.85}}
+
+/* 帘子：26 道窄而高的柔柱（位置/宽/高/相位由 JS 随机写进 style）——
+   每道自己摆，才是「帷幕在动」，不是整张图在缩放 */
+.as-strands{inset:0;transform:translate3d(calc(var(--mx) * -9px),calc(var(--my) * -6px),0);
+  transition:transform .5s var(--as-ease)}
+/* 帘子本体：软（blur）+ 上下都淡出（mask）——
+   上一版的圆头在 24% 处排成一条硬线，看起来像一排柱子，不像光。 */
+.as-s{position:absolute;bottom:2%;border-radius:50%;will-change:transform,opacity;
+  filter:blur(var(--bl,14px));
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0%,#000 17%,#000 46%,transparent 93%);
+  mask-image:linear-gradient(to bottom,transparent 0%,#000 17%,#000 46%,transparent 93%);
+  animation:as-sway var(--d,30s) ease-in-out var(--dl,0s) infinite alternate}
+@keyframes as-sway{
+  0%{transform:translate3d(calc(var(--dx,8px) * -1),1.5%,0) scaleX(.86) rotate(var(--rot,-1.2deg))}
+  100%{transform:translate3d(var(--dx,8px),-2.5%,0) scaleX(1.14) rotate(calc(var(--rot,-1.2deg) * -1))}}
+
+.as-stars{inset:0;opacity:.55;background-repeat:no-repeat;
+  transform:translate3d(calc(var(--mx) * 5px),calc(var(--my) * 4px),0);transition:transform .7s var(--as-ease);
+  animation:as-twinkle 9s ease-in-out infinite alternate}
+.as-stars.b{opacity:.4;animation-duration:13s;animation-delay:-4s}
+.as-stars.c{opacity:.28;animation-duration:17s;animation-delay:-9s}
+@keyframes as-twinkle{0%{opacity:.20}100%{opacity:.60}}
+
+.as-flow{top:-20%;left:-40%;width:180%;height:90%;
+  background:linear-gradient(104deg,transparent 38%,rgba(150,240,230,.055) 49%,rgba(170,220,255,.075) 51%,transparent 62%);
+  -webkit-mask-image:linear-gradient(180deg,transparent 0%,#000 22%,#000 60%,transparent 92%);
+  mask-image:linear-gradient(180deg,transparent 0%,#000 22%,#000 60%,transparent 92%);
+  animation:as-flow 88s linear infinite}
+@keyframes as-flow{0%{transform:translate3d(-18%,0,0)}100%{transform:translate3d(18%,2%,0)}}
+
+/* ★ 2026-11-11 21:35：这两层去掉。
+   .as-horizon 的椭圆雾在 bottom:-30% / height:74% —— 元素顶边落在 56%，
+   加上 .as-haze 在 52% 起笔的竖向压暗，两者叠出一条横贯全屏的可见接缝。
+   九页里没人需要「地平线」，删掉比修它便宜。 */
+.as-horizon,.as-haze{display:none}
+.as-vig{inset:0;background:radial-gradient(118% 92% at 50% 42%,transparent 40%,rgba(2,5,11,.32) 78%,rgba(2,5,11,.58) 100%)}
+.as-grain{inset:0;opacity:.05;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E")}
+
+/* ══ 2 · 液态玻璃 ═════════════════════════════════════════════════════════ */
+.as-glass,.as-card{position:relative;isolation:isolate;
+  border:1px solid var(--as-edge);border-radius:var(--as-r);
+  background:
+    linear-gradient(158deg,rgba(255,255,255,.105) 0%,rgba(255,255,255,.022) 28%,transparent 55%),
+    linear-gradient(158deg,var(--as-glass-1),var(--as-glass-2));
+  box-shadow:
+    inset 0 1px 0 rgba(216,238,255,.26),
+    inset 0 -30px 44px -34px rgba(3,8,16,.95),
+    0 22px 50px -26px rgba(0,0,0,.86);
+  overflow:hidden}
+.as-glass::after,.as-card::after{
+  content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;
+  background:linear-gradient(138deg,rgba(238,250,255,.62) 0%,rgba(150,205,255,.12) 32%,
+    rgba(120,235,205,.08) 60%,rgba(150,225,255,.40) 100%);
+  -webkit-mask:linear-gradient(#000,#000) content-box,linear-gradient(#000,#000);
+  -webkit-mask-composite:xor;
+  mask:linear-gradient(#000,#000) content-box,linear-gradient(#000,#000);
+  mask-composite:exclude;pointer-events:none;z-index:2}
+.as-glass::before,.as-card::before{
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:1;
+  background:linear-gradient(197deg,rgba(255,255,255,.10) 0%,rgba(255,255,255,.03) 16%,transparent 34%)}
+.as-card>*{position:relative;z-index:3}
+.as-glass.mid,.as-card.mid{background:linear-gradient(158deg,rgba(255,255,255,.07),transparent 50%),
+  linear-gradient(158deg,var(--as-glass-m1),var(--as-glass-m2))}
+.as-glass.dense,.as-card.dense{background:linear-gradient(158deg,rgba(255,255,255,.055),transparent 48%),
+  linear-gradient(158deg,var(--as-glass-d1),var(--as-glass-d2))}
+.as-card.as-lead{animation:as-breathe-card 7.5s ease-in-out infinite}
+@keyframes as-breathe-card{
+  0%,100%{box-shadow:inset 0 1px 0 rgba(216,238,255,.26),inset 0 -30px 44px -34px rgba(3,8,16,.95),0 22px 50px -26px rgba(0,0,0,.86),0 0 0 0 rgba(111,182,255,0)}
+  50%{box-shadow:inset 0 1px 0 rgba(216,238,255,.34),inset 0 -30px 44px -34px rgba(3,8,16,.95),0 22px 50px -26px rgba(0,0,0,.86),0 0 42px -6px rgba(111,182,255,.30)}}
+
+/* 八页自己的 .card/.ocard/.mcard/.stat 走 --panel（= 上面的玻璃变量），
+   这里再补一层只有伪元素能做的折射边。特异性 (0,1,1) 不压掉页面的 .card.warn。 */
+body .card,body .ocard,body .mcard,body .stat,body .wcard{position:relative}
+body .card::after,body .ocard::after,body .mcard::after,body .stat::after{
+  content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;
+  background:linear-gradient(138deg,rgba(238,250,255,.52) 0%,rgba(150,205,255,.09) 34%,
+    rgba(120,235,205,.06) 62%,rgba(150,225,255,.32) 100%);
+  -webkit-mask:linear-gradient(#000,#000) content-box,linear-gradient(#000,#000);
+  -webkit-mask-composite:xor;
+  mask:linear-gradient(#000,#000) content-box,linear-gradient(#000,#000);
+  mask-composite:exclude}
+/* 注：不在这里覆盖 background —— 各页的 .card 已经用 var(--panel)（= 上面的玻璃变量），
+   再叠一层会踩到「--panel 在某些页不存在」的情况（整条声明失效 → 卡变透明）。 */
+
+/* ══ 3 · 排版原子 ═════════════════════════════════════════════════════════ */
+.as-title{font-family:var(--as-font-title);font-weight:400;letter-spacing:.02em;color:var(--as-ink)}
+.as-num{font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1}
+.as-dim{color:var(--as-dim)}
+.as-weak{color:var(--as-weak)}
+.as-kicker{font-size:10.5px;letter-spacing:.34em;color:var(--as-weak);text-transform:uppercase}
+.as-prov{margin-top:12px;padding-top:10px;border-top:1px solid var(--as-edge-2);
+  color:var(--as-weak);font-size:11px;line-height:1.7}
+
+/* ══ 4 · 状态原子 ═════════════════════════════════════════════════════════ */
+.as-dot{width:8px;height:8px;border-radius:50%;background:var(--as-weak);flex:none;display:inline-block}
+.as-dot.ok{background:var(--as-ok);box-shadow:0 0 9px rgba(63,227,168,.8);animation:as-br 3.4s ease-in-out infinite}
+.as-dot.warn{background:var(--as-warn);box-shadow:0 0 9px rgba(242,193,92,.8);animation:as-br 2.6s ease-in-out infinite}
+.as-dot.error{background:var(--as-err);box-shadow:0 0 10px rgba(255,122,104,.9);animation:as-br 1.2s ease-in-out infinite}
+.as-dot.pending{background:var(--as-pend);box-shadow:0 0 9px rgba(111,182,255,.75);animation:as-br 3.4s ease-in-out infinite}
+@keyframes as-br{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.78)}}
+
+.as-pill{display:inline-flex;align-items:center;gap:5px;padding:1px 9px;border-radius:var(--as-r-pill);
+  border:1px solid var(--as-edge);color:var(--as-dim);font-size:11px;line-height:1.7;letter-spacing:.04em;
+  background:rgba(4,10,18,.42)}
+.as-pill.ok{color:var(--as-ok);border-color:var(--as-edge-ok);background:var(--as-tint-ok)}
+.as-pill.warn{color:var(--as-warn);border-color:var(--as-edge-warn);background:var(--as-tint-warn)}
+.as-pill.error{color:var(--as-err);border-color:var(--as-edge-err);background:var(--as-tint-err)}
+.as-pill.pending{color:var(--as-pend);border-color:rgba(111,182,255,.36);background:var(--as-tint)}
+
+.as-btn{background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.01)),var(--as-tint);
+  border:1px solid var(--as-edge-hi);color:var(--as-dim);font:inherit;font-size:12px;
+  padding:5px 13px;border-radius:var(--as-r-pill);cursor:pointer;
+  box-shadow:inset 0 1px 0 rgba(214,236,255,.20),0 6px 18px -12px rgba(0,0,0,.9);
+  transition:color .16s var(--as-ease),border-color .16s var(--as-ease),box-shadow .16s var(--as-ease)}
+.as-btn:hover{color:var(--as-ink);border-color:rgba(190,225,255,.62);
+  box-shadow:inset 0 1px 0 rgba(214,236,255,.30),0 8px 22px -12px rgba(0,0,0,.9),0 0 22px -6px rgba(111,182,255,.4)}
+.as-btn:active{transform:translateY(1px)}
+.as-btn:disabled{opacity:.35;cursor:default}
+
+/* ══ 5 · 壳层（导航 / 侧栏 / 底条） ═══════════════════════════════════════ */
+nav,.as-shell{background:var(--as-nav);box-shadow:inset 0 1px 0 rgba(200,230,255,.06)}
+footer,.bar{background:var(--as-nav);box-shadow:inset 0 1px 0 rgba(200,230,255,.06)}
+#navline{background:var(--as-nav)!important;box-shadow:inset 0 -1px 0 rgba(140,200,255,.10),0 8px 24px -20px #000}
+#main,#sidebar,#aside,#composer{background:var(--as-nav)}
+/* 对话区（/chat 的 #main）原本铺满 --as-nav（.86 不透明），极光在那一片等于是被盖住的。
+   改成软遮罩：透得进光，压得住字（.36→.76，中段 .58）。只动背景，不动布局。 */
+html #main{background:var(--as-scrim-soft)}
+body.as-enter main,body.as-enter .wrap,body.as-enter .page{animation:as-fade .6s var(--as-ease) both}
+@keyframes as-fade{from{opacity:0}to{opacity:1}}
+
+/* ══ 6 · 动效与窄屏兜底 ═══════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce){
+  .as-veil,.as-s,.as-flow,.as-stars,.as-card.as-lead,.as-dot,.as-horizon{animation:none!important}
+  .as-strands,.as-stars{transition:none}
+}
+@media (max-width:880px){
+  .as-card,.as-glass{border-radius:var(--as-r-sm)}
+}

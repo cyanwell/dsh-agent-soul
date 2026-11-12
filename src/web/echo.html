@@ -1,0 +1,133 @@
+<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>agent-soul · echo 体检</title>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<link rel='stylesheet' href='/aurora.css'>
+<script src='/aurora.js' defer></script>
+<style>
+/* ★ 2026-11-13：这一页照 v3 的 dsh-yanqing-echo 面板做（15 项体检）。
+   逻辑不搬 —— echo-doctor.mjs 是命令行与面板共用的同一份，v4 只做壳。 */
+:root{
+  --bg:var(--as-bg);
+  --panel:linear-gradient(148deg,var(--as-glass-m1),var(--as-glass-m2));
+  --line:var(--as-edge-2);
+  --ink:var(--as-ink); --dim:var(--as-dim); --dim2:var(--as-dim2);
+  --ok:var(--as-green); --warn:var(--as-amber); --err:var(--as-red);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{background:var(--as-bg)}
+body{background:transparent;color:var(--ink);font-family:'Microsoft YaHei','PingFang SC',sans-serif;
+  font-size:13.5px;line-height:1.7;display:grid;grid-template-columns:176px 1fr;min-height:100vh}
+nav{background:var(--panel);border-right:1px solid var(--line);padding:20px 0;display:flex;flex-direction:column}
+nav .brand{padding:0 16px 22px;font-family:'Lanxi-超粗黑',sans-serif;font-size:15px;letter-spacing:.04em}
+nav .brand i{font-style:normal;color:var(--warn)}
+nav .brand em{display:block;font-style:normal;font-size:9.5px;color:var(--dim);letter-spacing:.18em;margin-top:4px}
+nav a{display:flex;align-items:center;gap:8px;padding:9px 16px;color:var(--dim);text-decoration:none;
+  font-size:12.5px;border-left:2px solid transparent}
+nav a.on{color:var(--ink);border-left-color:var(--warn);background:rgba(255,255,255,.05)}
+nav a:hover{color:var(--ink)}
+nav a b{width:4px;height:4px;border-radius:50%;background:var(--dim2);flex:none}
+nav a.on b{background:var(--warn)}
+nav .sp{flex:1}
+nav .ver{padding:0 16px;font-size:9.5px;color:var(--dim)}
+main{padding:22px 26px 34px;overflow-y:auto}
+h1{font-family:'Lanxi-超粗黑',sans-serif;font-size:18px;letter-spacing:.04em}
+h1 span{font-family:'Microsoft YaHei',sans-serif;font-size:11px;color:var(--dim);font-weight:400;margin-left:10px;letter-spacing:0}
+.hero{display:flex;gap:10px;margin:16px 0 20px}
+.hero .box{flex:1;background:var(--panel);border:1px solid var(--line);padding:12px 15px;min-width:0}
+.hero .box .n{font-family:'Lanxi-超粗黑',sans-serif;font-size:26px;line-height:1.15}
+.hero .box .k{color:var(--dim);font-size:11px;margin-top:2px}
+.hero .box.err .n{color:var(--err)}
+.hero .box.warn .n{color:var(--warn)}
+.hero .box.ok .n{color:var(--ok)}
+table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line)}
+th,td{text-align:left;padding:9px 13px;border-bottom:1px solid var(--line);vertical-align:top;font-size:12.5px}
+th{color:var(--dim);font-weight:400;font-size:10.5px;letter-spacing:.16em;background:rgba(255,255,255,.03)}
+tr:last-child td{border-bottom:none}
+td.st{width:64px;white-space:nowrap}
+td.id{width:128px;color:var(--dim);white-space:nowrap;font-size:12px}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:7px;vertical-align:middle}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.error{background:var(--err)} .dot.pending{background:var(--dim2)}
+.stxt{font-size:11.5px;color:var(--dim)}
+td .detail{color:var(--dim);font-size:11.5px;line-height:1.65;word-break:break-word}
+td .detail b{color:var(--ink);font-weight:400}
+.foot{margin-top:14px;color:var(--dim2);font-size:11px;display:flex;gap:16px;flex-wrap:nowrap}
+#ref{background:transparent;border:1px solid var(--line);color:var(--dim);font-size:11px;
+  padding:3px 10px;border-radius:5px;cursor:pointer;font-family:inherit}
+#ref:hover{color:var(--ink);border-color:var(--warn)}
+.note{color:var(--dim);font-size:11px;margin-top:12px;line-height:1.8}
+</style></head><body>
+<nav>
+  <div class='brand'>砚青 <i>·</i> 器官<em>AGENT SOUL</em></div>
+  <a href='/dashboard'><b></b>概览</a>
+  <a href='/chat'><b></b>调度LLM</a>
+  <a href='/lumen'><b></b>星系</a>
+  <a href='/organs'><b></b>器官</a>
+  <a href='/echo' class='on'><b></b>echo</a>
+  <a href='/aurabot'><b></b>aurabot</a>
+  <a href='/diary'><b></b>日记</a>
+  <a href='/yantai'><b></b>砚台</a>
+  
+  <a href='/settings'><b></b>设置</a>
+  <div class='sp'></div>
+  <div class='ver' id='ver'>—</div>
+</nav>
+<main>
+  <h1>echo 体检<span id='meta'>正在体检…</span></h1>
+  <div class='hero' id='hero'></div>
+  <table id='tbl'>
+    <thead><tr><th>状态</th><th>项</th><th>说明</th></tr></thead>
+    <tbody id='body'><tr><td colspan='3' class='detail'>正在跑体检（约 4 秒）…</td></tr></tbody>
+  </table>
+  <div class='foot'>
+    <span id='when'>—</span>
+    <button id='ref'>重新体检</button>
+    <span id='cache'></span>
+  </div>
+  <p class='note'>★ 这一页只读：它调 <b style='color:var(--ink);font-weight:400'>D:\AI\memory\hub\echo-doctor.mjs</b> 的 runDoctor()，
+  和命令行用的是**同一份逻辑**（不搬进 v4，搬了就会变两份）。体检约 4 秒，结果缓存 5 分钟。</p>
+</main>
+<script>
+function esc (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] }) }
+var LEVEL = { ok: '正常', warn: '注意', error: '异常', pending: '待定' }
+async function load (force) {
+  var url = '/api/echo' + (force ? '?force=1' : '')
+  document.getElementById('meta').textContent = force ? '重新体检中…' : '正在体检…'
+  try {
+    var r = await fetch(url, { cache: 'no-store' })
+    var d = await r.json()
+    if (!d.ok) throw new Error(d.error || 'HTTP ' + r.status)
+    render(d)
+  } catch (e) {
+    document.getElementById('meta').textContent = '读不到：' + ((e && e.message) || e)
+    document.getElementById('body').innerHTML = '<tr><td colspan="3" class="detail">' + esc((e && e.message) || e) + '</td></tr>'
+  }
+}
+function render (d) {
+  var c = d.counts || {}
+  document.getElementById('meta').textContent = d.mode + ' · ' + (d.ms || 0) + 'ms'
+  document.getElementById('ver').textContent = 'echo · 只读'
+  document.getElementById('hero').innerHTML = [
+    box(c.error || 0, '异常', 'err'),
+    box(c.warn || 0, '注意', 'warn'),
+    box(c.ok || 0, '正常', 'ok'),
+    box((d.checks || []).length, '共检查', ''),
+  ].join('')
+  var rows = (d.checks || []).map(function (x) {
+    var st = x.status || 'pending'
+    return '<tr>' +
+      '<td class="st"><span class="dot ' + esc(st) + '"></span><span class="stxt">' + esc(LEVEL[st] || st) + '</span></td>' +
+      '<td class="id">' + esc(x.id || '') + '<br><span style="font-size:10.5px">' + esc(x.label || '') + '</span></td>' +
+      '<td><div class="detail">' + esc(x.detail || '') + '</div></td>' +
+    '</tr>'
+  })
+  document.getElementById('body').innerHTML = rows.join('') || '<tr><td colspan="3" class="detail">没有检查项</td></tr>'
+  document.getElementById('when').textContent = '体检于 ' + (d.at || '?')
+  document.getElementById('cache').textContent = d.cached
+    ? '（缓存 · ' + Math.round((d.ageMs || 0) / 1000) + ' 秒前）'
+    : '（刚跑的）'
+}
+function box (n, k, cls) {
+  return '<div class="box ' + cls + '"><div class="n">' + esc(n) + '</div><div class="k">' + esc(k) + '</div></div>'
+}
+document.getElementById('ref').addEventListener('click', function () { load(true) })
+load(false)
+</script></body></html>

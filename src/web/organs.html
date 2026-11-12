@@ -1,61 +1,68 @@
 <!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>agent-soul · 器官</title>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
+<link rel='stylesheet' href='/aurora.css'>
+<script src='/aurora.js' defer></script>
 <style>
-:root{--bg:#131315;--panel:#1a1a1d;--panel2:#202024;--line:#28282d;--ink:#eae6de;--dim:#7d786f;--dim2:#585349;--amber:#d8a24a;--green:#63a05e;--red:#c4553f}
+:root{--bg:var(--as-bg);--panel:linear-gradient(148deg,var(--as-glass-m1),var(--as-glass-m2));--panel2:var(--as-tint);--line:var(--as-edge-2);--ink:var(--as-ink);--dim:var(--as-dim);--dim2:var(--as-weak-d);--amber:var(--as-warn);--green:var(--as-ok);--red:var(--as-err)}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--ink);font-family:'Lanxi-叮叮',ui-monospace,Consolas,monospace;font-size:13px;display:grid;grid-template-columns:176px 1fr;grid-template-rows:1fr 32px;height:100vh;overflow:hidden}
+/* ★ 2026-11-10 天空可见性修复（七页同法）：底色只铺 html，body 透明。
+   天空层 .as-sky 是 position:fixed;z-index:-1 —— 它画在 html 画布之上、body 盒子背景之下，
+   body 一旦有不透明底，极光整层被盖死（/status 已由独立验收实证；本页原先同样被盖）。
+   ★ 只动这一处：main 的 --as-scrim-* 遮罩与玻璃档位一个字都没改，密度取舍保持原样。 */
+html{background:var(--bg)}
+body{background:transparent;color:var(--ink);font-family:var(--as-font-mono);font-size:13.5px;line-height:1.75;display:grid;grid-template-columns:176px 1fr;grid-template-rows:1fr 32px;height:100vh;overflow:hidden}
 nav{background:var(--panel);border-right:1px solid var(--line);padding:20px 0;display:flex;flex-direction:column}
 nav .brand{padding:0 16px 22px;font-family:'Lanxi-超粗黑',sans-serif;font-size:15px;letter-spacing:.04em}
 nav .brand i{font-style:normal;color:var(--amber)}
-nav .brand em{display:block;font-style:normal;font-family:'Lanxi-叮叮',monospace;font-size:9.5px;color:var(--dim2);letter-spacing:.18em;margin-top:4px}
+nav .brand em{display:block;font-style:normal;font-family:'Lanxi-叮叮',monospace;font-size:9.5px;color:var(--dim);letter-spacing:.18em;margin-top:4px}
 nav a{display:flex;align-items:center;gap:8px;padding:9px 16px;color:var(--dim);text-decoration:none;font-size:12.5px;border-left:2px solid transparent;transition:color .12s}
 nav a.on{color:var(--ink);border-left-color:var(--amber);background:var(--panel2)}
 nav a:hover{color:var(--ink)}
 nav a b{width:4px;height:4px;border-radius:50%;background:var(--dim2);flex:none}
 nav a.on b{background:var(--amber)}
 nav .sp{flex:1}
-nav .ver{padding:0 16px;font-size:9.5px;color:var(--dim2);letter-spacing:.1em}
+nav .ver{padding:0 16px;font-size:9.5px;color:var(--dim);letter-spacing:.1em}
 main{padding:24px 26px 30px;overflow-y:auto}
 header{display:flex;align-items:flex-end;gap:12px;margin-bottom:5px}
 h1{font-family:'Lanxi-超粗黑',sans-serif;font-size:21px;font-weight:400}
-header .t{font-size:10px;color:var(--dim2);margin-bottom:3px}
-.sub{color:var(--dim);font-size:11.5px;margin-bottom:18px;line-height:1.75}
+header .t{font-size:10px;color:var(--dim);margin-bottom:3px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:18px;line-height:1.75}
 .sub b{color:var(--ink);font-weight:400}
-.sub .mono{color:var(--dim2);font-size:10.5px}
-h2{font-size:10px;letter-spacing:.22em;color:var(--dim2);margin:0 0 8px;font-weight:400;display:flex;align-items:center;gap:9px}
+.sub .mono{color:var(--dim);font-size:10.5px}
+h2{font-size:10px;letter-spacing:.22em;color:var(--dim);margin:0 0 8px;font-weight:400;display:flex;align-items:center;gap:9px}
 h2:after{content:'';flex:1;height:1px;background:var(--line)}
 h2 .gid{letter-spacing:.05em;font-size:9.5px;opacity:.65}
-h2 .gcnt{margin-left:auto;letter-spacing:.05em;font-size:9.5px;color:var(--dim2);opacity:.8}
+h2 .gcnt{margin-left:auto;letter-spacing:.05em;font-size:9.5px;color:var(--dim);opacity:.8}
 .grp{margin:0 0 22px}
 .gnote{color:var(--dim);font-size:10.5px;margin:0 0 4px;line-height:1.6}
-.grestart{color:var(--dim2);font-size:10px;margin:0 0 10px;line-height:1.6}
+.grestart{color:var(--dim);font-size:10px;margin:0 0 10px;line-height:1.6}
 .card{background:var(--panel);border:1px solid var(--line);padding:0 14px 2px}
-table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
-th{text-align:left;font-weight:400;font-size:9px;letter-spacing:.14em;color:var(--dim2);padding:10px 10px 5px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+table{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
+th{text-align:left;font-weight:400;font-size:10.5px;letter-spacing:.14em;color:var(--dim2);padding:10px 10px 5px 0;border-bottom:1px solid var(--line);white-space:nowrap}
 td{padding:9px 10px 9px 0;border-bottom:1px solid var(--line);vertical-align:top}
 tr:last-child td{border-bottom:none}
 th:last-child,td:last-child{padding-right:0}
 tr.chg td:first-child{box-shadow:inset 2px 0 0 var(--amber);padding-left:10px}
-.nm{font-size:12.5px;line-height:1.4}
-.ky{font-size:9.5px;color:var(--dim2);letter-spacing:.02em;margin-top:3px;word-break:break-all}
-.val{font-size:12.5px;word-break:break-all;line-height:1.5}
+.nm{font-size:13px;line-height:1.4}
+.ky{font-size:11px;color:var(--dim2);letter-spacing:.02em;margin-top:3px;word-break:break-all}
+.val{font-size:13px;word-break:break-all;line-height:1.5}
 .val.hot{color:var(--amber)}
 .dfl{color:var(--dim2);font-size:11.5px;word-break:break-all;line-height:1.5}
-.imp{color:var(--dim);font-size:11px;line-height:1.65}
-.det{color:var(--dim2);font-size:10px;margin-top:3px;line-height:1.5;word-break:break-all}
+.imp{color:var(--dim);font-size:12.5px;line-height:1.65}
+.det{color:var(--dim2);font-size:11px;margin-top:3px;line-height:1.5;word-break:break-all}
 .det.bad{color:var(--red)}
-.badge{display:inline-block;font-size:9px;padding:0 5px;border:1px solid var(--line);color:var(--dim2);margin:0 4px 3px 0;letter-spacing:.06em;line-height:16px}
-.badge.hot{color:var(--amber);border-color:#4a3a1e}
-.badge.off{color:var(--red);border-color:#4a2a22}
+.badge{display:inline-block;font-size:10px;padding:0 5px;border:1px solid var(--line);color:var(--dim2);margin:0 4px 3px 0;letter-spacing:.06em;line-height:16px}
+.badge.hot{color:var(--amber);border-color:var(--as-edge-warn)}
+.badge.off{color:var(--red);border-color:var(--as-edge-err)}
 .badge.env{color:var(--ink);border-color:var(--dim2)}
-.badge.ok{color:var(--green);border-color:#29401f}
+.badge.ok{color:var(--green);border-color:var(--as-edge-ok)}
 .stats{display:flex;gap:10px;margin-bottom:20px}
 .stat{background:var(--panel);border:1px solid var(--line);padding:9px 14px;min-width:120px}
 .stat b{display:block;font-family:'Lanxi-超粗黑',sans-serif;font-size:19px;font-weight:400;line-height:1.25}
-.stat span{font-size:9.5px;color:var(--dim2);letter-spacing:.1em}
+.stat span{font-size:10.5px;color:var(--dim2);letter-spacing:.1em}
 .stat.warn b{color:var(--amber)}
-.empty{color:var(--dim2);font-size:11px;padding:16px 0}
-.errbox{border:1px solid #4a2a22;color:var(--red);font-size:11.5px;padding:10px 12px;margin-bottom:16px;line-height:1.7}
+.empty{color:var(--dim);font-size:12.5px;padding:16px 0}
+.errbox{border:1px solid var(--as-edge-err);color:var(--red);font-size:11.5px;padding:10px 12px;margin-bottom:16px;line-height:1.7}
 footer{border-top:1px solid var(--line);display:flex;align-items:center;gap:18px;padding:0 22px;font-size:11px;color:var(--dim2);grid-row:2/3;grid-column:1/3;background:var(--panel)}
 footer .dot{width:5px;height:5px;background:var(--green);border-radius:50%;display:inline-block;margin-right:6px;box-shadow:0 0 6px var(--green)}
 footer .dot.no{background:var(--red);box-shadow:0 0 6px var(--red)}
@@ -69,8 +76,8 @@ footer button:hover{color:var(--ink);border-color:var(--dim)}
 .bar .grow{flex:1}
 .btn{background:var(--panel2);border:1px solid var(--line);color:var(--ink);font-family:inherit;font-size:11.5px;padding:6px 14px;cursor:pointer}
 .btn:hover{border-color:var(--dim)}
-.btn.primary{border-color:#4a3a1e;color:var(--amber)}
-.btn.primary:hover{background:#241c10}
+.btn.primary{border-color:var(--as-edge-warn);color:var(--amber)}
+.btn.primary:hover{background:var(--as-tint-warn)}
 .btn:disabled{opacity:.35;cursor:default}
 .i{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);font-family:inherit;font-size:12.5px;padding:5px 8px;outline:none}
 .i:focus{border-color:var(--amber)}
@@ -80,40 +87,48 @@ input[type=checkbox]{accent-color:var(--amber);width:14px;height:14px;vertical-a
 .err{color:var(--red);font-size:10.5px;margin-top:4px;line-height:1.55}
 tr.bad td:first-child{box-shadow:inset 2px 0 0 var(--red);padding-left:10px}
 .msg{margin:0 0 14px;padding:9px 12px;border:1px solid var(--line);font-size:11.5px;line-height:1.75;white-space:pre-wrap}
-.msg.ok{border-color:#29401f;color:var(--green)}
-.msg.no{border-color:#4a2a22;color:var(--red)}
+.msg.ok{border-color:var(--as-edge-ok);color:var(--green)}
+.msg.no{border-color:var(--as-edge-err);color:var(--red)}
 .msg .k{color:var(--ink)}
 .rowin{display:flex;align-items:center;gap:9px}
 /* ★ 竖条类名用 .spine 不用 .bar —— 本页复用了设置页那份 CSS，
    里面 .bar 是粘性工具条（sticky + margin:0 -26px + padding:10px 26px），
    同名会把卡片竖条撑成 26px 的块，盖住左边的字。 */
-.ogrid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:4px}
+.ogrid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:4px}
 .ocard{background:var(--panel);border:1px solid var(--line);padding:14px 15px;position:relative;overflow:hidden}
 .ocard .spine{position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--dim2)}
-.ocard .k{font-size:9.5px;letter-spacing:.14em;color:var(--dim2);margin-bottom:9px}
+.ocard .k{font-size:10.5px;letter-spacing:.14em;color:var(--dim2);margin-bottom:9px}
 .ocard .v{font-family:'Lanxi-超粗黑',sans-serif;font-size:22px;line-height:1.15;word-break:break-all}
-.ocard .n{font-size:10px;color:var(--dim2);margin-top:8px;line-height:1.55}
+.ocard .n{font-size:11px;color:var(--dim2);margin-top:8px;line-height:1.55}
 .ocard.ok .spine{background:var(--green)}
-.ocard.warn{border-color:#4a3a1e}.ocard.warn .v{color:var(--amber)}.ocard.warn .spine{background:var(--amber)}
-.ocard.bad{border-color:#4a2a22}.ocard.bad .v{color:var(--red)}.ocard.bad .spine{background:var(--red)}
+.ocard.warn{border-color:var(--as-edge-warn)}.ocard.warn .v{color:var(--amber)}.ocard.warn .spine{background:var(--amber)}
+.ocard.bad{border-color:var(--as-edge-err)}.ocard.bad .v{color:var(--red)}.ocard.bad .spine{background:var(--red)}
 .mini{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
 .mcard{background:var(--panel);border:1px solid var(--line);padding:11px 13px}
-.mcard .k{font-size:9px;letter-spacing:.12em;color:var(--dim2);margin-bottom:6px}
+.mcard .k{font-size:10px;letter-spacing:.12em;color:var(--dim2);margin-bottom:6px}
 .mcard .v{font-family:'Lanxi-超粗黑',sans-serif;font-size:18px;line-height:1.2}
 .mcard .v i{font-style:normal;font-size:10.5px;color:var(--dim);margin-left:4px;letter-spacing:0}
-.mcard .n{font-size:10px;color:var(--dim2);margin-top:5px;line-height:1.5}
+.mcard .n{font-size:11px;color:var(--dim2);margin-top:5px;line-height:1.5}
 .evt td{padding:6px 12px 6px 0;font-size:11.5px}
 .evt td:first-child{width:88px;color:var(--dim2);white-space:nowrap}
 .evt td:nth-child(2){width:118px;color:var(--dim2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .evt td.e3{word-break:break-all}
 .tag{display:inline-block;font-size:9px;padding:0 5px;border:1px solid var(--line);color:var(--dim2);line-height:16px;letter-spacing:.06em}
-.tag.warn{color:var(--amber);border-color:#4a3a1e}.tag.bad{color:var(--red);border-color:#4a2a22}
+.tag.warn{color:var(--amber);border-color:var(--as-edge-warn)}.tag.bad{color:var(--red);border-color:var(--as-edge-err)}
+
+/* ── 极光接入（2026-11-10）：光系统一走 aurora.css 的变量；只补表面、不碰布局 ── */
+main{background:var(--as-scrim-mid);position:relative}
+nav,footer,.bar{background:var(--as-nav)}
+.card,.ocard,.mcard,.stat,.motto,.msg,.errbox{border-radius:var(--as-r-sm);box-shadow:var(--as-shadow)}
+.card .v,.stat b,.ocard .v,.mcard .v,.wnum b,.bar span{font-variant-numeric:tabular-nums}
+h1,h2{text-shadow:var(--as-text-shadow)}
+:focus-visible{outline:2px solid var(--as-pend);outline-offset:2px}
 </style></head><body>
 <nav><div class='brand'>agent<i>·</i>soul<em>CONSOLE</em></div>
-<a href='/'><b></b>概览</a><a href='/organs' class='on'><b></b>器官</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><a href='/params'><b></b>参数</a><a href='/settings'><b></b>设置</a><a href='/chat'><b></b>对话</a>
+<a href='/dashboard'><b></b>概览</a><a href='/chat'><b></b>对话</a><a href='/lumen'><b></b>星系</a><a href='/organs' class='on'><b></b>器官</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><a href='/settings'><b></b>设置</a>
 <div class='sp'></div><div class='ver'>v0.1.0</div></nav>
 <main>
-<header><h1>器官</h1><span class='t' id='meta'></span></header>
+<header><h1 class='as-title'>器官</h1><span class='t' id='meta'></span></header>
 <div class='sub' id='sub'>正在读……</div>
 <div class='ogrid' id='organs'><div class='ocard ok'><div class='spine'></div><div class='k'>读</div><div class='v'>—</div></div></div>
 
@@ -136,15 +151,79 @@ function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null
 function clock(){return new Date().toLocaleTimeString('zh-CN')}
 function hhmmss(ms){var d=new Date(ms);var p=function(n){return n<10?'0'+n:String(n)};return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds())}
 
-// ★ 五张卡各自读什么、什么时候变 —— 这张表是照着 server.mjs 的 /api/organs 逐条写的，
+// ★ 六张卡各自读什么、什么时候变 —— 这张表是照着 server.mjs 的 /api/organs 逐条写的，
 //   目的不是好看，是让「这个数是怎么来的」不用翻代码就知道。
 var SRC=[
  ['换气','huanqi','各会话「连续几次没产出」里最紧的那个，除以阈值（来自 config.organs.huanqi.stallThreshold）','每轮对话之后'],
  ['自主','autonomy','autonomy.check() 现算的阶段，与今日已跑次数 / 上限','每次刷新重新判'],
  ['台账','waker','ledger.views() 的四个视图：等你 / 待审计 / 已完成','事件进来、或有人判定之后'],
  ['人格占比','watermark','persona.render().used ÷ config.context.windowTokens','人格文件变更后重启'],
- ['书房','soul','SoulIndex 扫到的文件数与总体积','soul.ttl 毫秒内不重扫']
+ ['书房','soul','SoulIndex 扫到的文件数与总体积','soul.ttl 毫秒内不重扫'],
+ ['思考退化','degradation','宿主上报的 state：contextTokens ÷ contextWindow、outputTokens、turnId，经 organs/degradation.mjs 判出的分，取最差的那个宿主','宿主每次上报 state 之后'],
+ ['换气诊断','diagnose','organs/diagnose.mjs 回看最近活跃会话的全部帧，按四条判据挑出可疑段：绕圈（同指纹连续失败）/ 空转 / 重复 / 重影。**只指出不判决**','10 分钟缓存一次；点卡片看详情']
 ];
+
+// ★ 展开/收起诊断详情。每次展开都重新拉 —— 明细比汇总值钱，不能拿缓存糊弄。
+var diagOpen=false;
+function toggleDiag(box){
+  var old=$('diagbox');
+  if(old){ old.parentNode.removeChild(old); diagOpen=false; return; }
+  diagOpen=true;
+  var panel=el('div');panel.id='diagbox';
+  panel.style.cssText='margin:14px 0 0;padding:16px 18px;background:var(--as-glass-m2);border:1px solid var(--as-edge);border-left:2px solid var(--as-warn);border-radius:2px';
+  panel.appendChild(el('div','diagloading','正在读……'));
+  // ★★ 2026-11-07 修（**这条只有看截图能发现**）：
+  //   原来插在 box.parentNode（就是 #organs 这个 grid）里 ——
+  //   于是面板变成 grid 的一个格子，只占一列宽，**全部文字挤成一条竖线**。
+  //   curl 读 HTML 看不出来，headless 截图一眼就看出来了。
+  //   ★ 改插到 grid 的**外面**（host 的父节点），让它占满整行。
+  var host2=$('organs');
+  (host2 && host2.parentNode ? host2.parentNode : box.parentNode).insertBefore(panel, host2 && host2.parentNode ? host2.nextSibling : box.nextSibling);
+
+  fetch('/api/diagnose?limit=40',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
+    panel.innerHTML='';
+    if(!d.ok){ panel.appendChild(el('div','errbox','读不出来：'+d.error)); return; }
+    var head=el('div');
+    head.style.cssText='font-size:11.5px;color:var(--as-dim);line-height:1.9;margin-bottom:12px';
+    head.appendChild(document.createTextNode('会话 '+String(d.session).slice(0,28)+' · '+d.frames+' 帧 · '+d.total+' 段'));
+    panel.appendChild(head);
+    var note=el('div',null,d.note);
+    note.style.cssText='font-size:12px;color:var(--as-warn);line-height:1.8;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--as-edge-2)';
+    panel.appendChild(note);
+    (d.items||[]).forEach(function(c,i){
+      var row=el('div');
+      row.style.cssText='padding:11px 0;border-bottom:1px solid var(--as-edge-2)';
+      var t=el('div');
+      var tag=el('span',null,c.kind);
+      var col={spin:'var(--as-err)',empty:'var(--as-warn)',repeat:'var(--as-pend)',dup:'var(--as-weak-d)'}[c.kind]||'var(--as-weak-d)';
+      tag.style.cssText='color:'+col+';font-size:10px;letter-spacing:.1em;margin-right:9px';
+      t.appendChild(tag);
+      var cnt=el('span',null,c.count+' ×');
+      cnt.style.cssText='color:var(--as-ink);font-size:12.5px;margin-right:9px';
+      t.appendChild(cnt);
+      t.appendChild(document.createTextNode(c.why));
+      t.style.cssText='font-size:12px;color:var(--as-dim);line-height:1.75';
+      row.appendChild(t);
+      if(c.sample){
+        var sm=el('div',null,String(c.sample).slice(0,90));
+        sm.style.cssText='font-size:11.5px;color:var(--as-weak-d);margin-top:5px;line-height:1.7;word-break:break-all';
+        row.appendChild(sm);
+      }
+      (c.door||[]).forEach(function(dr){
+        var a=el('div',null,dr);
+        a.style.cssText='font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--as-ok);margin-top:6px;cursor:pointer';
+        a.title='点一下复制';
+        a.onclick=function(ev){ ev.stopPropagation(); try{ navigator.clipboard.writeText(dr); a.textContent=dr+'  ✓已复制'; }catch(e){ a.textContent=dr+'（复制失败，手动选）'; } };
+        row.appendChild(a);
+      });
+      panel.appendChild(row);
+    });
+    var foot=el('div');
+    foot.style.cssText='font-size:11.5px;color:var(--as-weak-d);margin-top:12px;line-height:1.8';
+    foot.appendChild(document.createTextNode('门牌点一下可复制 —— 拿去 memq open 看原文。要删要留由人定，这份报告不动任何东西。'));
+    panel.appendChild(foot);
+  }).catch(function(x){ panel.innerHTML=''; panel.appendChild(el('div','errbox','读不到：'+x.message)); });
+}
 
 function loadOrgans(){
   fetch('/api/organs',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
@@ -160,9 +239,23 @@ function loadOrgans(){
         box.appendChild(el('div','v',String(o.value)));
         box.appendChild(el('div','n',o.note||''));
       }
+      // ★ 诊断那张卡可点 —— 它是唯一一张「汇总背后还有几十条明细」的卡。
+      //   别的卡点开没有意义（一个数就是一个数），所以只给它挂 onclick。
+      if (o.key === 'diagnose') {
+        box.style.cursor='pointer';
+        box.title='点开看这 8 段分别是什么';
+        box.onclick=function(){ toggleDiag(box); };
+      }
       host.appendChild(box);
+      // ★ ?open=1 时自动展开诊断详情 —— 两个用途：
+      //   ① 分享链接能直接打开详情（不用再点一次）
+      //   ② **我能用无头浏览器截图验收**，不用模拟鼠标点击
+      //   ★ 后者是真的理由：桌面控制会跟你抢，而 headless 不会。
+      if (o.key === 'diagnose' && /[?&]open=1/.test(location.search)) {
+        setTimeout(function(){ toggleDiag(box); }, 100);
+      }
     });
-    $('sub').textContent='五张卡都是现场读的 —— 每次刷新重新算，不是写死的数。60 秒自动刷一次，右上角可以立刻刷。';
+    $('sub').textContent='七张卡都是现场读的 —— 每次刷新重新算，不是写死的数。60 秒自动刷一次，右上角可以立刻刷。★ 换气诊断那张可以点开看明细。';
     $('meta').textContent='（读于 '+clock()+'）';
     $('st').textContent='在线';$('dot').className='dot';
     $('at').textContent='采集于 '+new Date(d.at).toLocaleTimeString('zh-CN');
@@ -182,6 +275,56 @@ function loadEvents(){
     g.appendChild(mini('总线',b.history==null?'—':String(b.history),'handler '+(b.handlers==null?'—':b.handlers)+' 个 · 历史 '+((b.history==null)?'—':b.history)+' 条'));
     var rec=d.recent||[];
     g.appendChild(mini('最近事件',String(rec.length),(rec.length?'最新 '+hhmmss(rec[rec.length-1].at):'还没有事件')));
+
+    // ★★ 2026-11-12：事件接入 / 唤醒 / 投递三段 —— 这条链以前在页面上**完全看不见**。
+    //   看得见的只有「调度器 tick 了几次」，而真正决定「QQ 消息会不会叫醒会话」的是这三段。
+    //   ★ 判据口径：帧数读 counters.received（真收到的），不是 envelopes（落账的）——
+    //     两者差得远说明有帧被白名单挡了或解析失败，那个差异本身就是信息。
+    var ing = d.ingress || {};
+    var es = (ing.eventSources && ing.eventSources.onebot) || {};
+    var ct = es.counters || {};
+    var w = ing.wake || null;
+    var dl = ing.deliver || null;
+    var fw = (ct.received == null) ? '—' : String(ct.received);
+    g.appendChild(mini('事件接入', ing.mode || 'off', ing.connected
+      ? ('在线 · 收 '+fw+' 帧 / 落账 '+(ct.envelopes==null?'—':ct.envelopes)+' 帧')
+      : (ing.summary || '未连接')));
+    // ★ 判定卡放在最前：它是「要不要动手」的第一道闸，拼正文只是它下游。
+    var dc = ing.decide || null;
+    g.appendChild(mini('判定（该不该回）', dc ? String(dc.must) : '—',
+      dc ? ('判了 '+dc.judged+' 条 · 该回 '+dc.must+' / 不回 '+dc.none
+            + (Object.keys(dc.byReason||{}).length ? (' · 理由 '+Object.keys(dc.byReason).slice(0,2).join(' / ')) : '')
+            + (dc.interjectForcedOff ? ' · 插话关着' : ''))
+         : '这一层没起来'));
+    g.appendChild(mini('唤醒（拼正文）', w ? String(w.ok) : '—',
+      w ? ('尝试 '+w.attempts+' 次 · 正文 '+(w.bytes||0)+' 字'+(Object.keys(w.skipped||{}).length?(' · 跳过 '+JSON.stringify(w.skipped)):''))
+        : '这一层没起来（mode 没开）'));
+    g.appendChild(mini('投递（叫醒会话）', dl && dl.enabled ? String(dl.delivered) : '关',
+      dl ? (dl.enabled ? ('尝试 '+dl.asks+' 次'+(Object.keys(dl.skipped||{}).length?(' · 跳过 '+JSON.stringify(dl.skipped)):'')) 
+                       : (dl.hasDispatch ? '开关关着 —— 拼得出正文，但不叫醒任何会话' : '没有 dispatch（core 没接上）'))
+        : '这一层没起来'));
+
+    // ★★ 2026-11-12 加的第五、六段：**回复**和**插话状态**。
+    //
+    //   为什么必须有：前四段（收/判/拼/投）全绿的时候，群里可能**一个字都没有** ——
+    //   因为「把回复发回来」是另一段，它坏了前四段看不出来。
+    //   03:51 那次就是这样：投递成功、会话跑了、群里出现字面量 <at:...>，
+    //   而页面上一切正常。
+    var rp = ing.reply || null;
+    g.appendChild(mini('回复（发回 QQ）',
+      rp ? (rp.sent == null ? '—' : String(rp.sent)) : '没建',
+      rp ? ('已发 '+rp.sent+' · 失败 '+rp.failed+' · 超时 '+rp.timeouts
+            + ' · 正在等 '+(rp.watching||0)
+            + (rp.hasMembers ? '' : ' · 名字 @ 转不了（没群成员表）')
+            + (rp.lastCode ? (' · 最近 '+rp.lastCode) : ''))
+         : '这一层没起来（缺 sessionRoot 或 outbox）'));
+
+    var en = ing.engage || null;
+    g.appendChild(mini('插话状态',
+      en ? String(en.interjects || 0) : '没建',
+      en ? ('说话 '+en.replies+' 次 · 插话 '+en.interjects+' 次 · 在聊的群 '+en.engagedGroups
+            + (dc && dc.interjectForcedOff ? ' · 开关关着' : ' · 开关开着'))
+         : '这一层没起来'));
 
     var tb=$('evlist');tb.innerHTML='';
     if(!rec.length){var tr=el('tr');var td=el('td','e3','还没有事件 —— 调度器 tick 一次、或会话静默够久，这里才会有东西。');td.setAttribute('colspan','3');tr.appendChild(td);tb.appendChild(tr);return;}

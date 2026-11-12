@@ -1,40 +1,50 @@
 <!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>agent-soul</title>
-<meta name='viewport' content='width=device-width,initial-scale=1'>
+<meta name='viewport' content='width=device-width,initial-scale=1'><meta name='agentsoul-build' content='1.0.5'>
+<link rel='stylesheet' href='/aurora.css'>
+<script src='/aurora.js' defer></script>
 <style>
-:root{--bg:#131315;--panel:#1a1a1d;--panel2:#202024;--line:#28282d;--ink:#eae6de;--dim:#7d786f;--dim2:#585349;--amber:#d8a24a;--green:#63a05e;--red:#c4553f}
+:root{--bg:var(--as-bg);--panel:linear-gradient(148deg,var(--as-glass-m1),var(--as-glass-m2));--panel2:var(--as-tint);--line:var(--as-edge-2);--ink:var(--as-ink);--dim:var(--as-dim);--dim2:var(--as-weak-d);--amber:var(--as-warn);--green:var(--as-ok);--red:var(--as-err)}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--ink);font-family:'Lanxi-叮叮',ui-monospace,Consolas,monospace;font-size:13px;display:grid;grid-template-columns:176px 1fr;grid-template-rows:1fr 32px;height:100vh;overflow:hidden}
+/* ★ 2026-11-10 天空可见性修复（七页同法）：底色只铺 html，body 透明。
+   天空层 .as-sky 是 position:fixed;z-index:-1 —— 它画在 html 画布之上、body 盒子背景之下，
+   body 一旦有不透明底，极光整层被盖死（/status 已由独立验收实证；本页原先同样被盖）。
+   ★ 只动这一处：main 的 --as-scrim-* 遮罩与玻璃档位一个字都没改，密度取舍保持原样。 */
+html{background:var(--bg)}
+body{background:transparent;color:var(--ink);font-family:var(--as-font-mono);font-size:13.5px;line-height:1.75;display:grid;grid-template-columns:176px 1fr;grid-template-rows:1fr 32px;height:100vh;overflow:hidden}
 nav{background:var(--panel);border-right:1px solid var(--line);padding:20px 0;display:flex;flex-direction:column}
 nav .brand{padding:0 16px 22px;font-family:'Lanxi-超粗黑',sans-serif;font-size:15px;letter-spacing:.04em}
 nav .brand i{font-style:normal;color:var(--amber)}
-nav .brand em{display:block;font-style:normal;font-family:'Lanxi-叮叮',monospace;font-size:9.5px;color:var(--dim2);letter-spacing:.18em;margin-top:4px}
+nav .brand em{display:block;font-style:normal;font-family:'Lanxi-叮叮',monospace;font-size:9.5px;color:var(--dim);letter-spacing:.18em;margin-top:4px}
 nav a{display:flex;align-items:center;gap:8px;padding:9px 16px;color:var(--dim);text-decoration:none;font-size:12.5px;border-left:2px solid transparent;transition:color .12s}
 nav a.on{color:var(--ink);border-left-color:var(--amber);background:var(--panel2)}
 nav a:hover{color:var(--ink)}
 nav a b{width:4px;height:4px;border-radius:50%;background:var(--dim2);flex:none}
 nav a.on b{background:var(--amber)}
 nav .sp{flex:1}
-nav .ver{padding:0 16px;font-size:9.5px;color:var(--dim2);letter-spacing:.1em}
+nav .ver{padding:0 16px;font-size:9.5px;color:var(--dim);letter-spacing:.1em}
 main{padding:24px 26px 30px;overflow-y:auto}
 header{display:flex;align-items:flex-end;gap:12px;margin-bottom:5px}
 h1{font-family:'Lanxi-超粗黑',sans-serif;font-size:21px;font-weight:400}
-header .t{font-size:10px;color:var(--dim2);margin-bottom:3px}
-.sub{color:var(--dim);font-size:11.5px;margin-bottom:22px;line-height:1.7}
+header .t{font-size:10px;color:var(--dim);margin-bottom:3px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:22px;line-height:1.7}
 .sub b{color:var(--ink);font-weight:400}
-h2{font-size:10px;letter-spacing:.22em;color:var(--dim2);margin:26px 0 11px;font-weight:400;display:flex;align-items:center;gap:9px}
+h2{font-size:10px;letter-spacing:.22em;color:var(--dim);margin:26px 0 11px;font-weight:400;display:flex;align-items:center;gap:9px}
 h2:after{content:'';flex:1;height:1px;background:var(--line)}
 .grid{display:grid;gap:10px}
 .g6{grid-template-columns:repeat(6,1fr)}
+.g7{grid-template-columns:repeat(7,1fr)}
 .g5{grid-template-columns:repeat(5,1fr)}
 .g2{grid-template-columns:1fr 1fr}
+.g4{grid-template-columns:repeat(4,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
 .card{background:var(--panel);border:1px solid var(--line);padding:13px 14px;position:relative;overflow:hidden}
-.card .k{font-size:9.5px;letter-spacing:.14em;color:var(--dim2);margin-bottom:8px}
+.card .k{font-size:10.5px;letter-spacing:.14em;color:var(--dim2);margin-bottom:8px}
 .card .v{font-family:'Lanxi-超粗黑',sans-serif;font-size:23px;line-height:1.05;letter-spacing:-.01em}
 .card .v i{font-style:normal;font-size:11px;color:var(--dim);margin-left:3px;letter-spacing:0}
-.card .n{font-size:10px;color:var(--dim2);margin-top:6px;line-height:1.5}
+.card .n{font-size:11px;color:var(--dim2);margin-top:6px;line-height:1.5}
 .card.ok .v{color:var(--ink)}
-.card.warn{border-color:#4a3a1e}.card.warn .v{color:var(--amber)}
-.card.bad{border-color:#4a2a22}.card.bad .v{color:var(--red)}
+.card.warn{border-color:var(--as-edge-warn)}.card.warn .v{color:var(--amber)}
+.card.bad{border-color:var(--as-edge-err)}.card.bad .v{color:var(--red)}
 .card .bar{position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--dim2)}
 .card.warn .bar{background:var(--amber)}.card.bad .bar{background:var(--red)}.card.ok .bar{background:var(--green)}
 table{width:100%;border-collapse:collapse;font-size:12px}
@@ -42,28 +52,69 @@ td{padding:7px 0;border-bottom:1px solid var(--line);vertical-align:top}
 tr:last-child td{border-bottom:none}
 td:first-child{color:var(--dim);width:40%}
 .pill{display:inline-block;padding:1px 7px;border:1px solid var(--line);font-size:10px;color:var(--dim)}
-.pill.ok{color:var(--green);border-color:#29401f}.pill.no{color:var(--red);border-color:#412018}
+.pill.ok{color:var(--green);border-color:var(--as-edge-ok)}.pill.no{color:var(--red);border-color:var(--as-edge-err)}
 footer{border-top:1px solid var(--line);display:flex;align-items:center;gap:18px;padding:0 22px;font-size:11px;color:var(--dim2);grid-row:2/3;grid-column:1/3;background:var(--panel)}
 footer .dot{width:5px;height:5px;background:var(--green);border-radius:50%;display:inline-block;margin-right:6px;box-shadow:0 0 6px var(--green)}
 footer .r{margin-left:auto;display:flex;gap:16px}
 footer span{color:var(--dim)}
 footer button{background:none;border:1px solid var(--line);color:var(--dim);font-family:inherit;font-size:10px;padding:2px 9px;cursor:pointer}
 footer button:hover{color:var(--ink);border-color:var(--dim)}
-.empty{color:var(--dim2);font-size:11px;padding:16px 0}
+.empty{color:var(--dim);font-size:12.5px;padding:16px 0}
+/* ── 运行状态卡（2026-11-10）：倒计时用等宽数字，侧标用小 pill ── */
+.pill.tiny{font-size:9px;padding:0 5px;margin-left:6px;letter-spacing:.08em;vertical-align:1px}
+.card .v.mono{font-family:var(--as-font-mono);font-variant-numeric:tabular-nums}
+/* 占位「读取中…」：比正文字号小、比正文弱、轻微呼吸 —— 让人知道是在等，不是坏了 */
+.card .v.ph{font-size:13px;color:var(--dim2);letter-spacing:.02em;animation:phpulse 1.8s ease-in-out infinite}
+@keyframes phpulse{0%,100%{opacity:.55}50%{opacity:.95}}
+@media (prefers-reduced-motion:reduce){.card .v.ph{animation:none;opacity:.7}}
 .sk{opacity:.55}
 .sk .v{color:var(--dim2)}
 @keyframes skp{0%,100%{opacity:.55}50%{opacity:.85}}
 .sk{animation:skp 1.6s ease-in-out infinite}
 @media (prefers-reduced-motion:reduce){.sk{animation:none}}
+
+/* ── 极光接入（2026-11-10）：光系统一走 aurora.css 的变量；只补表面、不碰布局 ── */
+main{background:var(--as-scrim-mid);position:relative}
+nav,footer,.bar{background:var(--as-nav)}
+.card,.ocard,.mcard,.stat,.motto,.msg,.errbox{border-radius:var(--as-r-sm);box-shadow:var(--as-shadow)}
+.card .v,.stat b,.ocard .v,.mcard .v,.wnum b,.bar span{font-variant-numeric:tabular-nums}
+h1,h2{text-shadow:var(--as-text-shadow)}
+:focus-visible{outline:2px solid var(--as-pend);outline-offset:2px}
+/* ── 2026-11-11 · 趋势卡（sparkline）：概览页第一次有「线」而不只有「数」 ──
+   数据源：/api/overview 的 series（进程内环形缓冲，60 点 ≈ 半小时）。
+   ★ SVG 用 viewBox + preserveAspectRatio=none 自适应宽度，path 不依赖像素宽度；
+     stroke 用 vector-effect:non-scaling-stroke，免得横向拉伸把线拉粗。
+   ★ 描线动画只在首次渲染且未开 reduced-motion 时走（每次刷新重播会闪）。 */
+.spk{margin-top:10px;height:38px}
+.spk svg{width:100%;height:38px;display:block;overflow:visible}
+.spk-empty{font-size:10.5px;color:var(--dim2);padding-top:12px}
+#trend{animation:as-rise .5s var(--as-ease) both}
+@keyframes as-rise{from{opacity:0;transform:translate3d(0,8px,0)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){#trend{animation:none}}
 </style></head><body>
 <nav><div class='brand'>agent<i>·</i>soul<em>CONSOLE</em></div>
-<a href='/' class='on'><b></b>概览</a><a href='/organs'><b></b>器官</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><a href='/params'><b></b>参数</a><a href='/settings'><b></b>设置</a><a href='/chat'><b></b>对话</a>
+<a href='/' class='on'><b></b>概览</a><a href='/chat'><b></b>调度 LLM</a><a href='/organs'><b></b>器官</a><a href='/lumen'><b></b>星系</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><a href='/settings'><b></b>设置</a>
 <div class='sp'></div><div class='ver'>v0.1.0</div></nav>
 <main>
-<header><h1>概览</h1><span class='t' id='took'></span></header>
+<header><h1 class='as-title'>概览</h1><span class='t' id='took'></span></header>
 <div class='sub' id='sub'>正在读……</div>
+<h2>活体 · 现在在等谁</h2><div class='grid g4' id='live'><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div></div>
+      <div class='grid g2'><div class='card' style='padding:6px 14px'><table id='wait'></table></div><div class='card' style='padding:6px 14px'><table id='send'></table></div></div>
+      <h2>最近判定 · 宪章怎么审的</h2><div class='card' style='padding:6px 14px'><table id='verdicts'></table></div>
+      <h2>运行状态 · 控制通道<span class='pill tiny'>v4 侧</span></h2>
+<div class='grid g2'><div class='card' id='ctl-main'><div class='bar'></div><div class='k'>桥接</div><div class='v ph'>读取中…</div><div class='n'>读 /api/runtime-status</div></div>
+<div class='card' style='padding:6px 14px'><table id='ctl-detail'><tr><td>状态</td><td>还没读到</td></tr></table></div></div>
+<h2>运行状态 · MCP Hub 与心跳<span class='pill tiny'>DSH 侧</span></h2>
+<div class='grid g2'><div class='card' id='hub-main'><div class='bar'></div><div class='k'>MCP Hub</div><div class='v ph'>读取中…</div><div class='n'>/mcp-hub/servers</div></div>
+<div class='card' id='hb-main'><div class='bar'></div><div class='k'>心跳倒计时</div><div class='v mono ph'>读取中…</div><div class='n'>/heartbeat/auto</div></div></div>
+<div class='grid g2'><div class='card' style='padding:6px 14px'><table id='hub-detail'><tr><td>服务</td><td>还没读到</td></tr></table></div>
+<div class='card' style='padding:6px 14px'><table id='hb-detail'><tr><td>状态</td><td>还没读到</td></tr></table></div></div>
+<h2>运行状态 · 模型<span class='pill tiny'>v4 侧</span></h2>
+<div class='grid g2'><div class='card' id='llm-main'><div class='bar'></div><div class='k'>LLM</div><div class='v ph'>读取中…</div><div class='n'>读 /api/runtime-status</div></div>
+<div class='card' style='padding:6px 14px'><table id='llm-detail'><tr><td>状态</td><td>还没读到</td></tr></table></div></div>
+<h2>趋势 · 本进程窗口</h2><div class='grid g3' id='trend'><div class='card'><div class='bar'></div><div class='k'>会话数</div><div class='v' id='t-sessions'>—</div><div class='spk' id='s-sessions'></div></div><div class='card'><div class='bar'></div><div class='k'>索引行</div><div class='v' id='t-index'>—</div><div class='spk' id='s-index'></div></div><div class='card'><div class='bar'></div><div class='k'>进程内存</div><div class='v' id='t-mem'>—</div><div class='spk' id='s-mem'></div></div></div>
 <h2>数据</h2><div class='grid g6' id='cards'><div class='card sk'><div class='bar'></div><div class='k'>会话</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>会话</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>会话</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>会话</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>会话</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>会话</div><div class='v'>—</div></div></div>
-<h2>器官 · 看不见的东西</h2><div class='grid g5' id='organs'><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div></div>
+<h2>器官 · 看不见的东西</h2><div class='grid g7' id='organs'><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div><div class='card sk'><div class='bar'></div><div class='k'>—</div><div class='v'>—</div></div></div>
 <h2>运行环境</h2><div class='grid g2'><div class='card' style='padding:6px 14px'><table id='env'></table></div>
 <div class='card' style='padding:6px 14px'><table id='more'></table></div></div>
 </main>
@@ -78,6 +129,52 @@ function pill(txt,ok){return el('span','pill '+(ok?'ok':'no'),txt)}
 function sec(n){return n>=3600?Math.floor(n/3600)+' 小时 '+Math.floor(n%3600/60)+' 分':n>=60?Math.floor(n/60)+' 分 '+(n%60)+' 秒':n+' 秒'}
 function num(n){return n==null?'—':Number(n).toLocaleString()}
 
+// ── 2026-11-11 · 趋势（sparkline）：数据来自 /api/overview 的 series ──
+function fmtNum(n){return n==null?'—':Number(n).toLocaleString()}
+function spark(hostId,pts,key,color){
+  var host=$(hostId); if(!host) return;
+  var vals=[];
+  for(var i=0;i<(pts||[]).length;i++){var v=pts[i][key]; if(v!=null) vals.push(Number(v));}
+  if(vals.length<2){host.innerHTML='<div class="spk-empty">点数不足 —— 再刷两次就有线了</div>';return;}
+  var w=100,h=34,min=Math.min.apply(null,vals),max=Math.max.apply(null,vals);
+  if(max===min)max=min+1;
+  var n=vals.length,step=w/(n-1),d='',area='';
+  for(var j=0;j<n;j++){
+    var x=(j*step).toFixed(2),y=(h-2-((vals[j]-min)/(max-min))*(h-6)).toFixed(2);
+    d+=(j?'L':'M')+x+' '+y+' ';
+    area+=(j?'L':'M')+x+' '+y+' ';
+  }
+  area+='L'+w+' '+h+' L0 '+h+' Z';
+  var gid='spkg-'+hostId;
+  host.innerHTML='<svg viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none" aria-hidden="true">'
+    +'<defs><linearGradient id="'+gid+'" x1="0" y1="0" x2="0" y2="1">'
+    +'<stop offset="0" stop-color="'+color+'" stop-opacity=".32"/>'
+    +'<stop offset="1" stop-color="'+color+'" stop-opacity="0"/></linearGradient></defs>'
+    +'<path d="'+area+'" fill="url(#'+gid+')"/>'
+    +'<path class="spk-line" d="'+d+'" fill="none" stroke="'+color+'" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>'
+    +'</svg>';
+  var line=host.querySelector('.spk-line');
+  var noMotion=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(line&&!noMotion){
+    try{
+      var len=line.getTotalLength();
+      line.style.strokeDasharray=String(len);
+      line.style.strokeDashoffset=String(len);
+      line.animate([{strokeDashoffset:String(len)},{strokeDashoffset:'0'}],{duration:760,easing:'cubic-bezier(.32,.72,.24,1)',fill:'forwards'});
+    }catch(e){}
+  }
+}
+function renderTrend(pts){
+  pts=pts||[];
+  var last=pts[pts.length-1]||{};
+  $('t-sessions').textContent=fmtNum(last.sessions);
+  $('t-index').textContent=fmtNum(last.indexRows);
+  $('t-mem').textContent=(last.memMB==null?'—':last.memMB+' MB');
+  spark('s-sessions',pts,'sessions','#6FA8FF');
+  spark('s-index',pts,'indexRows','#3ED598');
+  spark('s-mem',pts,'memMB','#F5C24B');
+}
+
 function loadData(fresh){
   fetch('/api/overview'+(fresh?'?fresh=1':'')).then(function(r){return r.json()}).then(function(d){
     $('took').textContent=d.cached?'（缓存 '+(d.cacheAgeMs||0)+'ms 前）':'（采集 '+d.tookMs+'ms）';
@@ -86,7 +183,25 @@ function loadData(fresh){
     sub.appendChild(document.createTextNode(' 个会话 · '));
     sub.appendChild(el('b',null,num(d.indexRows)));
     sub.appendChild(document.createTextNode(' 行索引 · 库 '+d.dataMB+' MB'));
-    if(!d.llmReady){var w=el('span',null,' · 未配模型（能检索，不能对话）');w.style.color='var(--dim)';sub.appendChild(w)}
+    // ★ 2026-11-07 改：原来只有一行灰字「未配模型」—— 太弱，等于没说。
+    //   现在缺 key 时插一条**看得见的横幅**，并且说清「去哪填、不填会怎样、填完要重启」。
+    var old=$('llmbar'); if(old) old.parentNode.removeChild(old);
+    if(!d.llmReady){
+      var bar=el('div'); bar.id='llmbar';
+      bar.style.cssText='margin:0 0 18px;padding:13px 16px;background:var(--as-tint-warn);border-left:3px solid var(--amber);border-radius:2px';
+      var h=el('div',null,(d.llmHint&&d.llmHint.what)||'还差一个 API Key');
+      h.style.cssText='font-size:14px;color:var(--amber);font-weight:600;margin-bottom:7px';
+      bar.appendChild(h);
+      var hint=d.llmHint||{};
+      (hint.where||[]).forEach(function(t,i){
+        var p=el('div',null,(i+1)+'. '+t);
+        p.style.cssText='font-size:12px;color:var(--ink);line-height:1.9;padding-left:4px';
+        bar.appendChild(p);
+      });
+      if(hint.effect){var e2=el('div',null,hint.effect);e2.style.cssText='font-size:11.5px;color:var(--dim);line-height:1.8;margin-top:8px;padding-top:8px;border-top:1px solid var(--as-edge-warn)';bar.appendChild(e2)}
+      if(hint.restart){var r2=el('div',null,'★ '+hint.restart);r2.style.cssText='font-size:11.5px;color:var(--amber);margin-top:5px';bar.appendChild(r2)}
+      sub.parentNode.insertBefore(bar, sub.nextSibling);
+    }
     var g=$('cards');g.innerHTML='';
     g.appendChild(card('会话',num(d.sessions),'个','容器'));
     g.appendChild(card('索引行',num(d.indexRows),'','可检索的最小单位'));
@@ -99,12 +214,33 @@ function loadData(fresh){
     row(e,'进程内存',d.memMB+' MB（堆 '+d.heapMB+' MB）');
     row(e,'工具',d.tools+' 个');
     row(e,'事件层',d.events.rules+' 条规则 · 已 tick '+d.events.ticks+' 次');
+    // ★ 控制通道 —— 谁连上来了。没连的时候要看得出来，不是静默空着。
+    (function(){
+      var c=d.control||{};
+      var td=el('td');
+      if(!c.enabled){ td.appendChild(pill('没接',false)); td.appendChild(document.createTextNode(' 控制通道未启用')); }
+      else if(!c.connected){ td.appendChild(pill('无人',false)); td.appendChild(document.createTextNode(' 没有宿主连着（桥接插件在跑吗？）')); }
+      else {
+        td.appendChild(pill(c.connected+' 个',true));
+        (c.hosts||[]).forEach(function(h){
+          td.appendChild(document.createTextNode(' '+h.host));
+          if(h.caps&&h.caps.length) td.appendChild(document.createTextNode('（'+h.caps.join('/')+'）'));
+          if(h.stubs&&h.stubs.length){
+            var st=el('span',null,' ▸ 桩: '+h.stubs.join(','));
+            st.style.cssText='color:var(--amber);font-size:11px';
+            td.appendChild(st);
+          }
+        });
+      }
+      row(e,'控制通道',td);
+    })();
     var m=$('more');m.innerHTML='';
     var md=el('td');md.appendChild(pill(d.llmReady?'已配置':'未配置',d.llmReady));md.appendChild(document.createTextNode(' '+d.model));
     row(m,'模型',md);
     row(m,'人格',d.persona?(d.persona.used+' / '+d.persona.budget+' B'+(d.persona.dropped&&d.persona.dropped.length?'（丢 '+d.persona.dropped.join(',')+'）':'')):'未配置');
     row(m,'会话数',num(d.sessions));
     row(m,'采集耗时',d.tookMs+' ms');
+    renderTrend(d.series);
     $('st').textContent='在线';
     $('at').textContent='采集于 '+new Date(d.at).toLocaleTimeString('zh-CN');
   }).catch(function(x){$('st').textContent='连不上：'+x.message;$('sub').textContent='API 读不到 —— 数字没出来，说明这一页还没通。'})
@@ -120,9 +256,220 @@ function loadOrgans(){
   }).catch(function(x){$('organs').innerHTML='';$('organs').appendChild(el('div','empty','器官读不到：'+x.message))})
 }
 
-$('fresh').onclick=function(){loadData(true);loadOrgans()};
+
+// ══ 运行状态（2026-11-10 · overview-status-panels）════════════════════════════
+// ★ 四块两个侧：控制通道（v4）· 模型（v4）｜ MCP Hub（DSH）· 心跳（DSH）。
+// ★ 读不到就画「读不到」—— 不补 0、不补假时间。这一屏就是拿来判断通不通的。
+var HB = { sec: null, at: 0, on: false };
+function esc(x){return String(x==null?'':x).replace(/[<>&"]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]})}
+function mmss(s){if(s==null)return '—';s=Math.max(0,Math.round(s));var m=Math.floor(s/60),r=s%60;return (m<10?'0':'')+m+':'+(r<10?'0':'')+r}
+function tm(iso){if(!iso)return '—';var t=Date.parse(iso);return isFinite(t)?new Date(t).toLocaleTimeString('zh-CN'):String(iso).slice(0,19)}
+function ago(iso){if(!iso)return '—';var t=Date.parse(iso);if(!isFinite(t))return '—';var d=Math.round((Date.now()-t)/1000);return d<0?'刚刚':d<60?d+' 秒前':d<3600?Math.round(d/60)+' 分前':Math.round(d/3600)+' 小时前'}
+function big(n){return n==null?'—':Number(n).toLocaleString()}
+function rtCard(id,cls,k,v,unit,note,mono){
+  var e=document.getElementById(id); if(!e)return;
+  e.className='card '+(cls||'ok');
+  e.innerHTML="<div class='bar'></div><div class='k'>"+k+"</div><div class='v"+(mono?' mono':'')+"'>"+v+(unit?"<i>"+unit+"</i>":"")+"</div><div class='n'>"+note+"</div>";
+}
+function rtTable(id,rows){
+  var t=document.getElementById(id); if(!t)return;
+  t.innerHTML=(rows&&rows.length?rows:[['状态','无']]).map(function(r){return "<tr><td>"+r[0]+"</td><td>"+r[1]+"</td></tr>"}).join('');
+}
+function renderControl(c){
+  var hosts=(c&&c.hosts)||[];
+  var k='桥接<span class="pill tiny">v4</span>';
+  if(!c||!c.enabled){ rtCard('ctl-main','bad',k,'未接','',esc((c&&c.note)||'控制通道没接')); rtTable('ctl-detail',[['状态','没接（createServer 没收到 control）']]); return; }
+  if(!hosts.length||!c.connected){ rtCard('ctl-main','warn',k,'0','个','没有宿主连着（桥接插件在跑吗？）'); rtTable('ctl-detail',[['状态','0 个已 hello']]); return; }
+  rtCard('ctl-main','ok',k,String(c.connected),'个',esc(hosts.map(function(h){return h.host}).join(' · ')));
+  var rows=[];
+  hosts.forEach(function(h){
+    var m=h.meta||{};
+    rows.push(['宿主', esc(h.host)+'<span class="pill tiny">'+esc(h.transport||'ws')+'</span>'+(h.connectedAt?' <span style="color:var(--dim2)">连于 '+tm(h.connectedAt)+'</span>':'')]);
+    rows.push(['能力', h.caps&&h.caps.length?esc(h.caps.join(' / ')):'<span style="color:var(--dim2)">没报</span>']);
+    rows.push(['桩', h.stubs&&h.stubs.length?'<span style="color:var(--amber)">'+esc(h.stubs.join(', '))+'</span>':'<span style="color:var(--dim2)">无</span>']);
+    rows.push(['插件', (m.plugin?esc(m.plugin):'<span style="color:var(--dim2)">没报</span>')+(m.version?' '+esc(m.version):'')+(m.pid!=null?' · pid '+esc(m.pid):'')]);
+    rows.push(['上下文', (m.contextTokens!=null?big(m.contextTokens):'<span style="color:var(--dim2)">未报</span>')+' / '+(m.contextWindow!=null?big(m.contextWindow):'—')]);
+    rows.push(['水位来源', m.watermarkSource?esc(m.watermarkSource):'<span style="color:var(--dim2)">未报</span>']);
+    if(m.note) rows.push(['宿主备注', esc(m.note)]);
+    rows.push(['派活', (h.calls!=null?h.calls:'—')+' 次 · 失败 '+(h.failures!=null?h.failures:'—')]);
+    rows.push(['最近错误', h.lastError?('<span style="color:var(--amber)">'+esc(h.lastError)+'</span>'+(h.lastErrorAt?' <span style="color:var(--dim2)">'+ago(h.lastErrorAt)+'</span>':'')):'<span style="color:var(--dim2)">无</span>']);
+  });
+  rtTable('ctl-detail',rows);
+}
+function renderHub(h){
+  var k='MCP Hub<span class="pill tiny">DSH</span>';
+  if(!h||h.state==='UNCONFIGURED'){ rtCard('hub-main','warn',k,'UNCONFIGURED','','没配地址：integrations.dshBaseUrl / mcpHubUrl · 不猜端口'); rtTable('hub-detail',[['状态','未配置（UNCONFIGURED）']]); return; }
+  if(h.state==='error'||h.state==='unreachable'){
+    rtCard('hub-main','bad',k,esc(h.state),'',esc(h.error||'读不到')+(h.url?' · '+esc(h.url):''));
+    rtTable('hub-detail',[['地址',h.url?esc(h.url):'—'],['错误',esc(h.error||'—')]]);
+    return;
+  }
+  var cls=(h.errorServers||h.stale)?'warn':'ok';
+  var note=(h.stale?'⚠ 过期数据（'+ago(h.fetchedAt)+'）：'+esc(h.error||'')+'；':'')+'工具 '+(h.toolCount!=null?h.toolCount:'—')+' · 共 '+(h.serverCount!=null?h.serverCount:'—')+' 台 · 读于 '+tm(h.fetchedAt);
+  rtCard('hub-main',cls,k,(h.readyServers!=null?h.readyServers:'—')+'/'+(h.serverCount!=null?h.serverCount:'—'),'就绪',note);
+  var rows=[];
+  (h.items||[]).forEach(function(s){
+    var p=s.ready?'<span class="pill ok">ready</span>':(s.error?'<span class="pill no">error</span>':'<span class="pill">'+esc(s.status)+'</span>');
+    rows.push([esc(s.name)+' <span class="pill tiny">'+esc(s.transport||'?')+'</span>', p+' 工具 '+(s.toolCount!=null?s.toolCount:'—')+(s.enabled?'':' · <span style="color:var(--dim2)">停用</span>')+(s.error?'<br><span style="color:var(--amber)">'+esc(s.error)+'</span>':'')]);
+  });
+  if(h.manifestFile) rows.push(['清单', '<span style="color:var(--dim2)">'+esc(h.manifestFile)+'</span>']);
+  rtTable('hub-detail',rows);
+}
+function renderHb(_b){
+  // ★★ 2026-11-11（爀曦定：**留 v4 的心跳，v4 要全面取代 v3**）：
+  //   这一格以前显示的是 DSH 的 /heartbeat/auto 倒计时 —— 那是 **v3 的机制**（阈值 15 分 / 缓冲 5 分）。
+  //   现在显示 **v4 自己的自主判定**（/api/organs 的 autonomy）。
+  //   ★ DSH 的心跳仍然是**后端**用来解析「谁是 lead」的唯一真源，但界面上这套真值不再是它。
+  //     「显示谁的」和「谁做判定」必须一致 —— 否则用户看到 00:00 exhausted，
+  //     而真正驱动他的是另一套（今天 13:39 那次自主投递就是这么发生的）。
+  HB.on=false;
+  var k='心跳 · v4 自主<span class="pill tiny">v4</span>';
+  fetch('/api/organs').then(function(r){return r.json()}).then(function(o){
+    var a=((o&&o.organs)||[]).filter(function(x){return x.key==='autonomy'})[0];
+    if(!a){ rtCard('hb-main','warn',k,'未接上','','organs 里没有 autonomy'); return; }
+    var v=String(a.value||'—');
+    var cls = v==='autonomous' ? 'ok' : (v==='unknown' ? 'warn' : '');
+    rtCard('hb-main',cls,k,v,'',esc(a.note||''));
+    rtTable('hb-detail',[
+      ['阶段', '<b>'+esc(v)+'</b>'],
+      ['说明', esc(a.note||'—')],
+      ['谁在判', 'v4 autonomy（organs/autonomy.mjs）'],
+      ['lead 从哪来', 'DSH /heartbeat/auto（只借它解析目标，不用它倒计时）']
+    ]);
+  }).catch(function(e){ rtCard('hb-main','bad',k,'读不到','',esc(String((e&&e.message)||e))); });
+}
+function _renderHbLegacy(b){
+  var k='心跳倒计时<span class="pill tiny">DSH</span>';
+  HB.on=false;
+  if(!b||b.state==='UNCONFIGURED'){ rtCard('hb-main','warn',k,'UNCONFIGURED','','没配地址'); rtTable('hb-detail',[['状态','未配置']]); return; }
+  if(b.disabled){ rtCard('hb-main','',k,'已关','','DSH 侧 enabled=false'); }
+  else if(b.unavailable){ rtCard('hb-main','bad',k,'unavailable','',esc(b.error||'读不到 DSH 心跳')); }
+  else if(b.stale){ rtCard('hb-main','warn',k,b.secondsRemaining!=null?mmss(b.secondsRemaining):'stale','','⚠ 数据过期'); }
+  else {
+    rtCard('hb-main','ok',k,mmss(b.secondsRemaining),'',esc(b.phase||''),true);
+    if(b.secondsRemaining!=null){ HB.sec=b.secondsRemaining; HB.at=Date.now(); HB.on=true; }
+  }
+  rtTable('hb-detail',[
+    ['来源', esc(b.source||'—')],
+    ['状态', esc(b.phase||b.state)+(b.quiet?' · 安静时段':'')],
+    ['剩余', b.disabled?'—（关着）':(b.secondsRemaining!=null?mmss(b.secondsRemaining):'—')],
+    ['下次到点', b.nextAutonomyAt?tm(b.nextAutonomyAt):(b.dueAt?('已到点（'+ago(b.dueAt)+'）'):'—')],
+    ['阈值', (b.thresholdMinutes!=null?b.thresholdMinutes+' 分':'—')+(b.graceMinutes!=null?' · 缓冲 '+b.graceMinutes+' 分':'')],
+    ['今日自主', (b.autoRunsToday!=null?b.autoRunsToday:'—')+' / '+(b.maxRunsPerDay!=null?b.maxRunsPerDay:'—')],
+    ['主导会话', b.primaryFound===true?'找得到':(b.primaryFound===false?'没找到':'—')],
+    ['宿主错误', b.lastError?'<span style="color:var(--amber)">'+esc(b.lastError)+'</span>':'<span style="color:var(--dim2)">无</span>']
+  ]);
+}
+function renderLlm(l){
+  var k='模型<span class="pill tiny">v4</span>';
+  // ★ 2026-11-10 修（F1 同类）：llm 整块缺失时，主卡原先保持上一轮的 model 不重画 ——
+  //   明细写「读不到」、主卡还挂着旧模型名，同属「旧值冒充实况」。这里一并重画成「—」。
+  if(!l){ rtCard('llm-main','bad',k,'—','','读不到 llm 块（不保留上一轮的值）'); rtTable('llm-detail',[['状态','读不到']]); return; }
+  if(!l.available){ rtCard('llm-main','bad',k,'unavailable','',esc(l.why||'读不到')); }
+  else if(!l.ready){ rtCard('llm-main','warn',k,'未配置','',esc(l.model||'—')+' · 缺 key 或地址（llmReady=false）'); }
+  else { rtCard('llm-main',(l.failures>0?'warn':'ok'),k,esc(l.model||'—'),'',esc(l.protocol||'')+' · '+esc(l.providerName||l.provider||'—')+' · 调用 '+(l.calls!=null?l.calls:'—')+' 次 · 失败 '+(l.failures!=null?l.failures:'—'),true); }
+  var u=l.usage||{status:'unavailable'};
+  var usg = u.status==='ok'
+    ? ('prompt '+big(u.promptTokens)+' · completion '+big(u.completionTokens)+' · cacheRead '+(u.cacheReadTokens!=null?big(u.cacheReadTokens):'—')+' · total '+big(u.totalTokens)+' <span style="color:var(--dim2)">('+esc(u.protocol||'')+'，'+ago(u.at)+')</span>')
+    : ('<span style="color:var(--dim2)">unavailable（'+esc(u.reason||'协议没回 usage')+'）</span>');
+  rtTable('llm-detail',[
+    ['协议', esc(l.protocol||'—')],
+    ['供应商', esc(l.providerName||'—')+' <span style="color:var(--dim2)">'+esc(l.provider||'')+'</span>'],
+    ['密钥来源', l.keySource?('<span class="pill">'+esc(l.keySource)+'</span>'):'—'],
+    ['调用 / 失败', (l.calls!=null?l.calls:'—')+' / '+(l.failures!=null?l.failures:'—')],
+    ['最近调用', (l.lastCallAt?tm(l.lastCallAt):'—')+(l.lastLatencyMs!=null?' · '+l.lastLatencyMs+' ms':'')],
+    ['最近成功', l.lastOkAt?tm(l.lastOkAt):'—'],
+    ['usage', usg],
+    ['最近错误', l.lastError?('<span style="color:var(--amber)">'+esc(l.lastError)+'</span>'+(l.lastErrorAt?' <span style="color:var(--dim2)">'+ago(l.lastErrorAt)+'</span>':'')):'<span style="color:var(--dim2)">无</span>'],
+    ['统计可用', l.available?'是':('否'+(l.why?'（'+esc(l.why)+'）':''))]
+  ]);
+}
+function loadRuntime(){
+  fetch('/api/runtime-status').then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json() }).then(function(d){
+    renderControl(d.control); renderHub(d.mcpHub); renderHb(d.dshHeartbeat); renderLlm(d.llm);
+  }).catch(function(x){
+    // ★ 404 不是「坏了」，是「还没部署上去」（server.mjs 的改动要 core 重启）。
+    //   一个部署状态不该画成红色错误 —— 红只留给真的读不到。
+    var pending=/HTTP 404/.test(String(x.message));
+    var cls=pending?'warn':'bad';
+    var msg=(pending?'接口还没上线（core 未重启后即可）':'读不到 /api/runtime-status：'+x.message+'（server.mjs 的改动要 core 重启才生效；本页 HTML 不用重启）');
+    // ★ 2026-11-10 修 F1（overview-stale-ui）：失败态必须把「上一轮还活着」的痕迹一起关掉。
+    //   ① HB.on=false —— 否则 1 秒后 ticker(:327) 会把刚写的「—」覆盖成 mmss(HB.sec-elapsed)，
+    //      接口已经读不到、秒数还在往下走；那是这一屏最不该出现的误读。
+    //   ② 四张明细表一起清 —— 否则主卡写「读不到」、明细仍留着上一轮的 host/servers/剩余/model，
+    //      等于拿旧值冒充实况。清成与主卡同一句原因，不写 0、不写「无」。
+    //   ★ 不另设「恢复」路径：下一轮成功时 renderControl/renderHub/renderHb/renderLlm 会自己重画（含 HB.on=true）。
+    HB.on=false; HB.sec=null; HB.at=0;
+    var why=esc(pending?'接口还没上线（core 未重启）':'读不到 /api/runtime-status：'+String(x.message));
+    rtTable('ctl-detail',[['状态',why]]);
+    rtTable('hub-detail',[['状态',why]]);
+    rtTable('hb-detail',[['状态',why]]);
+    rtTable('llm-detail',[['状态',why]]);
+    rtCard('ctl-main',cls,'桥接<span class="pill tiny">v4</span>','—','',esc(msg));
+    rtCard('hub-main',cls,'MCP Hub<span class="pill tiny">DSH</span>','—','',esc(msg));
+    rtCard('hb-main',cls,'心跳倒计时<span class="pill tiny">DSH</span>','—','',esc(msg));
+    rtCard('llm-main',cls,'模型<span class="pill tiny">v4</span>','—','',esc(msg));
+  });
+}
+setInterval(function(){ if(!HB.on) return; var el=document.querySelector('#hb-main .v'); if(el) el.textContent=mmss(HB.sec-(Date.now()-HB.at)/1000); },1000);
+setInterval(loadRuntime, 5000);
+
+$('fresh').onclick=function(){loadData(true);loadOrgans();loadRuntime()};
 // 导航全部接真页，没有占位了
 loadData(false);
 loadOrgans();
+loadRuntime();
+function loadLive(){
+  fetch('/api/live').then(function(r){return r.json()}).then(function(d){
+    var w=d.waiting||{}, f=d.fails||[], inf=d.inflight||[], rec=d.recent||[];
+    var esc=function(x){return String(x==null?'':x).replace(/[<>&]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c]})};
+    var box=document.getElementById('live');
+    if(box){
+      var cells=[
+        ['待处理',String(w.pending||0),'条','pending / woken',(w.pending?'warn':'ok')],
+        ['被拦下',String(w.blocked||0),'条','入账但不叫你',(w.blocked?'warn':'ok')],
+        ['投递中',String(inf.length),'条',inf.length?'等回执':(d.stale&&d.stale.inflight?'（另有 '+d.stale.inflight+' 条更早的记录已折叠）':'空'),(inf.length?'warn':'ok')],
+        ['投递失败',String(f.length),'条',f.length?'要查':(d.stale&&d.stale.fails?'（'+d.stale.fails+' 条更早的已折叠）':'无'),(f.length?'bad':'ok')]
+      ];
+      box.innerHTML=cells.map(function(c){
+        return "<div class='card "+c[4]+"'><div class='bar'></div><div class='k'>"+esc(c[0])+
+               "</div><div class='v'>"+esc(c[1])+"<i>"+esc(c[2])+"</i></div><div class='n'>"+esc(c[3])+"</div></div>";
+      }).join('');
+    }
+    var W=document.getElementById('wait');
+    if(W){
+      var rows='<tr><td>台账总数</td><td>'+esc(w.total||0)+'</td></tr>'+
+               '<tr><td>待你处理</td><td>'+(w.pending?'<span class="pill no">'+esc(w.pending)+'</span>':'<span class="pill ok">0</span>')+'</td></tr>'+
+               '<tr><td>被宪章拦下</td><td>'+(w.blocked?'<span class="pill no">'+esc(w.blocked)+'</span>':'<span class="pill ok">0</span>')+'</td></tr>';
+      W.innerHTML=rows;
+    }
+    var S=document.getElementById('send');
+    if(S){
+      var r2='';
+      if(!inf.length && !f.length) r2='<tr><td>投递队列</td><td>空</td></tr>';
+      inf.forEach(function(x){ r2+='<tr><td>'+esc(x.phase||'?')+'</td><td>'+Math.round((x.waitedMs||0)/1000)+'s　'+esc(String(x.text||'').slice(0,20))+'</td></tr>'; });
+      f.forEach(function(x){ r2+='<tr><td style="color:var(--as-warn)">失败</td><td style="color:var(--as-warn)">'+esc(String(x.why||'').slice(0,44))+'</td></tr>'; });
+      S.innerHTML=r2;
+    }
+    var V=document.getElementById('verdicts');
+    if(V){
+      var r3='';
+      if(!rec.length) r3='<tr><td>记录</td><td>无</td></tr>';
+      rec.forEach(function(x){
+        var t=esc(String(x.t||'').slice(11,19));
+        var ch=esc(x.charter||'-');
+        var cls=(x.charter==='pass')?'ok':(x.charter==='block'?'no':'');
+        r3+='<tr><td>'+t+'</td><td>'+esc(String(x.title||'').slice(0,32))+'</td><td><span class="pill '+cls+'">'+ch+'</span></td><td>'+esc(x.stage||'')+'</td></tr>';
+      });
+      V.innerHTML=r3;
+    }
+  }).catch(function(){});
+}
+// ★★ 2026-11-11（截图暴露的真 bug）：这里原来**只有 setInterval，没有首次调用** ——
+//   于是「活体·现在在等谁」和「最近判定」两块卡片在打开页面后的头 8 秒里是空白框。
+//   我拍截图时 virtual-time-budget 给了 7000ms，正好差 1 秒拍到它 —— 那是运气，不是设计。
+//   **判据：轮询的东西必须立刻跑一次，等待是给「下一次」的，不是给「这一次」的。**
+loadLive();
+setInterval(loadLive, 8000);
 setInterval(loadOrgans, 60000);
 </script></body></html>

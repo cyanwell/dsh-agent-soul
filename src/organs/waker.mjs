@@ -13,10 +13,25 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+// ★ 2026-11-10 第三轮（独立验收 P2）：台账是**落盘**的自由文本写入点 ——
+//   key / title / charterNote / note 都是调用方可控的。脱敏放在 normalizeRecord
+//   这个唯一收口上，新加的写入者不可能"忘记调"（调用点各写一遍才是漏的来源）。
+//   ★ 方向：organ → organ，guard.mjs 不 import 任何东西，没有环。
+import { redactBody } from './guard.mjs';
 
 /** 状态机的合法取值。★ 严格校验的理由：台账是给人看的状态，
- *  一个拼错的 stage 会让这条事件在四个视图里全部消失 —— 消失比报错更坏。 */
-export const STAGES = ['pending', 'woken', 'decided', 'done', 'held', 'auditing', 'stuck'];
+ *  一个拼错的 stage 会让这条事件在五个视图里全部消失 —— 消失比报错更坏。
+ *
+ *  ★ 2026-11-10 F1：**'blocked' 原本不在表里**，而 guard.deliverPanelNotice 早就在传
+ *  stage:'blocked'。两道闸叠在一起把这条状态吃掉：
+ *    ① ingest() 硬编码 stage:'pending'（连传都没传下来）；
+ *    ② 就算传下来，normalizeRecord 也会因为 STAGES 里没有 'blocked' 把它回落成 pending。
+ *  于是「被宪章拦下」在磁盘上永远写成「待处理」—— 而下面这两处**早就按 'blocked' 读了**：
+ *    · src/web/server.mjs:807  const blocked = evs.filter(x => stage(x) === 'blocked')
+ *    · src/web/dashboard.html  「被拦下 N 条 · 入账但不叫你」「被宪章拦下」
+ *  也就是说仪表盘上那个计数一直是**死读数**（恒 0，并被算进「待处理」）。
+ *  补进白名单不是新立一套语义，是让既有的读法终于读得到东西。 */
+export const STAGES = ['pending', 'woken', 'decided', 'done', 'held', 'auditing', 'stuck', 'blocked'];
 export const DECISIONS = ['resume', 'hold', 'audit'];
 export const CHARTERS = ['pass', 'ask', 'block', 'unchecked'];
 
@@ -29,9 +44,10 @@ export const STAGE_BY_DECISION = { resume: 'done', hold: 'held', audit: 'auditin
 export function normalizeRecord(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
   return {
-    key: String(r.key || ''),
+    // ★ 先脱敏、再截断（顺序反了截断点会把 JSON 切坏，反而绕过结构脱敏）。
+    key: redactBody(String(r.key || '')),
     t: String(r.t || ''),
-    title: String(r.title || '').slice(0, 200),
+    title: redactBody(String(r.title || '')).slice(0, 200),
     from: String(r.from || ''),
     tier: String(r.tier || ''),
     stage: STAGES.includes(r.stage) ? r.stage : 'pending',
@@ -40,9 +56,9 @@ export function normalizeRecord(raw) {
     decision: DECISIONS.includes(r.decision) ? r.decision : null,
     // ★★ 关键一行：不合法/缺失一律回落 unchecked，绝不回落 pass
     charter: CHARTERS.includes(r.charter) ? r.charter : 'unchecked',
-    charterNote: String(r.charterNote || '').slice(0, 300),
+    charterNote: redactBody(String(r.charterNote || '')).slice(0, 300),
     decidedAt: Number.isFinite(r.decidedAt) ? r.decidedAt : null,
-    note: String(r.note || '').slice(0, 600),
+    note: redactBody(String(r.note || '')).slice(0, 600),
     // ★ 回邮地址必须活着穿过白名单 —— 老版漏了这一行，
     //   wake 写进去了、normalize 又把它丢掉，于是判定时无址可寄。
     fromSession: String(r.fromSession || ''),
@@ -70,20 +86,29 @@ export function applyDecision(ledger, key, patch) {
 
   ev.decision = decision;
   ev.charter = charter;
-  if (patch.charterNote !== undefined && patch.charterNote !== null) ev.charterNote = String(patch.charterNote).slice(0, 300);
-  if (patch.note !== undefined && patch.note !== null) ev.note = String(patch.note).slice(0, 600);
+  if (patch.charterNote !== undefined && patch.charterNote !== null) ev.charterNote = redactBody(String(patch.charterNote)).slice(0, 300);
+  if (patch.note !== undefined && patch.note !== null) ev.note = redactBody(String(patch.note)).slice(0, 600);
   ev.decidedAt = Date.now();
   ev.stage = STAGE_BY_DECISION[decision];
   return { ok: true, event: ev };
 }
 
 /**
- * 四类视图。一条事件可以同时出现在两个视图里 ——
+ * 五类视图。一条事件可以同时出现在两个视图里 ——
  * 「你已执行」问的是「做完了什么」，「你自己决定做的」问的是「谁拍的主意」，
  * 这是两个问题，重叠是设计，不是 bug。
+ *
+ * ★ 2026-11-10 F1 新增第五个视图 'blocked'（被宪章拦下、入账但不叫你）。
+ *   **为什么不塞进 act / audit / done：**
+ *     · act   = 「等你动手」，而 blocked 是**不用你动手**（guard 已经判完）；
+ *     · audit = 「要审计但没审」，badge 会把它算成未处理 —— 等于**重新拿叫醒当催办**；
+ *     · done  = 「你已执行 / 你拍的板」，blocked **没有人拍过板**，是 guard 拦的，
+ *               混进去会让「已执行」这个数说谎（面板上那一行写的就是「已执行」）。
+ *   所以给它自己的名字。它与 dashboard 上「被拦下」那条读数**同一个判据**
+ *   （原始 stage），两处不会各漂各的。
  */
 export function viewsOf(events) {
-  const act = [], done = [], audit = [], auto = [];
+  const act = [], done = [], audit = [], auto = [], blocked = [];
   for (const ev of events) {
     if (ev.stage === 'woken' && !ev.decision) act.push(ev);
     if (ev.decision === 'resume') done.push(ev);
@@ -91,11 +116,12 @@ export function viewsOf(events) {
     //   而「叫不醒」恰恰是最不该消失的一种，所以显式收进来。
     if (ev.decision === 'audit' || ev.charter === 'ask' || ev.stage === 'stuck') audit.push(ev);
     if (ev.decision && ev.charter === 'pass') auto.push(ev);
+    if (ev.stage === 'blocked') blocked.push(ev);
   }
   // 时间倒序（新的在前）。t 是 ISO 串，直接比字符串即可；空 t 沉底。
   const byT = (a, b) => String(b.t || '').localeCompare(String(a.t || ''));
-  act.sort(byT); done.sort(byT); audit.sort(byT); auto.sort(byT);
-  return { act, done, audit, auto };
+  act.sort(byT); done.sort(byT); audit.sort(byT); auto.sort(byT); blocked.sort(byT);
+  return { act, done, audit, auto, blocked };
 }
 
 /** 徽章 = 未处理数。「要你执行」+「要审计但没审」的并集（同一条可能两边都在，去重）。 */
@@ -137,11 +163,24 @@ export function buildWakeText(rec, extra) {
  *   不回退的代价是台账**长时间停止更新**，而一个不更新的台账比一次非原子写坏得多。
  */
 export class Ledger {
-  constructor(file) {
+  /**
+   * @param {string} file
+   * @param {{readOnly?:boolean}} [opts]
+   *   ★ 2026-11-10（三项死读数修复之二）：`readOnly:true` 用来**只读地打开权威台账**
+   *   （`<状态目录>/lead-waker-台账.json`）。读它是本次修复要求的；写它**不在**本次范围。
+   *   没有这道闸，「读一遍真台账」和「顺手把真台账重写一遍」在代码上只差一次方法调用 ——
+   *   而这个类的 #save() 会把整份文件按 normalizeRecord 重写（会丢掉白名单外的字段）。
+   */
+  constructor(file, opts) {
     this.file = file;
+    this.readOnly = !!((opts || {}).readOnly);
+    this.loadedAtMs = Date.now();
     this.data = { version: 1, updatedAt: new Date().toISOString(), events: [] };
     this.#load();
   }
+
+  /** 只读实例的拒写出口。★ 拒得**响亮**，不静默失败。 */
+  #refuse() { return { ok: false, err: '只读实例：这个 Ledger 用来读权威台账，不允许写（写路径要另选一份文件）' }; }
 
   #load() {
     let raw;
@@ -157,6 +196,7 @@ export class Ledger {
   }
 
   #save() {
+    if (this.readOnly) return false;   // 最后一道闸：任何路径都别想碰只读台账
     this.data.updatedAt = new Date().toISOString();
     const text = JSON.stringify(this.data, null, 1);
     const tmp = this.file + '.tmp';
@@ -181,19 +221,51 @@ export class Ledger {
   /**
    * 收一条事件进台账。
    * ★ 幂等：同一个 key 只收一次（事件队列可能重复投递）。
+   *
+   * ★★ 2026-11-10 F1（独立验收留的真缺陷）：**以前这里只挑 7 个字段，
+   *   并把 stage 硬编码成 'pending'。** guard.deliverPanelNotice 传下来的
+   *   stage:'blocked' / charter:'block' / charterNote 三个**全被丢掉** ——
+   *   磁盘写成 pending/unchecked，四视图里看不见，charterNote（脱敏后的理由）也没了。
+   *   第九轮报告说「block 的台账 stage=blocked」，那是**假 waker 记的入参**，不是落盘值。
+   *
+   *   现在：**白名单内的状态字段原样收下**，校验仍只有 normalizeRecord 一处收口
+   *   （枚举不合法 → pending / unchecked / null；长度截断；脱敏）。所以
+   *   「任意调用方能不能伪造非法状态」的答案没变：**能进来的永远只是合法枚举值**。
+   *   而能传这些字段的只有**进程内**调用者 —— soul_waker 的 ingest 分支只传
+   *   key/t/title/from/tier（adapters/mcp-tools.mjs:719），外部入口拿不到这一层。
+   *
+   *   ★ 同源约束（随本次一并加上）：decision 与 stage 必须对得上（STAGE_BY_DECISION）。
+   *   只给 decision 就按那张表补 stage；两个都给了却互相矛盾
+   *   （例：stage:'blocked' + decision:'resume'）→ **拒收**，不落一条自相矛盾的账。
+   *   理由：那种记录会同时掉进两个语义相反的视图 —— 消失比报错更坏，**自相矛盾更坏**。
    */
   ingest(ev) {
-    const key = String((ev && ev.key) || '');
+    if (this.readOnly) return this.#refuse();
+    const e = ev && typeof ev === 'object' ? ev : {};
+    const key = String(e.key || '');
     if (!key) return { ok: false, err: '缺 key' };
     if (this.find(key)) return { ok: false, err: '已经在台账里', dup: true };
+
+    const decision = DECISIONS.includes(e.decision) ? e.decision : null;
+    const stageGiven = STAGES.includes(e.stage) ? e.stage : null;
+    const stageImplied = decision ? STAGE_BY_DECISION[decision] : null;
+    if (decision && stageGiven && stageGiven !== stageImplied) {
+      return { ok: false, err: 'stage 与 decision 对不上：' + stageGiven + ' / ' + decision + '（判定只能是 ' + stageImplied + '）' };
+    }
+
     const rec = normalizeRecord({
       key,
-      t: (ev && ev.t) || new Date().toISOString(),
-      title: (ev && ev.title) || '',
-      from: (ev && ev.from) || '',
-      tier: (ev && ev.tier) || '',
-      fromSession: (ev && ev.fromSession) || '',
-      stage: 'pending',
+      t: e.t || new Date().toISOString(),
+      title: e.title || '',
+      from: e.from || '',
+      tier: e.tier || '',
+      fromSession: e.fromSession || '',
+      // ★ 缺省才回落：不给 stage → pending；不给 charter → unchecked（绝不 pass）。
+      stage: stageGiven || stageImplied || 'pending',
+      charter: e.charter,
+      charterNote: e.charterNote,
+      decision,
+      decidedAt: e.decidedAt,
     });
     this.data.events.push(rec);
     this.#save();
@@ -203,6 +275,7 @@ export class Ledger {
   /** 标记「已经叫过了」。★ wakeCount 到 3 判 stuck —— 老版：没有间隔会把 30 秒一 tick 的轮询
    *  在 1.5 分钟内推到 3、当场判死，那等于「开机就判死」，stuck 会失去意义。 */
   markWoken(key, maxWake) {
+    if (this.readOnly) return this.#refuse();
     const ev = this.find(key);
     if (!ev) return { ok: false, err: '台账里没有这条 key' };
     ev.wakeCount++;
@@ -214,12 +287,13 @@ export class Ledger {
 
   /** 写判定 */
   decide(key, patch) {
+    if (this.readOnly) return this.#refuse();
     const r = applyDecision(this.data, key, patch);
     if (r.ok) this.#save();
     return r;
   }
 
-  /** 四视图 + 徽章 */
+  /** 五视图 + 徽章（★ blocked 只出现在自己的视图里；badge 仍然只数 act ∪ audit） */
   views() {
     const v = viewsOf(this.data.events);
     return { ...v, badge: badgeOf(v) };

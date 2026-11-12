@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentSoul · 待回答</title>
+<link rel="stylesheet" href="/aurora.css">
+<style>
+  :root {
+    --ink: #1c1b18; --ink-2: #57534a; --ink-3: #8b8679;
+    --paper: #f7f5ef; --card: #fffefb; --line: #e3ded2;
+    --yes: #2f6b3a; --no: #a4501a; --accent: #7a5c2e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 20px 60px;
+    background: var(--paper); color: var(--ink);
+    font: 15px/1.7 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  header { padding: 34px 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 26px; }
+  h1 { margin: 0 0 6px; font-size: 24px; letter-spacing: .5px; font-weight: 800; }
+  .sub { color: var(--ink-3); font-size: 13px; }
+  .sub b { color: var(--accent); font-weight: 700; }
+  .sect { margin: 30px 0 12px; font-size: 12px; letter-spacing: 1.6px; color: var(--ink-3); font-weight: 700; }
+  .q {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 14px;
+  }
+  .q.block { border-left: 3px solid var(--accent); }
+  .q-text { font-size: 16px; font-weight: 700; margin-bottom: 6px; word-break: break-word; }
+  .q-detail { color: var(--ink-2); font-size: 13.5px; white-space: pre-wrap; margin-bottom: 12px; }
+  .q-meta { color: var(--ink-3); font-size: 12px; margin-bottom: 14px; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 4px; background: #efe9dc; color: var(--accent); font-size: 11.5px; margin-right: 6px; }
+  .acts { display: flex; gap: 10px; align-items: center; }
+  button {
+    font: inherit; font-size: 14px; padding: 8px 22px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--line); background: #fff; color: var(--ink); transition: .12s;
+  }
+  button:hover { transform: translateY(-1px); }
+  button:disabled { opacity: .45; cursor: default; transform: none; }
+  .b-yes { border-color: #b9d3bd; color: var(--yes); font-weight: 700; }
+  .b-yes:hover { background: #eef4ec; }
+  .b-no { border-color: #e2c3ab; color: var(--no); font-weight: 700; }
+  .b-no:hover { background: #fbf0e7; }
+  .b-more { color: var(--ink-3); font-size: 13px; padding: 8px 12px; border-color: transparent; background: transparent; }
+  .b-more:hover { color: var(--ink); }
+  .custom { margin-top: 12px; display: none; }
+  .custom.open { display: block; }
+  .custom textarea {
+    width: 100%; min-height: 62px; resize: vertical; padding: 10px 12px;
+    border: 1px solid var(--line); border-radius: 8px; font: inherit; background: #fff; color: var(--ink);
+  }
+  .custom .row { margin-top: 8px; display: flex; gap: 8px; }
+  .done { opacity: .62; }
+  .done .q-text { font-weight: 600; }
+  .ans { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: #f2f0e8; font-size: 14px; }
+  .ans b { color: var(--accent); }
+  .empty { color: var(--ink-3); font-size: 14px; padding: 10px 2px; }
+  .foot { margin-top: 40px; color: var(--ink-3); font-size: 12px; line-height: 1.9; border-top: 1px solid var(--line); padding-top: 16px; }
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--yes); margin-right: 6px; vertical-align: middle; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>待回答</h1>
+    <div class="sub">{ago} · <b id="nopen">0</b> 条等你拍板　<span class="dot"></span>自动刷新</div>
+  </header>
+  <div id="openBox"></div>
+  <div class="sect">已回答（最近 5 条）</div>
+  <div id="doneBox"></div>
+  <div class="foot">
+    这些问题来自 AgentSoul 的 <code>ask_user</code>。<br>
+    回答会写进 <code>data/questions.json</code>，并在**下一轮**对话的上下文里出现 —— 不是立刻回给提问的那一轮。<br>
+    ★ 默认给「是 / 否」：面对一个判断，你要的多半是收敛，不是一段话。
+  </div>
+</div>
+<script>
+(function () {
+  var nopen = document.getElementById('nopen');
+  var openBox = document.getElementById('openBox');
+  var doneBox = document.getElementById('doneBox');
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
+    });
+  }
+  function ago(iso) {
+    var t = Date.parse(iso);
+    if (!t) return '';
+    var m = Math.round((Date.now() - t) / 60000);
+    if (m < 1) return '刚刚';
+    if (m < 60) return m + ' 分钟前';
+    var h = Math.round(m / 60);
+    if (h < 24) return h + ' 小时前';
+    return Math.round(h / 24) + ' 天前';
+  }
+
+  function card(q, done) {
+    var el = document.createElement('div');
+    el.className = 'q' + (q.urgency === 'block' ? ' block' : '') + (done ? ' done' : '');
+    var tags = '';
+    if (q.urgency === 'block') tags += '<span class="tag">卡住了</span>';
+    if (q.delivered === false) tags += '<span class="tag">没送到</span>';
+    el.innerHTML =
+      '<div class="q-text">' + esc(q.question) + '</div>' +
+      (q.detail ? '<div class="q-detail">' + esc(q.detail) + '</div>' : '') +
+      '<div class="q-meta">' + tags + (q.sessionId ? esc(String(q.sessionId).slice(0, 18)) + ' · ' : '') + ago(q.askedAt) + '</div>';
+    if (done) {
+      var a = document.createElement('div');
+      a.className = 'ans';
+      a.innerHTML = '<b>你的回答：</b>' + esc(q.answer) + '　<span style="color:#8b8679">' + ago(q.answeredAt) + '</span>';
+      el.appendChild(a);
+      return el;
+    }
+    var acts = document.createElement('div');
+    acts.className = 'acts';
+    var by = document.createElement('button'); by.className = 'b-yes'; by.textContent = '是';
+    var bn = document.createElement('button'); bn.className = 'b-no'; bn.textContent = '否';
+    var bm = document.createElement('button'); bm.className = 'b-more'; bm.textContent = '自己写…';
+    acts.appendChild(by); acts.appendChild(bn); acts.appendChild(bm);
+    el.appendChild(acts);
+
+    var box = document.createElement('div');
+    box.className = 'custom';
+    box.innerHTML = '<textarea placeholder="补充条件、给具体值…"></textarea>' +
+      '<div class="row"><button class="b-send">送出</button><button class="b-more b-cancel">算了</button></div>';
+    el.appendChild(box);
+    var ta = box.querySelector('textarea');
+
+    bm.onclick = function () { box.classList.add('open'); ta.focus(); };
+    box.querySelector('.b-cancel').onclick = function () { box.classList.remove('open'); };
+    box.querySelector('.b-send').onclick = function () { send(q.id, ta.value, el); };
+
+    by.onclick = function () { send(q.id, '是', el); };
+    bn.onclick = function () { send(q.id, '否', el); };
+    return el;
+  }
+
+  function send(id, text, el) {
+    if (!text || !String(text).trim()) return;
+    var btns = el.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
+    fetch('/api/answer', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ questionId: id, text: String(text).trim(), by: 'ask-page' })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (!j || !j.ok) throw new Error((j && j.error) || '回答没写进去');
+      load();
+    }).catch(function (e) {
+      for (var i = 0; i < btns.length; i++) btns[i].disabled = false;
+      alert('没送出去：' + e.message);
+    });
+  }
+
+  function load() {
+    fetch('/api/questions').then(function (r) { return r.json(); }).then(function (j) {
+      var open = (j && j.open) || [];
+      var answered = (j && j.answered) || [];
+      nopen.textContent = String(open.length);
+      openBox.innerHTML = '';
+      doneBox.innerHTML = '';
+      if (!open.length) {
+        openBox.innerHTML = '<div class="empty">没有待回答的问题。v4 能自己判断的事不会来问你。</div>';
+      } else {
+        open.forEach(function (q) { openBox.appendChild(card(q, false)); });
+      }
+      if (!answered.length) {
+        doneBox.innerHTML = '<div class="empty">还没有回答过。</div>';
+      } else {
+        answered.forEach(function (q) { doneBox.appendChild(card(q, true)); });
+      }
+    }).catch(function () { /* 服务没起来时不吵，下一轮再试 */ });
+  }
+
+  load();
+  setInterval(load, 10000);
+})();
+</script>
+</body>
+</html>

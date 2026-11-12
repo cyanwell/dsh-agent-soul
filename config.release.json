@@ -2,9 +2,14 @@
   "port": 7310,
   "dataDir": "data",
   "workspace": ".",
+  "statusDir": null,
   "llm": {
-    "baseUrl": "https://api.deepseek.com",
+    "protocol": "openai",
+    "provider": "deepseek-official",
+    "providerName": "DeepSeek官方",
+    "baseUrl": "",
     "apiKey": "",
+    "apiKeyRef": "dpapi:deepseek-official",
     "model": "deepseek-chat",
     "maxTokens": 4096,
     "temperature": 0.7

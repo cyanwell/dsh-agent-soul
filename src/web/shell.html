@@ -3,11 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel='stylesheet' href='/aurora.css'>
+<script src='/aurora.js' defer></script>
 <title>agent-soul</title>
 <style>
-:root{--bg:#14120f;--panel:#1c1916;--panel2:#231f1b;--line:#2e2924;--ink:#e8e2d6;--dim:#8d8578;--hot:#d4763f}
+:root{--bg:var(--as-bg);--panel:linear-gradient(148deg,var(--as-glass-1),var(--as-glass-2));--panel2:var(--as-tint);--line:var(--as-edge-2);--ink:var(--as-ink);--dim:var(--as-dim);--dim2:var(--as-weak-d);--hot:var(--as-pend)}
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.6 "Noto Sans SC",system-ui,sans-serif}
+/* ★ 2026-11-10 天空可见性修复：拆开 html/body —— 底色留在 html，body 透明。
+   理由同七页：.as-sky 是 position:fixed;z-index:-1，body 有不透明底就会把极光整层盖死。
+   html 的 height:100% 必须保留 —— body 的 height:100% 靠它解析，拆的时候不能掉。
+   ★ 只动这一处：#main/#navline/#sidebar/#msgs/#composer 的壳层与遮罩一个字都没改。 */
+html{height:100%;background:var(--bg)}
+body{margin:0;height:100%;background:transparent;color:var(--ink);font:13.5px/1.75 var(--as-font)}
 #shell{display:flex;flex-direction:column;height:100%}
 #main{flex:0 0 44px;display:flex;align-items:center;gap:14px;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--line)}
 #main .brand{font-weight:700;letter-spacing:.5px;color:var(--hot)}
@@ -15,6 +22,15 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1
 #main .sp{flex:1}
 #main button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer}
 #main button:hover{border-color:var(--hot)}
+/* ★ 2026-11-09 补导航：/chat 是独立壳，原先没有与六页互通的入口。
+   结构照抄六页（a + b 圆点），只把竖排改成顶部一条 —— 这个壳的侧栏已经是会话列表，
+   再塞一条竖导航会把列表挤没；配色全部沿用本页变量，不引入第二套主题。 */
+#navline{flex:0 0 34px;display:flex;align-items:center;gap:2px;padding:0 12px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto;white-space:nowrap}
+#navline a{display:flex;align-items:center;gap:6px;flex:none;color:var(--dim);text-decoration:none;font-size:12px;padding:5px 9px;border-radius:5px}
+#navline a b{width:4px;height:4px;border-radius:50%;background:var(--dim2);flex:none}
+#navline a:hover{color:var(--ink);background:var(--panel2)}
+#navline a.on{color:var(--ink);background:var(--panel2)}
+#navline a.on b{background:var(--hot)}
 #body{flex:1;display:flex;min-height:0}
 #sidebar{flex:0 0 240px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
 #sidebar h4{margin:0;padding:10px 14px;font-size:11px;letter-spacing:1.5px;color:var(--dim);border-bottom:1px solid var(--line)}
@@ -28,14 +44,14 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1
 .m .who{font-size:11px;color:var(--dim);margin-bottom:3px}
 .m .bd{white-space:pre-wrap;word-break:break-word}
 .m.user .bd{background:var(--panel2);padding:9px 12px;border-radius:9px}
-.m.tool .bd,.m.tr .bd{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#a89e8c;background:#191512;padding:7px 10px;border-radius:6px;border-left:2px solid #3b332a}
-.m.err .bd{color:#d98a7a}
+.m.tool .bd,.m.tr .bd{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--as-dim);background:var(--as-code-bg);padding:7px 10px;border-radius:6px;border-left:2px solid var(--as-edge-2)}
+.m.err .bd{color:var(--as-err)}
 #composer{flex:0 0 auto;padding:12px 16px;border-top:1px solid var(--line);background:var(--panel);display:flex;gap:10px}
 #inp{flex:1;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit;resize:none;height:64px;outline:none}
 #inp:focus{border-color:var(--hot)}
-#send{flex:0 0 88px;background:var(--hot);color:#191512;border:0;border-radius:8px;font-weight:700;cursor:pointer}
+#send{flex:0 0 88px;background:var(--hot);color:var(--as-bg);border:0;border-radius:8px;font-weight:700;cursor:pointer}
 #send:disabled{opacity:.45;cursor:default}
-#overlay{position:fixed;inset:0;background:rgba(10,8,6,.72);display:none;align-items:center;justify-content:center;padding:24px;z-index:50}
+#overlay{position:fixed;inset:0;background:var(--as-overlay);display:none;align-items:center;justify-content:center;padding:24px;z-index:50}
 #overlay.on{display:flex}
 #overlay .box{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:min(720px,100%);max-height:85vh;overflow:auto;padding:20px 22px}
 .sect{margin-bottom:18px}
@@ -45,6 +61,56 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1
 .kv span{flex:1;word-break:break-all}
 #hits div{padding:5px 0;border-bottom:1px dotted var(--line);font-size:12.5px}
 #hits .sq{color:var(--hot);font-family:monospace;font-size:11px;margin-right:7px}
+
+/* ── 极光接入（2026-11-10）：壳层与消息区走 aurora.css；只换表面，不动布局 ── */
+#main,#navline,#sidebar,#composer{background:var(--as-nav);backdrop-filter:blur(8px)}
+#msgs{background:var(--as-scrim-soft)}
+#overlay .box{background:linear-gradient(148deg,var(--as-glass-d1),var(--as-glass-d2));border:1px solid var(--as-edge);border-radius:var(--as-r);box-shadow:var(--as-shadow)}
+#sidebar,.m.user .bd,.m.tool .bd,.m.tr .bd{border-radius:var(--as-r-sm)}
+#main .brand{text-shadow:var(--as-text-shadow)}
+.m .bd{line-height:1.75}
+:focus-visible{outline:2px solid var(--as-pend);outline-offset:2px}
+
+/* ── 右侧「它此刻在干什么」（2026-11-11 爀曦要的那块） ──
+   三样自上而下：待回答 → 工具时间线 → 状态。
+   判据：这一栏回答的是「它现在在动吗」，所以时间线占最大、状态压到底。 */
+#aside{flex:0 0 296px;background:var(--as-nav);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+#aside .sec{padding:9px 12px 6px;font-size:10.5px;letter-spacing:1.4px;color:var(--dim2);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px;flex:none}
+#aside .sec .n{margin-left:auto;background:var(--panel2);color:var(--hot);border-radius:8px;padding:0 6px;font-size:10.5px;letter-spacing:0}
+#qBox{max-height:180px;overflow:auto;padding:6px 10px;flex:none}
+#qBox .q{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:7px;background:var(--panel2)}
+#qBox .q.block{border-left:2px solid var(--hot)}
+#qBox .qt{font-size:12.5px;line-height:1.55;margin-bottom:7px;word-break:break-word}
+#qBox .qa{display:flex;gap:6px}
+#qBox .qa button{flex:1;padding:4px 0;font-size:12px;border-radius:5px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer}
+#qBox .qa button.y:hover{border-color:#7fb489;color:#9fd0a8}
+#qBox .qa button.n:hover{border-color:#c98a5f;color:#e2a97e}
+#traceBox{flex:1;overflow:auto;padding:4px 10px 8px;min-height:60px}
+#traceBox .t{font-size:11.5px;line-height:1.6;padding:5px 0;border-bottom:1px dotted var(--line);font-family:ui-monospace,Consolas,monospace;word-break:break-all}
+#traceBox .t .k{color:var(--hot)}
+#traceBox .t .d{color:var(--dim2);font-size:10.5px}
+#traceBox .t.err .k{color:#e07a5f}
+#vitalsBox{padding:8px 12px 12px;font-size:11.5px;line-height:1.85;color:var(--dim);border-top:1px solid var(--line);flex:none}
+#vitalsBox .r{display:flex;gap:8px}
+#vitalsBox .r b{flex:0 0 66px;font-weight:400;color:var(--dim2)}
+#vitalsBox .bar{height:4px;border-radius:2px;background:var(--panel2);overflow:hidden;margin:3px 0 2px}
+#vitalsBox .bar i{display:block;height:100%;background:var(--hot);opacity:.72}
+#aside .empty{padding:10px 12px;color:var(--dim2);font-size:11.5px}
+/* 展开态的决策卡（与右栏那张窄卡是两套密度，各自优化） */
+.bq{background:var(--as-code-bg);border:1px solid var(--line);border-radius:9px;padding:14px 16px;margin-bottom:12px}
+.bq.block{border-left:3px solid var(--hot)}
+.bq.done{opacity:.66}
+.bqt{font-size:14.5px;font-weight:600;line-height:1.6;margin-bottom:7px;word-break:break-word}
+.bqd{font-size:13px;color:var(--dim);line-height:1.7;white-space:pre-wrap;margin-bottom:9px}
+.bqo{font-size:12.5px;color:var(--dim);line-height:1.8;margin-bottom:9px;padding-left:2px}
+.bqm{font-size:11px;color:var(--dim2);margin-bottom:10px}
+.bqr{display:flex;gap:8px;margin-top:8px;align-items:flex-start}
+.bqr button{padding:6px 20px;font-size:13px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--ink);cursor:pointer;flex:none}
+.bqr button.y:hover{border-color:#7fb489;color:#9fd0a8}
+.bqr button.n:hover{border-color:#c98a5f;color:#e2a97e}
+.bqi{flex:1;min-height:56px;background:var(--as-code-bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font:inherit;font-size:13px;resize:vertical}
+.bqa{margin-top:8px;font-size:13px;color:var(--as-pend);background:var(--panel2);border-radius:6px;padding:7px 10px}
+@media (max-width:1180px){#aside{display:none}}
 </style>
 </head>
 <body>
@@ -56,35 +122,249 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1
     <button id="btnNew">新会话</button>
     <button id="btnCfg">设置</button>
   </div>
+  <div id="navline">
+    <!-- ★ 2026-11-11 修（爀曦报的）：点「概览」会闪回对话界面。
+         真因：首页改成对话页后 `/` 不再是概览，而这行还写着 href='/' ——
+         点它等于重新打开自己。概览现在在 /dashboard。
+         ★ 同时把「对话」改名「调度LLM」（他的原话）：这一页的正身是调度单元，不是聊天框。 -->
+    <a href='/dashboard'><b></b>概览</a><a href='/chat' class='on'><b></b>调度LLM</a><a href='/lumen'><b></b>星系</a><a href='/organs'><b></b>器官</a><a href='/waker'><b></b>台账</a><a href='/echo'><b></b>echo</a><a href='/aurabot'><b></b>aurabot</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><!-- ★ 2026-11-13：/params 合并进 /settings（统计卡已搬过去） --><a href='/settings'><b></b>设置</a>
+  </div>
   <div id="body">
-    <div id="sidebar" data-slot="sidebar.panellist"><h4>会话</h4><div id="sessList"></div></div>
+    <div id="sidebar" data-slot="sidebar.panellist"><h4>会话 <span style="float:right;font-size:10px;color:var(--dim2)" id="sessCount"></span></h4><input id="sessQ" placeholder="搜索…" style="width:calc(100% - 12px);margin:0 6px 6px;padding:5px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--ink);font-size:12px;outline:none"><div id="sessList"></div></div>
     <div id="view">
       <div id="msgs" data-slot="conversation.view"></div>
       <div id="composer"><textarea id="inp" placeholder="说点什么…（Enter 发送，Shift+Enter 换行）"></textarea><button id="send">发送</button></div>
+    </div>
+    <div id="aside">
+      <div class="sec" id="qSec" style="cursor:pointer" title="点开看全部需要你决策的事件">待回答 <span class="n" id="qCount">0</span><span style="margin-left:6px;color:var(--dim2);font-size:11px">展开 ›</span></div>
+      <div id="qBox"><div class="empty">没有待回答</div></div>
+      <div class="sec">它此刻在干什么</div>
+      <div id="traceBox"><div class="empty">发一句话，这里会显示它调了什么工具</div></div>
+      <div id="vitalsBox"></div>
     </div>
   </div>
 </div>
 <div id="overlay" data-slot="shell.overlay"><div class="box" id="overlayBox"></div></div>
 <script>
+// ★ 2026-11-11：所有请求自动带上页面内联注入的 token（同源，一次改写全站生效）。
+//   ★ 用拦截器而不是一个个改 fetch —— 十几处调用点漏一个就是一个 401，
+//     而且那种漏法在开发时不会暴露（只在不带 token 的那条路径上失败）。
+(function(){
+  var T = window.__SOUL_TOKEN || '';
+  if (!T) return;
+  var f = window.fetch;
+  window.fetch = function(u, o) {
+    o = o || {};
+    var h = {};
+    var src = o.headers || {};
+    if (src.forEach) { src.forEach(function(v,k){ h[k]=v; }); }
+    else { for (var k in src) if (Object.prototype.hasOwnProperty.call(src,k)) h[k]=src[k]; }
+    h['x-soul-token'] = T;
+    o.headers = h;
+    return f(u, o);
+  };
+})();
 var S={sid:null,health:null,sessions:[],busy:false};
 function $(id){return document.getElementById(id)}
 function el(tag,cls,text){var d=document.createElement(tag);if(cls)d.className=cls;if(text!=null)d.textContent=text;return d}
 function api(path,opt){return fetch(path,opt).then(function(r){return r.json()})}
 function setStat(){var h=S.health||{};$("stat").textContent=(h.llmReady?"模型 "+h.model:"未配 key")+" · 工具 "+(h.tools||[]).length+" 个";}
-function loadSessions(){return api("/api/sessions").then(function(j){S.sessions=j.sessions||[];var box=$("sessList");box.innerHTML="";
-  S.sessions.forEach(function(s){var d=el("div","it"+(s.id===S.sid?" on":""));var t=s.cwd||"";t=t.split(/[\\/]/).pop()||t;
+function loadSessions(){return api("/api/sessions").then(function(j){
+  // ★★ 2026-11-11（爀曦 12:39 截图指出）：**对话界面只列 v4 自己的会话**（id 以 s_ 开头）。
+  //   DSH 迁移过来的那一千多个是**记忆源**，不是对话目标 —— 点开它们会把整段 DSH 原文
+  //   （含 system prompt、文件策略那些）解压出来：既慢，又根本不是这个界面该干的事。
+  //   他截图里那屏「Current DSH file policy: danger-full-access / You are the Team Lead」就是它。
+  S.sessions=(j.sessions||[]).filter(function(x){return String(x.id||"").indexOf("s_")===0});
+  var box=$("sessList");box.innerHTML="";
+  // ★ 2026-11-07 修卡顿：原来把 1023 条会话全部渲染成 DOM（进页面必卡）。
+  //   现在只渲染最近 40 条 —— 早期的用搜索框找，不占 DOM。
+  var q = (document.getElementById("sessQ")||{}).value || "";
+  var pool = q ? S.sessions.filter(function(x){
+    return String(x.cwd||"").toLowerCase().indexOf(q.toLowerCase())>=0
+        || String(x.id||"").toLowerCase().indexOf(q.toLowerCase())>=0;
+  }) : S.sessions;
+  var shown = pool.slice(0, 40);
+  if (pool.length > 40) {
+    var hint = el("div","it"); hint.style.cssText = "cursor:default;color:var(--dim2);font-size:11px";
+    hint.textContent = (q ? "… 还有 " + (pool.length - 40) + " 条匹配" : "… 还有 " + (pool.length - 40) + " 条更早的（用搜索找）"); box.appendChild(hint);
+  }
+  shown.forEach(function(s){var d=el("div","it"+(s.id===S.sid?" on":""));var t=s.cwd||"";t=t.split(/[\\/]/).pop()||t;
   d.textContent=new Date(s.createdAt).toLocaleString("zh-CN",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"})+"  "+t;
   d.onclick=function(){openSession(s.id)};box.appendChild(d)});});}
+// ── 右侧栏（2026-11-11 爀曦要的「它此刻在干什么」）──
+//   ★ 时间线只留最近 60 条：一轮密集调用能刷出上百条，DOM 会先撑不住。
+//   ★ 全部走轻量口（/api/vitals、/api/questions），不碰 /api/overview —— 那个要建索引。
+// ★ 2026-11-11（爀曦要的）：时间线要能**回填历史**，不只是记「本页打开之后」。
+//   所以拆成两半：traceNode 只造一个节点（纯函数，不碰 DOM 位置），
+//   trace 负责追加，renderTrace 负责整批重画（打开会话时用）。
+function traceNode(kind,name,text,when){
+  var d=el('div','t'+(kind==='err'?' err':''));
+  var k=el('span','k',(kind==='err'?'× ':kind==='res'?'← ':'→ ')+(name||''));
+  var stamp=when||new Date().toLocaleTimeString('zh-CN',{hour12:false});
+  var t=el('span','d',' '+stamp);
+  d.appendChild(k);d.appendChild(t);
+  if(text){var p=el('div');p.style.cssText='color:var(--dim)';p.textContent=String(text).slice(0,260);d.appendChild(p);}
+  return d;
+}
+function trace(kind,name,text){
+  var box=$('traceBox');if(!box)return;
+  var e=box.querySelector('.empty');if(e)box.innerHTML='';
+  box.appendChild(traceNode(kind,name,text));
+  box.scrollTop=box.scrollHeight;
+  while(box.children.length>60)box.removeChild(box.firstChild);
+}
+function renderTrace(items){
+  var box=$('traceBox');if(!box)return;
+  box.innerHTML='';
+  if(!items||!items.length){box.innerHTML='<div class="empty">这个会话里它还没调过工具</div>';return;}
+  // 只画最近 60 条 —— 一整个长会话能累积上百次调用，全画出来 DOM 会先撑不住。
+  var start=Math.max(0,items.length-60);
+  for(var i=start;i<items.length;i++){
+    var it=items[i];
+    box.appendChild(traceNode(it.kind,it.name,it.text,it.when));
+  }
+  box.scrollTop=box.scrollHeight;
+}
+function loadQuestions(){
+  fetch('/api/questions').then(function(r){return r.json()}).then(function(j){
+    var box=$('qBox');if(!box)return;
+    var open=(j&&j.open)||[];
+    $('qCount').textContent=String(open.length);
+    box.innerHTML='';
+    if(!open.length){box.innerHTML='<div class="empty">没有待回答</div>';return;}
+    open.forEach(function(q){
+      var d=el('div','q'+(q.urgency==='block'?' block':''));
+      d.appendChild(el('div','qt',q.question));
+      var row=el('div','qa');
+      var by=el('button','y','是'),bn=el('button','n','否');
+      by.onclick=function(){answerQ(q.id,'是',d)};
+      bn.onclick=function(){answerQ(q.id,'否',d)};
+      row.appendChild(by);row.appendChild(bn);d.appendChild(row);box.appendChild(d);
+    });
+  }).catch(function(){});
+}
+function answerQ(id,text,node){
+  var bs=node.querySelectorAll('button');for(var i=0;i<bs.length;i++)bs[i].disabled=true;
+  fetch('/api/answer',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({questionId:id,text:text,by:'chat-aside'})})
+    .then(function(r){return r.json()}).then(function(j){if(!j.ok)throw new Error(j.error||'没写进去');loadQuestions();})
+    .catch(function(err){for(var i=0;i<bs.length;i++)bs[i].disabled=false;alert('没送出去：'+err.message);});
+}
+// ★ 2026-11-11（爀曦要的展开界面）：右栏只有 180px 高，装不下以后越来越多的决策事件。
+//   点标题 → 二级界面，列出**全部** open（按 block 优先、再按时间）+ 最近已回答。
+//   ★ 为什么不复用右栏那张卡：那卡是为「一眼扫到」设计的（窄、省），
+//     展开态要看的是「详情 + 选项 + 为什么问」，两套密度，硬合并只能二选一。
+function showQuestions(){
+  overlay(true,function(b){
+    b.style.maxWidth='860px';b.style.width='860px';
+    var s=el('div','sect');s.appendChild(el('h5',null,'待你决策的事件'));
+    var hint=el('div',null,'');hint.style.cssText='font-size:12px;color:var(--dim);margin:-4px 0 12px';
+    hint.textContent='v4 自己决定不了的事会停在这里。你的回答会在它的下一轮上下文里出现。';
+    b.appendChild(s);b.appendChild(hint);
+    var box=el('div');box.id='qAll';b.appendChild(box);
+    loadAllQuestions(box);
+  });
+}
+function loadAllQuestions(box){
+  box.innerHTML='<div class="empty">读取中…</div>';
+  fetch('/api/questions').then(function(r){return r.json()}).then(function(j){
+    var open=(j&&j.open)||[],done=(j&&j.answered)||[];
+    box.innerHTML='';
+    if(!open.length&&!done.length){box.innerHTML='<div class="empty">没有需要你决策的事。</div>';return;}
+    open.sort(function(a,b){
+      var pa=a.urgency==='block'?0:1,pb=b.urgency==='block'?0:1;
+      if(pa!==pb)return pa-pb;
+      return String(a.askedAt||'').localeCompare(String(b.askedAt||''));
+    });
+    open.forEach(function(q){box.appendChild(bigQ(q,false,box));});
+    if(done.length){
+      var h=el('div','sect');h.style.marginTop='18px';h.appendChild(el('h5',null,'已回答（最近 '+done.length+' 条）'));
+      box.appendChild(h);
+      done.forEach(function(q){box.appendChild(bigQ(q,true,box));});
+    }
+  }).catch(function(){box.innerHTML='<div class="empty">读不到（服务没应答）。</div>';});
+}
+function bigQ(q,done,box){
+  var d=el('div','bq'+(q.urgency==='block'?' block':'')+(done?' done':''));
+  d.appendChild(el('div','bqt',q.question));
+  if(q.detail)d.appendChild(el('div','bqd',q.detail));
+  if(q.options&&q.options.length){
+    var ol=el('div','bqo');
+    q.options.forEach(function(o,i){ol.appendChild(el('div',null,(i+1)+'. '+o))});
+    d.appendChild(ol);
+  }
+  var meta=[];
+  if(q.urgency==='block')meta.push('卡住了');
+  if(q.delivered===false)meta.push('没送到');
+  if(q.sessionId)meta.push(String(q.sessionId).slice(0,16));
+  if(q.askedAt)meta.push(new Date(q.askedAt).toLocaleString('zh-CN',{hour12:false}));
+  if(meta.length)d.appendChild(el('div','bqm',meta.join(' · ')));
+  if(done){
+    var a=el('div','bqa');
+    a.textContent='你的回答：'+(q.answer||'')+(q.answeredAt?'（'+new Date(q.answeredAt).toLocaleString('zh-CN',{hour12:false})+'）':'');
+    d.appendChild(a);
+    return d;
+  }
+  var row=el('div','bqr');
+  var by=el('button','y','是'),bn=el('button','n','否'),bm=el('button','','自己写…');
+  row.appendChild(by);row.appendChild(bn);row.appendChild(bm);d.appendChild(row);
+  var ta=document.createElement('textarea');
+  ta.className='bqi';ta.placeholder='补充条件、给具体值…';ta.style.display='none';
+  var send=el('button','','送出');send.style.display='none';
+  var wr=el('div','bqr');wr.appendChild(ta);wr.appendChild(send);d.appendChild(wr);
+  bm.onclick=function(){ta.style.display='block';send.style.display='block';ta.focus();};
+  function go(text){
+    if(!text||!String(text).trim())return;
+    var bs=d.querySelectorAll('button');for(var i=0;i<bs.length;i++)bs[i].disabled=true;
+    fetch('/api/answer',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({questionId:q.id,text:String(text).trim(),by:'chat-expand'})})
+      .then(function(r){return r.json()}).then(function(j2){
+        if(!j2.ok)throw new Error(j2.error||'没写进去');
+        loadQuestions();loadAllQuestions(box);
+      }).catch(function(e){for(var i=0;i<bs.length;i++)bs[i].disabled=false;alert('没送出去：'+e.message);});
+  }
+  by.onclick=function(){go('是')};
+  bn.onclick=function(){go('否')};
+  send.onclick=function(){go(ta.value)};
+  return d;
+}
+function loadVitals(){
+  fetch('/api/vitals').then(function(r){return r.json()}).then(function(v){
+    var b=$('vitalsBox');if(!b||!v||!v.ok)return;
+    var pct=(v.persona&&v.persona.budget)?Math.min(100,Math.round(v.persona.chars/v.persona.budget*100)):0;
+    var syncTxt='—';
+    if(v.sync&&v.sync.at){var m=Math.round((Date.now()-Date.parse(v.sync.at))/60000);syncTxt=(m<1?'刚刚':(m<60?m+' 分钟前':Math.round(m/60)+' 小时前'));}
+    b.innerHTML=
+      '<div class="r"><b>人格</b><span>'+(v.persona?v.persona.chars:'—')+' / '+(v.persona?v.persona.budget:'—')+' 字 · '+pct+'%</span></div>'+
+      '<div class="bar"><i style="width:'+pct+'"></i></div>'+
+      '<div class="r"><b>会话</b><span>'+v.sessions+' 个</span></div>'+
+      '<div class="r"><b>内存</b><span>'+v.memMB+' MB · 堆 '+v.heapMB+'</span></div>'+
+      '<div class="r"><b>同步</b><span>'+syncTxt+' · 运行 '+Math.floor(v.uptimeSec/60)+' 分钟</span></div>';
+  }).catch(function(){});
+}
 function addMsg(kind,who,text){var m=el("div","m "+kind);if(who)m.appendChild(el("div","who",who));var b=el("div","bd",text);m.appendChild(b);$("msgs").appendChild(m);$("msgs").scrollTop=$("msgs").scrollHeight;return b}
-function openSession(id){S.sid=id;api("/api/session/"+id+"/frames").then(function(j){$("msgs").innerHTML="";
+function openSession(id){S.sid=id;
+  // ★ 2026-11-11：切会话时先把时间线清空 —— 否则上一个会话的调用会挂在新会话下面，看着像它的。
+  renderTrace(null);
+  api("/api/session/"+id+"/frames").then(function(j){$("msgs").innerHTML="";
+  // ★ 回填：一个会话里所有 tool 帧按顺序收起来，最后整批画一次（不逐条滚）。
+  var traces=[];
+  function stamp(f){
+    var t=f.t||f.at||f.ts||f.createdAt;
+    if(!t)return '';
+    try{return new Date(t).toLocaleTimeString('zh-CN',{hour12:false});}catch(e){return '';}
+  }
   (j.frames||[]).forEach(function(f){
     if(f.type==="user")addMsg("user","你",f.text||"");
     else if(f.type==="assistant"&&f.text)addMsg("ai","assistant",f.text);
-    else if(f.type==="tool_call")addMsg("tool","工具 "+f.name,JSON.stringify(f.args));
-    else if(f.type==="tool_result")addMsg("tr","结果",String(f.content||"").slice(0,1500));
-    else if(f.type==="error")addMsg("err","错误",f.message||"");
-  });loadSessions();});}
-function newSession(){api("/api/sessions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({cwd:"D:/AI/agent-soul"})}).then(function(j){openSession(j.session.id)})}
+    else if(f.type==="tool_call"){addMsg("tool","工具 "+f.name,JSON.stringify(f.args));traces.push({kind:'tool',name:f.name,text:JSON.stringify(f.args||{}),when:stamp(f)});}
+    else if(f.type==="tool_result"){addMsg("tr","结果",String(f.content||"").slice(0,1500));traces.push({kind:'res',name:(f.name||''),text:String(f.content||'').slice(0,200),when:stamp(f)});}
+    else if(f.type==="error"){addMsg("err","错误",f.message||"");traces.push({kind:'err',name:'错误',text:f.message||'',when:stamp(f)});}
+  });
+  renderTrace(traces);
+  loadSessions();});}
+// ★ 搜索框：输入即重排（不重新拉接口，只在内存里过滤）
+var _q = document.getElementById("sessQ");
+if (_q) _q.addEventListener("input", function(){ try { loadSessions() } catch(e){} });
+function newSession(){api("/api/sessions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({})}).then(function(j){openSession(j.session.id)})}
 function send(){
   if(S.busy)return;var t=$("inp").value.trim();if(!t)return;
   if(!S.sid){newSession();setTimeout(function(){send()},500);return;}
@@ -95,9 +375,9 @@ function send(){
     function handle(o,bd){
       if(o.kind==="delta"&&o.type==="text"){if(bd.dataset.started!=="1"){bd.textContent="";bd.dataset.started="1"}bd.textContent+=o.delta;}
       else if(o.kind==="text"){bd.textContent=o.text;bd.dataset.started="1";}
-      else if(o.kind==="tool"){addMsg("tool","工具 "+o.name,JSON.stringify(o.args));}
-      else if(o.kind==="tool_result"){addMsg("tr","结果",o.content);}
-      else if(o.kind==="error"){addMsg("err","错误",o.message);}
+      else if(o.kind==="tool"){addMsg("tool","工具 "+o.name,JSON.stringify(o.args));trace('tool',o.name,JSON.stringify(o.args));}
+      else if(o.kind==="tool_result"){addMsg("tr","结果",o.content);trace('res',(o.name||''),String(o.content||'').slice(0,200));}
+      else if(o.kind==="error"){addMsg("err","错误",o.message);trace('err','错误',o.message);}
     }
     function pump(){return rd.read().then(function(r){
       if(r.done){S.busy=false;$("send").disabled=false;loadSessions();return;}
@@ -115,8 +395,8 @@ function showSettings(){overlay(true,function(b){
   b.appendChild(s1);
   var s2=el("div","sect");s2.dataset.slot="settings.section";s2.appendChild(el("h5",null,"检索（全文扫索引）"));
   var row=document.createElement("div");row.style.cssText="display:flex;gap:8px";
-  var inp=document.createElement("input");inp.placeholder="关键词…";inp.style.cssText="flex:1;background:#231f1b;color:#e8e2d6;border:1px solid #2e2924;border-radius:6px;padding:7px 10px;font:inherit";
-  var btn=document.createElement("button");btn.textContent="搜";btn.style.cssText="background:#231f1b;color:#e8e2d6;border:1px solid #2e2924;border-radius:6px;padding:7px 14px;cursor:pointer";
+  var inp=document.createElement("input");inp.placeholder="关键词…";inp.style.cssText="flex:1;background:var(--as-code-bg);color:var(--as-ink);border:1px solid var(--as-edge);border-radius:6px;padding:7px 10px;font:inherit";
+  var btn=document.createElement("button");btn.textContent="搜";btn.style.cssText="background:var(--as-code-bg);color:var(--as-ink);border:1px solid var(--as-edge);border-radius:6px;padding:7px 14px;cursor:pointer";
   var hits=el("div");hits.id="hits";
   btn.onclick=function(){var q=inp.value.trim();if(!q)return;hits.innerHTML="搜索中…";
     api("/api/search?q="+encodeURIComponent(q)).then(function(j){hits.innerHTML="";if(!(j.hits||[]).length){hits.textContent="没有命中";return;}
@@ -130,6 +410,13 @@ $("send").onclick=send;
 $("overlay").onclick=function(e){if(e.target===$("overlay"))overlay(false)};
 $("inp").addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send()}});
 api("/api/health").then(function(h){S.health=h;setStat();return loadSessions()}).then(function(){if(S.sessions.length)openSession(S.sessions[0].id)});
+// ★ 2026-11-11：右侧栏两路数据。
+//   待回答 15 秒轮一次（它是「等你动」的，太勤没必要）；状态 5 秒轮一次（内存/会话会变）。
+//   ★ 都用轻量口，不用 /api/overview —— 那个要建索引，轮它等于每 5 秒震一次索引。
+loadQuestions();loadVitals();
+if($('qSec'))$('qSec').onclick=showQuestions;
+setInterval(loadQuestions,15000);
+setInterval(loadVitals,5000);
 </script>
 </body>
 </html>

@@ -1,0 +1,169 @@
+<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'><title>agent-soul · 台账</title>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<link rel='stylesheet' href='/aurora.css'>
+<script src='/aurora.js' defer></script>
+<style>
+/* ★ 2026-11-13：台账面板搬进 v4（v3 的 dsh-yanqing-lead-waker 就是这个）。
+   数据源是 v4 自己的 organs/waker.mjs 的 Ledger。五视图 + 徽章。 */
+:root{--bg:var(--as-bg);--panel:linear-gradient(148deg,var(--as-glass-m1),var(--as-glass-m2));
+  --line:var(--as-edge-2);--ink:var(--as-ink);--dim:var(--as-dim);--dim2:var(--as-dim2);
+  --ok:var(--as-green);--warn:var(--as-amber);--err:var(--as-red)}
+*{box-sizing:border-box;margin:0;padding:0}
+html{background:var(--as-bg)}
+body{background:transparent;color:var(--ink);font-family:'Microsoft YaHei','PingFang SC',sans-serif;
+  font-size:13.5px;line-height:1.7;display:grid;grid-template-columns:176px 1fr;min-height:100vh}
+nav{background:var(--panel);border-right:1px solid var(--line);padding:20px 0;display:flex;flex-direction:column}
+nav .brand{padding:0 16px 22px;font-family:'Lanxi-超粗黑',sans-serif;font-size:15px;letter-spacing:.04em}
+nav .brand i{font-style:normal;color:var(--warn)}
+nav .brand em{display:block;font-style:normal;font-size:9.5px;color:var(--dim);letter-spacing:.18em;margin-top:4px}
+nav a{display:flex;align-items:center;gap:8px;padding:9px 16px;color:var(--dim);text-decoration:none;
+  font-size:12.5px;border-left:2px solid transparent}
+nav a.on{color:var(--ink);border-left-color:var(--warn);background:rgba(255,255,255,.05)}
+nav a:hover{color:var(--ink)}
+nav a b{width:4px;height:4px;border-radius:50%;background:var(--dim2);flex:none}
+nav a.on b{background:var(--warn)}
+nav .sp{flex:1}
+nav .ver{padding:0 16px;font-size:9.5px;color:var(--dim)}
+main{padding:22px 26px 34px;overflow-y:auto}
+h1{font-family:'Lanxi-超粗黑',sans-serif;font-size:18px;letter-spacing:.04em}
+h1 span{font-family:'Microsoft YaHei',sans-serif;font-size:11px;color:var(--dim);font-weight:400;margin-left:10px;letter-spacing:0}
+.tiles{display:flex;gap:10px;margin:16px 0 20px}
+.tile{flex:1;background:var(--panel);border:1px solid var(--line);padding:11px 15px;min-width:0;cursor:pointer}
+.tile:hover{border-color:var(--as-amber)}
+.tile.sel{border-color:var(--warn);background:rgba(255,255,255,.06)}
+.tile .n{font-family:'Lanxi-超粗黑',sans-serif;font-size:24px;line-height:1.2}
+.tile .k{color:var(--dim);font-size:11px;margin-top:2px}
+.tile.hot .n{color:var(--warn)}
+.tile.bad .n{color:var(--err)}
+.list{background:var(--panel);border:1px solid var(--line)}
+.row{padding:11px 15px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:flex-start}
+.row:last-child{border-bottom:none}
+.row .t{color:var(--dim);font-size:11px;white-space:nowrap;width:110px;flex:none;padding-top:2px}
+.row .b{flex:1;min-width:0}
+.row .ti{font-size:13px;word-break:break-word}
+.row .meta{color:var(--dim2);font-size:11px;margin-top:3px}
+.row .act{display:flex;gap:6px;flex:none;flex-wrap:nowrap}
+.btn{background:transparent;border:1px solid var(--line);color:var(--dim);font-size:11px;
+  padding:3px 9px;border-radius:5px;cursor:pointer;font-family:inherit;white-space:nowrap}
+.btn:hover{color:var(--ink);border-color:var(--warn)}
+.btn.p{border-color:var(--as-edge-ok);color:var(--ok)}
+.btn.h{border-color:var(--as-edge-warn);color:var(--warn)}
+.btn.a{border-color:var(--as-edge-err);color:var(--err)}
+.empty{padding:24px 15px;color:var(--dim);font-size:12px;text-align:center}
+.note{color:var(--dim);font-size:11px;margin-top:12px;line-height:1.8}
+.note b{color:var(--ink);font-weight:400}
+#toast{position:fixed;right:18px;bottom:18px;background:rgba(20,28,40,.96);border:1px solid var(--line);
+  padding:10px 15px;border-radius:8px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none}
+#toast.on{opacity:1}
+</style></head><body>
+<nav>
+  <div class='brand'>砚青 <i>·</i> 器官<em>AGENT SOUL</em></div>
+  <a href='/dashboard'><b></b>概览</a>
+  <a href='/chat'><b></b>调度LLM</a>
+  <a href='/lumen'><b></b>星系</a>
+  <a href='/organs'><b></b>器官</a>
+  <a href='/waker' class='on'><b></b>台账</a>
+  <a href='/echo'><b></b>echo</a>
+  <a href='/aurabot'><b></b>aurabot</a>
+  <a href='/diary'><b></b>日记</a>
+  <a href='/yantai'><b></b>砚台</a>
+  
+  <a href='/settings'><b></b>设置</a>
+  <div class='sp'></div>
+  <div class='ver' id='ver'>—</div>
+</nav>
+<main>
+  <h1>台账<span id='meta'>正在读…</span></h1>
+  <div class='tiles' id='tiles'></div>
+  <div class='list' id='list'><div class='empty'>正在读台账…</div></div>
+  <p class='note'>★ 五视图：<b>等你执行</b>（act）/ <b>已执行</b>（done）/ <b>要审计但没审</b>（audit）/ <b>你自己决定的</b>（auto）/ <b>被宪章拦下</b>（blocked）。
+  徽章 = act ∪ audit 的未处理数（同一条两边都在时去重）。</p>
+  <p class='note'>★ 判定写进 v4 自己的台账；上游的台账文件（别人写的）v4 只读不写。</p>
+</main>
+<div id='toast'></div>
+<script>
+var STATE = { views: null, sel: 'act' }
+var LEVEL = { act: '等你执行', done: '已执行', audit: '要审计但没审', auto: '你自己决定的', blocked: '被宪章拦下' }
+function esc (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] }) }
+function toast (msg) {
+  var t = document.getElementById('toast')
+  t.textContent = msg
+  t.className = 'on'
+  setTimeout(function () { t.className = '' }, 2200)
+}
+async function api (p, opt) {
+  var r = await fetch(p, opt)
+  var d = await r.json()
+  if (!d.ok) throw new Error(d.error || ('HTTP ' + r.status))
+  return d
+}
+function render () {
+  var d = STATE.views
+  if (!d) return
+  document.getElementById('meta').textContent = '徽章 ' + d.badge + ' 条待处理'
+  document.getElementById('ver').textContent = '台账 · v4'
+  var c = d.counts || {}
+  var order = ['act', 'audit', 'done', 'auto', 'blocked']
+  document.getElementById('tiles').innerHTML = order.map(function (k) {
+    var n = c[k] || 0
+    var cls = 'tile' + (STATE.sel === k ? ' sel' : '') + (k === 'act' && n ? ' hot' : '') + (k === 'blocked' && n ? ' bad' : '')
+    return '<div class="' + cls + '" data-k="' + k + '"><div class="n">' + n + '</div><div class="k">' + esc(LEVEL[k]) + '</div></div>'
+  }).join('')
+  Array.prototype.forEach.call(document.querySelectorAll('.tile'), function (el) {
+    el.addEventListener('click', function () { STATE.sel = el.getAttribute('data-k'); render() })
+  })
+  var rows = (d.views && d.views[STATE.sel]) || []
+  if (!rows.length) {
+    document.getElementById('list').innerHTML = '<div class="empty">「' + esc(LEVEL[STATE.sel]) + '」里没有条目</div>'
+    return
+  }
+  document.getElementById('list').innerHTML = rows.map(function (e) {
+    var t = e.t ? String(e.t).replace('T', ' ').slice(0, 16) : '—'
+    var meta = []
+    if (e.from) meta.push('来自 ' + e.from)
+    if (e.tier) meta.push('层级 ' + e.tier)
+    if (e.charter) meta.push('宪章 ' + e.charter)
+    if (e.decision) meta.push('判定 ' + e.decision)
+    var btns = ''
+    if (STATE.sel === 'act' || STATE.sel === 'audit') {
+      btns = '<button class="btn p" data-k="' + esc(e.key) + '" data-d="resume" data-c="pass">接手</button>' +
+             '<button class="btn h" data-k="' + esc(e.key) + '" data-d="hold" data-c="pass">搁置</button>' +
+             '<button class="btn a" data-k="' + esc(e.key) + '" data-d="audit" data-c="ask">要审计</button>'
+    }
+    return '<div class="row">' +
+      '<div class="t">' + esc(t) + '</div>' +
+      '<div class="b"><div class="ti">' + esc(e.title || '(无标题)') + '</div>' +
+      (meta.length ? '<div class="meta">' + esc(meta.join(' · ')) + '</div>' : '') +
+      (e.charterNote ? '<div class="meta">' + esc(e.charterNote) + '</div>' : '') + '</div>' +
+      (btns ? '<div class="act">' + btns + '</div>' : '') +
+    '</div>'
+  }).join('')
+  Array.prototype.forEach.call(document.querySelectorAll('.btn[data-k]'), function (el) {
+    el.addEventListener('click', function () {
+      decide(el.getAttribute('data-k'), el.getAttribute('data-d'), el.getAttribute('data-c'))
+    })
+  })
+}
+async function decide (key, decision, charter) {
+  try {
+    var r = await api('/api/waker/decide', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: key, decision: decision, charter: charter , charterNote: '面板上点的' })
+    })
+    toast('已写：' + decision + ' / ' + charter)
+    await load()
+  } catch (e) { toast('写失败：' + ((e && e.message) || e)) }
+}
+async function load () {
+  try {
+    STATE.views = await api('/api/waker')
+    render()
+  } catch (e) {
+    document.getElementById('meta').textContent = '读不到：' + ((e && e.message) || e)
+    document.getElementById('list').innerHTML = '<div class="empty">' + esc((e && e.message) || e) + '</div>'
+  }
+}
+load()
+setInterval(load, 30000)
+</script></body></html>
