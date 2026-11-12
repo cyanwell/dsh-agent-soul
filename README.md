@@ -79,7 +79,11 @@
    · ★ 必须用**当前用户身份**启动（key 是 DPAPI 密文，SYSTEM 身份解不开）
 
 ② 装 DSH 侧的两个插件（缺一不可）
-   · dsh-agent-soul-bridge   控制通道（v4 主动推指令给宿主）
+
+   **两个包已经在本仓库里了**：`plugins/dsh-agent-soul-bridge/` 和 `plugins/dsh-mcp-hub/`
+   装法（放哪、加进 bundles、怎么验）见 **`plugins/README.md`**
+
+   · dsh-agent-soul-bridge   控制通道（v4 主动推指令给宿主，caps 含 context）
    · dsh-mcp-hub             MCP 服务托管（ECHO 记忆中枢靠它常驻）
 
 ③ 打开 http://127.0.0.1:7310 看界面
