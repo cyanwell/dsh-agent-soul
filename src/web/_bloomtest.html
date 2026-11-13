@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8"><title>t</title>
+<script type="importmap">{"imports":{"three":"/vendor/three.module.min.js"}}</script></head>
+<body><div id="o">loading</div>
+<script type="module">
+const o = document.getElementById("o");
+try {
+  const T = await import("three");
+  const EC = await import("/vendor/postprocessing/EffectComposer.js");
+  const RP = await import("/vendor/postprocessing/RenderPass.js");
+  const UB = await import("/vendor/postprocessing/UnrealBloomPass.js");
+  o.textContent = "OK rev=" + T.REVISION + " composer=" + (typeof EC.EffectComposer) + " render=" + (typeof RP.RenderPass) + " bloom=" + (typeof UB.UnrealBloomPass);
+  document.title = o.textContent;
+} catch (e) {
+  o.textContent = "ERR: " + (e && e.message || e);
+  document.title = o.textContent;
+}
+</script></body></html>

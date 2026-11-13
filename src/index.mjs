@@ -69,7 +69,7 @@ import { handleWakerApi, isWakerPath } from './adapters/waker-http.mjs';
 import { handleHuanqiScan, isHuanqiScanPath } from './adapters/huanqi-scan.mjs';
 // ★ 2026-11-13：扫**宿主**的活跃会话（3 天内），不是 v4 自己的。
 import { handleHostScan, isHostScanPath } from './adapters/host-scan-http.mjs';
-import { scanActiveHostSessions } from './adapters/host-sessions.mjs';
+import { scanActiveHostSessions, scanActiveHostSessionsViaBridge } from './adapters/host-sessions.mjs';
 // ★ 2026-11-13：上下文手术的 HTTP 入口（v4 → bridge 的 cap='context'）。
 import { handleContextApi, isContextPath, setIntervener, setPurgedFile, setHostScanner, autoHuanqi } from './adapters/context-http.mjs';
 import { fileURLToPath } from 'node:url';
@@ -385,6 +385,9 @@ const outbox = createOutbox({
 const eventsIngress = createEventsIngress({
   config,
   env: process.env,
+  // ★★ 2026-11-13（架构收敛）：把控制通道交给 events —— 回复读取要能走 bridge。
+  //   useBridgeSessions=false 时它不被使用，但传进去没有副作用。
+  control,
   log: (m) => { if (!config.quiet) console.log('  ' + m); },
   transport: makeWsTransport({ log: (m) => { if (!config.quiet) console.log('  ' + m); } }),
   // ★ 2026-11-12：事件 → 唤醒的出口。事件算出来之后，靠它把话送进会话。
@@ -441,6 +444,12 @@ const leadTarget = createLeadTargetResolver({
   ledgerFile: (config.integrations && config.integrations.ledgerFile)
     || (devPathOr('soulRoot', '') ? devPathOr('soulRoot', '') + '/02-墨.jsonl' : ''),
   log: (m) => { if (!config.quiet) console.log('  [目标] ' + m); },
+  // ★★★ 2026-11-13（爀曦定）：心跳地址直接从宿主上报的 hello.meta 里取。
+  //   不再依赖 dsh-origin.txt / 启动日志 —— 那两样都是「别人记的」，端口一变就过期。
+  //   bridge 就住在 DSH 进程里，它报的是自己，永不过期。
+  hostOriginOf: () => {
+    try { return control.hostOrigin(); } catch { return null; }
+  },
 });
 // ★ 2026-11-11：把**同一个**解析器交出去给状态台（水位卡要回答「本会话是哪一条」）。
 //   理由与上面 cleanup 那条一字不差：lead 只有一个真源；第二套实现（读账本 8 位签名）
@@ -556,7 +565,18 @@ loop.huanqiIntervene = async ({ sessionId, dryRun }) => {
 setIntervener(loop.huanqiIntervene);
 // ★ 2026-11-13：把宿主扫描接给自动巡视（/api/huanqi/auto，心跳调它）。
 //   爀曦：「换气以条件触发为主，省性能；定时触发集成进心跳」。
-setHostScanner(scanActiveHostSessions);
+// ★★★ 2026-11-13（爀曦定，架构收敛）：扫描器按开关走 bridge。
+//   useBridgeSessions=true → 走 bridge（v4 不开 DSH 目录）；false → 旧的文件直读。
+//   ★ 为什么要有开关而不是直接切：bridge 的 sessions 能力要等**下一次 DSH 重启**才上线；
+//     现在就切，换气诊断会整条挂掉（扫描器抛错 → autoHuanqi 回 ok:false）。
+//   ★ 切换判据（一条就能验）：/api/organs 的换气诊断里 scanned > 0 且 viaBridge=true。
+if (config.integrations && config.integrations.useBridgeSessions === true) {
+  setHostScanner(async (args) => scanActiveHostSessionsViaBridge(control, args));
+  if (!config.quiet) console.log('  [换气] 扫描器：bridge（v4 不读 DSH 目录）');
+} else {
+  setHostScanner(scanActiveHostSessions);
+  if (!config.quiet) console.log('  [换气] 扫描器：文件直读（bridge 模式未启用）');
+}
 // ★ 已清 seq 的记录文件（放 dataDir 里，跟其它状态文件一起）
 try {
   const path = await import('node:path');

@@ -67,7 +67,10 @@ export function createResponder(opts = {}) {
   function keyOf(sessionId, chatId) { return String(sessionId) + '\u0000' + String(chatId) }
 
   /** 投递成功后登记一次「等这一轮的回复」。重复登记同一个 (会话,chat) 会覆盖旧的。 */
-  function watch(sessionId, chatId, watchOpts = {}) {
+  // ★★★ 2026-11-13（架构收敛）：改成 async —— bridge 版的 replyReader 是异步的。
+  //   ★ `await` 一个非 Promise 值在 JS 里是合法的，所以**同步的旧 reader 照样工作**，
+  //     这条改动对现有调用方是向后兼容的。
+  async function watch(sessionId, chatId, watchOpts = {}) {
     if (!replyReader) return { ok: false, code: 'RESPOND_UNCONFIGURED', error: '没有 replyReader' }
     if (!outbox) return { ok: false, code: 'RESPOND_UNCONFIGURED', error: '没有 outbox' }
 
@@ -75,7 +78,7 @@ export function createResponder(opts = {}) {
     //   那样第一条完整回复就会被发出去，这是想要的行为（她第一次说话就该发）。
     let turnBefore = 0
     try {
-      const base = replyReader.lastReply(sessionId)
+      const base = await replyReader.lastReply(sessionId)
       if (base.ok && Number.isFinite(base.turn)) turnBefore = Number(base.turn)
     } catch (e) { log('respond: 取基准 turn 失败（当 0 处理）：' + String((e && e.message) || e)) }
     if (Number.isFinite(Number(watchOpts.turnBefore))) turnBefore = Number(watchOpts.turnBefore)
@@ -96,7 +99,7 @@ export function createResponder(opts = {}) {
       if (!watches.has(key)) return
       w.tries += 1
       let r
-      try { r = replyReader.lastReply(w.sessionId) } catch (e) {
+      try { r = await replyReader.lastReply(w.sessionId) } catch (e) {
         r = { ok: false, code: 'REPLY_THROW', error: String((e && e.message) || e) }
       }
 

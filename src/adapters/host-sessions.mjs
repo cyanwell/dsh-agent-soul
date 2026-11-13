@@ -15,6 +15,7 @@
 //   · 只取 content 里的 reasoning 块（那是「思考链」）
 // ============================================================================
 import fs from 'node:fs'
+import { listSessionsViaBridge, readAllSessionViaBridge } from './bridge-sessions.mjs'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import { declStats } from '../agent/process-guard.mjs'
@@ -175,4 +176,132 @@ export function scanActiveHostSessions (o) {
     byLevel: results.reduce((acc, r) => { acc[r.level] = (acc[r.level] || 0) + 1; return acc }, {}),
     sessions: results,
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ★★★ 2026-11-13（爀曦定，架构收敛）：**bridge 版扫描** —— v4 不再开 DSH 的目录
+//
+//   和上面那套文件直读**同构**（同一套 declStats / 同一套 level 判据），
+//   区别只在「数据从哪来」：这边走 bridge 的 sessions/list + sessions/read。
+//
+//   ★ 失败必须外显：bridge 不在 / 没有 sessions 能力 → **抛错**，
+//     不返回 { sessions: [] } 冒充「没有活跃会话」。
+//     空数组和「读不到」在调用方眼里一模一样 —— 那正是今天所有坑的共同形状。
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * 从 v4 认得的帧数组里抽「带 reasoning 的 assistant 轮」。
+ * ★ 与 readHostSession 里的抽取逻辑**同口径**（type / data.message.content[].type）。
+ */
+export function turnsFromBridgeFrames (frames, cfgIn) {
+  const cfg = { ...DEFAULTS, ...(cfgIn || {}) };
+  const turns = [];
+  for (const r of Array.isArray(frames) ? frames : []) {
+    if (!r || r.type !== 'assistant/message' || !r.data || !r.data.message) continue;
+    const c = r.data.message.content;
+    if (!Array.isArray(c)) continue;
+    let reasoning = '', reply = '', tools = 0;
+    for (const b of c) {
+      if (!b) continue;
+      if (b.type === 'reasoning') reasoning += (b.text || '');
+      else if (b.type === 'text') reply += (b.text || '');
+      else if (b.type === 'toolCall' || b.type === 'tool_call') tools += 1;
+    }
+    if (!reasoning) continue;
+    turns.push({ seq: r.seq, time: r.time, reasoning, reply: reply.length, tools });
+  }
+  const use = turns.slice(-cfg.maxTurns);
+  return { turns: use, total: turns.length };
+}
+
+/**
+ * bridge 版 scanActiveHostSessions —— 返回结构与文件版**逐字一致**。
+ *
+ * @param {object} control   ControlHub
+ * @param {object} [o]       { activeDays, activeMinutes, ...DEFAULTS }
+ * @returns {Promise<object>} { activeDays, activeMinutes, scanned, byLevel, sessions }
+ */
+export async function scanActiveHostSessionsViaBridge (control, o) {
+  const cfg = { ...DEFAULTS, ...(o || {}) };
+  const cutoff = cfg.activeMinutes > 0
+    ? Date.now() - cfg.activeMinutes * 60 * 1000
+    : Date.now() - cfg.activeDays * 24 * 3600 * 1000;
+
+  // ① 列（bridge 按 mtime 倒序返回）
+  const tList = Date.now();
+  const listed = await listSessionsViaBridge(control, {});
+  const msList = Date.now() - tList;
+  const all = Array.isArray(listed.items) ? listed.items : [];
+  const active = all.filter((x) => Number.isFinite(x.mtimeMs) && x.mtimeMs >= cutoff);
+
+  const results = [];
+  const timings = { list: msList, reads: [], stats: 0 };
+  for (const s of active) {
+    const sessionId = s.id;
+    let got = null;
+    let readError = null;
+    const tRead = Date.now()
+    try {
+      // ★ 2026-11-13：只取最后 N 条（默认 1200）—— 换气只看最近几轮，不必解压整个会话。
+      got = await readAllSessionViaBridge(control, sessionId, { tailFrames: cfg.bridgeTailFrames || 1200 });
+    } catch (e) {
+      readError = String((e && e.message) || e);
+    }
+    if (readError) {
+      results.push({
+        sessionId,
+        workspace: s.workspace,
+        bytes: s.sizeBytes,
+        mtimeMs: s.mtimeMs,
+        idleHours: Math.round((Date.now() - (s.mtimeMs || Date.now())) / 3600000),
+        ok: false,
+        why: 'bridge 读失败：' + readError,
+        longTurns: 0,
+        median: null,
+        level: 'unknown',
+      });
+      continue;
+    }
+    const msRead = Date.now() - tRead;
+    const tStats = Date.now();
+    const { turns } = turnsFromBridgeFrames(got.frames, cfg);
+    const msStats = Date.now() - tStats;
+    timings.reads.push({ sessionId, ms: msRead, frames: got.frames.length, msStats });
+    timings.stats += msStats;
+    const long = turns.filter((t) => t.reasoning.length >= cfg.minChars);
+    if (!long.length) {
+      results.push({
+        sessionId, workspace: s.workspace, bytes: s.sizeBytes, mtimeMs: s.mtimeMs,
+        idleHours: Math.round((Date.now() - (s.mtimeMs || Date.now())) / 3600000),
+        ok: true, why: null, longTurns: 0, median: null, level: 'unknown',
+      });
+      continue;
+    }
+    const uniq = long.map((t) => declStats(t.reasoning).uniqRatio);
+    const win = uniq.slice(-3);
+    const srt = win.slice().sort((a, b) => a - b);
+    const median = srt[Math.floor(srt.length / 2)];
+    const level = median <= 0.10 ? 'intervene' : median <= 0.15 ? 'warn' : median <= 0.25 ? 'watch' : 'none';
+    results.push({
+      sessionId, workspace: s.workspace, bytes: s.sizeBytes, mtimeMs: s.mtimeMs,
+      idleHours: Math.round((Date.now() - (s.mtimeMs || Date.now())) / 3600000),
+      ok: true, why: null,
+      longTurns: long.length, totalTurns: turns.length,
+      median: Math.round(median * 1000) / 1000,
+      window: win.map((x) => Math.round(x * 1000) / 1000),
+      level,
+    });
+  }
+
+  results.sort((a, b) => (a.median === null ? 9 : a.median) - (b.median === null ? 9 : b.median));
+  return {
+    activeDays: cfg.activeDays,
+    activeMinutes: cfg.activeMinutes,
+    scanned: results.length,
+    byLevel: results.reduce((acc, r) => { acc[r.level] = (acc[r.level] || 0) + 1; return acc }, {}),
+    sessions: results,
+    viaBridge: true,
+    // ★ 2026-11-13：分段耗时 —— 「慢」必须能拆开，否则只能猜。
+    timings,
+  };
 }

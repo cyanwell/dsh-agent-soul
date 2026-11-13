@@ -14,6 +14,9 @@
 
 let seq = 0;
 
+/** 宿主自报地址的唯一合法形状：本机回环 + 端口。 */
+const HOST_ORIGIN_RE = /^http:\/\/127\.0\.0\.1:\d{1,5}$/;
+
 export class ControlHub {
   constructor(opts) {
     const o = opts || {};
@@ -164,6 +167,25 @@ export class ControlHub {
     }));
   }
 
+  /**
+   * 宿主自报的 DSH 地址（hello.meta.dshBaseUrl）。
+   *
+   * ★ 2026-11-13（爀曦定）：**心跳要直接读宿主地址**，不再靠日志文件或 dsh-origin.txt 猜。
+   *   理由：DSH 的 webServer 端口每次重启都变（本机实测 65334 → 64445），
+   *   而 bridge 就住在 DSH 进程里 —— 它报的是**自己**的地址，永远不会过期。
+   * ★ 只认 `http://127.0.0.1:<port>` 这一种形状，别的（https / localhost / 别的 host）一律不认：
+   *   本机回环之外不是「我们的 DSH」。
+   */
+  hostOrigin() {
+    try {
+      for (const h of this.hosts.values()) {
+        const u = h && h.meta && typeof h.meta.dshBaseUrl === 'string' ? h.meta.dshBaseUrl.trim() : '';
+        if (HOST_ORIGIN_RE.test(u)) return u;
+      }
+    } catch { /* 拿不到就是没有，调用方 fail-closed */ }
+    return null;
+  }
+
   /** 快照 —— 给面板和 MCP 工具看 */
   snapshot() {
     return [...this.hosts.values()].map((h) => ({
@@ -192,6 +214,12 @@ export class ControlHub {
         //   前者让自主能按 targetSession 过滤（不再拿「所有会话里最新的一条」凑数）；
         //   后者是静默判定的时间基准 —— 用我们的钟，不用宿主自报的 at（两台机器未必同源）。
         sessionId: h.state.sessionId ?? null,
+        // ★★ 2026-11-13（第二批）：state 是**白名单** —— rec.state 存了全部（`...m`），
+        //   但 snapshot 只挑这几个往外交。新字段不加进来，等于发出去又被丢掉。
+        //   ★ 这三个是状态台要的：标题 / 是不是子会话 / 水位来源（null = 不知道，不编造）。
+        sessionTitle: h.state.sessionTitle ?? null,
+        isSub: h.state.isSub === true ? true : (h.state.isSub === false ? false : null),
+        watermarkSource: h.state.watermarkSource ?? null,
         atMs: h.state.at,
         turn: h.state.turn ?? null,
         step: h.state.step ?? null,

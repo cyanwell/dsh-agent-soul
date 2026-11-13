@@ -803,7 +803,11 @@ export function createServer({ store, loop, tools, config, bus, sched, persona, 
       //   判据：**v4 的正面是它自己那个 LLM 的对话界面；监控台是后台，不该挡在门口。**
       //   所以 / 给对话（shell.html，纯 /api/turn，不碰会话索引），dashboard 挪到 /dashboard。
       if (req.method === 'GET' && (p === '/' || p === '/index.html')) {
-        const chat = path.join(HERE, 'shell.html');
+        /* ★ 2026-11-13（爀曦定）：首页 = 星系。
+           11-11 那条「首页给对话」的判据仍然成立（对话是正面、监控台是后台），
+           但星系不是监控台 —— 它是「这个我在哪儿、什么状态」的第一眼。
+           骨架先渲染（canvas + 加载态），数据后到，不阻塞首屏。 */
+        const chat = path.join(HERE, 'galaxy.html');
         // ★ 2026-11-11：把 token 内联进页面（同源）。前端用 fetch 拦截器自动带上 ——
         //   **不新增一个「取 token」的 HTTP 口**，那种口等于把锁挂在门上。
         const injected = '<script>window.__SOUL_TOKEN=' + JSON.stringify(auth.token) + ';</script>';
@@ -823,8 +827,13 @@ try {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': Buffer.byteLength(html) });
         return res.end(html);
       }
-      // 监控台保留原地址之后的新门 —— 老书签不炸，只是不再挡在首页。
+      // ★ 2026-11-13：/dashboard 的读数已全部搬进星系的核球面板 —— 老书签重定向过去。
       if (req.method === 'GET' && p === '/dashboard') {
+        res.writeHead(302, { Location: '/' });
+        return res.end();
+      }
+      // 监控台保留原地址之后的新门 —— 老书签不炸，只是不再挡在首页。
+      if (false && p === '/dashboard') {
         const f = path.join(HERE, 'dashboard.html');
         if (!fs.existsSync(f)) return json(res, 404, { error: '页面文件缺失：src/web/dashboard.html' });
         // ★ 2026-11-13：把页面里的 <meta name='agentsoul-build'> 换成**实际版本**。
@@ -897,13 +906,27 @@ const PAGE_OF = {
         '/yantai': 'yantai.html',
         // ★ 2026-11-12：换成 aurabot **自己的面板**（整个插件搬进 v4 之后）。
         //   旧的 aurabot.html 是我手写的只读仪表盘，留着当兜底。
-        '/aurabot': 'aurabot-panel.html',
+        // ★ 2026-11-13（发布前清死链）：原来指向 aurabot-panel.html ——
+  //   那一版依赖 /vendor/react.min.js、/vendor/react-dom.min.js、/aurabot-client.js，
+  //   **aurabot-client.js 在磁盘上不存在**（实测），所以那一页的脚本永远是 404。
+  //   aurabot.html 是自包含的新版（只依赖 aurora.css/js + 内联脚本），指向它。
+  //   ★ 旧的 aurabot-panel.html 保留在仓库里（可能有人手敲过那个路径），但不再挂路由。
+  '/aurabot': 'aurabot.html',
         // ★ 2026-11-13：echo 体检页（v3 的 dsh-yanqing-echo 在 v4 的对应物）
         '/echo': 'echo.html',
         // ★ 2026-11-13：台账面板（v3 的 lead-waker 面板在 v4 的对应物）
         '/waker': 'waker.html',
+        // ★ 2026-11-13：星系重构的调试页（悬臂=层 / 相机跟踪 / 面板跟随星云）
+        '/galaxy': 'galaxy-lab.html',
+        '/_bloomtest': '_bloomtest.html', '/_t3d': '_t3d.html',
       };
-      // ★ 2026-11-13：/sphere → /lumen（状态球并入星系，旧地址重定向）
+      // ★ 2026-11-13：/dashboard 与 /lumen → /（两者都并入星系，旧地址永久重定向）
+      //   /dashboard 的读数已搬进核球面板，/lumen 的星系就是首页本身。
+      if (req.method === 'GET' && (p === '/dashboard' || p === '/dashboard.html' || p === '/lumen' || p === '/lumen.html')) {
+        res.writeHead(302, { Location: '/' });
+        return res.end();
+      }
+      // ★ 2026-11-13：/sphere → /（状态球早已并入星系）
   if (req.method === 'GET' && (p === '/sphere' || p === '/sphere.html')) {
     res.writeHead(302, { Location: '/lumen' });
     return res.end();
@@ -962,8 +985,12 @@ const PAGE_OF = {
         return res.end(html);
       }
 
-      // ★ 2026-11-11：three.js 走本地 vendor（仍是白名单两个文件名，不做通用静态目录）。
-      if (req.method === 'GET' && (p === '/vendor/three.module.min.js' || p === '/vendor/OrbitControls.js')) {
+      // ★ 2026-11-11：three.js 走本地 vendor。
+      // ★ 2026-11-13：从「白名单两个文件名」放宽到「vendor 下的 .js」——
+      //   星系页要用 three 的后处理链（postprocessing/ + shaders/ 共 8 个模块），
+      //   白名单漏一个，动态 import 整条就 404（实测就是这个原因 bloom 起不来）。
+      //   仍然只放 .js，并挡掉 .. —— 不是通用静态目录。
+      if (req.method === 'GET' && p.startsWith('/vendor/') && p.endsWith('.js') && p.indexOf('..') < 0) {
         const name = p.slice('/vendor/'.length);
         const f = path.join(HERE, 'vendor', name);
         if (!fs.existsSync(f)) return json(res, 404, { error: '静态文件缺失：src/web/vendor/' + name });
@@ -1198,7 +1225,9 @@ const PAGE_OF = {
       //   图上没有出处，就看不出一个「好」是好几天前的代码说的。
       if (p === '/api/status' && req.method === 'GET') {
         try {
-          const payload = await gatherStatus({ config, store, persona, tools, autonomy, loop });
+          // ★★ 2026-11-13（第二批）：把 control 传进去 —— 状态台要能读 bridge 推来的 state，
+//   从而不必再自己去开 DSH 的 projcache 文件。
+const payload = await gatherStatus({ config, store, persona, tools, autonomy, loop, control });
           return json(res, 200, payload);
         } catch (e) {
           return json(res, 500, {

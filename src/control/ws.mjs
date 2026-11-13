@@ -73,8 +73,14 @@ export class Conn {
         const hi = this.buf.readUInt32BE(2), lo = this.buf.readUInt32BE(6);
         len = hi * 2 ** 32 + lo; off = 10;
       }
-      // ★ 拒收超大帧：控制通道只有短指令，>1MB 一定是错或者攻击
-      if (len > 1024 * 1024) { this.close(1009, '帧太大'); return; }
+      // ★★★ 2026-11-13（第 13 代）：**1MB 这个前提已经过期了。**
+      //   原来写的是「控制通道只有短指令」—— 那在只有 followup/pruner 的时候成立。
+      //   现在多了 sessions.read，一次要回**几百到上千条会话帧**（实测 1200 帧 ≈ 2.4MB）。
+      //   ⇒ 超 1MB 就 close(1009) ⇒ Promise 永不 resolve ⇒ 30 秒超时，
+      //     而外面看到的只是「read 很慢」。**失败被包装成了慢。**
+      //   ★ 新上限 32MB：足够 1200 帧；仍然是个闸（不是无限制）。
+      //   ★ 真要更大的数据，应该走分页而不是抬无上限 —— 所以保留了闸。
+      if (len > 32 * 1024 * 1024) { this.close(1009, '帧太大（>32MB）'); return; }
 
       const maskLen = masked ? 4 : 0;
       if (this.buf.length < off + maskLen + len) return;   // 还没收全

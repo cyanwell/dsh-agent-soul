@@ -287,16 +287,21 @@ console.log('=== 定点清理自检（E）===');
 {
   const { createLeadTargetResolver } = await import('../src/organs/lead-target.mjs');
   // ★ 心跳是**注入的 fetch**，地址只填一个不会有人监听的端口 —— 这些用例一次真实网络都不发。
-  const RESOLVER_CFG = { integrations: { heartbeatUrl: 'http://127.0.0.1:1/heartbeat/auto' } };
+  // ★★★ 2026-11-13（第 13 代，架构收敛）：心跳路径已退役 —— lead 判定改纯本地（读《墨》最后一条 lead）。
+  //   所以这个假宿主不再伪造 /heartbeat/auto 的响应，而是**伪造一本账本**：
+  //   payload.primarySessionId 写进账本的 by（8 位署名），sessionsProvider 提供完整 id。
+  //   `fetches` 保留并恒为 0 —— 它现在证明的是「一次网络请求都不发」，比原来更强。
+  //   ★ 空 payload（primaryFound:false）= 账本里没有 lead 记录 → 解析不出（fail-closed）。
   const mkHB = (payload) => {
     const hb = { fetches: 0 };
+    const sid = payload && payload.primaryFound !== false && payload.primarySessionId
+      ? String(payload.primarySessionId) : '';
+    const file = path.join(DATA, 'ledger-' + crypto.randomBytes(4).toString('hex') + '.jsonl');
+    const rows = sid ? [JSON.stringify({ t: new Date().toISOString(), type: 'lead', by: sid.slice(0, 8) })] : [];
+    fs.writeFileSync(file, rows.join('\n') + (rows.length ? '\n' : ''), 'utf8');
     hb.resolver = createLeadTargetResolver({
-      config: RESOLVER_CFG,
-      fetchImpl: async () => {
-        hb.fetches++;
-        if (payload === 'throw') throw new Error('connect ECONNREFUSED 127.0.0.1:1');
-        return { ok: true, status: 200, json: async () => payload };
-      },
+      config: { integrations: { heartbeatUrl: 'http://127.0.0.1:1/heartbeat/auto', ledgerFile: file } },
+      sessionsProvider: () => (sid ? [{ id: sid }] : []),
     });
     return hb;
   };

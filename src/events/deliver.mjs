@@ -153,7 +153,8 @@ export function createWakeDeliverer (opts = {}) {
         //   重解析可能拿到另一个会话，那样就会去读别人的回复。
         if (responder) {
           try {
-            const w = responder.watch(outcome.sessionId, key, {})
+            // ★ 2026-11-13：watch 现在是 async（bridge 版 reader 是异步的）。
+            const w = await responder.watch(outcome.sessionId, key, {})
             if (!w || w.ok !== true) {
               stats.watchFailed = (stats.watchFailed || 0) + 1
               stats.lastWatchCode = (w && w.code) || 'WATCH_FAILED'

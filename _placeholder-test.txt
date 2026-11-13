@@ -1,2 +1,0 @@
-apiKey: "your-key-here-placeholder"
-token: "sk-xxxxx"

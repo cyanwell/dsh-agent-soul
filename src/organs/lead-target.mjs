@@ -184,6 +184,9 @@ export function createLeadTargetResolver(opts) {
   const log = typeof o.log === 'function' ? o.log : () => {};
   // ★ 地址来源的三条注入点（测试用）：不注入就按 config + 本机默认位置自己发现。
   const endpointOpts = { logDir: o.logDir, originFile: o.originFile, discover: o.discover, now };
+  // ★ 2026-11-13：宿主自报地址的取值器。**每 tick 现取，不缓存** ——
+  //   缓存旧端口正是这次要消灭的那个故障本身（它不报错，只是永远不再通）。
+  const hostOriginOf = typeof o.hostOriginOf === 'function' ? o.hostOriginOf : null;
   // ★ 2026-11-11：账本兜底要能列会话（把账本里的 8 位署名对到完整 id）。不注入就不兜底。
   const sessionsProvider = typeof o.sessionsProvider === 'function' ? o.sessionsProvider : null;
   const ledgerFile = String(o.ledgerFile || it.ledgerFile || '');
@@ -191,6 +194,8 @@ export function createLeadTargetResolver(opts) {
 
   const stats = { refreshes: 0, fetches: 0 };
   let lastEndpointKey = null;
+  /** ★ 2026-11-13：上一次记下的 lead 会话 —— 只在变化时打日志。 */
+  let lastSessionKey = null;
   let last = {
     ok: false, source: TARGET_SOURCE.LEAD, sessionId: null, candidates: 0, leadSource: null,
     atMs: 0, why: '还没有解析过当前 lead（本进程还没走过一次需要动态目标的 tick）',
@@ -198,86 +203,44 @@ export function createLeadTargetResolver(opts) {
 
   async function refresh() {
     const t = now();
-    // ★★ 每一 tick 现解析一次地址（显式配置 > 自动发现 > fail-closed），**不缓存 origin**：
-    //   缓存旧端口就是这次要修的那个故障本身 —— 它不报错，只是永远不再通。
-    // ★★★ 2026-11-13 修：**账本兜底要覆盖两种失败** ——
-    //   ① 心跳地址解析不出来（DSH 插件不在 = 没有任何 origin）
-    //   ② 地址有、但请求失败
-    //   原来只有 ② 走兜底，① 直接早退 —— 而「禁掉 DSH 心跳插件」正好制造的是 ①。
-    //   于是「准备解耦」的兜底在真正该起作用的那一刻**永远不触发**。
-    //   教训形状：兜底写在了**第二个失败出口**，而最常见的失败走的是第一个。
-    const tryLedger = (why) => {
-      if (!ledgerFallback || !ledgerFile || !sessionsProvider) return null
-      let sess = []
-      try { sess = sessionsProvider() || [] } catch { sess = [] }
-      const led = leadFromLedger(ledgerFile, sess)
-      if (!led.ok) {
-        log('账本兜底没成：' + led.why)
-        return null
-      }
-      log('当前 lead = ' + led.sessionId + '（账本，' + why + '）')
-      return {
-        ...last,
-        ok: true,
-        sessionId: led.sessionId,
-        candidates: 1,
-        leadSource: 'ledger:last-lead',
-        atMs: t,
-        why: '心跳不通（' + why + '）→ 账本兜底命中：' + led.why,
-      }
-    }
-
-    const ep = resolveHeartbeatEndpoint(config, { ...endpointOpts, now: t });
-    if (!ep.ok) {
-      const led = tryLedger('地址解析失败：' + ep.why)
-      if (led) { last = led; return last }
-      last = failAt(t, ep.why)
-      return last
-    }
-    // ★ 只在地址**变了**的时候说一句（不然每 60 秒刷一行同样的字）。
-    const key = ep.source + '|' + (ep.origin || ep.url || '');
-    if (key !== lastEndpointKey) {
-      lastEndpointKey = key;
-      log('心跳地址：' + (ep.origin || ep.url) + '（来源：' + ep.source
-        + (ep.file ? ' / ' + ep.file : '') + '）');
-    }
-    if (typeof fetchImpl !== 'function') { last = failAt(t, '运行时没有 fetch —— 解析不到当前 lead'); return last; }
-
-    stats.fetches++;
-    let r = null;
-    try { r = await readJsonWith(ep.url, timeoutMs, fetchImpl); }
-    catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
-    if (!r || r.ok !== true) {
-      const why = '读心跳失败：' + String((r && r.error) || '未知错误').slice(0, 160);
-      // ★★ 2026-11-11：账本兜底（默认关，integrations.ledgerFallback 打开）。
-      //   它不是为了「心跳坏了也能跑」，是为了「解耦之后不依赖 DSH」。
-      //   命中时 source 标成 ledger:last-lead —— 面板与日志能分清这一轮是谁给的答案。
-      if (ledgerFallback && ledgerFile && sessionsProvider) {
-        let sess = [];
-        try { sess = sessionsProvider() || []; } catch { sess = []; }
-        const led = leadFromLedger(ledgerFile, sess);
-        if (led.ok) {
-          last = {
-            ok: true, source: TARGET_SOURCE.LEAD, sessionId: led.sessionId,
-            candidates: 1, leadSource: led.source, atMs: t, by: led.by, at: led.at,
-            why: why + ' → 已由账本兜底（' + led.why + '）',
-            endpoint: { source: ep.source, origin: ep.origin, file: ep.file || null },
-          };
-          log('当前 lead = ' + led.sessionId + '（账本兜底；心跳失败：' + why.slice(0, 60) + '）');
-          return last;
-        }
-        last = failAt(t, why + '；账本兜底也没成：' + led.why);
-        return last;
-      }
-      last = failAt(t, why);
+    // ★★★ 2026-11-13（爀曦定，架构收敛）：**v4 不再向 DSH 要任何东西。**
+    //
+    //   最后留在 DSH 上的只有两个接口：MCP hub 和 bridge。别的都收进 v4 自己——
+    //   理由不是洁癖，是**维护难度**：每多一条跨进程的隐式约定，就多一处「端口变了/
+    //   插件没装/时序不对」的静默故障。今天在这条链上已经绕了整整一下午。
+    //
+    //   「谁是 lead」本来就不该问 DSH —— 《墨》的最后一条 lead 就是唯一权威，
+    //   那是只追加账本，v4 读得到，不需要任何人告诉它。
+    //   「他活不活跃」则由 autonomy 用 bridge 推上来的 state 判（那条已在工作）。
+    //
+    //   ★ 旧路径（/heartbeat/auto + dsh-origin.txt + server-*.out.log 三级自动发现）
+    //     全部退役：它依赖 DSH 的心跳插件，而那个插件不该存在——它正是要被收掉的那类东西。
+    let sess = [];
+    try { sess = sessionsProvider() || []; } catch { sess = []; }
+    if (!ledgerFile) {
+      last = failAt(t, '没有配置账本路径（integrations.ledgerFile / 开发默认 02-墨.jsonl 都不存在）—— v4 已不请求 DSH 心跳');
       return last;
     }
-    const res = resolveTargetFromHeartbeatPayload(r.data, { atMs: t });
-    // ★ endpoint 一并留下（**只有 origin / 来源 / 文件名**，永远没有查询串）：
-    //   面板与排障要能回答「这一次到底问的是哪个端口」，而「连不上」和「问错了端口」是两种病。
-    last = { ...res, fetchedAtMs: t, endpoint: { source: ep.source, origin: ep.origin, file: ep.file || null } };
-    if (res.ok) log('当前 lead = ' + res.sessionId + '（' + (res.leadSource || '来源未标注') + '，候选 ' + res.candidates + '）');
-    else log('动态目标解析失败（不动）：' + res.why);
+    const led = leadFromLedger(ledgerFile, sess);
+    if (!led.ok) {
+      last = failAt(t, '账本读不到 lead：' + led.why + '（v4 已不请求 DSH 心跳，不会退回网络）');
+      return last;
+    }
+    last = {
+      ok: true,
+      source: TARGET_SOURCE.LEAD,
+      sessionId: led.sessionId,
+      candidates: 1,
+      leadSource: led.source || 'ledger:last-lead',
+      atMs: t,
+      by: led.by,
+      at: led.at,
+      why: '本地判定：《墨》最后一条 lead' + (led.why ? '（' + led.why + '）' : ''),
+    };
+    if (lastSessionKey !== led.sessionId) {
+      lastSessionKey = led.sessionId;
+      log('当前 lead = ' + led.sessionId + '（《墨》账本，不再请求 DSH）');
+    }
     return last;
   }
 

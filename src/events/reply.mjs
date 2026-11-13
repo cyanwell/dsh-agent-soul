@@ -25,6 +25,7 @@
 
 import fs from 'node:fs'
 import { resolveSessionFile, decodeSessionBytes, parseRecords } from '../organs/frame-reader.mjs'
+import { readAllSessionViaBridge } from '../adapters/bridge-sessions.mjs'
 
 /** 默认只读尾部这么多字节。0 = 整份读（慢，但不会被截断影响）。 */
 const DEFAULT_TAIL_BYTES = 4 * 1024 * 1024
@@ -174,6 +175,73 @@ export function createReplyReader(opts = {}) {
         lastAt: counters.lastAt,
         lastError: counters.lastError,
       }
+    },
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ★★★ 2026-11-13（爀曦定，架构收敛）：**bridge 版回复读取**
+//
+//   与上面的 `createReplyReader` **同一套判据**（只认完整 turn、只取 text 块、
+//   坏行拒绝、读不到 ≠ 没说话）—— 区别只在「帧从哪来」：这边走 bridge 的 sessions/read。
+//
+//   ★ 为什么直接复用 `extractLastReply`：把 bridge 拿到的帧拼回 JSONL 文本再喂给它。
+//     同一个判据只有一个实现 —— 两份实现迟早会各说各话，而这一点在心的位置上尤其致命。
+//
+//   ★ 失败必须外显：bridge 不在 / 没有 sessions 能力 / 读失败 → 返回带 code 的 fail，
+//     **绝不返回「这轮没说」**（那会让调用方以为她选择沉默，吞掉一次真回复）。
+//
+//   ★ 用法：config.integrations.useBridgeSessions === true 时由调用方选它。
+//     默认关 —— bridge 的 sessions 要等 DSH 重启才上线。
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * @param {object} opts
+ * @param {object} opts.control   ControlHub（必需）
+ * @param {number} [opts.maxFrames]  一次最多读多少帧（默认 4000，超了抛错不截断）
+ * @param {number} [opts.pageSize]   分页大小（默认 800）
+ * @param {Function} [opts.log]
+ */
+export function createReplyReaderViaBridge(opts = {}) {
+  const control = opts.control
+  if (!control || typeof control.exec !== 'function') {
+    throw new Error('createReplyReaderViaBridge 需要 control（control hub 实例）—— 没有它读不到任何东西')
+  }
+  const maxFrames = Number.isFinite(Number(opts.maxFrames)) && Number(opts.maxFrames) > 0 ? Number(opts.maxFrames) : 4000
+  const pageSize = Number.isFinite(Number(opts.pageSize)) && Number(opts.pageSize) > 0 ? Number(opts.pageSize) : 800
+  const log = typeof opts.log === 'function' ? opts.log : () => {}
+  const counters = { reads: 0, ok: 0, failed: 0, lastAt: null, lastError: null }
+
+  async function lastReply(sessionId, callOpts = {}) {
+    counters.reads += 1
+    counters.lastAt = new Date().toISOString()
+    let got = null
+    try {
+      got = await readAllSessionViaBridge(control, sessionId, { maxFrames, pageSize })
+    } catch (e) {
+      counters.failed += 1
+      counters.lastError = String((e && e.message) || e)
+      return fail('REPLY_BRIDGE_FAILED', counters.lastError, { sessionId })
+    }
+    if (!got || !Array.isArray(got.frames) || got.frames.length === 0) {
+      counters.failed += 1
+      counters.lastError = 'bridge 返回 0 帧'
+      return fail('REPLY_BRIDGE_EMPTY', 'bridge 读到了 0 帧（不是「这轮没说」，是没读到内容）', { sessionId })
+    }
+    // ★ 拼回 JSONL 文本 → 复用同一套判据。一份实现，一个真相。
+    const text = got.frames.map((f) => JSON.stringify(f)).join('\n')
+    const out = extractLastReply(text, callOpts)
+    if (out.ok) { counters.ok += 1 } else { counters.failed += 1; counters.lastError = out.code }
+    if (!out.ok) log('bridge 读回复失败：' + out.code + '（session ' + sessionId + '）')
+    return out
+  }
+
+  return {
+    lastReply,
+    viaBridge: true,
+    view() {
+      return { viaBridge: true, maxFrames, pageSize, reads: counters.reads, ok: counters.ok, failed: counters.failed, lastAt: counters.lastAt, lastError: counters.lastError }
     },
   }
 }

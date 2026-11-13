@@ -28,6 +28,7 @@ import { createEventDeriver } from './derive.mjs'
 import { createEventWaker } from './wake.mjs'
 import { createWakeDeliverer } from './deliver.mjs'
 import { createReplyReader } from './reply.mjs'
+import { createReplyReaderViaBridge } from './reply.mjs'
 import { createResponder } from './respond.mjs'
 import { createMemberResolver } from './members.mjs'
 import { createEngage } from './engage.mjs'
@@ -109,6 +110,8 @@ export function createEventsIngress (opts = {}) {
   const now = opts.now || (() => Date.now())
   const transport = opts.transport || null
   const beatMs = Number(opts.beatMs) || 30_000
+  // ★ 2026-11-13：控制通道。回复读取走 bridge 时要用它。
+  const control = opts.control || null
 
   const resolved = normalizeIngressConfig(config)
   const dir = eventsDirOf(config)
@@ -281,11 +284,25 @@ export function createEventsIngress (opts = {}) {
     const _replyRoot = String(_replyCfg.sessionRoot || '').trim()
     if (_replyRoot && opts.outbox) {
       try {
-        replyReader = createReplyReader({
-          sessionRoot: _replyRoot,
-          tailBytes: _replyCfg.tailBytes,
-          log: (m) => log('[reply] ' + m),
-        })
+        // ★★★ 2026-11-13（架构收敛）：按开关选 reader。
+        //   useBridgeSessions=true → 走 bridge（v4 不开 DSH 的会话目录）；false → 旧的文件直读。
+        //   ★ 默认 false：bridge 的 sessions 能力要等 DSH 重启才上线。
+        const _useBridgeReply = config.integrations && config.integrations.useBridgeSessions === true && control
+        if (_useBridgeReply) {
+          replyReader = createReplyReaderViaBridge({
+            control,
+            maxFrames: _replyCfg.maxFrames,
+            pageSize: _replyCfg.pageSize,
+            log: (m) => log('[reply] ' + m),
+          })
+          log('[reply] 读取器：bridge（v4 不读 DSH 会话目录）')
+        } else {
+          replyReader = createReplyReader({
+            sessionRoot: _replyRoot,
+            tailBytes: _replyCfg.tailBytes,
+            log: (m) => log('[reply] ' + m),
+          })
+        }
         // ★ 群成员解析器：<at:名字> 要换成 QQ 号才能真 @。
         //   ★ 只配群聊能用（私聊没有成员表）；没配 httpUrl 时它不存在，
         //     那时 <at:名字> 会原样保留 —— 明确的能力缺口。

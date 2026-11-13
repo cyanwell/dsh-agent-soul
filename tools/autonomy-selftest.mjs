@@ -193,18 +193,25 @@ push('★ pushToHost=false → idle（不投、不自跑）', cNoPush.phase === 
 // ⑭-6 解析器的网络闸门：不动的时候一次请求都不发
 let fetched = 0;
 const fakeFetch = async () => { fetched++; return { ok: true, status: 200, json: async () => payload(LEAD_B) }; };
+// ★ 2026-11-13（架构收敛）：心跳路径已退役 —— lead 判定改成纯本地（读《墨》最后一条 lead）。
+//   本段测的是「不动的时候一次请求都不发」，那个意图仍然成立；只是现在**一次都不发**是常态。
+//   ★ 署名用 'lead-b' 而不是 id 前 8 位：'sess-lea' 同时是 sess-lead-a / sess-lead-b 的前缀，
+//     那样账本判定会把它判成歧义（而歧义是 fail-closed，不是「随便挑一个」）。
+const LT_LEDGER = path.join(DATA, 'ledger-autonomy.jsonl');
+fs.writeFileSync(LT_LEDGER, JSON.stringify({ t: new Date(now).toISOString(), type: 'lead', by: 'lead-b' }) + '\n', 'utf8');
 const lt = createLeadTargetResolver({
-  config: { integrations: { heartbeatUrl: 'http://127.0.0.1:9/heartbeat/auto' } },
+  config: { integrations: { heartbeatUrl: 'http://127.0.0.1:9/heartbeat/auto', ledgerFile: LT_LEDGER } },
+  sessionsProvider: () => [{ id: LEAD_A }, { id: LEAD_B }],
   fetchImpl: fakeFetch, now: () => now,
 });
 await lt.refreshIfNeeded({ enabled: false });
-push('★ 总开关关着 → 不问心跳（0 次请求）', fetched === 0, 'fetches=' + fetched);
+push('★ 总开关关着 → 一次请求都不发', fetched === 0, 'fetches=' + fetched);
 await lt.refreshIfNeeded({ enabled: true, pushToHost: false });
-push('★ pushToHost=false → 不问心跳（0 次请求）', fetched === 0, 'fetches=' + fetched);
+push('★ pushToHost=false → 一次请求都不发', fetched === 0, 'fetches=' + fetched);
 await lt.refreshIfNeeded({ enabled: true, targetSession: TARGET });
-push('★ 已固定指定目标 → 不问心跳（0 次请求）', fetched === 0, 'fetches=' + fetched);
+push('★ 已固定指定目标 → 一次请求都不发', fetched === 0, 'fetches=' + fetched);
 await lt.refreshIfNeeded({ enabled: true });
-push('★ 留空 + 开着 → 才去读一次心跳', fetched === 1 && lt.current().ok && lt.current().sessionId === LEAD_B, 'fetches=' + fetched + ' / ' + lt.current().sessionId);
+push('★ 留空 + 开着 → 从《墨》账本解析出 lead=B（**仍然 0 次网络请求**）', fetched === 0 && lt.current().ok && lt.current().sessionId === LEAD_B, 'fetches=' + fetched + ' / ' + lt.current().sessionId + ' / ' + String(lt.current().why || '').slice(0, 60));
 
 // ⑭-7 地址没配**且发现不到** → 解析不出（不是「投给默认会话」）
 // ★ 2026-11-11 地址自动发现之后，「没配」不再等于失败 —— 没配会去读本机最新 DSH 启动记录。
@@ -217,8 +224,8 @@ const lt2 = createLeadTargetResolver({
   logDir: EMPTY_LOGS, originFile: path.join(DATA, 'no-such-dsh-origin.txt'),
 });
 await lt2.refresh();
-push('★ 没配地址、也发现不到 origin → fail-closed（并说清缺什么）',
-  lt2.current().ok === false && /发现不到|日志目录/.test(lt2.current().why), lt2.current().why);
+push('★ 没配账本、也发现不到 —— fail-closed（并说清缺什么）',
+  lt2.current().ok === false && /账本|心跳/.test(lt2.current().why), lt2.current().why);
 
 store.saveIndexCache?.(); store.closeAll();
 try { fs.rmSync(DATA, { recursive: true, force: true }); } catch {}

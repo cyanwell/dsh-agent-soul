@@ -39,6 +39,7 @@ export const ENDPOINT_SOURCE = Object.freeze({
   CONFIGURED: 'configured',        // integrations.heartbeatUrl / dshBaseUrl
   LOG: 'dsh-log',                  // <DSH_HOME>/guard/logs/server-*.out.log
   ORIGIN_FILE: 'dsh-origin-file',  // dsh-yanqing-heartbeat/dsh-origin.txt
+  HOST_META: 'host-meta',          // ★ 2026-11-13：宿主自己在 hello 里报的地址（最准）
   NONE: 'none',                    // 发现不到（fail-closed）
 });
 
@@ -50,6 +51,8 @@ const LOG_NAME_RE = /^server-.*\.out\.log$/i;
 // ★ 这一条正则**只捕获 port**，查询串根本不进捕获组 —— 「立即丢弃」在这里是结构性的，不靠后续清洗。
 const ORIGIN_RE = /http:\/\/127\.0\.0\.1:(\d{1,5})(?=[\/?#"'`\s<>]|$)/g;
 const STRICT_ORIGIN_RE = /^http:\/\/127\.0\.0\.1:(\d{1,5})$/;
+/** ★ 2026-11-13：宿主自报地址的形状校验（与 hub.hostOrigin 同一把尺子）。 */
+const HOST_ORIGIN_RE = /^http:\/\/127\.0\.0\.1:\d{1,5}$/;
 
 function validPort(n) { return Number.isInteger(n) && n >= 1 && n <= 65535; }
 
@@ -269,6 +272,19 @@ export function resolveHeartbeatEndpoint(cfg, opts) {
         why: '心跳地址不合法：' + u.error };
     }
     return { ok: true, source: ENDPOINT_SOURCE.CONFIGURED, url: u.url, origin: originOfUrl(u.url), file: null, atMs: null, why: null };
+  }
+
+  // ★★★ 2026-11-13（爀曦定）：**宿主自报的地址优先于一切自动发现**。
+  //   理由：桥接插件就住在 DSH 进程里，它报的就是自己 —— 端口哪天变了它自己知道。
+  //   日志文件（②）和 dsh-origin.txt（③）都是「别人记的」，会过期；这条不会。
+  //   它排在显式配置之后：人配的那个永远是手刹。
+  const hostOrigin = typeof o.hostOrigin === 'string' ? o.hostOrigin.trim() : '';
+  if (HOST_ORIGIN_RE.test(hostOrigin)) {
+    return {
+      ok: true, source: ENDPOINT_SOURCE.HOST_META,
+      url: joinUrl(hostOrigin, '/heartbeat/auto'), origin: hostOrigin,
+      file: null, atMs: null, why: null,
+    };
   }
 
   const d = (typeof o.discover === 'function')

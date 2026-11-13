@@ -157,6 +157,45 @@ export async function readLeadWater(config, opts) {
   //   不是「现在活着的主脑是谁」。心跳已经把这件事解对了（primarySessionId），
   //   所以这里复用同一个解析器（organs/lead-target.mjs），**不写第二套判据**。
   const dyn = await currentLeadId(config, o);
+  // ★★★ 2026-11-13（第二批）：**state 命中就不用开文件。**
+  //   判据：bridge 每轮推来的 state 里 sessionId 与当前 lead 是同一个 —— 那它就是那个会话的水位，
+  //   contextTokens 与 projcache 的 pressureTokens 同源（都是 input + cacheRead）。
+  //   ★ 省掉的是「读 projcache 目录 + 解析 1.6MB JSON」这两步，也就是最后一条能看见的 DSH 路径依赖。
+  //   ★ 拿不到（state 里没 sessionId / 对不上 / 没 contextTokens）就**原样往下走**，
+  //     不是「降级」，是「这条路这次不适用」—— 状态台原本的两条路都还在。
+  if (dyn.ok && o.control && typeof o.control.snapshot === 'function') {
+    let hitState = null
+    try {
+      const hosts = o.control.snapshot() || []
+      for (const h of hosts) {
+        const st = h && h.state
+        if (!st || !st.sessionId) continue
+        if (String(st.sessionId) !== String(dyn.sessionId)) continue
+        if (!Number.isFinite(Number(st.contextTokens)) || Number(st.contextTokens) <= 0) continue
+        hitState = { host: h.host, st }
+        break
+      }
+    } catch { /* 快照拿不到就往下走原路 */ }
+    if (hitState) {
+      const st = hitState.st
+      const used = Number(st.contextTokens)
+      const win = Number(st.contextWindow) > 0 ? Number(st.contextWindow) : null
+      return {
+        ok: true,
+        pct: win ? pctOf(used, win) : null,
+        used, window: win,
+        source: 'bridge state（' + (hitState.host || 'host') + '）· ' + String(st.turnId || ''),
+        why: null,
+        title: st.sessionTitle === undefined ? null : st.sessionTitle,
+        isSub: st.isSub === undefined ? null : st.isSub,
+        leadBy: dyn.sessionId,
+        leadIdSource: dyn.source || TARGET_SOURCE_FALLBACK,
+        matches: 1,
+        seq: null,
+        fromState: true,
+      }
+    }
+  }
   if (dyn.ok) {
     const hit = pickProjcacheForSession(dir, dyn.sessionId);
     if (hit) {
@@ -1176,6 +1215,10 @@ export async function gatherStatus(opts) {
         pct: lead.pct, used: lead.used, window: lead.window,
         source: lead.source || lead.why || null,
         ok: !!lead.ok, why: lead.why || null,
+        // ★★ 2026-11-13：`safe()` 把真实异常写进 `error`，而这里原来**只搬 why 不搬 error** ——
+        //   于是抛错时前端只能看到写死的兜底文案（「读 lead 水位时抛错」），真因被吃掉。
+        //   这正是「静默」的标准形状：错误存在，但没人看得见。
+        error: lead.error || null,
         title: lead.title || null, file: lead.file || null, seq: lead.seq,
         leadBy: lead.leadBy || null, leadAt: lead.leadAt || null,
         leadCount: lead.leadCount || null, leadSummary: lead.leadSummary || null,
@@ -1188,13 +1231,13 @@ export async function gatherStatus(opts) {
         windowLabel: active.windowLabel, windowMs: active.windowMs,
         items: active.items, latest: active.latest,
         scanned: active.scanned, parsed: active.parsed, unreadable: active.unreadable,
-        tookMs: active.tookMs, why: active.why || null, ok: !!active.ok,
+        tookMs: active.tookMs, why: active.why || null, ok: !!active.ok, error: active.error || null,
       },
       mirror: {
         pct: mirror.pct, used: mirror.used, window: mirror.window,
         note: mirror.note || '不是水位，是镜像帧字符估算',
         ruler: mirror.ruler || null, session: mirror.session || null,
-        frameCount: mirror.frameCount || null, ok: mirror.ok !== false,
+        frameCount: mirror.frameCount || null, ok: mirror.ok !== false, error: mirror.error || null,
       },
     },
     layers,

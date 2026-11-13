@@ -183,6 +183,10 @@ export async function autoHuanqi (input) {
     ok: true, dryRun,
     activeMinutes,
     scanned: list.length,
+    // ★ 2026-11-13：透传「这一轮扫描走的是哪条路」—— file（v4 直读 DSH 目录）或 bridge。
+    //   不加这一行，调用方只能靠耗时猜 —— 而猜出来的东西不能当验收证据。
+    viaBridge: !!(scanRes && scanRes.viaBridge),
+    timings: (scanRes && scanRes.timings) || null,
     byLevel: (scanRes && scanRes.byLevel) || null,
     hot: hot.length,
     actedCount: acted.length,
@@ -248,6 +252,7 @@ export async function handleContextApi (req, res, o) {
         at: new Date().toISOString(),
         activeMinutes: 180,
         scanned: list.length,
+        viaBridge: !!(scan && scan.viaBridge),
         judged: rows.length,
         byLevel: (scan && scan.byLevel) || {},
         sessions: rows,

@@ -118,3 +118,17 @@
     window.addEventListener('blur', function () { set(0, 0); });
   }
 })();
+
+/* ══ 环境即状态（2026-11-13）══════════════════════════════════════════
+   天空层的色温跟着系统整体水平走：正常偏青、注意偏琥珀、异常偏红。
+   为什么放在 aurora.js：八页共用一个天空层，情绪也该共用一套；
+   每个页面自己写一套 hue-rotate 会各自漂移。
+   用法：window.asMood("ok" | "warn" | "err")——可以随时改，1.2s 过渡。 */
+window.asMood = function(level){
+  var sky = document.querySelector(".as-sky");
+  if (!sky) return;
+  var map = { ok: 0, warn: 16, err: 34 };
+  var deg = (map[level] === undefined) ? 0 : map[level];
+  sky.style.transition = "filter 1.2s ease-out";
+  sky.style.filter = deg ? ("hue-rotate(" + deg + "deg) saturate(1.06)") : "none";
+};
