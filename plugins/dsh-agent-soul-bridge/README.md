@@ -206,9 +206,33 @@ followup 真的调到 agent、**huanqi/break-turn 真的调 agent.cancel**（cau
 ## 已知缺口（不藏）
 
 1. `outputTokens` **恒为 null**：不读宿主内部消息，宁可空着。hello 里 `meta.notWired` 已声明。
-2. `client.js`（浏览器半）**装了但不会加载**：`package.json` 里没有 `dsh.client`、`exports` 里没有 `./client`。
-   它确实在 `files` 清单里（所以会随包发布），但当前没有任何一处把它当作 client half 声明。
-   要它真的出现在侧栏，得补 `dsh.client` + `exports['./client']`，并确认 `exports.inject = ["slots"]` 写法正确。
+2. **`client.js`（浏览器半）不会加载** —— 这是**已查实**的，不是推测：
+   `dsh-client-modules`（`lib/index.js:67-68`）的注释就是它的装载判据：
+   > *"scans the host Loader's entries for packages **declaring `dsh.client`**"*
+   而本包的 `package.json` 里 `dsh` 只有 `{ bundle }`，**没有 `client`** → 它根本不在扫描范围内。
+   `client.js` 仍在 `files` 里（会随包发布），但发出去也没人加载。
+
+   **要补什么（形状是从 `parseDshClient` 读出来的，不是猜的）**：
+
+   ```jsonc
+   // package.json
+   "exports": { "./client": "./client.js" },   // 字符串，或 { "default": "./client.js" }
+   "dsh": {
+     "bundle": { "patch": "./cordis.patch.yml" },
+     "client": {
+       "platform": "...",        // ★ 必填，string
+       "inject": ["slots"],      // 可选 string[]
+       "external": [],           // 可选 string[]
+       "immediately": false      // 可选 boolean
+     }
+   }
+   ```
+
+   `platform` 填什么值由宿主侧约定决定，**本包目前没有确证**，不要在没查清前随便填一个过关
+   （`parseDshClient` 只校验它是 string，值错了不会当场报错，而是装载时不出东西 —— 那是最难查的一种）。
+
+   **判据**：补完后侧栏应出现那个圆钮；若没出现，按 `client.js` 头注的顺序查三件事
+   （`exports.inject` 是否含 `slots`、`platform` 值与宿主一致、浏览器控制台有没有报错）。
    ★ 这是**已知缺口，不是已完成**。
 3. `followup` 回执只证明「投进去了」，不证明「真的开了一轮」—— 那取决于 agent 当时的运行状态。
    回执里 `note` 写死了这句话。
