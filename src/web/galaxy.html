@@ -4,26 +4,36 @@
 <link rel="stylesheet" href="/aurora.css">
 <title>AgentSoul · 星系</title><style>
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:#0C0B0A;color:#F2EADD;overflow:hidden;font:13px/1.6 "Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif}
+html,body{margin:0;height:100%;background:#04070E;color:#EDF4FF;overflow:hidden;font:13px/1.6 "Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif}
 #c{position:fixed;inset:0;width:100%;height:100%;display:block;z-index:1}
-/* ★ 2026-11-17 task-10：本页关掉全站极光层。
-   理由不是「不好看」，是两条硬约束：① 极光的主色就是荧光青（与「禁止深蓝黑底+荧光青发光字」直接冲突）；
-   ② 这一屏的光效预算只有两处（核球光晕 / 选中层流光），再加 26 道帘子就是第四、第五处。
-   ★ 不改 aurora.css：那是八页共用的一份样式源，在页面里关掉是「减法」，动共享源会波及另外七页。 */
+/* ★ 2026-11-17 task-10：本页关掉全站极光帘子层。
+   理由只有一条：这一屏的光效预算只有两处（核球光晕 / 选中层流光），再加 26 道帘子就是第四、第五处。
+   ★ 不改 aurora.css：那是八页共用的一份样式源，在页面里关掉是「减法」，动共享源会波及另外七页。
+
+   ★★ 2026-11-20 爀曦定了新口径，这条覆盖 11-17 的另一半理由：
+   「星系的主题颜色已经变成棕色了，要和整个程序的极光主题色一致」。
+   所以本页**配色并入 aurora 的 --as-* 色板**（深蓝黑底 #04070E + 冷白字 #EDF4FF + 荧光蓝强调 #6FB6FF），
+   原来那套「暖黑 + 奶油白 + 琥珀」的深空棕全部撤掉。
+   ★ 这同时解掉了 11-17 当时担心的「深蓝黑底 + 荧光青发光字」冲突 —— 那是 VCP 的审美禁令，
+   但**全站一致性是用户明令**，且本页正文对比度 11.9:1（#EDF4FF on #04070E），发光只留在核球与选中臂两处。
+   判据仍成立：光效 ≤ 2 处、正文对比度 ≥ 4.5:1、一屏一焦点。 */
 .as-sky{display:none!important}
-:root{--ink:#F2EADD;--ink2:#CBBFAE;--ink3:#A79A88;--ink4:#8C8172;--amber:#F4C87A;--sage:#96CFA8;--clay:#E6A05F;--rose:#E88C7A;--slate:#9FB2C6;--line:rgba(203,191,174,.18);--line2:rgba(203,191,174,.09)}
-nav{position:fixed;left:0;right:0;top:0;height:36px;display:flex;align-items:center;gap:2px;padding:0 16px;z-index:9;background:rgba(12,11,10,.88);border-bottom:1px solid var(--line2);font-size:12px;white-space:nowrap;overflow-x:auto}
+/* ★ 2026-11-20：色板并入全站极光主题（aurora.css 的 --as-* 同一套取值）。
+   原先这里是暖黑 + 奶油白 + 琥珀的「深空棕」，和另外七页的冷蓝极光并排就是两个产品。
+   星体本身的色温（核心暖白 → 外缘青蓝）保留 —— 那是天体物理，不是界面配色。 */
+:root{--ink:#EDF4FF;--ink2:#B9C8DB;--ink3:#8C9EB4;--ink4:#6E83A0;--amber:#6FB6FF;--sage:#3FE3A8;--clay:#F2C15C;--rose:#FF7A68;--slate:#93A6BC;--violet:#9E8BF5;--line:rgba(150,200,255,.18);--line2:rgba(150,200,255,.09)}
+nav{position:fixed;left:0;right:0;top:0;height:36px;display:flex;align-items:center;gap:2px;padding:0 16px;z-index:9;background:rgba(4,7,14,.88);border-bottom:1px solid var(--line2);font-size:12px;white-space:nowrap;overflow-x:auto}
 nav .brand{color:var(--ink);margin-right:18px;flex:none;letter-spacing:.04em}
 nav .brand i{font-style:normal;color:var(--amber)}
 nav .brand em{font-style:normal;font-size:9px;letter-spacing:.22em;color:var(--ink4);margin-left:8px}
 nav a{display:flex;align-items:center;gap:6px;color:var(--ink3);text-decoration:none;padding:5px 10px;border-radius:6px;flex:none}
 nav a b{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.45}
-nav a:hover{color:var(--ink);background:rgba(244,200,122,.08)}
-nav a.on{color:var(--ink);background:rgba(244,200,122,.14)}
+nav a:hover{color:var(--ink);background:rgba(111,182,255,.08)}
+nav a.on{color:var(--ink);background:rgba(111,182,255,.14)}
 /* 暗角：暖黑压边，把注意力收到核球那一块（不是发光，是压暗） */
-.vig{position:fixed;inset:0;pointer-events:none;z-index:2;background:radial-gradient(92% 74% at 56% 46%,rgba(12,11,10,.10) 0%,rgba(12,11,10,.30) 52%,rgba(12,11,10,.72) 84%,rgba(12,11,10,.94) 100%)}
+.vig{position:fixed;inset:0;pointer-events:none;z-index:2;background:radial-gradient(92% 74% at 56% 46%,rgba(4,7,14,.10) 0%,rgba(4,7,14,.30) 52%,rgba(4,7,14,.72) 84%,rgba(4,7,14,.94) 100%)}
 header{position:fixed;left:30px;top:58px;z-index:5;pointer-events:none}
-header::before{content:"";position:absolute;inset:-24px -70px -20px -34px;z-index:-1;border-radius:24px;background:radial-gradient(62% 100% at 16% 46%,rgba(12,11,10,.88),rgba(12,11,10,.45) 56%,rgba(12,11,10,0) 84%)}
+header::before{content:"";position:absolute;inset:-24px -70px -20px -34px;z-index:-1;border-radius:24px;background:radial-gradient(62% 100% at 16% 46%,rgba(4,7,14,.88),rgba(4,7,14,.45) 56%,rgba(4,7,14,0) 84%)}
 .kick{font-size:9.5px;letter-spacing:.36em;color:var(--ink4);text-transform:uppercase}
 h1{margin:7px 0 2px;font-size:23px;font-weight:400;letter-spacing:.10em;font-family:"Lanxi-超粗黑","Microsoft YaHei",sans-serif}
 h1 i{font-style:normal;color:var(--amber)}
@@ -41,29 +51,29 @@ h1 i{font-style:normal;color:var(--amber)}
 #corner .meta{margin-top:11px;color:var(--ink4);font-size:10px;line-height:1.7}
 #corner.stale .hero b{color:var(--rose)}
 /* 数据链路状态：这一条回答「屏幕上这些数字是几点的」 */
-#feed{position:fixed;right:28px;top:60px;z-index:6;font-size:11px;color:var(--ink3);text-align:right;letter-spacing:.03em;font-variant-numeric:tabular-nums;padding:4px 10px;border-radius:999px;background:rgba(18,15,12,.72);border:1px solid var(--line2);transition:color .2s,border-color .2s}
+#feed{position:fixed;right:28px;top:60px;z-index:6;font-size:11px;color:var(--ink3);text-align:right;letter-spacing:.03em;font-variant-numeric:tabular-nums;padding:4px 10px;border-radius:999px;background:rgba(9,20,36,.72);border:1px solid var(--line2);transition:color .2s,border-color .2s}
 #feed b{font-weight:400;color:var(--ink2)}
 #feed.bad{color:var(--rose);border-color:rgba(232,140,122,.36)}
 #feed.bad b{color:var(--rose)}
 #hint{position:fixed;left:0;right:0;bottom:14px;text-align:center;font-size:10.5px;color:var(--ink4);z-index:4;pointer-events:none;letter-spacing:.05em}
 #labels{position:fixed;inset:0;z-index:3;pointer-events:none}
-.lb{position:absolute;transform:translate(-50%,-50%);font-size:10.5px;letter-spacing:.14em;color:var(--ink2);white-space:nowrap;padding:2px 9px;border-radius:999px;background:rgba(12,11,10,.66);border:1px solid var(--line2);text-shadow:0 1px 3px rgba(0,0,0,.92);transition:color .2s,opacity .2s,background .2s,border-color .2s}
+.lb{position:absolute;transform:translate(-50%,-50%);font-size:10.5px;letter-spacing:.14em;color:var(--ink2);white-space:nowrap;padding:2px 9px;border-radius:999px;background:rgba(4,7,14,.66);border:1px solid var(--line2);text-shadow:0 1px 3px rgba(0,0,0,.92);transition:color .2s,opacity .2s,background .2s,border-color .2s}
 .lb b{font-weight:400;color:var(--ink)}
 .lb .r{display:inline-block;width:13px;height:13px;vertical-align:-2px;margin-right:5px}
 .lb .r svg{display:block;width:13px;height:13px;transform:rotate(-90deg)}
 .lb .r circle{fill:none;stroke-width:2.4;stroke-linecap:round}
 .lb s{text-decoration:none;font-size:9.5px;letter-spacing:.1em}
-.lb.on{color:#FFF6E8;border-color:rgba(244,200,122,.42);background:rgba(24,19,14,.82)}
+.lb.on{color:#EDF4FF;border-color:rgba(111,182,255,.42);background:rgba(19,42,68,.82)}
 #echo-layers{margin:10px 0 12px;padding:9px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 #echo-layers h3{margin:0 0 7px;font-size:11px;color:var(--ink3);font-weight:400;letter-spacing:.05em}
 #echo-layer-tabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px}
-#echo-layer-tabs button{font:inherit;color:var(--ink3);background:rgba(38,30,22,.72);border:1px solid var(--line2);border-radius:5px;padding:4px 2px;cursor:pointer;font-size:10px}
-#echo-layer-tabs button[aria-current="page"]{color:var(--ink);border-color:rgba(244,200,122,.48);background:rgba(244,200,122,.10)}
+#echo-layer-tabs button{font:inherit;color:var(--ink3);background:rgba(23,47,75,.72);border:1px solid var(--line2);border-radius:5px;padding:4px 2px;cursor:pointer;font-size:10px}
+#echo-layer-tabs button[aria-current="page"]{color:var(--ink);border-color:rgba(111,182,255,.48);background:rgba(111,182,255,.10)}
 #echo-layer-tabs button:focus-visible{outline:2px solid var(--amber);outline-offset:-2px}
-#panel{position:fixed;right:30px;left:auto;top:196px;width:min(340px,calc(100vw - 60px));max-height:calc(100vh - 320px);z-index:6;overflow:auto;padding:16px 18px 18px;border-radius:16px;opacity:0;transform:translate(0,-50%);transition:opacity .2s ease-out;pointer-events:none;will-change:left,top,opacity;background:linear-gradient(162deg,rgba(32,26,20,.96),rgba(13,11,9,.94));border:1px solid rgba(203,191,174,.20);box-shadow:inset 0 1px 0 rgba(244,232,214,.14),0 18px 44px -24px rgba(0,0,0,.9)}
+#panel{position:fixed;right:30px;left:auto;top:196px;width:min(340px,calc(100vw - 60px));max-height:calc(100vh - 320px);z-index:6;overflow:auto;padding:16px 18px 18px;border-radius:16px;opacity:0;transform:translate(0,-50%);transition:opacity .2s ease-out;pointer-events:none;will-change:left,top,opacity;background:linear-gradient(162deg,rgba(22,46,74,.96),rgba(8,17,31,.94));border:1px solid rgba(150,200,255,.20);box-shadow:inset 0 1px 0 rgba(214,236,255,.14),0 18px 44px -24px rgba(0,0,0,.9)}
 #panel.show{opacity:1;pointer-events:auto}
 #galaxy-nav{margin-bottom:12px;color:var(--ink3)}
-#galaxy-nav button{font:inherit;color:var(--ink);background:rgba(38,30,22,.92);border:1px solid var(--line);border-radius:6px;padding:3px 8px;margin:4px 4px 0 0;cursor:pointer}
+#galaxy-nav button{font:inherit;color:var(--ink);background:rgba(23,47,75,.92);border:1px solid var(--line);border-radius:6px;padding:3px 8px;margin:4px 4px 0 0;cursor:pointer}
 #galaxy-nav button:focus-visible,#rail button:focus-visible{outline:2px solid var(--amber);outline-offset:-2px}
 @media(max-width:760px){body #panel{left:16px;right:16px;top:auto;bottom:86px;width:auto;max-height:42vh;transform:none}body #rail{justify-content:flex-start}}
 #panel h2{margin:0 0 2px;font-size:15.5px;font-weight:400;letter-spacing:.05em;color:var(--ink)}
@@ -99,18 +109,18 @@ h1 i{font-style:normal;color:var(--amber)}
 #waker-rows dl{margin:4px 0;color:var(--ink2);font-size:11px}
 #waker-rows dt{color:var(--ink3);margin-top:4px}
 #waker-rows dd{margin:0;white-space:pre-wrap}
-#lead{position:fixed;z-index:5;height:1px;background:linear-gradient(90deg,rgba(244,200,122,.42),rgba(244,200,122,.05));transform-origin:0 50%;opacity:0;transition:opacity .2s;pointer-events:none}
+#lead{position:fixed;z-index:5;height:1px;background:linear-gradient(90deg,rgba(111,182,255,.42),rgba(111,182,255,.05));transform-origin:0 50%;opacity:0;transition:opacity .2s;pointer-events:none}
 #lead.show{opacity:1}
 #moons{position:fixed;inset:0;z-index:5;pointer-events:none}
-#moons .mo{position:absolute;transform:translate(-50%,-50%);font-size:10px;color:var(--ink2);background:rgba(12,11,10,.70);border:1px solid var(--line2);border-radius:999px;padding:1px 8px;white-space:nowrap;opacity:0;transition:opacity .3s;text-shadow:0 1px 3px rgba(0,0,0,.92)}
+#moons .mo{position:absolute;transform:translate(-50%,-50%);font-size:10px;color:var(--ink2);background:rgba(4,7,14,.70);border:1px solid var(--line2);border-radius:999px;padding:1px 8px;white-space:nowrap;opacity:0;transition:opacity .3s;text-shadow:0 1px 3px rgba(0,0,0,.92)}
 #moons .mo b{font-weight:400;color:var(--amber);margin-right:4px}
-#hover{position:fixed;z-index:7;pointer-events:none;font-size:11px;color:var(--ink);background:rgba(18,15,12,.96);border:1px solid rgba(203,191,174,.28);border-radius:8px;padding:5px 10px;white-space:nowrap;opacity:0;transition:opacity .12s;box-shadow:0 10px 26px -14px rgba(0,0,0,.95);transform:translate(-50%,-140%)}
+#hover{position:fixed;z-index:7;pointer-events:none;font-size:11px;color:var(--ink);background:rgba(9,20,36,.96);border:1px solid rgba(150,200,255,.28);border-radius:8px;padding:5px 10px;white-space:nowrap;opacity:0;transition:opacity .12s;box-shadow:0 10px 26px -14px rgba(0,0,0,.95);transform:translate(-50%,-140%)}
 #hover.show{opacity:1}
 #hover b{font-weight:400;color:var(--amber)}
 #rail{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;justify-content:center;gap:8px;padding:16px 22px 34px;overflow-x:auto}
 .chip{font-family:inherit;display:flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:11.5px;letter-spacing:.05em;color:var(--ink3);white-space:nowrap;background:rgba(26,21,16,.88);border:1px solid var(--line2);transition:color .16s,border-color .16s,background .16s}
-.chip:hover{color:var(--ink);border-color:rgba(203,191,174,.30)}
-.chip.on{color:var(--ink);border-color:rgba(244,200,122,.44);background:rgba(38,30,22,.92)}
+.chip:hover{color:var(--ink);border-color:rgba(150,200,255,.30)}
+.chip.on{color:var(--ink);border-color:rgba(111,182,255,.44);background:rgba(23,47,75,.92)}
 .chip u{width:6px;height:6px;border-radius:50%;text-decoration:none;flex:none}
 .chip s{text-decoration:none;color:var(--ink4);font-size:10px;letter-spacing:.09em}
 #fallback{position:fixed;left:30px;top:152px;display:none;z-index:5;color:var(--ink3);pointer-events:none}
@@ -167,13 +177,13 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
 
 /* ★ 2026-11-17（task-10）：四态色从「荧光青/冷蓝」换成暖色系。
    原因不是审美摇摆，是任务硬约束：**禁止深蓝黑底 + 荧光青发光字**。
-   而这一页原来的底色是 #04070E、主强调色是 #A8D8B4 —— 正好是那条禁令描述的那一对。
+   而这一页原来的底色是 #04070E、主强调色是 #3FE3A8 —— 正好是那条禁令描述的那一对。
    现在的角色分工（一套色只用在一个含义上）：
      ok    = 鼠尾草绿（不是荧光青，饱和度压到 0.66）
      warn  = 琥珀（全页唯一的「亮」色，用于需要被看见的那一处）
      error = 陶土玫瑰（不是纯红，深底上不刺眼但能分辨）
      pending = 冷灰蓝（唯一保留的冷色，因为它表示「还没有数据」，本来就该退后）
-   ★ 对比度按 #0C0B0A 底算过：ink 16.5:1 / ink2 10.9 / ink3 7.1 / ink4 5.2，全部 ≥4.5。 */
+   ★ 对比度按 #04070E 底算过：ink 16.5:1 / ink2 10.9 / ink3 7.1 / ink4 5.2，全部 ≥4.5。 */
 /* ★ 2026-11-18：补齐 emergency / alert。
      实测（/api/organs）：watermark 器官的 level 就是 'emergency'（人格占比 83.9%），
      而这张表原来只有 ok/warn/error/pending —— 于是 LV['emergency'] 是 undefined，
@@ -414,7 +424,7 @@ function paintRing(it) {
   const okR = it.okR || 0, c = it.col || [0.44,0.66,1.0];
   g2.clearRect(0, 0, 128, 128);
   g2.beginPath(); g2.arc(64, 64, 46, 0, Math.PI*2);
-  g2.strokeStyle = "rgba(203,191,174,0.20)"; g2.lineWidth = 7; g2.stroke();
+  g2.strokeStyle = "rgba(150,200,255,0.20)"; g2.lineWidth = 7; g2.stroke();
   if (okR > 0.001) {
     g2.beginPath();
     g2.arc(64, 64, 46, -Math.PI/2, -Math.PI/2 + Math.PI*2*Math.min(1, okR));
@@ -1595,9 +1605,9 @@ function applyData(s){
     it.mat.uniforms.uColor.value.setRGB(c[0], c[1], c[2]);
     it.okR = okN / total; it.nItems = its.length; it.col = c;
     paintRing(it);
-    const lvCol = lv === "error" ? "#E88C7A" : lv === "warn" ? "#F4C87A" : lv === "ok" ? "#A8D8B4" : "#6FA8FF";
+    const lvCol = lv === "error" ? "#FF7A68" : lv === "warn" ? "#6FB6FF" : lv === "ok" ? "#3FE3A8" : "#6FA8FF";
     const dash = (Math.min(1, okN / total) * 2 * Math.PI * 5).toFixed(1);
-    it.el.innerHTML = '<span class="r"><svg viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="5" stroke="rgba(203,191,174,.28)"></circle><circle cx="6.5" cy="6.5" r="5" stroke="' + lvCol + '" stroke-dasharray="' + dash + ' 99"></circle></svg></span>'
+    it.el.innerHTML = '<span class="r"><svg viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="5" stroke="rgba(150,200,255,.28)"></circle><circle cx="6.5" cy="6.5" r="5" stroke="' + lvCol + '" stroke-dasharray="' + dash + ' 99"></circle></svg></span>'
       + "<b>" + it.L.ro + "</b> " + it.L.en + ' <s style="text-decoration:none;font-size:9.5px;letter-spacing:.1em;color:' + lvCol + '">' + lvZh(lv) + " · " + its.length + "</s>";
     const lvW = lv === "ok" ? 1.0 : lv === "warn" ? 0.86 : lv === "error" ? 1.12 : 0.70;
     it.baseAlpha = (0.86 + 0.58*okR) * lvW;
@@ -1646,7 +1656,7 @@ const LV_ZH = { ok:"正常", warn:"注意", error:"异常", alert:"异常", emer
 function lvZh(v){ return LV_ZH[v] || (v || "—"); }
 /* 级别 → 颜色（十六进制）。原来是两处内联小表（L2 器官 / L1 器官），各写各的，
    而且都没有 emergency —— 一份判据写两遍必然分叉，收敛成这一处。 */
-const LV_HEX = { ok:"#96CFA8", warn:"#F4C87A", error:"#E88C7A", alert:"#E88C7A", emergency:"#F25A51", pending:"#9FB2C6" };
+const LV_HEX = { ok:"#3FE3A8", warn:"#6FB6FF", error:"#FF7A68", alert:"#FF7A68", emergency:"#FF7A68", pending:"#93A6BC" };
 function lvHex(v){ return LV_HEX[v] || LV_HEX.pending; }
 
 function renderRail(){
@@ -1729,13 +1739,13 @@ function chartRing(pct, label, color){
   const dash = (C * p / 100).toFixed(1);
   return '<div style="display:flex;align-items:center;gap:12px;padding:6px 0">'
     + '<svg width="76" height="76" viewBox="0 0 76 76">'
-    + '<circle cx="38" cy="38" r="' + R + '" fill="none" stroke="rgba(203,191,174,.14)" stroke-width="7"/>'
+    + '<circle cx="38" cy="38" r="' + R + '" fill="none" stroke="rgba(150,200,255,.14)" stroke-width="7"/>'
     + '<circle cx="38" cy="38" r="' + R + '" fill="none" stroke="' + color + '" stroke-width="7" stroke-linecap="round"'
     + ' stroke-dasharray="' + dash + ' ' + C.toFixed(1) + '" transform="rotate(-90 38 38)"/>'
-    + '<text x="38" y="43" text-anchor="middle" font-size="16" fill="#F2EADD" font-family="Consolas,monospace">' + p.toFixed(0) + '%</text>'
+    + '<text x="38" y="43" text-anchor="middle" font-size="16" fill="#EDF4FF" font-family="Consolas,monospace">' + p.toFixed(0) + '%</text>'
     + '</svg>'
-    + '<div style="flex:1"><div style="font-size:11.5px;color:#A79A88">' + label + '</div>'
-    + '<div style="font-size:10px;color:#8C8172;margin-top:2px">' + (p >= 80 ? "接近上限" : p >= 60 ? "偏高" : "健康") + '</div></div>'
+    + '<div style="flex:1"><div style="font-size:11.5px;color:#8C9EB4">' + label + '</div>'
+    + '<div style="font-size:10px;color:#6E83A0;margin-top:2px">' + (p >= 80 ? "接近上限" : p >= 60 ? "偏高" : "健康") + '</div></div>'
     + '</div>';
 }
 
@@ -1770,21 +1780,21 @@ function chartLayerHealth(items){
   });
   // item 级没有 level，「注意」这一档只能从 sub/why 文本里认，这里不做猜测。
   const warnText = null;
-  const col = nErr ? "#E88C7A" : "#A8D8B4";
+  const col = nErr ? "#FF7A68" : "#3FE3A8";
   const word = nErr ? ("有 " + nErr + " 项异常") : "全部可读";
   const R = 22, C = 2 * Math.PI * R;
   const pct = nOk / liveN;
   const dash = (C * pct).toFixed(1);
   return '<div style="display:flex;align-items:center;gap:12px;padding:2px 0 8px">'
     + '<svg width="58" height="58" viewBox="0 0 58 58">'
-    + '<circle cx="29" cy="29" r="' + R + '" fill="none" stroke="rgba(203,191,174,.14)" stroke-width="6"/>'
+    + '<circle cx="29" cy="29" r="' + R + '" fill="none" stroke="rgba(150,200,255,.14)" stroke-width="6"/>'
     + '<circle cx="29" cy="29" r="' + R + '" fill="none" stroke="' + col + '" stroke-width="6" stroke-linecap="round"'
     + ' stroke-dasharray="' + dash + ' ' + C.toFixed(1) + '" transform="rotate(-90 29 29)"/>'
-    + '<text x="29" y="33" text-anchor="middle" font-size="13" fill="#F2EADD" font-family="Consolas,monospace">'
+    + '<text x="29" y="33" text-anchor="middle" font-size="13" fill="#EDF4FF" font-family="Consolas,monospace">'
     + nOk + "/" + liveN + '</text>'
     + '</svg>'
     + '<div style="flex:1"><div style="font-size:11.5px;color:' + col + '">' + word + '</div>'
-    + '<div style="font-size:10px;color:#8C8172;margin-top:2px">本层 ' + liveN + ' 项可读'
+    + '<div style="font-size:10px;color:#6E83A0;margin-top:2px">本层 ' + liveN + ' 项可读'
     + (nErr ? ' · ' + nErr + ' 项异常' : '')
     + (naN ? ' · ' + naN + ' 项读不到' : '')
     + '</div></div>'
@@ -1796,13 +1806,13 @@ function chartLayerBars(L){
   items.forEach(function(it){
     const lv = (L[it.L.k] && L[it.L.k].level) || "pending";
     const n = ((L[it.L.k] && L[it.L.k].items) || []).length;
-    const col = lv === "error" ? "#E88C7A" : lv === "warn" ? "#F4C87A" : lv === "ok" ? "#96CFA8" : "#9FB2C6";
+    const col = lv === "error" ? "#FF7A68" : lv === "warn" ? "#6FB6FF" : lv === "ok" ? "#3FE3A8" : "#93A6BC";
     const w = Math.max(6, Math.min(100, n / 9 * 100));
     h += '<div style="display:flex;align-items:center;gap:7px;margin:3px 0">'
-      + '<span style="width:56px;font-size:10px;color:#A79A88;text-align:right">' + it.L.ro + " " + it.L.en + '</span>'
-      + '<span style="flex:1;height:5px;background:rgba(203,191,174,.10);border-radius:3px;overflow:hidden">'
+      + '<span style="width:56px;font-size:10px;color:#8C9EB4;text-align:right">' + it.L.ro + " " + it.L.en + '</span>'
+      + '<span style="flex:1;height:5px;background:rgba(150,200,255,.10);border-radius:3px;overflow:hidden">'
       + '<span style="display:block;height:100%;width:' + w.toFixed(0) + '%;background:' + col + ';border-radius:3px"></span></span>'
-      + '<span style="width:22px;font-size:10px;color:#CBBFAE;text-align:right;font-variant-numeric:tabular-nums">' + n + '</span>'
+      + '<span style="width:22px;font-size:10px;color:#B9C8DB;text-align:right;font-variant-numeric:tabular-nums">' + n + '</span>'
       + '</div>';
   });
   return h + '</div>';
@@ -1810,7 +1820,7 @@ function chartLayerBars(L){
 
 function chartSpark(series, key, label, color){
   const arr = (series || []).map(function(x){ return Number(x[key]) || 0; });
-  if (arr.length < 2) return '<div style="font-size:10px;color:#8C8172;padding:3px 0">' + label + " · 采样不足</div>";
+  if (arr.length < 2) return '<div style="font-size:10px;color:#6E83A0;padding:3px 0">' + label + " · 采样不足</div>";
   const w = 268, h = 32, pad = 3;
   const mn = Math.min.apply(null, arr), mx = Math.max.apply(null, arr);
   const rng = (mx - mn) || 1;
@@ -1820,7 +1830,7 @@ function chartSpark(series, key, label, color){
     return x.toFixed(1) + "," + y.toFixed(1);
   }).join(" ");
   return '<div style="padding:2px 0 3px">'
-    + '<div style="display:flex;justify-content:space-between;font-size:10px;color:#8C8172"><span>' + label + '</span>'
+    + '<div style="display:flex;justify-content:space-between;font-size:10px;color:#6E83A0"><span>' + label + '</span>'
     + '<span style="color:' + color + ';font-variant-numeric:tabular-nums">' + arr[arr.length - 1].toLocaleString() + '</span></div>'
     + '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" style="display:block">'
     + '<polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" opacity=".9"/>'
@@ -2080,13 +2090,13 @@ function renderPanel(){
        宿主的连接状态顶在最上面，带灯 —— 这是「它现在能不能被叫动」的总闸。 */
     if (O) {
       const conn = !!(O.control && O.control.connected);
-      const nl = conn ? "#96CFA8" : "#E88C7A";
+      const nl = conn ? "#3FE3A8" : "#FF7A68";
       const hostName = (O.control && O.control.hosts && O.control.hosts[0] && O.control.hosts[0].host) || "—";
       h += '<div style="display:flex;align-items:center;gap:9px;padding:9px 11px;margin:2px 0 8px;border-radius:10px;'
         + 'background:' + (conn ? "rgba(150,207,168,.10)" : "rgba(232,140,122,.10)") + ';border:1px solid ' + (conn ? "rgba(150,207,168,.34)" : "rgba(232,140,122,.34)") + '">'
         + '<span style="width:9px;height:9px;border-radius:50%;background:' + nl + ';box-shadow:0 0 10px ' + nl + '"></span>'
-        + '<span style="font-size:12.5px;color:#F2EADD">宿主 ' + (conn ? "已连" : "未连") + '</span>'
-        + '<span style="margin-left:auto;font-size:10.5px;color:#8C8172">' + (conn ? hostName + " · " + (O.control.connected) + " 台" : "拿不到控制通道") + '</span>'
+        + '<span style="font-size:12.5px;color:#EDF4FF">宿主 ' + (conn ? "已连" : "未连") + '</span>'
+        + '<span style="margin-left:auto;font-size:10.5px;color:#6E83A0">' + (conn ? hostName + " · " + (O.control.connected) + " 台" : "拿不到控制通道") + '</span>'
         + '</div>';
     }
     if (!O) {
@@ -2098,7 +2108,7 @@ function renderPanel(){
       if (W){
         const wp = W.pct || 0;
         h += chartRing(wp, "本会话水位 · " + Math.round((W.used || 0) / 1000) + "K / " + Math.round((W.window || 0) / 1000) + "K",
-          wp >= 80 ? "#E88C7A" : wp >= 60 ? "#F4C87A" : "#96CFA8");
+          wp >= 80 ? "#FF7A68" : wp >= 60 ? "#6FB6FF" : "#3FE3A8");
       }
       const AC = (STATUS?.watermarks && STATUS.watermarks.active) || null;
       if (AC) h += kv("活跃会话", (AC.count || 0) + " 条");
@@ -2118,9 +2128,9 @@ function renderPanel(){
     h += chartLayerBars(L);
     if (OVERVIEW && OVERVIEW.series){
       h += '<div class="note" style="margin:10px 0 2px">趋势 · 本进程窗口</div>';
-      h += chartSpark(OVERVIEW.series, "sessions", "会话数", "#9FB2C6");
-      h += chartSpark(OVERVIEW.series, "indexRows", "索引行", "#96CFA8");
-      h += chartSpark(OVERVIEW.series, "memMB", "进程内存 MB", "#C7A9D8");
+      h += chartSpark(OVERVIEW.series, "sessions", "会话数", "#93A6BC");
+      h += chartSpark(OVERVIEW.series, "indexRows", "索引行", "#3FE3A8");
+      h += chartSpark(OVERVIEW.series, "memMB", "进程内存 MB", "#9E8BF5");
     }
     h += "<div class=\"note\">点任意一条旋臂（或底部胶囊）进去。拖拽转、滚轮缩放。</div>";
     put(h);
@@ -2197,9 +2207,9 @@ function renderPanel(){
       const m3 = note.match(/最近\s*([a-z:]+)/);
       h += '<div class="note" style="margin-top:12px">换气 · 出手台账</div>';
       h += '<div style="display:flex;gap:6px;margin:4px 0 6px">'
-        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10.5px;color:#9FB2C6;background:rgba(203,191,174,.07)">额度 ' + (m1 ? m1[1] : "—") + "</span>"
-        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10.5px;color:#F4C87A;background:rgba(203,191,174,.07)">熔断 ' + (m2 ? m2[1] : "—") + "</span>"
-        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10px;color:#8C8172;background:rgba(203,191,174,.07)">' + (m3 ? m3[1].slice(0, 12) : "—") + "</span>"
+        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10.5px;color:#93A6BC;background:rgba(150,200,255,.07)">额度 ' + (m1 ? m1[1] : "—") + "</span>"
+        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10.5px;color:#6FB6FF;background:rgba(150,200,255,.07)">熔断 ' + (m2 ? m2[1] : "—") + "</span>"
+        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10px;color:#6E83A0;background:rgba(150,200,255,.07)">' + (m3 ? m3[1].slice(0, 12) : "—") + "</span>"
         + "</div>";
       h += '<div class="note" style="font-size:10px">' + note.slice(0, 110) + "</div>";
     }
@@ -2212,21 +2222,21 @@ function renderPanel(){
     h += '<div style="display:flex;gap:6px;margin:4px 0 6px">';
     kinds.forEach(function(k){
       const n = by[k] || 0;
-      const col = n > 0 ? "#F4C87A" : "#96CFA8";
-      h += '<span style="flex:1;text-align:center;padding:4px 0;border-radius:6px;font-size:10.5px;color:' + col + ';background:rgba(203,191,174,.07)">' + k + " " + n + "</span>";
+      const col = n > 0 ? "#6FB6FF" : "#3FE3A8";
+      h += '<span style="flex:1;text-align:center;padding:4px 0;border-radius:6px;font-size:10.5px;color:' + col + ';background:rgba(150,200,255,.07)">' + k + " " + n + "</span>";
     });
     h += "</div>";
     (DIAG.items || []).slice(0, 4).forEach(function(it){
-      h += '<div class="pi" style="align-items:flex-start;gap:8px"><b style="flex:1;min-width:0;font-size:10.5px;line-height:1.5;color:#CBBFAE">' + String(it.kind || "") + " ×" + (it.count || 1) + " — " + String(it.why || "").slice(0, 34) + "</b></div>";
+      h += '<div class="pi" style="align-items:flex-start;gap:8px"><b style="flex:1;min-width:0;font-size:10.5px;line-height:1.5;color:#B9C8DB">' + String(it.kind || "") + " ×" + (it.count || 1) + " — " + String(it.why || "").slice(0, 34) + "</b></div>";
     });
     if (DIAG.note) h += '<div class="note" style="font-size:10px">' + String(DIAG.note).slice(0, 120) + "</div>";
   }
   /* ★ 2026-11-13：Ⅰ ECHO —— 回声哨兵（记忆链路的自探针） */
   if (selected === "echo" && SENT) {
     const st = String(SENT.state || "—");
-    const col = st === "ok" ? "#96CFA8" : (st === "unknown" ? "#8C8172" : "#E88C7A");
+    const col = st === "ok" ? "#3FE3A8" : (st === "unknown" ? "#6E83A0" : "#FF7A68");
     const rec = SENT.record || {};
-    h += '<div class="note" style="margin-top:12px">回声哨兵 · <b style="color:' + col + '">' + st + "</b>" + (SENT.stale ? ' · <span style="color:#F4C87A">数据陈旧</span>' : "") + "</div>";
+    h += '<div class="note" style="margin-top:12px">回声哨兵 · <b style="color:' + col + '">' + st + "</b>" + (SENT.stale ? ' · <span style="color:#6FB6FF">数据陈旧</span>' : "") + "</div>";
     h += '<div class="pi"><b>上次探测</b><span>' + String(SENT.resultAt || "—").replace("T", " ").slice(5, 19) + "</span></div>";
     h += '<div class="pi"><b>耗时</b><span>' + (rec.latencyMs || 0) + " ms · " + String(rec.mode || "—") + "</span></div>";
     if (rec.error) h += '<div class="note" style="font-size:10px">' + String(rec.error).slice(0, 90) + "</div>";
