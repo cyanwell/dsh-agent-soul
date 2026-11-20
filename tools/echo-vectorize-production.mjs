@@ -8,19 +8,30 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { openMetaStore } from '../src/db/index.mjs';
 import { registerEchoVectorModel, putEchoSourceVectors } from '../src/db/echo-vectors.mjs';
-import { createBgeEmbedder, buildModelFingerprint } from './echo-embed.mjs';
+import { createBgeEmbedder, buildModelFingerprint, DEFAULT_MODEL_DIR } from './echo-embed.mjs';
 import { isInjectedText, injectedSqlWhere } from '../src/db/echo-windows.mjs';
 
 const args = process.argv.slice(2);
-const dbArg = args.find((a) => a.startsWith('--db=')) ? args.find((a) => a.startsWith('--db=')).slice(5) : 'D:/AI/agent-soul/data/meta.sqlite';
+const argOf = (flag) => { const a = args.find((x) => x.startsWith(flag + '=')); return a ? a.slice(flag.length + 1) : null; };
+const dbArg = argOf('--db') || 'D:/AI/agent-soul/data/meta.sqlite';
 const confirmed = args.includes('--yes-production');
-const isProd = path.resolve(dbArg) === path.resolve('D:/AI/agent-soul/data/meta.sqlite');
-if (isProd && !confirmed) {
-  console.error('REFUSE: 写生产库必须显式传 --yes-production');
+// ★ 2026-11-20 收紧：原来只在「正好等于开发库路径」时要求旗标，别的路径一律放行 ——
+//   部署之后生产库变成 <根>/data/meta.sqlite，那条判据就不再拦任何东西。
+//   现在的口径是**白名单**：要么显式声明这是生产库（--yes-production），
+//   要么库必须在系统临时目录里（副本）。别的地方一律拒绝，不认识就不写。
+const inTmp = (() => {
+  const t = path.resolve(os.tmpdir());
+  const d = path.resolve(dbArg);
+  return d === t || d.startsWith(t + path.sep);
+})();
+if (!confirmed && !inTmp) {
+  console.error('REFUSE: 只写 tempdir 下的副本；要写生产库必须显式传 --yes-production');
   process.exit(3);
 }
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
-const modelDir = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', 'models', 'bge-small-zh');
+// ★ 2026-11-20：模型目录**不再自己拼**，改用 echo-embed.mjs 里那份三候选解析
+//   （<根>/app/<版本>/models → <根>/models）。自己拼会在部署后指向空的 app/<版本>/models。
+const modelDir = argOf('--model-dir') || process.env.ECHO_BGE_MODEL_DIR || DEFAULT_MODEL_DIR;
 const fp = buildModelFingerprint({
   modelDir,
   modelBytes: fs.readFileSync(path.join(modelDir, 'onnx', 'model_quantized.onnx')),

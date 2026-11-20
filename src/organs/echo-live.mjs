@@ -39,6 +39,10 @@ export function receiptFileOf(dataDir) {
  * @param {string} o.dbPath       v10 meta.sqlite（派生库）
  * @param {string} o.sourceRoot   DSH 会话日志根（只读）
  * @param {string} o.scriptPath   tools/echo-live-sync.mjs 的绝对路径
+ * @param {string} [o.vectorizeScriptPath] tools/echo-vectorize-production.mjs 的绝对路径（可选）
+ *   ★ 2026-11-20 加：实时链只进词层，不进向量层。不跟这一步，「最近说的话」能 FTS 召回、
+ *     却进不了向量召回 —— 而向量检索会被覆盖率闸明确拒绝（ECHO_VECTOR_SOURCE_INCOMPLETE）。
+ *     所以增量进词之后必须跟着补向量，否则向量层永远是「上次跑完那一刻」的快照。
  * @param {number} [o.intervalSec=120]
  * @param {string} [o.nodePath]   用哪个 node 起子进程（默认 process.execPath）
  * @param {function} [o.log]
@@ -49,6 +53,7 @@ export function createEchoLive(o) {
   const dbPath = String(opts.dbPath || '');
   const sourceRoot = String(opts.sourceRoot || '');
   const scriptPath = String(opts.scriptPath || '');
+  const vectorizeScriptPath = String(opts.vectorizeScriptPath || '');
   const intervalSec = Number(opts.intervalSec) > 0 ? Number(opts.intervalSec) : 120;
   const nodePath = String(opts.nodePath || process.execPath);
   // ★ 2026-11-17：把「正在跑 ECHO 子进程」这一段标进阻塞探针的 phase，
@@ -65,7 +70,32 @@ export function createEchoLive(o) {
     rounds: 0, imported: 0, unchanged: 0, failed: 0,
     lastCode: null, lastAt: null, lastMs: null, lastError: null,
     lastWords: null, lastGeneration: null, consecutiveFailures: 0,
+    vectorRuns: 0, vectorFailures: 0, lastVector: null,
   };
+
+  /**
+   * 补向量：把这一轮新进的词写成 BGE 向量。
+   * ★ 与同步严格分开计：向量失败**不改**同步的 ok/code，只记 lastVector。
+   *   判据：两件事各有各的权威（词层覆盖 vs 向量层覆盖），混成一个数会互相掩盖。
+   */
+  function vectorize() {
+    return new Promise((resolve) => {
+      const t0 = Date.now();
+      const vChild = spawn(nodePath, [vectorizeScriptPath, '--yes-production', '--db=' + dbPath], {
+        windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+        env: Object.assign({}, process.env, { AGENT_SOUL_ECHO_LIVE: '1' }),
+      });
+      let vOut = '';
+      vChild.stdout.on('data', (d) => { vOut = (vOut + d.toString('utf8')).slice(-262144); });
+      vChild.stderr.on('data', () => {});
+      vChild.on('error', (e) => resolve({ ok: false, code: 'VECTOR_CHILD_ERROR', error: String((e && e.message) || e) }));
+      vChild.on('close', (code) => {
+        const line = lastJsonLine(vOut);
+        if (line) resolve(Object.assign({ ok: true, ms: Date.now() - t0 }, line));
+        else resolve({ ok: false, code: 'VECTOR_EXIT_' + code, error: String(vOut).slice(-200) || 'no output', ms: Date.now() - t0 });
+      });
+    });
+  }
 
   /** 上一轮回执。读不到就 null —— 不编一个空对象冒充「没变化」。 */
   function lastReceipt() {
@@ -160,6 +190,30 @@ export function createEchoLive(o) {
         writeReceipt(rec);
         if (!rec.ok) log('[echo-live] ' + (rec.code || 'FAILED') + '（' + (rec.stage || '?') + '，' + ms + 'ms）：' + String(rec.error || '').slice(0, 200));
         else if (rec.code === 'IMPORTED') log('[echo-live] 第 ' + rec.generation + ' 代 · ' + rec.words + ' 词 · 读 ' + rec.bytesRead + 'B · ' + ms + 'ms');
+        // ★ 2026-11-20：同步成功且**确实进了新词**才补向量。
+        //   没配 vectorizeScriptPath 就跳过（不假装跑过）；UNCHANGED 也不用跑（没有新词）。
+        if (rec.ok && rec.code === 'IMPORTED' && vectorizeScriptPath) {
+          running = true; // 向量阶段仍算「在跑」：单飞判据必须覆盖整轮
+          vectorize().then((v) => {
+            stats.vectorRuns += 1;
+            if (!v.ok) stats.vectorFailures += 1;
+            stats.lastVector = {
+              at: new Date().toISOString(), ok: v.ok === true, code: v.code || null,
+              ms: v.ms === undefined ? null : v.ms,
+              vectors: v.vectors === undefined ? null : v.vectors,
+              expected: v.expected === undefined ? null : v.expected,
+              complete: v.complete === undefined ? null : v.complete,
+              error: v.error || null,
+            };
+            if (!v.ok) log('[echo-live] 向量补跑失败（' + (v.code || '?') + '）：' + String(v.error || '').slice(0, 160));
+            try { setPhase('running'); } catch { /* ignore */ }
+            running = false;
+            // 回执照实带上向量这一步：同一份文件里，两件事各自有结论
+            try { const cur = lastReceipt() || {}; cur.vector = stats.lastVector; writeReceipt(cur); } catch { /* ignore */ }
+            resolve(Object.assign({}, rec, { vector: stats.lastVector }));
+          });
+          return;
+        }
         resolve(rec);
       };
 

@@ -886,6 +886,8 @@ const echoLive = createEchoLive({
   dbPath: echoLiveCfg.dbPath || path.join(config.dataDir, 'meta.sqlite'),
   sourceRoot: echoLiveCfg.sourceRoot || '',
   scriptPath: path.join(ROOT, 'tools', 'echo-live-sync.mjs'),
+  // ★ 2026-11-20：同步成功且进了新词之后，跟一轮向量补写（否则向量层永远落后于词层）。
+  vectorizeScriptPath: path.join(ROOT, 'tools', 'echo-vectorize-production.mjs'),
   intervalSec: echoLiveCfg.intervalSec,
   log: (m) => { if (!config.quiet) console.log('  ' + m); },
 });

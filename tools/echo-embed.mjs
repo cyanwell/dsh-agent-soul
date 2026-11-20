@@ -45,6 +45,14 @@ function pickModelDir() {
   return cands[cands.length - 1];
 }
 const DEFAULT_MODEL_DIR = pickModelDir();
+/**
+ * ★ 2026-11-20：把这个解析结果**导出**。
+ *   起因：echo-vectorize-production.mjs 自己拼了一条 path.dirname(import.meta.url)/../models，
+ *   在开发树里碰巧对了（D:/AI/agent-soul/tools/../models），可一旦跟着载荷部署到
+ *   <根>/app/1.0.67/tools/../models —— 那一层**没有模型**（包把模型放在 <根>/models）。
+ *   症状会是「开发能跑、装完说没有」。这里的三候选解析本来就是为此写的，让调用方共用同一份。
+ */
+export { DEFAULT_MODEL_DIR };
 
 export function buildModelFingerprint({ modelDir, modelBytes, tokenizerBytes, configBytes, transformersVersion = TRANSFORMERS_VERSION }) {
   return Object.freeze({

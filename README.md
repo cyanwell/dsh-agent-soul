@@ -74,11 +74,11 @@
 
 ```
 ① 装 agent-soul 本体
-    · 下载发布包：[AgentSoul v4 1.0.68](https://github.com/cyanwell/dsh-agent-soul/releases/latest)
-      - `AgentSoul-Setup-1.0.68.exe` —— 大多数人选这个，双击装（装到 %LOCALAPPDATA%\Programs\AgentSoul，
+    · 下载发布包：[AgentSoul v4 1.0.69](https://github.com/cyanwell/dsh-agent-soul/releases/latest)
+      - `AgentSoul-Setup-1.0.69.exe` —— 大多数人选这个，双击装（装到 %LOCALAPPDATA%\Programs\AgentSoul，
         建开始菜单/桌面快捷方式，卸载项进「设置→应用」，**不需要管理员**）
-      - `AgentSoul-1.0.68-portable.zip` —— 不想装的人，解压即用（下称 <SOUL>）
-      - `AgentSoul-1.0.68-htmlpatch.zip` —— 已有安装，只换界面（199 KB）
+      - `AgentSoul-1.0.69-portable.zip` —— 不想装的人，解压即用（下称 <SOUL>）
+      - `AgentSoul-1.0.69-htmlpatch.zip` —— 已有安装，只换界面（199 KB）
     · ★ 卸载**不会**删你的 `config.json`（含 API Key）与 `data\`（会话/索引/账本）—— 它们留在原位，要彻底清干净自己删这两个。
     · 双击 <SOUL>\AgentSoul.exe 启动
     · ★ 必须用**当前用户身份**启动（key 是 DPAPI 密文，SYSTEM 身份解不开）
@@ -378,7 +378,7 @@ data/
 
 ## 更新记录
 
-### 1.0.68（2026-11-20）
+### 1.0.69（2026-11-20）
 
 - Galaxy：详情面板按选中臂停靠对侧；窄屏改用底部详情面板。
 - ECHO：补齐 TEMP tail cursor / open-tail 回归断言；悬空 srcSeq 保持显式统计，不推断、不改写。
@@ -392,7 +392,7 @@ data/
 ## 装到自己机器上（本机生产）
 
 ```bash
-node tools/release.mjs --to=1.0.68 --changes="ECHO / Aurabot / Galaxy updates"
+node tools/release.mjs --to=1.0.69 --changes="ECHO / Aurabot / Galaxy updates"
 ```
 
 它会：把 `src/` `tools/` `sql/` `seed/` 复制成 `app/<版本>/` → 写 VERSION.txt → **逐文件校验**
@@ -422,9 +422,9 @@ node tools/make-dist.mjs --verify   # 构建 + 跑「安装→运行→卸载」
 ★ 要发到 GitHub：
 
 ```bash
-tools/publish-release.ps1 -Tag 1.0.68 -NotesFile dist/release-notes-1.0.68.md `
-  -Title "AgentSoul v4 1.0.68" `
-  -Files @("dist\AgentSoul-Setup-1.0.68.exe","dist\AgentSoul-1.0.68-portable.zip")
+tools/publish-release.ps1 -Tag 1.0.69 -NotesFile dist/release-notes-1.0.69.md `
+  -Title "AgentSoul v4 1.0.69" `
+  -Files @("dist\AgentSoul-Setup-1.0.69.exe","dist\AgentSoul-1.0.69-portable.zip")
 ```
 
 ★ `-Replace` 是**先删同名旧附件再传新的**。默认行为是「同名就跳过」——
