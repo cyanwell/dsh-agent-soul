@@ -51,6 +51,10 @@ export const CODES = Object.freeze({
   ARTIFACT_PATH_ESCAPE: 'ARTIFACT_PATH_ESCAPE',
   // 产物状态只能是 present / stale / missing。
   ARTIFACT_STATUS_INVALID: 'ARTIFACT_STATUS_INVALID',
+  LEDGER_IDENTITY_REQUIRED: 'LEDGER_IDENTITY_REQUIRED',
+  LEDGER_APPEND_ONLY: 'LEDGER_APPEND_ONLY',
+  LEDGER_PROMISE_DENIED: 'LEDGER_PROMISE_DENIED',
+  LEDGER_LEAD_AUTH_REQUIRED: 'LEDGER_LEAD_AUTH_REQUIRED',
 });
 
 export function fail(code, message, details) {
@@ -69,6 +73,18 @@ export function translateSqliteError(err) {
   const busy = (err && (err.errcode === 5 || err.errcode === 6)) || text.indexOf('database is locked') !== -1 || text.indexOf('database table is locked') !== -1;
   if (busy) {
     return new MetaStoreError(CODES.STORE_BUSY, 'database is busy (busy_timeout exhausted): ' + text, { sqliteErrcode: err && err.errcode === undefined ? null : err.errcode });
+  }
+  const ledgerCodes = {
+    MO_APPEND_ONLY: CODES.LEDGER_APPEND_ONLY,
+    MO_NO_LEAD: CODES.LEDGER_PROMISE_DENIED,
+    MO_ACTOR_REQUIRED: CODES.LEDGER_IDENTITY_REQUIRED,
+    MO_NOT_CURRENT_LEAD: CODES.LEDGER_PROMISE_DENIED,
+    MO_PROMISE_DELEGATED: CODES.LEDGER_PROMISE_DENIED,
+    MO_LEAD_REF_REQUIRED: CODES.INVALID_INPUT,
+    MO_LEAD_GENERATION_REQUIRED: CODES.INVALID_INPUT,
+  };
+  for (const marker of Object.keys(ledgerCodes)) {
+    if (text.includes(marker)) return new MetaStoreError(ledgerCodes[marker], text, { sqliteMessage: text });
   }
   return err;
 }

@@ -15,8 +15,17 @@
 //        **读事实**（不是猜数字），读不到才回落 UNCONFIGURED。
 //        这一条的由来：软件版（分发树）没有开发机上那份 config，于是两块面板一直是
 //        UNCONFIGURED —— 而端口其实就明写在 dsh-origin.txt 里。
+// ★★★ 2026-11-16（第 3 批）**撤销上面那一条**：发现链依赖 DSH 心跳插件 / 启动脚本，
+//        而那两样正是要被收掉的。收掉之后它永远读不到 —— 于是「已退役」会以
+//        UNCONFIGURED 的形状被当成故障。现在没配就是没配，why 里写明「发现已退役」。
 
-import { discoverDshOrigin, dshLogDirOf, dshOriginFileOf } from '../organs/dsh-origin.mjs';
+// ★★ 2026-11-16（架构收敛第 3 批）：这里**不再** import discoverDshOrigin。
+//   那三条自动发现链（启动日志 / dsh-origin.txt）问的是「DSH 心跳插件在哪」——
+//   而那个插件正是第 3 批要收掉的东西，收掉之后这两级永远读不到，只会把
+//   「已退役」显示成一个像故障的状态。所以地址只认显式配置（heartbeatUrl / dshBaseUrl）。
+//   ★ 两个「本机默认路径」helper 仍从 organs 拿 —— 它们回答的是「本机默认在哪」，
+//     与「向谁问心跳」无关，删 dsh-origin.mjs 那天单独处理。
+import { dshLogDirOf, dshOriginFileOf } from '../organs/dsh-origin-shared.mjs';
 
 export const SIDES = Object.freeze({ v4: 'v4', dsh: 'dsh' });
 
@@ -70,54 +79,41 @@ export function joinUrl(base, suffix) {
   return b + (s.startsWith('/') ? s : '/' + s);
 }
 
-/**
- * 自动发现当前 DSH 的 origin（读 dsh-origin.txt / 启动日志，**不发任何请求**）。
- * ★ 3 秒缓存：心跳卡每次刷新都会问一次，而这是两次 stat + 一次小文件读。
- * ★ 发现失败不抛 —— 它只是「另一条来源」，不是必经之路。
- */
-const DISCOVER_TTL_MS = 3000;
-let _disc = { at: 0, origin: null, why: null };
-function discoveredOrigin(cfg, nowMs) {
-  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
-  if (now - _disc.at < DISCOVER_TTL_MS) return _disc;
-  let origin = null, why = null;
-  try {
-    const r = discoverDshOrigin({ logDir: dshLogDirOf(cfg), originFile: dshOriginFileOf(cfg), now });
-    if (r && r.ok === true && r.origin) origin = r.origin;
-    else why = (r && r.why) || '发现不到 DSH origin';
-  } catch (e) {
-    why = sanitizeError(e && e.message || e, 160) || '发现 DSH origin 时抛错';
-  }
-  _disc = { at: now, origin, why: why ? sanitizeError(why, 200) : null };
-  return _disc;
+// ★★ 2026-11-16（第 3 批）：自动发现**已退役**，这里如实说清，不假装还在找。
+//   旧的三级来源（显式配置 → DSH 启动日志 → dsh-origin.txt）全部依赖 DSH 侧的心跳插件/
+//   启动脚本；第 3 批收掉它们之后，第二三级永远读不到 —— 留着它们只会让面板把
+//   「已退役」画成一个像故障的 UNCONFIGURED。
+//   ★ 所以返回**同一个形状**（configured:false + why），只把 why 写成事实：
+//     要么「没配」，要么「已退役 + 为什么不再找」。
+//   ★ 判据没变：它只影响「要不要发一条 GET」，不影响任何判定。
+const DISCOVERY_RETIRED_WHY = '心跳地址自动发现已退役（2026-11-16 第 3 批）—— '
+  + '不读 DSH 启动日志、不读 dsh-origin.txt；要连就显式配 integrations.heartbeatUrl 或 dshBaseUrl';
+
+function retiredDiscovery(note) {
+  return { at: Date.now(), origin: null, why: note || DISCOVERY_RETIRED_WHY };
 }
 
-/** MCP Hub 的口：integrations.mcpHubUrl 优先，其次 integrations.dshBaseUrl，再次自动发现。 */
+/** MCP Hub 的口：integrations.mcpHubUrl 优先，其次 integrations.dshBaseUrl；**没有第三级**（自动发现已退役）。 */
 export function hubUrlOf(cfg) {
   const it = (cfg && cfg.integrations) || {};
   const own = parseHttpUrl(it.mcpHubUrl);
   if (own.configured) return { ...own, url: own.url ? joinUrl(own.url, '/mcp-hub/servers') : null };
   const base = parseHttpUrl(it.dshBaseUrl);
   if (base.configured) return { ...base, url: base.url ? joinUrl(base.url, '/mcp-hub/servers') : null };
-  const d = discoveredOrigin(cfg);
-  if (d.origin) {
-    return { configured: true, url: joinUrl(d.origin, '/mcp-hub/servers'), error: null, source: 'discovered', foundAt: d.origin };
-  }
-  return { configured: false, url: null, error: null, discoverWhy: d.why || null };
+  // ★ 第 3 批：不再自动发现。没配 = 没配，why 里写明为什么不去找。
+  const d = retiredDiscovery();
+  return { configured: false, url: null, error: null, discoverWhy: d.why || null, discoveryRetired: true };
 }
 
-/** 心跳的口：integrations.heartbeatUrl（整条）优先，其次 dshBaseUrl，再次自动发现。 */
+/** 心跳的口：integrations.heartbeatUrl（整条）优先，其次 dshBaseUrl；**没有第三级**（自动发现已退役）。 */
 export function heartbeatUrlOf(cfg) {
   const it = (cfg && cfg.integrations) || {};
   const own = parseHttpUrl(it.heartbeatUrl);
   if (own.configured) return own;
   const base = parseHttpUrl(it.dshBaseUrl);
   if (base.configured) return { ...base, url: base.url ? joinUrl(base.url, '/heartbeat/auto') : null };
-  const d = discoveredOrigin(cfg);
-  if (d.origin) {
-    return { configured: true, url: joinUrl(d.origin, '/heartbeat/auto'), error: null, source: 'discovered', foundAt: d.origin };
-  }
-  return { configured: false, url: null, error: null, discoverWhy: d.why || null };
+  const d = retiredDiscovery();
+  return { configured: false, url: null, error: null, discoverWhy: d.why || null, discoveryRetired: true };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -167,6 +163,14 @@ export function buildControlView(snapshot) {
         outputTokens: intOrNull(h.state.outputTokens),
         turnId: strOrNull(h.state.turnId, 60),
         at: strOrNull(h.state.at, 40),
+        // ★★ 2026-11-16（第 3 批）：**又一处「快照有、这里没抄」**。
+        //   hub.snapshot() 早就在 state 里带了这三个（第二批加的，注释写着
+        //   「新字段不加进白名单，等于发出去又被丢掉」），但 buildControlView 的
+        //   state 投影没跟上 —— 于是 runtime-status 这条腿上它们一次都没到过界面。
+        //   ★ 这只是补字段：字段没有时是 null（与 hub 那边同口径），不编值。
+        sessionTitle: strOrNull(h.state.sessionTitle, 60),
+        isSub: boolOrNull(h.state.isSub),
+        watermarkSource: strOrNull(h.state.watermarkSource, 60),
       } : null,
       connectedAt: strOrNull(h && h.connectedAt, 40),
       lastError: sanitizeError(h && h.lastError),
@@ -606,7 +610,9 @@ export function createRuntimeStatusCollector(opts) {
       // ★ 这两张表是给界面用的「这一格属于谁」—— 不是装饰：同一页上并排放着
       //   两个进程的状态，混了就会让人拿着 v4 的读数去修 DSH 的问题。
       sides: { v4: ['control', 'llm'], dsh: ['mcpHub', 'dshHeartbeat'] },
-      note: 'v4 侧 = 本进程（agent-soul core）；DSH 侧 = 宿主 DSH 的只读接口（显式配置优先；没配就自动读 dsh-origin.txt / 启动日志，读不到才显示 UNCONFIGURED）',
+      // ★ 第 3 批：地址只认显式配置。自动发现（启动日志 / dsh-origin.txt）已退役 ——
+      //   写清楚，免得下一个人看到 UNCONFIGURED 又去把那条链接回来。
+      note: 'v4 侧 = 本进程（agent-soul core）；DSH 侧 = 宿主 DSH 的只读接口，**地址只认显式配置**（integrations.dshBaseUrl / mcpHubUrl / heartbeatUrl）；自动发现已退役（2026-11-16 第 3 批），没配就显示 UNCONFIGURED',
       control: controlView(),
       mcpHub,
       dshHeartbeat,

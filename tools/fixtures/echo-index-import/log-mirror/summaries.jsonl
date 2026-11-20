@@ -1,0 +1,2 @@
+{"cmpId":"cmp-mirror-0001","t":"2026-11-02T03:00:00.000Z","session":"session-shared-0001","ws":"ws-mirror","log":"D:/synthetic/logs/mirror.jsonl","srcSeqs":[12],"shadowedTokens":12,"shadowedChars":24,"provider":null,"model":null,"status":"active","summary":"镜像摘要：第十二帧"}
+{"cmpId":"cmp-shared-0001","t":"2026-11-02T03:30:00.000Z","session":"session-shared-0001","ws":"ws-mirror","log":"D:/synthetic/logs/mirror.jsonl","srcSeqs":[12],"shadowedTokens":13,"shadowedChars":26,"provider":null,"model":null,"status":"active","summary":"镜像摘要：与 v3 同 cmpId 的那一条"}

@@ -33,12 +33,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { devPathOr, devFileOr, isDirPath, resolvePath } from '../config.mjs';
 import { heartbeatUrlOf, joinUrl } from '../web/runtime-status.mjs';
+// ★ 2026-11-16（架构收敛第 3 批）：两个「本机默认路径」helper 搬到 dsh-origin-shared.mjs。
+//   理由：本文件（整份心跳地址自动发现）是第 3 批要收掉的东西，而 config.mjs 的注释
+//   点名承诺 `dshOriginFileOf()` —— 先把它安顿好，删本文件时那个承诺才不会跟着消失。
+//   ★ 这里 re-export，旧 import 路径（`from .../dsh-origin.mjs`）一行都不用改。
+import { dshLogDirOf, dshOriginFileOf } from './dsh-origin-shared.mjs';
+export { dshLogDirOf, dshOriginFileOf };
 
 /** 地址从哪来。★ 写进状态/日志，事后才分得清「人配的」还是「自己发现的」。 */
 export const ENDPOINT_SOURCE = Object.freeze({
   CONFIGURED: 'configured',        // integrations.heartbeatUrl / dshBaseUrl
   LOG: 'dsh-log',                  // <DSH_HOME>/guard/logs/server-*.out.log
   ORIGIN_FILE: 'dsh-origin-file',  // dsh-yanqing-heartbeat/dsh-origin.txt
+  HOST_META: 'host-meta',          // ★ 2026-11-13：宿主自己在 hello 里报的地址（最准）
   NONE: 'none',                    // 发现不到（fail-closed）
 });
 
@@ -50,6 +57,8 @@ const LOG_NAME_RE = /^server-.*\.out\.log$/i;
 // ★ 这一条正则**只捕获 port**，查询串根本不进捕获组 —— 「立即丢弃」在这里是结构性的，不靠后续清洗。
 const ORIGIN_RE = /http:\/\/127\.0\.0\.1:(\d{1,5})(?=[\/?#"'`\s<>]|$)/g;
 const STRICT_ORIGIN_RE = /^http:\/\/127\.0\.0\.1:(\d{1,5})$/;
+/** ★ 2026-11-13：宿主自报地址的形状校验（与 hub.hostOrigin 同一把尺子）。 */
+const HOST_ORIGIN_RE = /^http:\/\/127\.0\.0\.1:\d{1,5}$/;
 
 function validPort(n) { return Number.isInteger(n) && n >= 1 && n <= 65535; }
 
@@ -172,31 +181,8 @@ export function readOriginFileRecord(file) {
   return { present: true, ok: true, file: path.basename(f), atMs: st.mtimeMs, origin: 'http://127.0.0.1:' + port, why: null };
 }
 
-/** 日志目录：显式配置 > 环境变量 DSH_HOME > 开发机默认（**目录存在才用**）。 */
-export function dshLogDirOf(cfg) {
-  const it = (cfg && cfg.integrations) || {};
-  const own = String(it.dshLogDir == null ? '' : it.dshLogDir).trim();
-  if (own) return resolvePath(own);
-  const envHome = String(process.env.DSH_HOME || '').trim();
-  if (envHome) {
-    const d = path.join(envHome, 'guard', 'logs');
-    if (isDirPath(d)) return d;
-  }
-  const devHome = devPathOr('dshHome', null);
-  if (devHome) {
-    const d = path.join(devHome, 'guard', 'logs');
-    if (isDirPath(d)) return d;
-  }
-  return null;
-}
-
-/** 心跳插件的 origin 文件：显式配置 > 开发机默认（**文件存在才用**）。 */
-export function dshOriginFileOf(cfg) {
-  const it = (cfg && cfg.integrations) || {};
-  const own = String(it.dshOriginFile == null ? '' : it.dshOriginFile).trim();
-  if (own) return resolvePath(own);
-  return devFileOr('dshOriginFile', null);
-}
+// ★ 2026-11-16：dshLogDirOf / dshOriginFileOf 的实现已搬到 ./dsh-origin-shared.mjs，
+//   见文件头的 import —— 这里曾经是它们的家，现在只在顶部 re-export，行为一字未改。
 
 /**
  * 发现当前 DSH 的 origin。**没有网络**，只读元数据与文本。
@@ -269,6 +255,19 @@ export function resolveHeartbeatEndpoint(cfg, opts) {
         why: '心跳地址不合法：' + u.error };
     }
     return { ok: true, source: ENDPOINT_SOURCE.CONFIGURED, url: u.url, origin: originOfUrl(u.url), file: null, atMs: null, why: null };
+  }
+
+  // ★★★ 2026-11-13（爀曦定）：**宿主自报的地址优先于一切自动发现**。
+  //   理由：桥接插件就住在 DSH 进程里，它报的就是自己 —— 端口哪天变了它自己知道。
+  //   日志文件（②）和 dsh-origin.txt（③）都是「别人记的」，会过期；这条不会。
+  //   它排在显式配置之后：人配的那个永远是手刹。
+  const hostOrigin = typeof o.hostOrigin === 'string' ? o.hostOrigin.trim() : '';
+  if (HOST_ORIGIN_RE.test(hostOrigin)) {
+    return {
+      ok: true, source: ENDPOINT_SOURCE.HOST_META,
+      url: joinUrl(hostOrigin, '/heartbeat/auto'), origin: hostOrigin,
+      file: null, atMs: null, why: null,
+    };
   }
 
   const d = (typeof o.discover === 'function')

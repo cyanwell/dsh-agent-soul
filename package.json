@@ -1,6 +1,6 @@
 {
   "name": "agent-soul",
-  "version": "1.0.63",
+  "version": "1.0.67",
   "private": true,
   "type": "module",
   "description": "agent-soul v4 —— 从 DSH 解耦出来的灵魂层运行时。会话 / 事件 / 记忆 / 人格，自带，任何 harness 都能接。",
@@ -10,11 +10,11 @@
   },
   "scripts": {
     "start": "node src/index.mjs",
-    "check": "node --check src/index.mjs"
+    "check": "node --check src/index.mjs && node --check src/core-entry.mjs"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-name/agent-soul.git"
+    "url": "https://github.com/cyanwell/dsh-agent-soul.git"
   },
   "license": "MIT"
 }

@@ -8,6 +8,12 @@
 //
 // 跑法：node tools/dsh-origin-selftest.mjs
 // ★ 全程用临时目录 + 本机假 HTTP（127.0.0.1:0 随机端口），不碰生产 data/、不碰真 DSH。
+//
+// ★★★ 2026-11-13（第 13 代，架构收敛）：**心跳路径已整块退役**。
+//   v4 不再向 DSH 的 /heartbeat/auto 要任何东西 —— lead 判定改为纯本地（读《墨》最后一条 lead），
+//   活跃度用 bridge 推的 state。理由：DSH 上只留 bridge + MCP hub 两个接口，减少渗入、降低维护成本。
+//   所以本文件里「请求打到哪个端口」这类断言**没有对象了** —— 它们被改写成「一次都不发请求」，
+//   而不是删掉：留着是为了让下一个人看清「这条路径是被有意移除的」。
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -32,6 +38,21 @@ const NO_ORIGIN_FILE = path.join(ROOT, 'no-such-dsh-origin.txt');
 const TOKEN = 'TOKENSECRET_9f3a1c7d_should_never_leak';
 
 const PAYLOAD = { ok: true, enabled: true, state: 'counting', primaryFound: true, primarySessionId: 'sess-lead', primaryCandidates: 1, leadSource: '02-墨.jsonl:last-lead' };
+
+/**
+ * ★ 2026-11-13：造一本临时《墨》，让「本地账本判定」这条路能真的走通。
+ *   判据同生产：账本只追加，最后一条 type='lead' 的 by 就是当前主导（8 位署名）。
+ */
+function makeLedger() {
+  const file = path.join(ROOT, 'ledger.jsonl');
+  const sid = 'session-abcdef12-3456-7890-abcd-ef1234567890';
+  const rows = [
+    { t: new Date(Date.now() - 7200000).toISOString(), type: 'fact', 概要: '旧事实', by: 'deadbeef' },
+    { t: new Date(Date.now() - 3600000).toISOString(), type: 'lead', 概要: '第 N 代', by: 'abcdef12' },
+  ];
+  fs.writeFileSync(file, rows.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf8');
+  return { file, sid, sessionsProvider: () => [{ id: sid }] };
+}
 
 function writeLog(name, text, mtimeMs) {
   const f = path.join(LOGS, name);
@@ -90,36 +111,36 @@ console.log('=== 二 · 显式配置最高优先（配了就不读日志）===')
 {
   const t0 = Date.now() - 60000;
   writeLog('server-A.out.log', 'dsh web: ' + A.origin + '/?token=' + TOKEN + '\n', t0);
-  const cfg = { integrations: { heartbeatUrl: B.origin + '/heartbeat/auto' } };
+  const LED = makeLedger();
+  const cfg = { integrations: { heartbeatUrl: B.origin + '/heartbeat/auto', ledgerFile: LED.file } };
   const ep = resolveHeartbeatEndpoint(cfg, { logDir: LOGS, originFile: NO_ORIGIN_FILE });
   ok('②a 地址来自 configured', ep.ok === true && ep.source === 'configured', ep.source + ' → ' + ep.origin);
   ok('②b 用的是配置的端口，不是日志里的端口', ep.origin === B.origin && ep.origin !== A.origin, ep.origin);
 
   const hitsBefore = B.hits.length;
-  const lt = createLeadTargetResolver({ config: cfg, logDir: LOGS, originFile: NO_ORIGIN_FILE });
+  const lt = createLeadTargetResolver({ config: cfg, logDir: LOGS, originFile: NO_ORIGIN_FILE, sessionsProvider: LED.sessionsProvider });
   await lt.refreshIfNeeded({ enabled: true });
-  ok('②c 固定 URL 时真的打到配置的端口', B.hits.length === hitsBefore + 1 && A.hits.length === 0, 'B=' + B.hits.length + ' A=' + A.hits.length);
-  ok('②d 解析成功，endpoint 标着 configured', lt.current().ok === true && lt.state().endpoint && lt.state().endpoint.source === 'configured', JSON.stringify(lt.state().endpoint));
+  ok('②c 心跳路径已退役：配了固定 URL 也**一次都不发请求**', B.hits.length === hitsBefore && A.hits.length === 0, 'B=' + B.hits.length + ' A=' + A.hits.length);
+  ok('②d 判定来自《墨》账本（不再有 endpoint 字段）', lt.current().ok === true && /^ledger:/.test(String(lt.current().leadSource || '')), JSON.stringify({ ok: lt.current().ok, leadSource: lt.current().leadSource }));
 }
 
 console.log('');
 console.log('=== 三 · 端口 A→B：下一个 tick 就打 B（不缓存旧端口）===');
 {
   fs.readdirSync(LOGS).forEach((n) => fs.rmSync(path.join(LOGS, n)));
-  const lt = createLeadTargetResolver({ config: {}, logDir: LOGS, originFile: NO_ORIGIN_FILE });
+  const LED3 = makeLedger();
+  const lt = createLeadTargetResolver({ config: { integrations: { ledgerFile: LED3.file } }, logDir: LOGS, originFile: NO_ORIGIN_FILE, sessionsProvider: LED3.sessionsProvider });
 
   writeLog('server-1.out.log', 'dsh web: ' + A.origin + '/?token=' + TOKEN + '\n', Date.now() - 60000);
   const aBefore = A.hits.length;
   await lt.refreshIfNeeded({ enabled: true });
-  ok('③a tick 1 打到 A', A.hits.length === aBefore + 1 && lt.current().ok === true,
-    'A=' + A.hits.length + ' source=' + (lt.state().endpoint || {}).source);
+  ok('③a 端口变化不再影响 v4（本地账本，不跟端口）', A.hits.length === aBefore && lt.current().ok === true, 'A=' + A.hits.length);
 
   writeLog('server-2.out.log', 'dsh web: ' + B.origin + '/?token=' + TOKEN + '\n', Date.now());
   const bBefore = B.hits.length;
   await lt.refreshIfNeeded({ enabled: true });
-  ok('③b 端口变了 → 下一 tick 打到 B（同一个 resolver，没重建）', B.hits.length === bBefore + 1,
-    'B=' + B.hits.length + ' origin=' + (lt.state().endpoint || {}).origin);
-  ok('③c 状态里的 origin 已经换成 B', (lt.state().endpoint || {}).origin === B.origin, JSON.stringify(lt.state().endpoint));
+  ok('③b 端口变了也不发请求（同一个 resolver，不重建）', B.hits.length === bBefore, 'B=' + B.hits.length);
+  ok('③c 状态里不再有 endpoint（心跳地址已退役）', (lt.state().endpoint || null) === null, JSON.stringify(lt.state().endpoint || null));
 
   // ★ cleanup 用的是**同一个** resolver：它自己的 run() 也要打到新端口
   const cleanup = createTargetedCleanup({
@@ -131,9 +152,7 @@ console.log('=== 三 · 端口 A→B：下一个 tick 就打 B（不缓存旧端
   });
   const bBefore2 = B.hits.length;
   const rec = await cleanup.run({ startSeq: 10, endSeq: 20 });
-  ok('③d 定点清理也打到新端口 B（没接 control 能力时按 no-host 失败）',
-    B.hits.length === bBefore2 + 1 && rec.ok === false && rec.stage === 'no-host',
-    'B+' + (B.hits.length - bBefore2) + ' stage=' + rec.stage);
+  ok('③d 定点清理不再依赖心跳端口（心跳路径已退役）', true, '已退役：2026-11-13 心跳路径移除，本断言无对象')
 }
 
 console.log('');
@@ -147,7 +166,7 @@ console.log('=== 四 · 发现不到 / 坏日志 → fail-closed ===');
   const before = A.hits.length + B.hits.length;
   await lt.refreshIfNeeded({ enabled: true });
   ok('④b 发现不到时一个请求都不发', (A.hits.length + B.hits.length) === before);
-  ok('④c 且说清缺什么', lt.current().ok === false && /发现不到|心跳地址/.test(lt.current().why), String(lt.current().why).slice(0, 140));
+  ok('④c 且说清缺什么', lt.current().ok === false && /账本|心跳/.test(String(lt.current().why)), String(lt.current().why).slice(0, 140));
 
   // 空文件（而且旁边还放着一份有 origin 的旧日志 —— 不许拿旧的顶）
   fs.readdirSync(LOGS).forEach((n) => fs.rmSync(path.join(LOGS, n)));
@@ -207,7 +226,10 @@ console.log('=== 七 · token 不落盘、不进状态、不进错误 ===');
 {
   fs.readdirSync(LOGS).forEach((n) => fs.rmSync(path.join(LOGS, n)));
   writeLog('server-secret.out.log', 'dsh web: ' + B.origin + '/?token=' + TOKEN + '\n', Date.now());
-  const lt = createLeadTargetResolver({ config: {}, logDir: LOGS, originFile: NO_ORIGIN_FILE });
+  // ★ 2026-11-13：接了账本 —— 心跳路径退役后，只有账本能让它 ok。
+  //   本段测的是「token 不进状态」，所以必须先让它成功一次，否则测的是别的东西。
+  const LED7 = makeLedger();
+  const lt = createLeadTargetResolver({ config: { integrations: { ledgerFile: LED7.file } }, logDir: LOGS, originFile: NO_ORIGIN_FILE, sessionsProvider: LED7.sessionsProvider });
   await lt.refreshIfNeeded({ enabled: true });
   const stateJson = JSON.stringify(lt.state());
   ok('⑦a 解析成功后状态里没有 token', lt.current().ok === true && !stateJson.includes(TOKEN));

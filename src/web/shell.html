@@ -130,7 +130,7 @@ body{margin:0;height:100%;background:transparent;color:var(--ink);font:13.5px/1.
          真因：首页改成对话页后 `/` 不再是概览，而这行还写着 href='/' ——
          点它等于重新打开自己。概览现在在 /dashboard。
          ★ 同时把「对话」改名「调度LLM」（他的原话）：这一页的正身是调度单元，不是聊天框。 -->
-    <a href='/dashboard'><b></b>概览</a><a href='/chat' class='on'><b></b>调度LLM</a><a href='/lumen'><b></b>星系</a><a href='/organs'><b></b>器官</a><a href='/waker'><b></b>台账</a><a href='/echo'><b></b>echo</a><a href='/aurabot'><b></b>aurabot</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><!-- ★ 2026-11-13：/params 合并进 /settings（统计卡已搬过去） --><a href='/settings'><b></b>设置</a>
+    <a href='/chat' class='on'><b></b>调度LLM</a><a href='/'><b></b>星系</a><a href='/organs'><b></b>器官</a><a href='/waker'><b></b>台账</a><a href='/echo'><b></b>echo</a><a href='/aurabot'><b></b>aurabot</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><!-- ★ 2026-11-13：/params 合并进 /settings（统计卡已搬过去） --><a href='/settings'><b></b>设置</a>
   </div>
   <div id="body">
     <div id="sidebar" data-slot="sidebar.panellist"><h4>会话 <span style="float:right;font-size:10px;color:var(--dim2)" id="sessCount"></span></h4><input id="sessQ" placeholder="搜索…" style="width:calc(100% - 12px);margin:0 6px 6px;padding:5px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;color:var(--ink);font-size:12px;outline:none"><div id="sessList"></div></div>

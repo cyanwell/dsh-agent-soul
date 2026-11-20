@@ -160,6 +160,39 @@ export function createEventDecider (opts = {}) {
     }
     if (!mine.length) return { ok: false, code: 'FRAME_MISSING', why: '帧在账里找不到' }
 
+    /* ★★★ 2026-11-14（第 14 代）：**上报不参与「该不该回」的判定。**
+     *
+     * 她是通过 report_to_lead 主动上报给 lead 的 —— 语义是「这件事必须让 lead 看到」，
+     * 不是「群里有人在说话，我要不要插一句」。
+     * 走 decideGroupReply 会被「没人 @ 我 / 相关度不够 / 概率没中」判成 reply:false，
+     * 于是**不投递**。
+     *
+     * 实测（2026-11-14 03:05 与 03:15 两次）：
+     *   envelopes.jsonl 有、events.jsonl 有（rule=group）、
+     *   但 lead-waker-台账.json 的 mtime 还停在当天 05:43 —— 一条都没投出去。
+     *   而 lead 那边能查到「有 event、无投递」。
+     *
+     * ★ 和下面私聊那段同一个道理：**不是所有事件都该过群策略**。
+     *   群策略回答的是「要不要接话」，上报回答的是「必须送达」—— 两个问题。 */
+    const isReport = mine.some((x) => String(x.source || '') === 'lead-relay' || String(x.type || '') === 'report')
+    if (isReport) {
+      const atR = Number.isFinite(e.closedAt) ? e.closedAt : (Number.isFinite(e.openedAt) ? e.openedAt : Date.now())
+      stats.judged++
+      stats.must++
+      stats.byReason['must:上报'] = (stats.byReason['must:上报'] || 0) + 1
+      stats.lastAt = new Date(atR).toISOString()
+      return {
+        ok: true,
+        reply: true,
+        mode: 'must',
+        reason: '上报（lead-relay）',
+        chatId,
+        eventId: String(e.id || ''),
+        text: '',
+        mentions: 0,
+      }
+    }
+
     // ★ 私聊：不走群策略，直接算「她在跟他说话，要回」。
     if (chatId.startsWith('private:')) {
       const scannedAll = mine.map((x) => scanFrame(x, fallbackSelfId, extraSelfIds)).filter(Boolean)

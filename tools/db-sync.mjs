@@ -14,8 +14,28 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { openMetaStore, V4_NAMESPACE } from '../src/db/index.mjs'
+import { loadConfig, ROOT as REPO_ROOT } from '../src/config.mjs'
 
-const ROOT = 'C:/Users/pc/Desktop/deepseek harness/agent soul/data'
+// ★★★ 2026-11-13 修（群友的品鉴报告指出，P0-1）：这里原来写死
+//   `C:/Users/pc/Desktop/deepseek harness/agent soul/data` —— 我自己的机器路径。
+//
+//   后果比看起来严重：**别人机器上全新安装，检索 100% 不可用。**
+//     /api/search 依赖 <dataDir>/meta.sqlite；
+//     而那个库只有这个脚本会建；
+//     脚本读死路径 → SQLITE_CANTOPEN → 库永远不存在 → 检索永远 503。
+//
+//   ★ 而 README 写着「索引在写入时产生」—— 用户会以为是索引机制坏了。
+//     实际上索引机制是对的，是「建库的那只手」找不到地方。
+//
+//   现在：走 loadConfig()，和 core 读同一份配置（也就不可能再读岔）。
+const CFG = (() => {
+  try { return loadConfig() } catch (e) { return null }
+})()
+const DATA_DIR = (() => {
+  const d = (CFG && CFG.dataDir) || 'data'
+  return path.isAbsolute(d) ? d : path.join(REPO_ROOT, d)
+})()
+const ROOT = DATA_DIR
 const SESS = path.join(ROOT, 'sessions')
 
 // ★ 2026-11-12 爀曦定：库挪到统一记忆库（00-记忆库）。路径从 config.json 的 memory 段读，
@@ -28,8 +48,9 @@ const MEM = (() => {
     //   后果：db-sync 往 data/ 建了个 152MB 的新库，而 core 读的是 00-记忆库 那份（135MB，
     //   停在 08:11）—— **「索引看着建了，检索却是空的」**，和注释里警告的一模一样。
     //   顶部已经 import fs，直接用它。
-    const cfgPath = 'C:/Users/pc/Desktop/deepseek harness/agent soul/config.json'
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+    // ★ 同一个病：cfgPath 也写死过。现在直接用 loadConfig 的结果（上面已经读好了）。
+    const cfgPath = path.join(REPO_ROOT, 'config.json')
+    const cfg = CFG || JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
     const m = cfg.memory || {}
     if (m.libraryDir) {
       return { db: path.join(m.libraryDir, m.indexFile || 'meta.sqlite'), cursors: path.join(m.libraryDir, m.cursorsFile || 'index-cursors.json') }

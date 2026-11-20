@@ -379,7 +379,9 @@ await (async function main() {
     const r = await mcpCall(n, a);
     const ok = (n === 'soul_nope')
       ? (r.status === 200 && r.raw.json && r.raw.json.error && r.raw.json.error.code === -32601)  // 不存在的工具仍报「没有这个工具」
-      : isRejection(r, n);
+      : (n === 'soul_ledger'
+        ? Boolean(r.parsed && r.parsed.ok === false && r.parsed.status === 'rejected' && r.parsed.code === 'LEDGER_AUTH_REQUIRED' && r.parsed.tool === 'soul_ledger' && r.parsed.action === 'write')
+        : isRejection(r, n));
     check('I:' + n + (a.action ? ':' + a.action : ''), '写 action 被拒（' + n + (a.action ? '/' + a.action : '') + '）', ok, { isError: r.isError, parsed: r.parsed, head: (r.texts[0] || '').slice(0, 80) });
   }
 

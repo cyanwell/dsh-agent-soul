@@ -125,7 +125,7 @@ h1,h2{text-shadow:var(--as-text-shadow)}
 :focus-visible{outline:2px solid var(--as-pend);outline-offset:2px}
 </style></head><body>
 <nav><div class='brand'>agent<i>·</i>soul<em>CONSOLE</em></div>
-<a href='/dashboard'><b></b>概览</a><a href='/chat'><b></b>对话</a><a href='/lumen'><b></b>星系</a><a href='/organs' class='on'><b></b>器官</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><a href='/settings'><b></b>设置</a>
+<a href='/chat'><b></b>对话</a><a href='/'><b></b>星系</a><a href='/organs' class='on'><b></b>器官</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><a href='/settings'><b></b>设置</a>
 <div class='sp'></div><div class='ver'>v0.1.0</div></nav>
 <main>
 <header><h1 class='as-title'>器官</h1><span class='t' id='meta'></span></header>
@@ -319,7 +319,16 @@ function loadOrgans(){
   fetch('/api/organs',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
     var host=$('organs');host.innerHTML='';
     (d.organs||[]).forEach(function(o){
-      var box=el('div','ocard '+(o.error?'bad':(o.level||'ok')));
+      /* ★ 2026-11-18：原来直接把 o.level 拼进 class。
+     而 CSS 只定义了 .ocard.bad / .ocard.warn / .ocard.ok —— 'emergency' 这个 class
+     **没有任何样式**，于是最严重的状态渲染成默认外观，看着和正常一样。
+     实测 /api/organs 会返回 level='emergency'（水位器官）。 */
+  var _lv = o.error ? 'bad'
+    : (o.level === 'emergency' || o.level === 'error' || o.level === 'alert') ? 'bad'
+    : o.level === 'warn' ? 'warn'
+    : o.level === 'ok' ? 'ok'
+    : (o.level || 'ok');
+  var box=el('div','ocard '+_lv);
       box.appendChild(el('div','spine'));
       box.appendChild(el('div','k',o.name||'?'));
       if(o.error){

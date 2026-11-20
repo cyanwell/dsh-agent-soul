@@ -18,7 +18,57 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { analyzeContext } from '../organs/huanqi-llm.mjs'
+import { analyzeContext, PURGEABLE_TYPES } from '../organs/huanqi-llm.mjs'
+import { PURGEABLE_TYPE, hostSeqOf, isPlaceholderFrame } from '../organs/huanqi-targets.mjs'
+
+/**
+ * 给一段 ranges 标注「这一段到底能不能清、编号属于哪个空间」。
+ *
+ * ★★★ 2026-11-17（task-9 缺陷②⑤）：这个接口是**面板**用的，人看见 ranges 之后
+ *   很可能就照着 seq 去 POST /api/huanqi/context/purge —— 而那条路要的是**宿主 seq**，
+ *   这里给的是 **v4 帧 seq**（实测两者从不是同一个数：帧 7 ↔ 宿主 26）。
+ *   原来的输出没有任何一处说明这件事，于是「按面板给的号去清」必然清错或清不动。
+ *   ★ 修法：**不改编号**（改了面板上的数字就和会话对不上了），而是把两件事写在同一行——
+ *     seqSpace 说明这是帧编号；每条区间带上 purgeable / hostSeqs，让调用方知道能不能动。
+ */
+export function annotateRanges (ranges, frames) {
+  const byV4 = new Map()
+  for (const f of frames) {
+    const n = Number(f && f.seq)
+    if (Number.isInteger(n)) byV4.set(n, f)
+  }
+  return (Array.isArray(ranges) ? ranges : []).map((r) => {
+    const a = Number(r && r.start)
+    const b = Number(r && (r.end != null ? r.end : r.start))
+    let mappedCandidates = 0
+    let noHostSeq = 0
+    let placeholders = 0
+    for (let v4 = a; Number.isInteger(a) && v4 <= b; v4++) {
+      const f = byV4.get(v4)
+      if (!f) continue
+      if (String(f.type) !== PURGEABLE_TYPE) continue
+      if (isPlaceholderFrame(f)) { placeholders += 1; continue }
+      const h = hostSeqOf(f)
+      if (!Number.isInteger(h)) { noHostSeq += 1; continue }
+      mappedCandidates += 1
+    }
+    return {
+      start: Number.isInteger(a) ? a : null,
+      end: Number.isInteger(b) ? b : null,
+      kinds: Array.isArray(r && r.kinds) ? r.kinds.map(String) : [],
+      reasons: Array.isArray(r && r.reasons) ? r.reasons.map((x) => String(x).slice(0, 200)) : [],
+      // Mapped integers are diagnostic only until provenance is independently verified.
+      taggedFrames: Number.isInteger(a) ? Math.max(0, b - a + 1) : 0,
+      mappedCandidates,
+      unverifiedProvenance: mappedCandidates,
+      executionAvailable: false,
+      provenance: 'unverified',
+      notPurgeable: Number.isInteger(a) ? Math.max(0, (b - a + 1) - mappedCandidates - placeholders - noHostSeq) : 0,
+      noHostSeq,
+      placeholders,
+    }
+  })
+}
 
 export function isHuanqiScanPath (req) {
   try { return new URL(req.url, 'http://x').pathname === '/api/huanqi/scan' } catch { return false }
@@ -109,15 +159,23 @@ export async function handleHuanqiScan (req, res, o) {
       continue
     }
     const t1 = Date.now()
+    const live = got.frames.filter((f) => !isPlaceholderFrame(f))
     try {
-      const r = await analyzeContext({ llm, frames: got.frames, log: () => {} })
+      // ★ 只诊断可清类型：给面板看的区间必须和「执行侧能动的集合」一致，
+      //   否则面板会指出一批「看着该清、其实清不了」的帧（缺陷②）。
+      const r = await analyzeContext({ llm, frames: live, onlyTypes: PURGEABLE_TYPES, log: () => {} })
       results.push({
         sessionId: d.id,
         ok: true,
         bytes: got.bytes,
         frames: got.frames.length,
+        analyzedFrames: r && r.analyzed,
+        filteredOut: r && r.filteredOut,
+        alreadyCleared: got.frames.length - live.length,
+        // ★ 面板拿到的 ranges 里 seq 是**帧编号**；要动刀必须用 hostSeqs。
+        seqSpace: 'v4-frame',
         polluted: Boolean(r && r.polluted),
-        ranges: (r && r.ranges) || [],
+        ranges: annotateRanges((r && r.ranges) || [], got.frames),
         summary: String((r && r.summary) || '').slice(0, 300),
         ms: Date.now() - t1,
       })

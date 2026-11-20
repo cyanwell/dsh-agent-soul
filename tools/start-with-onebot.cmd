@@ -13,7 +13,7 @@ if not exist "%CFG%" (
   echo [ERROR] onebot config not found: %CFG%
   exit /b 2
 )
-for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "(Get-Content '%CFG%' -Raw ^| ConvertFrom-Json).networks.wsServers[0].accessToken"`) do set ONEBOT_TOKEN=%%T
+for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "(Get-Content '%CFG%' -Raw | ConvertFrom-Json).networks.wsServers[0].accessToken"`) do set ONEBOT_TOKEN=%%T
 if "%ONEBOT_TOKEN%"=="" (
   echo [ERROR] cannot read accessToken -- refusing to start without token
   exit /b 3

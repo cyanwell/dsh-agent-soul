@@ -1,4 +1,8 @@
 // respond-selftest —— events/respond.mjs 的断言（全离线，用假 reader/outbox + 假时钟）
+//
+// ★ 2026-11-13（第 13 代）：`watch` 已改成 async（bridge 版 replyReader 是异步的）。
+//   这里每一处调用都补了 await —— 不补的话 turnBefore 那个 await 还没落地就断言，会假失败。
+//   ★ 旧同步 reader 仍然工作（await 非 Promise 值是合法的），所以这些断言测的还是同一套行为。
 import { createResponder } from '../src/events/respond.mjs'
 
 let pass = 0, fail = 0
@@ -64,7 +68,7 @@ const mk = (readerTurn, sendFail) => {
 // ① 正常：投递时 turn=5，之后变 6 → 发
 {
   const { clock, reader, outbox, r } = mk(5)
-  r.watch('s1', 'group:1')
+  await r.watch('s1', 'group:1')
   reader.state.turn = 6; reader.state.text = '新的回复'
   await clock.flush(200)
   ok('正常发出去一条', outbox.sent.length === 1, outbox.sent)
@@ -76,7 +80,7 @@ const mk = (readerTurn, sendFail) => {
 // ② turn 没变（还是 5）→ 不发
 {
   const { clock, outbox, r } = mk(5)
-  r.watch('s1', 'group:1')
+  await r.watch('s1', 'group:1')
   await clock.flush(300)
   ok('旧 turn 不发', outbox.sent.length === 0, outbox.sent)
 }
@@ -84,7 +88,7 @@ const mk = (readerTurn, sendFail) => {
 {
   const { clock, reader, outbox, r } = mk(5)
   reader.state.ok = false
-  r.watch('s1', 'group:1')
+  await r.watch('s1', 'group:1')
   await clock.flush(1200)
   ok('读不到时不发', outbox.sent.length === 0, outbox.sent)
   ok('超时计数 = 1', r.view().timeouts === 1, r.view())
@@ -93,7 +97,7 @@ const mk = (readerTurn, sendFail) => {
 // ④ 发失败 → failed 计数，lastCode 记下来
 {
   const { clock, reader, outbox, r } = mk(5, true)
-  r.watch('s1', 'group:1')
+  await r.watch('s1', 'group:1')
   reader.state.turn = 7
   await clock.flush(200)
   ok('失败也摘掉 watch', r.view().watching === 0, r.view())
@@ -103,7 +107,7 @@ const mk = (readerTurn, sendFail) => {
 // ⑤ 一条投递只发一次：turn 继续涨也不再发
 {
   const { clock, reader, outbox, r } = mk(5)
-  r.watch('s1', 'group:1')
+  await r.watch('s1', 'group:1')
   reader.state.turn = 6
   await clock.flush(200)
   reader.state.turn = 7; reader.state.text = '又一轮'
@@ -113,8 +117,8 @@ const mk = (readerTurn, sendFail) => {
 // ⑥ 重复 watch 同一 (会话,chat) → 覆盖，不叠加
 {
   const { clock, reader, outbox, r } = mk(5)
-  r.watch('s1', 'group:1')
-  r.watch('s1', 'group:1')
+  await r.watch('s1', 'group:1')
+  await r.watch('s1', 'group:1')
   ok('重复登记只留一个', r.view().watching === 1, r.view())
   reader.state.turn = 6
   await clock.flush(200)
@@ -126,7 +130,7 @@ const mk = (readerTurn, sendFail) => {
   const reader = { lastReply: () => ({ ok: false, code: 'REPLY_NO_TURN_END' }) }
   const outbox = makeOutbox()
   const r = createResponder({ replyReader: reader, outbox, now: clock.now, setTimer: clock.setTimer, clearTimer: clock.clearTimer, pollMs: 100, timeoutMs: 1000 })
-  r.watch('s1', 'private:9')
+  await r.watch('s1', 'private:9')
   reader.lastReply = () => ({ ok: true, turn: 1, text: '第一次说话' })
   await clock.flush(200)
   ok('无基准时首个完整回复就发', outbox.sent.length === 1 && outbox.sent[0].text === '第一次说话', outbox.sent)
@@ -134,13 +138,13 @@ const mk = (readerTurn, sendFail) => {
 // ⑧ 没有 reader / outbox → 明确拒绝，不假装登记
 {
   const r = createResponder({})
-  const a = r.watch('s', 'c')
+  const a = await r.watch('s', 'c')
   ok('缺依赖时拒绝', a.ok === false && a.code === 'RESPOND_UNCONFIGURED', a)
 }
 // ⑨ stop 之后不再发
 {
   const { clock, reader, outbox, r } = mk(5)
-  r.watch('s1', 'group:1')
+  await r.watch('s1', 'group:1')
   r.stop()
   reader.state.turn = 6
   await clock.flush(400)

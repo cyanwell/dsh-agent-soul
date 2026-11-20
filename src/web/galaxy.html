@@ -1,0 +1,2532 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<link rel="stylesheet" href="/aurora.css">
+<title>AgentSoul · 星系</title><style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#0C0B0A;color:#F2EADD;overflow:hidden;font:13px/1.6 "Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;z-index:1}
+/* ★ 2026-11-17 task-10：本页关掉全站极光层。
+   理由不是「不好看」，是两条硬约束：① 极光的主色就是荧光青（与「禁止深蓝黑底+荧光青发光字」直接冲突）；
+   ② 这一屏的光效预算只有两处（核球光晕 / 选中层流光），再加 26 道帘子就是第四、第五处。
+   ★ 不改 aurora.css：那是八页共用的一份样式源，在页面里关掉是「减法」，动共享源会波及另外七页。 */
+.as-sky{display:none!important}
+:root{--ink:#F2EADD;--ink2:#CBBFAE;--ink3:#A79A88;--ink4:#8C8172;--amber:#F4C87A;--sage:#96CFA8;--clay:#E6A05F;--rose:#E88C7A;--slate:#9FB2C6;--line:rgba(203,191,174,.18);--line2:rgba(203,191,174,.09)}
+nav{position:fixed;left:0;right:0;top:0;height:36px;display:flex;align-items:center;gap:2px;padding:0 16px;z-index:9;background:rgba(12,11,10,.88);border-bottom:1px solid var(--line2);font-size:12px;white-space:nowrap;overflow-x:auto}
+nav .brand{color:var(--ink);margin-right:18px;flex:none;letter-spacing:.04em}
+nav .brand i{font-style:normal;color:var(--amber)}
+nav .brand em{font-style:normal;font-size:9px;letter-spacing:.22em;color:var(--ink4);margin-left:8px}
+nav a{display:flex;align-items:center;gap:6px;color:var(--ink3);text-decoration:none;padding:5px 10px;border-radius:6px;flex:none}
+nav a b{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.45}
+nav a:hover{color:var(--ink);background:rgba(244,200,122,.08)}
+nav a.on{color:var(--ink);background:rgba(244,200,122,.14)}
+/* 暗角：暖黑压边，把注意力收到核球那一块（不是发光，是压暗） */
+.vig{position:fixed;inset:0;pointer-events:none;z-index:2;background:radial-gradient(92% 74% at 56% 46%,rgba(12,11,10,.10) 0%,rgba(12,11,10,.30) 52%,rgba(12,11,10,.72) 84%,rgba(12,11,10,.94) 100%)}
+header{position:fixed;left:30px;top:58px;z-index:5;pointer-events:none}
+header::before{content:"";position:absolute;inset:-24px -70px -20px -34px;z-index:-1;border-radius:24px;background:radial-gradient(62% 100% at 16% 46%,rgba(12,11,10,.88),rgba(12,11,10,.45) 56%,rgba(12,11,10,0) 84%)}
+.kick{font-size:9.5px;letter-spacing:.36em;color:var(--ink4);text-transform:uppercase}
+h1{margin:7px 0 2px;font-size:23px;font-weight:400;letter-spacing:.10em;font-family:"Lanxi-超粗黑","Microsoft YaHei",sans-serif}
+h1 i{font-style:normal;color:var(--amber)}
+.sub{font-size:11.5px;color:var(--ink3);letter-spacing:.03em}
+#stamp{position:fixed;right:28px;top:36px;z-index:5;font-size:10.5px;color:var(--ink4);font-variant-numeric:tabular-nums;letter-spacing:.04em;text-align:right}
+/* ── 一屏一焦点：左下角只剩一个主读数（本会话水位），其余全部降级为小字 ── */
+#corner{position:fixed;left:30px;bottom:104px;z-index:6;width:252px;pointer-events:none;transition:opacity .25s ease-out}
+#corner .hero{display:flex;align-items:baseline;gap:9px}
+#corner .hero b{font:400 44px/1 Consolas,ui-monospace,monospace;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+#corner .hero s{text-decoration:none;font-size:11px;color:var(--ink3);letter-spacing:.12em}
+#corner .hero u{text-decoration:none;font-size:10px;color:var(--ink4);letter-spacing:.08em}
+#corner .marks{margin-top:11px;display:grid;grid-template-columns:1fr 1fr;gap:2px 14px}
+#corner .marks span{font-size:10px;color:var(--ink4);letter-spacing:.05em;display:flex;justify-content:space-between;gap:6px;border-bottom:1px solid var(--line2);padding:3px 0}
+#corner .marks b{font:400 11.5px/1.3 Consolas,monospace;color:var(--ink2);font-variant-numeric:tabular-nums}
+#corner .meta{margin-top:11px;color:var(--ink4);font-size:10px;line-height:1.7}
+#corner.stale .hero b{color:var(--rose)}
+/* 数据链路状态：这一条回答「屏幕上这些数字是几点的」 */
+#feed{position:fixed;right:28px;top:60px;z-index:6;font-size:11px;color:var(--ink3);text-align:right;letter-spacing:.03em;font-variant-numeric:tabular-nums;padding:4px 10px;border-radius:999px;background:rgba(18,15,12,.72);border:1px solid var(--line2);transition:color .2s,border-color .2s}
+#feed b{font-weight:400;color:var(--ink2)}
+#feed.bad{color:var(--rose);border-color:rgba(232,140,122,.36)}
+#feed.bad b{color:var(--rose)}
+#hint{position:fixed;left:0;right:0;bottom:14px;text-align:center;font-size:10.5px;color:var(--ink4);z-index:4;pointer-events:none;letter-spacing:.05em}
+#labels{position:fixed;inset:0;z-index:3;pointer-events:none}
+.lb{position:absolute;transform:translate(-50%,-50%);font-size:10.5px;letter-spacing:.14em;color:var(--ink2);white-space:nowrap;padding:2px 9px;border-radius:999px;background:rgba(12,11,10,.66);border:1px solid var(--line2);text-shadow:0 1px 3px rgba(0,0,0,.92);transition:color .2s,opacity .2s,background .2s,border-color .2s}
+.lb b{font-weight:400;color:var(--ink)}
+.lb .r{display:inline-block;width:13px;height:13px;vertical-align:-2px;margin-right:5px}
+.lb .r svg{display:block;width:13px;height:13px;transform:rotate(-90deg)}
+.lb .r circle{fill:none;stroke-width:2.4;stroke-linecap:round}
+.lb s{text-decoration:none;font-size:9.5px;letter-spacing:.1em}
+.lb.on{color:#FFF6E8;border-color:rgba(244,200,122,.42);background:rgba(24,19,14,.82)}
+#echo-layers{margin:10px 0 12px;padding:9px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+#echo-layers h3{margin:0 0 7px;font-size:11px;color:var(--ink3);font-weight:400;letter-spacing:.05em}
+#echo-layer-tabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px}
+#echo-layer-tabs button{font:inherit;color:var(--ink3);background:rgba(38,30,22,.72);border:1px solid var(--line2);border-radius:5px;padding:4px 2px;cursor:pointer;font-size:10px}
+#echo-layer-tabs button[aria-current="page"]{color:var(--ink);border-color:rgba(244,200,122,.48);background:rgba(244,200,122,.10)}
+#echo-layer-tabs button:focus-visible{outline:2px solid var(--amber);outline-offset:-2px}
+#panel{position:fixed;right:30px;left:auto;top:196px;width:min(340px,calc(100vw - 60px));max-height:calc(100vh - 320px);z-index:6;overflow:auto;padding:16px 18px 18px;border-radius:16px;opacity:0;transform:translate(0,-50%);transition:opacity .2s ease-out;pointer-events:none;will-change:left,top,opacity;background:linear-gradient(162deg,rgba(32,26,20,.96),rgba(13,11,9,.94));border:1px solid rgba(203,191,174,.20);box-shadow:inset 0 1px 0 rgba(244,232,214,.14),0 18px 44px -24px rgba(0,0,0,.9)}
+#panel.show{opacity:1;pointer-events:auto}
+#galaxy-nav{margin-bottom:12px;color:var(--ink3)}
+#galaxy-nav button{font:inherit;color:var(--ink);background:rgba(38,30,22,.92);border:1px solid var(--line);border-radius:6px;padding:3px 8px;margin:4px 4px 0 0;cursor:pointer}
+#galaxy-nav button:focus-visible,#rail button:focus-visible{outline:2px solid var(--amber);outline-offset:-2px}
+@media(max-width:760px){body #panel{left:16px;right:16px;top:auto;bottom:86px;width:auto;max-height:42vh;transform:none}body #rail{justify-content:flex-start}}
+#panel h2{margin:0 0 2px;font-size:15.5px;font-weight:400;letter-spacing:.05em;color:var(--ink)}
+#panel .pm{font-size:10.5px;color:var(--ink4);letter-spacing:.14em;margin-bottom:12px}
+#panel .pi{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line2);font-size:12px}
+#panel .pi b{font-weight:400;color:var(--ink3)}
+#panel .pi span{color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
+#panel .pi.na span{color:var(--ink4)}
+#panel .note{margin-top:10px;font-size:11px;color:var(--ink4);line-height:1.7}
+#panel .note b{color:var(--ink2);font-weight:400}
+#waker-ledger{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);overflow-wrap:anywhere}
+#echo-authority{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);overflow-wrap:anywhere}
+#echo-authority h3{margin:0 0 4px;font-size:13px;font-weight:500}
+#echo-authority button{font:inherit;color:var(--ink2);background:#261e16;border:1px solid var(--line);border-radius:6px;padding:4px 6px;cursor:pointer}
+#echo-authority-state{min-height:1.6em;color:var(--ink2)}
+#echo-authority-state[data-state="error"],#echo-authority-state[data-state="stale"]{color:var(--amber)}
+#echo-authority-rows details{border-top:1px solid var(--line2);padding:6px 0}
+#echo-authority-rows summary{cursor:pointer;color:var(--ink)}
+#echo-authority-rows dl{margin:4px 0;color:var(--ink2);font-size:11px}
+#echo-authority-rows dt{color:var(--ink3);margin-top:4px}
+#echo-authority-rows dd{margin:0;white-space:pre-wrap}
+#waker-ledger h3{margin:0 0 4px;font-size:13px;font-weight:500}
+#waker-ledger button{font:inherit;color:var(--ink2);background:#261e16;border:1px solid var(--line);border-radius:6px;padding:4px 6px;cursor:pointer}
+#waker-ledger button:focus-visible,#waker-ledger summary:focus-visible{outline:2px solid var(--amber);outline-offset:-2px}
+#waker-ledger [aria-selected="true"]{color:var(--ink);border-color:var(--amber)}
+#waker-ledger [aria-disabled="true"]{cursor:wait}
+#waker-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin:8px 0}
+#waker-tabs span{display:block;font-size:11px;font-variant-numeric:tabular-nums}
+#waker-state{min-height:1.6em;color:var(--ink2)}
+#waker-state[data-state="stale"],#waker-state[data-state="error"]{color:var(--amber)}
+#waker-rows details{border-top:1px solid var(--line2);padding:6px 0}
+#waker-rows summary{cursor:pointer;color:var(--ink)}
+#waker-rows dl{margin:4px 0;color:var(--ink2);font-size:11px}
+#waker-rows dt{color:var(--ink3);margin-top:4px}
+#waker-rows dd{margin:0;white-space:pre-wrap}
+#lead{position:fixed;z-index:5;height:1px;background:linear-gradient(90deg,rgba(244,200,122,.42),rgba(244,200,122,.05));transform-origin:0 50%;opacity:0;transition:opacity .2s;pointer-events:none}
+#lead.show{opacity:1}
+#moons{position:fixed;inset:0;z-index:5;pointer-events:none}
+#moons .mo{position:absolute;transform:translate(-50%,-50%);font-size:10px;color:var(--ink2);background:rgba(12,11,10,.70);border:1px solid var(--line2);border-radius:999px;padding:1px 8px;white-space:nowrap;opacity:0;transition:opacity .3s;text-shadow:0 1px 3px rgba(0,0,0,.92)}
+#moons .mo b{font-weight:400;color:var(--amber);margin-right:4px}
+#hover{position:fixed;z-index:7;pointer-events:none;font-size:11px;color:var(--ink);background:rgba(18,15,12,.96);border:1px solid rgba(203,191,174,.28);border-radius:8px;padding:5px 10px;white-space:nowrap;opacity:0;transition:opacity .12s;box-shadow:0 10px 26px -14px rgba(0,0,0,.95);transform:translate(-50%,-140%)}
+#hover.show{opacity:1}
+#hover b{font-weight:400;color:var(--amber)}
+#rail{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;justify-content:center;gap:8px;padding:16px 22px 34px;overflow-x:auto}
+.chip{font-family:inherit;display:flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:11.5px;letter-spacing:.05em;color:var(--ink3);white-space:nowrap;background:rgba(26,21,16,.88);border:1px solid var(--line2);transition:color .16s,border-color .16s,background .16s}
+.chip:hover{color:var(--ink);border-color:rgba(203,191,174,.30)}
+.chip.on{color:var(--ink);border-color:rgba(244,200,122,.44);background:rgba(38,30,22,.92)}
+.chip u{width:6px;height:6px;border-radius:50%;text-decoration:none;flex:none}
+.chip s{text-decoration:none;color:var(--ink4);font-size:10px;letter-spacing:.09em}
+#fallback{position:fixed;left:30px;top:152px;display:none;z-index:5;color:var(--ink3);pointer-events:none}
+.altview{display:inline-block;margin-top:8px;font-size:11.5px;color:var(--ink4);text-decoration:none;border:1px solid var(--line);border-radius:5px;padding:2px 9px}
+.altview:hover{color:var(--ink);border-color:var(--amber)}
+/* ★ 动效退化：prefers-reduced-motion 时把 CSS 侧的一切运动一次关掉，
+   画布侧的（自转 / 闪烁 / 相机飞行）在 frame() 里按 REDUCE 分支处理 —— 两处都得管，只关一处等于没关。 */
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:1180px){#corner{width:210px}#panel{width:300px}}
+</style>
+<script type="importmap">{"imports":{"three":"/vendor/three.module.min.js"}}</script>
+</head><body><canvas id="c"></canvas><div class="vig"></div><div id="labels"></div>
+<nav><div class="brand">agent<i>·</i>soul<em>CONSOLE</em></div><a href="/chat"><b></b>对话</a><a href="/organs"><b></b>器官</a><a href="/diary"><b></b>日记</a><a href="/yantai"><b></b>砚台</a><a href="/settings"><b></b>设置</a></nav>
+<header><div class="kick">AgentSoul v4</div><h1>星<i>系</i></h1>
+<div class="sub">外层运行分区 · 六条旋臂　/　ECHO 内层 L0–L5 仅在 ECHO 详情中展开</div></header>
+<section id="corner">
+  <div class="hero"><b id="cw-lead">—</b><s>本会话水位</s><u id="cw-lead-tag"></u></div>
+  <div class="marks">
+    <span>活跃会话<b id="cw-active">—</b></span>
+    <span>镜像估算<b id="cw-mirror">—</b></span>
+    <span>人格层<b id="cw-persona">—</b></span>
+    <span>会话容器<b id="cw-sessions">—</b></span>
+    <span>待答<b id="cw-questions">—</b></span>
+    <span>外层分区<b id="cw-layers">—</b></span>
+  </div>
+  <div class="meta" id="cw-meta">—</div>
+</section>
+<div id="feed">连接中…</div><div id="stamp"></div>
+<div id="lead"></div><div id="moons"></div><div id="hover"></div><aside id="panel" aria-label="星系详情"><div id="galaxy-nav" role="navigation" aria-label="星系层级"><div id="galaxy-crumb" aria-live="polite"></div><button type="button" id="galaxy-up" hidden></button><div id="galaxy-organs"></div><p id="galaxy-link-note" role="status" hidden></p></div><section id="echo-layers" aria-labelledby="echo-layer-heading" hidden><h3 id="echo-layer-heading">ECHO 内层 · L0–L5（外层分区 6 独立）</h3><div id="echo-layer-tabs" role="navigation" aria-label="ECHO 内层 L0 到 L5"></div></section><div id="galaxy-detail"></div>
+<section id="echo-authority" aria-labelledby="echo-authority-heading" hidden>
+  <h3 id="echo-authority-heading">ECHO 权威索引</h3>
+  <div class="note">只读 · GET <code>/api/echo/authority-view</code> · 按需读取，不触发同步。与 soul / 书房器官、echo-sentinel 探针分开。</div>
+  <button type="button" id="echo-authority-load">读取权威索引</button>
+  <p id="echo-authority-state" role="status">尚未读取 · query 未查询</p>
+  <div id="echo-authority-rows"></div>
+</section>
+<section id="waker-ledger" aria-labelledby="waker-heading" hidden>
+  <h3 id="waker-heading">事件台账</h3>
+  <div class="note">来源：<code>GET /api/waker</code> · 只读、按需加载</div>
+  <button type="button" id="waker-load">读取台账</button>
+  <p id="waker-state" role="status"></p>
+  <div id="waker-tabs" role="tablist" aria-label="事件台账四视图"></div>
+  <div id="waker-view" role="tabpanel" tabindex="0"><p id="waker-count"></p><div id="waker-rows"></div></div>
+  <p class="note">「已判执行」按台账的 <code>resume</code> 判定归类，不代表实际执行。各视图可能重叠；接口不提供执行回执或源台账更新时间。</p>
+</section></aside><div id="rail"></div>
+<div id="hint">点旋臂进层 · 再点星座看状态 · 滚轮进/退 · 双击复位 · 1–6 直达 · Esc 上一级 · 0 总览</div>
+<div id="fallback">WebGL 不可用，可用下方旋臂按钮和详情导航。</div>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "/vendor/OrbitControls.js";
+/* ★ 2026-11-13（参考 Aprillllllw/obsidian-galaxy-dashboard）：
+   bloom 用**动态 import + try/catch** 接。上次用静态 import，addons 一失败整页白屏
+   （ES module 的顶层失败包不住）。动态 import 失败只降级成裸渲染，页面照常活。 */
+
+/* ★ 2026-11-17（task-10）：四态色从「荧光青/冷蓝」换成暖色系。
+   原因不是审美摇摆，是任务硬约束：**禁止深蓝黑底 + 荧光青发光字**。
+   而这一页原来的底色是 #04070E、主强调色是 #A8D8B4 —— 正好是那条禁令描述的那一对。
+   现在的角色分工（一套色只用在一个含义上）：
+     ok    = 鼠尾草绿（不是荧光青，饱和度压到 0.66）
+     warn  = 琥珀（全页唯一的「亮」色，用于需要被看见的那一处）
+     error = 陶土玫瑰（不是纯红，深底上不刺眼但能分辨）
+     pending = 冷灰蓝（唯一保留的冷色，因为它表示「还没有数据」，本来就该退后）
+   ★ 对比度按 #0C0B0A 底算过：ink 16.5:1 / ink2 10.9 / ink3 7.1 / ink4 5.2，全部 ≥4.5。 */
+/* ★ 2026-11-18：补齐 emergency / alert。
+     实测（/api/organs）：watermark 器官的 level 就是 'emergency'（人格占比 83.9%），
+     而这张表原来只有 ok/warn/error/pending —— 于是 LV['emergency'] 是 undefined，
+     落到 `LV[it.level] || LV.pending` 这条兜底上，**最紧急的告警被画成了最平静的蓝灰**。
+     兜底本身是对的（不认识的颜色别崩），错的是让它默默接住了一个真实存在的级别。 */
+const LV = { ok:[0.588,0.812,0.659], warn:[0.957,0.784,0.478], error:[0.910,0.549,0.478],
+             alert:[0.910,0.549,0.478], emergency:[0.949,0.353,0.318], pending:[0.624,0.698,0.776] };
+/* ★ 2026-11-17：动效退化。这一页的运动有三处：星系自转、粒子闪烁与流光、相机飞行。
+   prefers-reduced-motion 时三处全停（时钟钉在 t=0，相机切到「瞬时到位」，鼠标视差断开）。
+   ★ 只关 CSS 不算数 —— 这一页的主运动在 WebGL 里，CSS 那侧本来就没几条动画。 */
+const REDUCE = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+/* ★ 光效预算（任务：≤2 处）。这一页只留两处发光：
+   ① 核球光晕（glow）—— 它表达「中心是此刻在跑的那个我」，是焦点；
+   ② 选中层沿悬臂的流光（flow）—— 它表达「数据在往哪儿流」。
+   UnrealBloom 是**第三处**，而且是全屏后处理（会把每颗粒子都点亮），所以默认关掉，
+   只用 ?bloom=1 手动开（留作对照，不参与默认观感）。 */
+const BLOOM_ON = new URLSearchParams(location.search).get("bloom") === "1";
+const LAYERS = [
+  { k:"echo",       ro:"Ⅰ", en:"ECHO",  zh:"记忆 · 索引 · 检索" },
+  { k:"vital",      ro:"Ⅱ", en:"VITAL", zh:"呼吸 · 自主 · 换气" },
+  { k:"capability", ro:"Ⅲ", en:"能力",  zh:"工具 · 插件 · 技能" },
+  { k:"archive",    ro:"Ⅳ", en:"档案",  zh:"日记 · 人格 · 产物" },
+  { k:"ops",        ro:"Ⅴ", en:"运维",  zh:"退出 · 备份 · 哨兵" },
+  { k:"events",     ro:"Ⅵ", en:"事件",  zh:"事件源 · 唤醒 · 回执" }
+];
+const ORDER = LAYERS.map(function(x){ return x.k; });
+const ECHO_LAYERS = [
+  { id:'L0', title:'时钟 / 心跳', detail:'未知 · not-connected；当前页面没有此层读数。' },
+  { id:'L1', title:'SELF / 热记忆', detail:'未知 · not-connected；不以人格体积或书房扫描代填。' },
+  { id:'L2', title:'工作台', detail:'未知 · not-connected；当前页面没有工作台范围读数。' },
+  { id:'L3', title:'一手证据', detail:'未知 · not-connected；未接入有界 source 指针，不预取原文。' },
+  { id:'L4', title:'派生索引', detail:'由显式 GET authority-view 按需读取；索引统计不代表查询回执。' },
+  { id:'L5', title:'查询回执', detail:'not-queried · 当前没有已接入的 query receipt 展示。' }
+];
+let echoLayer = null;
+
+const canvas = document.getElementById("c");
+let renderer;
+try { renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true, powerPreference:"high-performance" }); }
+catch(e){ document.getElementById("fallback").style.display = "block"; }
+if (renderer) {
+  renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
+  renderer.setClearColor(0x000000, 0);
+}
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 200);
+
+/* 泛光链路：RenderPass → UnrealBloomPass。
+   阈值 0.16 只让「本来就亮的东西」发光（核心光晕、星座主星、选中的臂），
+   暗部粒子不发光 —— 否则整片星系会糊成一团奶白色。
+   strength 0.75 / radius 0.62：足够撑起「亮处溢出」，又不至于吃掉粒子细节。 */
+/* 后处理链路：失败就退回裸渲染，页面绝不因为 bloom 挂掉。
+   参数抄参考实现（strength .5 / radius .55 / **threshold .62**）——
+   threshold 高是关键：只让本来就很亮的核心、主星、选中的臂发光，
+   暗部粒子不参与，所以不会糊成一片奶白（我之前设 .16 就是这个毛病）。 */
+let composer = null, bloomPass = null;
+if (renderer && BLOOM_ON) try {
+  const mods = await Promise.all([
+    import("/vendor/postprocessing/EffectComposer.js"),
+    import("/vendor/postprocessing/RenderPass.js"),
+    import("/vendor/postprocessing/UnrealBloomPass.js")
+  ]);
+  composer = new mods[0].EffectComposer(renderer);
+  composer.addPass(new mods[1].RenderPass(scene, camera));
+  bloomPass = new mods[2].UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.5, 0.55, 0.62);
+  composer.addPass(bloomPass);
+  document.body.classList.add("bloom-on");   /* 让右上角状态条能看出 bloom 到底有没有起来 */
+  console.log("[bloom] 已启用");
+} catch (e) {
+  composer = null;
+  window.__bloomErr = String((e && e.message) || e);
+  /* 写到 header 的副标题上 —— stamp 每 5 秒被 load() 重写，会把错误冲掉 */
+  const subEl = document.querySelector("header .sub");
+  if (subEl) subEl.textContent = "bloom 失败: " + window.__bloomErr.slice(0, 72);
+  console.warn("[bloom] 不可用，退回裸渲染:", window.__bloomErr);
+}
+camera.position.set(0, 2.35, 4.55);
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true; controls.dampingFactor = 0.06; controls.enablePan = false;
+const WIDE_MIN_DISTANCE = 3.2, ORGAN_MIN_DISTANCE = 0.75;
+controls.minDistance = WIDE_MIN_DISTANCE; controls.maxDistance = 12;
+controls.minPolarAngle = 0.22; controls.maxPolarAngle = 1.42;
+controls.autoRotate = !REDUCE; controls.autoRotateSpeed = 0.24;
+
+function gauss(){ let u=0,v=0; while(u===0)u=Math.random(); while(v===0)v=Math.random();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+
+/* ── 六条旋臂：每条 = 一层 ────────────────────────────────────────────
+   螺旋：r = r0 + t*R，角度 = 臂起点 + t*圈数*2π。外圈更散、更薄 —— 真实星系就是这样。
+   颜色只由 uniform 决定（uColor），所以换层状态时不用重建几何。                     */
+const ARM_N = 3000, R0 = 0.34, RMAX = 2.46, TURNS = 0.88;
+const gal = new THREE.Group(); scene.add(gal);
+
+const PVS = [
+  "attribute float aSize; attribute float aB; attribute float aD;",
+  "uniform float uTime; uniform float uPix; uniform float uSel; uniform float uSpeed;",
+  "varying float vB; varying float vR;",
+  "void main(){",
+  /* ★ 2026-11-13：把「到核心的距离」传给片元 —— 真实星系是**内暖外冷**的
+     （核心老星偏黄白、外缘年轻星偏蓝），单一颜色的点云再密也不像银河。 */
+  "  vR = clamp(length(position.xz) / 9.0, 0.0, 1.0);",
+  "  float tw = 0.80 + 0.20*sin(uTime*1.6 + aB*23.0);",
+  /* 选中：一道比粒子更亮的光流沿旋臂扫过（相位差按 aB，所以是「流过」而不是「整体闪」）*/
+  "  float flow = uSel * 0.85 * pow(0.5 + 0.5*sin(uTime*uSpeed*2.2 - aB*13.0), 2.0);",
+  "  vB = aB * tw * (1.0 + flow) * (1.0 - 0.72*aD*aD);",
+  "  vec4 mv = modelViewMatrix*vec4(position,1.0);",
+  "  gl_PointSize = aSize * uPix * 14.5 * (1.0 + uSel*0.60) / max(0.35, -mv.z);",
+  "  gl_Position = projectionMatrix*mv;",
+  "}"
+].join("\n");
+const PFS = [
+  "precision highp float;",
+  "varying float vB; varying float vR; uniform vec3 uColor; uniform float uAlpha;",
+  "void main(){",
+  "  vec2 d = gl_PointCoord - vec2(0.5); float r = length(d)*2.0;",
+  "  if (r > 1.0) discard;",
+  /* 一个点里画两层：中心亮核 + 外圈柔晕 —— 这就是「辉光」，
+     不需要后处理 composer，也不增加粒子数。 */
+  "  float core = pow(1.0-r, 4.2);",
+  /* 2026-11-13：halo 从 0.30 抬到 0.62 —— 不用后处理也能让亮处「自己发散」。
+     这是 bloom 的平替：粒子中心本来就过曝，把衰减尾部拉长就有溢出的观感。 */
+  "  float halo = pow(1.0-r, 1.35) * 0.40;",
+  "  float a = core + halo;",
+  /* ★ 2026-11-13：径向色温 —— 核心暖白、中段金黄、外缘青蓝，
+     再与「这一层自己的颜色」混合（0.45 权重），六层的身份仍然可辨。
+     这是让它从「点云」变成「星系」最有效的一步，比加粒子数便宜得多。 */
+  "  vec3 warm = vec3(1.00, 0.88, 0.68);",
+  "  vec3 mid  = vec3(1.00, 0.94, 0.78);",
+  "  vec3 cool = vec3(0.52, 0.76, 1.00);",
+  "  vec3 tint = (vR < 0.45) ? mix(warm, mid, vR / 0.45) : mix(mid, cool, (vR - 0.45) / 0.55);",
+  "  vec3 base = mix(uColor, tint, 0.45);",
+  "  vec3 c = base*(0.55 + vB*1.25) + vec3(vB*vB*0.16);",
+  "  gl_FragColor = vec4(c, a*uAlpha*(0.20 + vB*0.72));",
+  "}"
+].join("\n");
+
+// ── 数据流着色器（沿臂流动的亮点） ──
+const FLOW_N = 260;
+const flowVS = [
+  "attribute float aT; attribute float aB;",
+  "uniform float uTime; uniform float uPix; uniform float uFlow; uniform float uBase;",
+  "uniform float uR0; uniform float uRMAX; uniform float uTurns; uniform float uSel;",
+  "varying float vB;",
+  "void main(){",
+  "  float tt = fract(aT + uTime * uFlow * 0.045);",
+  "  float ang = uBase + tt * uTurns * 6.2831853;",
+  "  float rr = uR0 + tt * uRMAX;",
+  "  vec3 p = vec3(cos(ang)*rr, sin(tt*6.2831853 + aT*9.0)*0.012, sin(ang)*rr);",
+  "  vB = aB * (0.55 + 0.45*sin(tt*3.14159)) * (1.0 + uSel*0.9);",
+  "  vec4 mv = modelViewMatrix*vec4(p,1.0);",
+  "  gl_PointSize = uPix * (7.0 + 5.0*aB) * (1.0+uSel*0.5) / max(0.35,-mv.z);",
+  "  gl_Position = projectionMatrix*mv;",
+  "}"
+].join("\n");
+const flowFS = [
+  "precision highp float; varying float vB; uniform vec3 uColor; uniform float uAlpha;",
+  "void main(){ vec2 d = gl_PointCoord - vec2(0.5); float r = length(d)*2.0;",
+  "  if (r > 1.0) discard;",
+  "  float core = pow(1.0-r, 3.0); float halo = pow(1.0-r, 1.2)*0.42;",
+  "  gl_FragColor = vec4(uColor*(0.85+core*1.6), (core+halo)*vB*uAlpha); }"
+].join("\n");
+
+const items = [];
+LAYERS.forEach(function(L, i){
+  const base = i * Math.PI * 2 / 6;
+  const pos = new Float32Array(ARM_N*3), siz = new Float32Array(ARM_N), bri = new Float32Array(ARM_N), dst = new Float32Array(ARM_N);
+  for (let j = 0; j < ARM_N; j++) {
+    const t = Math.pow(Math.random(), 0.78);
+    const ang = base + t * TURNS * Math.PI * 2;
+    const r = R0 + t * RMAX;
+    const spread = 0.022 + 0.085 * t * t;
+    /* 截断采样：粒子必须落在臂内（否则高斯长尾会把臂之间填满，六条就糊成一圈）*/
+    let dx, dz, dd;
+    do { dx = gauss()*spread*0.62; dz = gauss()*spread*0.62; dd = Math.hypot(dx, dz); } while (dd > spread*1.55);
+    dst[j] = Math.min(1, dd / (spread*1.55));
+    pos[j*3]   = Math.cos(ang)*r + dx;
+    pos[j*3+1] = gauss() * (0.035 + 0.10*(1.0-t));
+    pos[j*3+2] = Math.sin(ang)*r + dz;
+    siz[j] = 0.55 + Math.random()*1.15;
+    bri[j] = Math.min(1, 0.30 + 0.85*(1.0-t) + Math.random()*0.25);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos,3));
+  g.setAttribute("aSize", new THREE.BufferAttribute(siz,1));
+  g.setAttribute("aB", new THREE.BufferAttribute(bri,1));
+  g.setAttribute("aD", new THREE.BufferAttribute(dst,1));
+  const m = new THREE.ShaderMaterial({
+    vertexShader: PVS, fragmentShader: PFS,
+    uniforms: { uTime:{value:0}, uPix:{value:1}, uColor:{value:new THREE.Color(0x9FB2C6)}, uAlpha:{value:1}, uSel:{value:0}, uSpeed:{value:1} },
+    transparent:true, blending:THREE.AdditiveBlending, depthWrite:false
+  });
+  const pts = new THREE.Points(g, m);
+  gal.add(pts);
+  const tipR = R0 + RMAX + 0.06;
+  const tip = new THREE.Vector3(Math.cos(base + TURNS*Math.PI*2)*tipR, 0.10, Math.sin(base + TURNS*Math.PI*2)*tipR);
+  const el = document.createElement("div");
+  el.className = "lb";
+  el.innerHTML = "<b>" + L.ro + "</b> " + L.en;
+  document.getElementById("labels").appendChild(el);
+  // 数据流：沿这条臂由内向外流的亮点（位置每帧在顶点着色器里重算）
+  const fT = new Float32Array(FLOW_N), fB = new Float32Array(FLOW_N);
+  for (let j = 0; j < FLOW_N; j++) { fT[j] = j / FLOW_N; fB[j] = 0.35 + Math.random()*0.65; }
+  const fgeo = new THREE.BufferGeometry();
+  fgeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(FLOW_N*3), 3));
+  fgeo.setAttribute("aT", new THREE.BufferAttribute(fT, 1));
+  fgeo.setAttribute("aB", new THREE.BufferAttribute(fB, 1));
+  const flowMat = new THREE.ShaderMaterial({
+    vertexShader: flowVS, fragmentShader: flowFS,
+    uniforms: {
+      uTime:{value:0}, uPix:{value:1}, uFlow:{value:1}, uBase:{value:base},
+      uR0:{value:R0}, uRMAX:{value:RMAX}, uTurns:{value:TURNS}, uSel:{value:0},
+      uColor:{value:new THREE.Color(0xF4E6CE)}, uAlpha:{value:0.85}
+    },
+    transparent:true, blending:THREE.AdditiveBlending, depthWrite:false
+  });
+  const flowPts = new THREE.Points(fgeo, flowMat);
+  gal.add(flowPts);
+  const ring = makeRingSprite();
+  ring.sprite.visible = false;   // 3D sprite 版没渲染出来，改用 DOM 里的 SVG 环（见 applyData）
+  items.push({ L:L, pts:pts, mat:m, el:el, tip:tip, level:"pending", baseAlpha:1, sx:0, sy:0, ring:ring, okR:0, nItems:0, col:[0.44,0.66,1.0], flow:flowPts, flowMat:flowMat });
+});
+
+/* ── 臂端读数环（2026-11-11 22:00）──────────────────────────────────────
+   原来臂端只有一个文字标签。现在加一个环：弧长 = 该层「ok 项 / 总项」，
+   颜色 = level，中心写读数项数。它不是装饰 —— 同一屏就能比较六层的健康度。
+   用 canvas 画、Sprite 贴，每次数据更新重画一次（5 秒一次，不是每帧）。 */
+function makeRingSprite() {
+  const cv2 = document.createElement("canvas"); cv2.width = cv2.height = 128;
+  const tex = new THREE.CanvasTexture(cv2);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent:true, depthWrite:false, depthTest:false, blending:THREE.NormalBlending });
+  const sp = new THREE.Sprite(mat);
+  sp.scale.set(1.05, 1.05, 1);
+  return { cv: cv2, tex: tex, sprite: sp };
+}
+function paintRing(it) {
+  const cv2 = it.ring.cv, g2 = cv2.getContext("2d");
+  const okR = it.okR || 0, c = it.col || [0.44,0.66,1.0];
+  g2.clearRect(0, 0, 128, 128);
+  g2.beginPath(); g2.arc(64, 64, 46, 0, Math.PI*2);
+  g2.strokeStyle = "rgba(203,191,174,0.20)"; g2.lineWidth = 7; g2.stroke();
+  if (okR > 0.001) {
+    g2.beginPath();
+    g2.arc(64, 64, 46, -Math.PI/2, -Math.PI/2 + Math.PI*2*Math.min(1, okR));
+    g2.strokeStyle = "rgb(" + Math.round(c[0]*255) + "," + Math.round(c[1]*255) + "," + Math.round(c[2]*255) + ")";
+    g2.lineWidth = 7; g2.lineCap = "round"; g2.stroke();
+  }
+  g2.fillStyle = "rgba(242,234,221,0.92)";
+  g2.font = "600 34px system-ui, sans-serif";
+  g2.textAlign = "center"; g2.textBaseline = "middle";
+  g2.fillText(String(it.nItems || 0), 64, 66);
+  it.ring.tex.needsUpdate = true;
+}
+
+/* ── 尘埃带（2026-11-11 21:50）──────────────────────────────────────────
+   加法混合只会加亮，做不出「暗」。真星系靠尘埃挡住星光才显出旋臂之间的空隙。
+   做法：在星系盘上铺一张程序生成的螺旋暗纹贴图，renderOrder 最高、normal blending、
+   不写深度（depthWrite:false）—— 它最后画，把下面的星尘压暗。
+   ★ 不是物理遮挡，是「最后一层压暗」。代价小、视觉对，且不动现有管线。 */
+function dustTexture(){
+  const c = document.createElement("canvas"); c.width = c.height = 1024;
+  const g = c.getContext("2d");
+  g.clearRect(0, 0, 1024, 1024);
+  g.translate(512, 512);
+  g.filter = "blur(22px)";            // 暗带要柔，硬边的「粗笔画」不像尘埃
+  for (let a = 0; a < 6; a++) {
+    const base = a * Math.PI * 2 / 6 + Math.PI / 6;   // 错开半个臂距，落在臂与臂之间
+    for (let pass = 0; pass < 3; pass++) {
+      g.beginPath();
+      for (let t = 0.06; t <= 1; t += 0.02) {
+        const ang = base + t * TURNS * Math.PI * 2;
+        const r = ((R0 + t * RMAX) / (R0 + RMAX + 0.35)) * 500;
+        const x = Math.cos(ang) * r, y = Math.sin(ang) * r;
+        if (t <= 0.06) g.moveTo(x, y); else g.lineTo(x, y);
+      }
+      g.strokeStyle = "rgba(0,0,0," + (0.34 - pass * 0.08).toFixed(2) + ")";
+      g.lineWidth = 40 - pass * 11;
+      g.lineCap = "round";
+      g.stroke();
+    }
+  }
+  /* 盘外不该有尘埃：用径向渐变把外围擦掉 */
+  g.filter = "none";
+  g.globalCompositeOperation = "destination-in";
+  const rg = g.createRadialGradient(0, 0, 150, 0, 0, 500);
+  rg.addColorStop(0, "rgba(0,0,0,1)");
+  rg.addColorStop(0.74, "rgba(0,0,0,1)");
+  rg.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = rg;
+  g.fillRect(-512, -512, 1024, 1024);
+  g.globalCompositeOperation = "source-over";
+  const t = new THREE.CanvasTexture(c);
+  t.needsUpdate = true;
+  return t;
+}
+/* ★ 2026-11-11 21:58：尘埃**不用平面，用粒子**。
+   一个 6.46×6.46 的黑色半透明平面，即使纹理在暗带外是透明的，
+   在 GPU 上仍然是一次覆盖整个方形区域的混合 —— 画面上就显出那个矩形的边（爀曦圈出来的那块）。
+   改成点云：沿臂间螺旋分布，normal blending 的深色，只压暗它自己该压的地方。 */
+const DUST_N = 5200;
+const dpos = new Float32Array(DUST_N*3), dsiz = new Float32Array(DUST_N), dbri = new Float32Array(DUST_N);
+for (let j = 0; j < DUST_N; j++) {
+  const base = (j % 6) * Math.PI * 2 / 6 + Math.PI / 6;
+  const t = Math.pow(Math.random(), 0.55);
+  const ang = base + t * TURNS * Math.PI * 2;
+  const r = R0 + t * RMAX;
+  const sp = 0.10 + 0.30 * t;
+  let dx, dz, dd;
+  do { dx = gauss()*sp; dz = gauss()*sp; dd = Math.hypot(dx,dz); } while (dd > sp*1.8);
+  dpos[j*3]   = Math.cos(ang)*r + dx;
+  dpos[j*3+1] = gauss() * 0.05;
+  dpos[j*3+2] = Math.sin(ang)*r + dz;
+  dsiz[j] = 1.8 + Math.random()*2.6;
+  dbri[j] = 0.32 + Math.random()*0.58;
+}
+const dg = new THREE.BufferGeometry();
+dg.setAttribute("position", new THREE.BufferAttribute(dpos,3));
+dg.setAttribute("aSize", new THREE.BufferAttribute(dsiz,1));
+dg.setAttribute("aB", new THREE.BufferAttribute(dbri,1));
+const dustMat = new THREE.ShaderMaterial({
+  vertexShader: [
+    "attribute float aSize; attribute float aB;",
+    "uniform float uPix; varying float vB;",
+    "void main(){ vB = aB; vec4 mv = modelViewMatrix*vec4(position,1.0);",
+    "  gl_PointSize = aSize * uPix * 46.0 / max(0.35,-mv.z);",
+    "  gl_Position = projectionMatrix*mv; }"
+  ].join("\n"),
+  fragmentShader: [
+    "precision highp float; varying float vB; uniform float uAlpha;",
+    "void main(){ vec2 d = gl_PointCoord - vec2(0.5); float r = length(d)*2.0;",
+    "  if (r > 1.0) discard;",
+    "  float a = pow(1.0-r, 1.9) * vB * uAlpha;",
+    "  gl_FragColor = vec4(0.012, 0.020, 0.035, a); }"
+  ].join("\n"),
+  uniforms: { uPix:{value:1}, uAlpha:{value:0.50} },
+  transparent:true, blending:THREE.NormalBlending, depthWrite:false
+});
+const dust = new THREE.Points(dg, dustMat);
+dust.renderOrder = 5;
+/* ★ 2026-11-11 22:05：粒子尘埃默认关闭 —— 深色粒子叠在加法混合的星尘上会变成一个个黑点，
+   看起来像噪点，不像尘埃。改成「盘面底光」：一块极淡的青蓝柔光贴在星系盘上，
+   地址栏拼 ?dust=1 才打开旧的黑点版（留作对照）。 */
+dust.visible = (new URLSearchParams(location.search).get("dust") === "1");
+gal.add(dust);
+
+/* ── 星系盘底光（2026-11-11 22:05 重整渲染的一部分）────────────────────
+   真星系盘面本身是有光的（大量未分辨的恒星），不是黑的。
+   一块 6.2×6.2 的加法混合柔光盘：中心亮、边缘散，给星尘一个「底」。
+   它替代了原来的黑色尘埃平面（那个会遮出一个矩形）。 */
+const diskMat = new THREE.ShaderMaterial({
+  vertexShader: "varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
+  fragmentShader: [
+    "precision highp float; varying vec2 vUv; uniform vec3 uColor; uniform float uT;",
+    "void main(){ vec2 d = vUv-vec2(0.5); float r = length(d)*2.0;",
+    "  if (r > 1.0) discard;",
+    "  float g = pow(1.0-r, 3.0);",
+    "  float ring = pow(1.0-r, 1.3)*0.30;",
+    "  float breathe = 0.88 + 0.12*sin(uT*0.85);",
+    "  gl_FragColor = vec4(uColor, (g*0.26 + ring*0.10)*breathe); }"
+  ].join("\n"),
+  uniforms: { uColor:{value:new THREE.Color(0x3A3026)}, uT:{value:0} },
+  transparent:true, blending:THREE.AdditiveBlending, depthWrite:false
+});
+const disk = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 6.4), diskMat);
+disk.rotation.x = -Math.PI / 2;
+disk.position.y = -0.02;
+gal.add(disk);
+
+// ── 星云团块（2026-11-11 22:05）：沿旋臂散布的亮斑（HII 区那种）──
+function nebulaSprite(rgb) {
+  const c2 = document.createElement("canvas"); c2.width = c2.height = 128;
+  const g2 = c2.getContext("2d");
+  const rg2 = g2.createRadialGradient(64, 64, 2, 64, 64, 62);
+  rg2.addColorStop(0.00, "rgba(" + rgb + ",0.95)");
+  rg2.addColorStop(0.28, "rgba(" + rgb + ",0.42)");
+  rg2.addColorStop(0.62, "rgba(" + rgb + ",0.12)");
+  rg2.addColorStop(1.00, "rgba(" + rgb + ",0)");
+  g2.fillStyle = rg2; g2.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c2);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, opacity:0.55 });
+  return new THREE.Sprite(mat);
+}
+/* ★ 2026-11-13：星云染色偏向 HII 区 —— 真实星系照片里最抓眼的就是那些
+   粉红/洋红的小团（电离氢区），而不是均匀的彩点。保留两颗冷色做点缀。 */
+const NEB_TINTS = ["255,138,178", "255,112,158", "255,170,198", "188,150,255", "120,210,255"];
+const nebSprites = [];
+/* ★ 2026-11-13 重构（爀曦：悬臂=层，选中层展开星云）：
+   星云不再是随机装饰 —— 每层一组 9 个（本机最厚的一层是 Ⅵ 事件 9 项），
+   沿本层悬臂从 tt=0.30 排到 0.86 串成一条弧。
+   默认 opacity=0（不显示）；选中该层时按真实 items 数逐个点亮并展开。
+   为什么每组固定 9 个而不是按数据生成：几何体建一次就不重建，
+   数据变化只改 scale/opacity —— 切层时不闪、不重建顶点。 */
+const NEBS_PER_ARM = 9;
+for (let arm = 0; arm < 6; arm++) {
+  const base2 = arm * Math.PI * 2 / 6;
+  for (let j = 0; j < NEBS_PER_ARM; j++) {
+    const tt = 0.30 + (j / (NEBS_PER_ARM - 1)) * 0.56;
+    const ang = base2 + tt * TURNS * Math.PI * 2;
+    const rr = R0 + tt * RMAX;
+    const sp = nebulaSprite(NEB_TINTS[arm % NEB_TINTS.length]);
+    sp.position.set(Math.cos(ang)*rr, 0.02 + Math.sin(j*1.7)*0.028, Math.sin(ang)*rr);
+    /* 尺寸取 0.42~0.78：星系半径是 9 个单位，1 单位≈70px，
+       0.5 单位的柔光斑 ≈35px，才在六条臂的粒子海里读得出来。 */
+    const sc = 0.62 + 0.26 * (0.5 + 0.5 * Math.sin(j * 2.1));
+    sp.scale.set(sc, sc, 1);
+    sp.material.opacity = 0;
+    sp.userData = { arm: arm, idx: j, baseScale: sc };
+    gal.add(sp);
+    nebSprites.push(sp);
+  }
+}
+
+/* ══ 星座（2026-11-13 爀曦定稿）═════════════════════════════════════
+   星云不再是「一团柔光」——每个 item 是一座**星座**：一颗主星 + 5 颗辅星，
+   用连线串成不规则图形。理由（他的原话：「做成明显的星座会更好，形状可以是不规则的」）：
+     · 云团糊成一片，数不出「这层有 9 项」；星座有节点、有连线，簇数一眼可数。
+     · 形状不规则 = 每座星座长得不一样 —— 而形状本身就是数据：
+       主星亮度按 level、辅星亮灭按该项是否有读数（na 就暗）。
+     · 连线让「它们属于同一个 item 的几颗星」这一层关系不靠猜。
+   ───────────────────────────────────────────────────────────────── */
+function mulberry32(a){ return function(){ a |= 0; a = a + 0x6D2B79F5 | 0;
+  let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+  return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+/* 一座星座的局部形状（相同 seed 每次刷新完全一样，不会「每次打开都不一样」） */
+function constShape(seed){
+  const rnd = mulberry32(seed);
+  const n = 5, pts = [[0,0,0]];
+  for (let i = 0; i < n; i++){
+    const a = (i / n) * Math.PI * 2 + (rnd() - 0.5) * 0.9;
+    const r = 0.52 + rnd() * 0.52;
+    pts.push([Math.cos(a) * r, (rnd() - 0.5) * 0.42, Math.sin(a) * r]);
+  }
+  const lines = [];
+  for (let i = 1; i <= n; i++) lines.push([0, i]);
+  lines.push([1, 3]); lines.push([2, 5]); lines.push([3, 5]);
+  return { pts: pts, lines: lines };
+}
+
+/* 星点纹理：默认 PointsMaterial 画的是方块，在深底上很出戏 ——
+   一张 64×64 的径向渐变就当「星」，四角透明，叠加混合下边缘自然消失。 */
+const dotTex = (function(){
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d");
+  const rg = g.createRadialGradient(32, 32, 0.5, 32, 32, 31);
+  rg.addColorStop(0.00, "rgba(255,255,255,1)");
+  rg.addColorStop(0.30, "rgba(214,238,255,0.86)");
+  rg.addColorStop(0.62, "rgba(150,205,255,0.30)");
+  rg.addColorStop(1.00, "rgba(120,180,255,0)");
+  g.fillStyle = rg; g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.needsUpdate = true;
+  return t;
+})();
+
+const CONST_R = 0.40;                 // 星座半径（世界单位；臂宽约 0.09，所以它比臂粗一圈）
+/* ══ 星座 = 器官（2026-11-13 爀曦定的层级）══════════════════════════
+   他的原话：「架构——器官——器官的状态展示，三个层级对应悬臂——星座——星球卫星，
+   相机的视角不断放大，像一艘飞船越来越近。」
+   所以：悬臂 = 架构（六层）· 星座 = **器官**（不是 status 里的指标条目）·
+        星球/卫星 = 这个器官的状态明细。
+   每层有几座星座，取决于这一层管着几个器官 —— 不再是一层九座。
+   ───────────────────────────────────────────────────────────────── */
+const ORGAN_ORDER = ["soul", "huanqi", "autonomy", "diagnose", "degradation", "watermark", "waker"];
+const ORGAN_LAYER = {
+  soul: "echo", huanqi: "vital", autonomy: "vital", diagnose: "vital",
+  degradation: "capability", watermark: "archive", waker: "events"
+};
+const constNodes = [[], [], [], [], [], []];   // constNodes[arm][k] = Group，k 是这一层里的第几座
+let CONST_COUNT = 0;
+for (let oi = 0; oi < ORGAN_ORDER.length; oi++){
+  const okey = ORGAN_ORDER[oi];
+  const arm = Math.max(0, ORDER.indexOf(ORGAN_LAYER[okey]));
+  {
+    const seq = constNodes[arm].length;                   // 这一层里的第几座
+    const total = ORGAN_ORDER.filter(function(k){ return ORGAN_LAYER[k] === ORDER[arm]; }).length;
+    const c = nebSprites[arm * NEBS_PER_ARM + Math.min(NEBS_PER_ARM - 1, 1 + seq * 3)].position;
+    const shape = constShape(arm * 977 + seq * 131 + 7);
+    const j = seq;
+    const R = CONST_R * (0.96 + 0.26 * Math.abs(Math.sin(seq * 1.7 + arm)));
+    const sp = new Float32Array(shape.pts.length * 3);
+    shape.pts.forEach(function(p, idx){
+      sp[idx*3] = p[0]*R; sp[idx*3+1] = p[1]*R; sp[idx*3+2] = p[2]*R;
+    });
+    const lp = [];
+    shape.lines.forEach(function(L){
+      const A = shape.pts[L[0]], B = shape.pts[L[1]];
+      lp.push(A[0]*R, A[1]*R, A[2]*R, B[0]*R, B[1]*R, B[2]*R);
+    });
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute("position", new THREE.BufferAttribute(sp, 3));
+    const pm = new THREE.PointsMaterial({
+      color: 0xF2EADD, size: 0.105, sizeAttenuation: true, map: dotTex,
+      transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending
+    });
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute("position", new THREE.Float32BufferAttribute(lp, 3));
+    const lm = new THREE.LineBasicMaterial({
+      color: 0xF4C87A, transparent: true, opacity: 0,
+      depthWrite: false, blending: THREE.AdditiveBlending
+    });
+    const grp = new THREE.Group();
+    grp.position.copy(c);
+    grp.add(new THREE.Points(pg, pm));
+    grp.add(new THREE.LineSegments(lg, lm));
+    grp.userData = { arm: arm, j: j, organ: okey, mat: pm, lineMat: lm, tOn: 0, tScale: 1 };
+    gal.add(grp);
+    constNodes[arm].push(grp);
+  }
+}
+
+/* ══ L1：架构内的器官链（2026-11-13）══════════════════════════════════
+   同一层的器官是一条线上的几站 —— 现在它们只是散在臂上的几座星座，
+   彼此没关系。加一条折线把同层的器官按顺序串起来：
+   选中这一层时链亮起，读起来就是「这条架构上挂着这几个器官」。
+   只有 1 个器官的层不画（一条线不成链）。 */
+const chains = [];
+(function(){
+  for (let arm = 0; arm < 6; arm++){
+    const list = constNodes[arm];
+    if (!list || list.length < 2) { chains.push(null); continue; }
+    const pts = list.map(function(g){ return g.position.clone(); });
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    const mat = new THREE.LineBasicMaterial({
+      color: 0x9FB2C6, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending
+    });
+    const l = new THREE.Line(geo, mat);
+    gal.add(l);
+    chains.push(l);
+  }
+})();
+
+/* ══ L3：星球 + 卫星（2026-11-13 第三轮）═══════════════════════════════
+   选中某座星座后，它的中心长出一颗「星球」（真球体 + 大气光晕），
+   周围 5 颗卫星绕转 —— 卫星就是这条 item 的各个字段（读数 / sub / why / 时间 / 来源）。
+   为什么只做一套复用而不是 54 套：一次只可能有一颗星球在焦点上，
+   54 个球 = 324 个 draw call，而移动一个球几乎零成本。 */
+
+/* ══ 事件螺旋（2026-11-13）═══════════════════════════════════════════
+   Ⅵ 事件那条臂上，除了「台账」这一座器官星座，再挂一条**事件流**：
+   14 条真实事件沿臂外侧由内向外排开（越外越新），颜色按 stage。
+   为什么单独一条而不是塞进星座：星座表达「这一层管哪几个器官」，
+   事件流表达「最近发生过什么」—— 两种语义，不该挤在一个几何上。 */
+const evNodes = [];
+(function(){
+  for (let i = 0; i < 16; i++){
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: dotTex, color: 0xE8D6B8, transparent: true, opacity: 0,
+      depthWrite: false, blending: THREE.AdditiveBlending
+    }));
+    sp.scale.set(0.10, 0.10, 1);
+    sp.userData = { idx: i, tOn: 0, sx: 0, sy: 0, sz: 2 };
+    gal.add(sp);
+    evNodes.push(sp);
+  }
+})();
+
+/* 把事件按时间铺到 events 臂的外侧（t 0.34 → 0.96），并染色 */
+function layoutEventSpiral(){
+  const arm = ORDER.indexOf("events");
+  if (arm < 0) return;
+  const base = arm * Math.PI * 2 / 6;
+  const list = (LIVE && LIVE.recent) ? LIVE.recent.slice(0, 16) : [];
+  evNodes.forEach(function(sp, i){
+    const ev = list[i];
+    if (!ev){ sp.userData.tOn = 0; return; }
+    const t = 0.34 + (i / Math.max(1, list.length - 1)) * 0.62;
+    const ang = base + t * TURNS * Math.PI * 2;
+    const rr = R0 + t * RMAX;
+    const lift = 0.10 + 0.06 * Math.sin(i * 1.9);
+    sp.position.set(Math.cos(ang) * rr, lift, Math.sin(ang) * rr);
+    const st = String(ev.stage || "");
+    sp.material.color.setHex(st === "done" ? 0xA8D8B4 : (st === "held" ? 0xF4C87A : 0x8C8172));
+    sp.userData.ev = ev;
+    sp.userData.tOn = 1;
+  });
+}
+
+
+/* ══ 判决轨道（2026-11-13）═══════════════════════════════════════════
+   核球外面一圈：每一条宪章判定一颗（颜色 pass 绿 / ask 黄 / block 红）。
+   「它按什么规矩在做事」这件事，列在表里是审计，挂在核外才是「性格」——
+   一圈红点比一行红字更让人心里有数。数据来自 /api/live 的 recent[].charter。 */
+const verdictNodes = [];
+(function(){
+  for (let i = 0; i < 18; i++){
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: dotTex, color: 0xA8D8B4, transparent: true, opacity: 0,
+      depthWrite: false, blending: THREE.AdditiveBlending
+    }));
+    sp.scale.set(0.085, 0.085, 1);
+    sp.userData = { idx: i, tOn: 0, sx: 0, sy: 0, sz: 2, ph: 0 };
+    gal.add(sp);
+    verdictNodes.push(sp);
+  }
+})();
+
+function layoutVerdicts(){
+  const list = (LIVE && LIVE.recent) ? LIVE.recent.slice(0, 18) : [];
+  list.forEach(function(ev, i){
+    const sp = verdictNodes[i];
+    if (!sp) return;
+    const ch = String(ev.charter || "");
+    sp.material.color.setHex(ch === "pass" ? 0xA8D8B4 : (ch === "ask" ? 0xF4C87A : (ch === "block" ? 0xE88C7A : 0x8C8172)));
+    sp.userData.ph = (i / Math.max(1, list.length)) * Math.PI * 2;
+    sp.userData.ev = ev;
+    sp.userData.tOn = 1;
+  });
+  for (let i = list.length; i < verdictNodes.length; i++) verdictNodes[i].userData.tOn = 0;
+}
+
+/* 星球本体：不用 MeshBasic（纯色球在深底上像一块灰饼），
+   用一段 Fresnel：正面压暗、边缘发亮 —— 一眼就是「一颗被照亮的球」。 */
+const planetCore = new THREE.Mesh(
+  new THREE.SphereGeometry(0.26, 36, 24),
+  new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(0xD8A868) }, uAlpha: { value: 0 } },
+    vertexShader: [
+      "varying vec3 vN; varying vec3 vV; varying vec3 vP;",
+      "void main(){ vN = normalize(normalMatrix * normal); vP = position;",
+      "  vec4 mv = modelViewMatrix * vec4(position,1.0);",
+      "  vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }"
+    ].join("\n"),
+    fragmentShader: [
+      "precision highp float; varying vec3 vN; varying vec3 vV; varying vec3 vP; uniform vec3 uColor; uniform float uAlpha;",
+      "void main(){",
+      "  float c = max(dot(normalize(vN), normalize(vV)), 0.0);",
+      "  float rim = pow(1.0 - c, 2.4);",
+      "  float band = 0.5 + 0.5*sin(vP.y*22.0 + sin(vP.x*6.0 + vP.z*4.0)*1.7);",
+      "  float belt = smoothstep(0.12, 0.0, abs(vP.y*0.9 + 0.10*sin(vP.x*3.0)));",
+      "  vec3 col = uColor * (0.14 + c*0.34) * (0.80 + 0.42*band);",
+      "  col += uColor * belt * 0.28 * c;",
+      "  col += vec3(0.62,0.84,1.0) * rim * 1.9;",
+      "  gl_FragColor = vec4(col, uAlpha * (0.72 + rim*0.28));",
+      "}"
+    ].join("\n"),
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
+  })
+);
+const planetAtmo = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: dotTex, color: 0xF4C87A, transparent: true, opacity: 0,
+  depthWrite: false, blending: THREE.AdditiveBlending
+}));
+planetAtmo.scale.set(1.75, 1.75, 1);
+const planetGrp = new THREE.Group();
+planetGrp.add(planetCore);
+planetGrp.add(planetAtmo);
+planetGrp.visible = false;
+gal.add(planetGrp);
+
+const MOON_N = 5;
+const moonGrp = new THREE.Group();
+moonGrp.visible = false;
+const moonMeshes = [];
+for (let i = 0; i < MOON_N; i++) {
+  const m = new THREE.Mesh(
+    new THREE.SphereGeometry(0.042, 14, 10),
+    new THREE.MeshBasicMaterial({ color: 0xF0DDBE, transparent: true, opacity: 0 })
+  );
+  m.userData.ph = (i / MOON_N) * Math.PI * 2;
+  m.userData.rad = 0.42 + (i % 3) * 0.12;
+  m.userData.tilt = (i - 2) * 0.16;
+  moonGrp.add(m);
+  moonMeshes.push(m);
+}
+gal.add(moonGrp);
+
+/* ★ 2026-11-13：卫星轨道环 —— 之前卫星是几个裸球，看不出「在绕」。
+   每颗卫星配一条同半径的细圆环（LineLoop），跟卫星一起缩放；
+   opacity 跟星球同步淡入淡出。一个环 73 个顶点，5 条环的代价可以忽略。 */
+const moonOrbits = [];
+(function(){
+  const ringPts = [];
+  for (let i = 0; i <= 72; i++){
+    const a = (i / 72) * Math.PI * 2;
+    ringPts.push(new THREE.Vector3(Math.cos(a), 0, Math.sin(a)));
+  }
+  for (let i = 0; i < MOON_N; i++){
+    const g = new THREE.BufferGeometry().setFromPoints(ringPts);
+    const m = new THREE.LineBasicMaterial({
+      color: 0x8A6E4E, transparent: true, opacity: 0,
+      depthWrite: false, blending: THREE.AdditiveBlending
+    });
+    const l = new THREE.Line(g, m);
+    const r0 = 0.42 + (i % 3) * 0.12;
+    l.userData.rad = r0;
+    l.scale.setScalar(r0);
+    l.rotation.x = (i - 2) * 0.06;
+    moonGrp.add(l);
+    moonOrbits.push(l);
+  }
+})();
+
+
+/* ── 核球 ──────────────────────────────────────────────────────────── */
+const CORE_N = 1500, cpos = new Float32Array(CORE_N*3), csiz = new Float32Array(CORE_N), cbri = new Float32Array(CORE_N);
+for (let j = 0; j < CORE_N; j++) {
+  const r = Math.pow(Math.random(), 1.9) * 0.40;
+  const th = Math.random()*Math.PI*2, ph = Math.acos(2*Math.random()-1);
+  cpos[j*3] = r*Math.sin(ph)*Math.cos(th);
+  cpos[j*3+1] = r*Math.cos(ph)*0.62;
+  cpos[j*3+2] = r*Math.sin(ph)*Math.sin(th);
+  csiz[j] = 0.55 + Math.random()*0.95;
+  cbri[j] = 0.52 + Math.random()*0.34;
+}
+const cg = new THREE.BufferGeometry();
+cg.setAttribute("position", new THREE.BufferAttribute(cpos,3));
+cg.setAttribute("aSize", new THREE.BufferAttribute(csiz,1));
+cg.setAttribute("aB", new THREE.BufferAttribute(cbri,1));
+cg.setAttribute("aD", new THREE.BufferAttribute(new Float32Array(CORE_N),1));
+const coreMat = new THREE.ShaderMaterial({
+  vertexShader: PVS, fragmentShader: PFS,
+  uniforms: { uTime:{value:0}, uPix:{value:1}, uColor:{value:new THREE.Color(0xFFE8C4)}, uAlpha:{value:1} },
+  transparent:true, blending:THREE.AdditiveBlending, depthWrite:false
+});
+const corePts = new THREE.Points(cg, coreMat);
+gal.add(corePts);
+
+/* 核球光晕：一张永远面向相机的柔光片 */
+const glowMat = new THREE.ShaderMaterial({
+  vertexShader: "varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
+  fragmentShader: [
+    "precision highp float; varying vec2 vUv; uniform vec3 uColor; uniform float uT;",
+    "void main(){ vec2 d = vUv-vec2(0.5); float r = length(d)*2.0;",
+    "  float g = pow(clamp(1.0-r,0.0,1.0), 3.2);",
+    "  float g2 = pow(clamp(1.0-r,0.0,1.0), 1.1)*0.30;",
+    "  float pulse = 0.90 + 0.10*sin(uT*1.05);",
+    "  gl_FragColor = vec4(uColor*(g*1.15+g2*0.75)*pulse, (g*0.78+g2*0.46)*pulse); }"
+  ].join("\n"),
+  uniforms: { uColor:{value:new THREE.Color(0xFFE8C4)}, uT:{value:0} },
+  transparent:true, blending:THREE.AdditiveBlending, depthWrite:false
+});
+const glow = new THREE.Mesh(new THREE.PlaneGeometry(1.95,1.95), glowMat);
+gal.add(glow);
+
+/* ── 星空（远处，不随星系转） ────────────────────────────────────────── */
+const STAR_N = 2000, spos = new Float32Array(STAR_N*3), ssiz = new Float32Array(STAR_N), sbri = new Float32Array(STAR_N);
+for (let i = 0; i < STAR_N; i++) {
+  const r = 26 + Math.random()*34, th = Math.random()*Math.PI*2, ph = Math.acos(2*Math.random()-1);
+  spos[i*3] = r*Math.sin(ph)*Math.cos(th); spos[i*3+1] = r*Math.cos(ph); spos[i*3+2] = r*Math.sin(ph)*Math.sin(th);
+  ssiz[i] = 0.4 + Math.random()*1.3; sbri[i] = 0.25 + Math.random()*0.75;
+}
+const sg = new THREE.BufferGeometry();
+sg.setAttribute("position", new THREE.BufferAttribute(spos,3));
+sg.setAttribute("aSize", new THREE.BufferAttribute(ssiz,1));
+sg.setAttribute("aB", new THREE.BufferAttribute(sbri,1));
+sg.setAttribute("aD", new THREE.BufferAttribute(new Float32Array(STAR_N),1));
+const starMat = new THREE.ShaderMaterial({
+  vertexShader: PVS, fragmentShader: PFS,
+  uniforms: { uTime:{value:0}, uPix:{value:1}, uColor:{value:new THREE.Color(0xEFE0C8)}, uAlpha:{value:0.55} },
+  transparent:true, blending:THREE.AdditiveBlending, depthWrite:false
+});
+scene.add(new THREE.Points(sg, starMat));
+
+// ── 相机飞行（点击旋臂 → 推进到那条臂；双击 → 复位）──
+let camGoal = null, cameraFrame = null, cameraFrameCount = 0;
+const homeCamera = new THREE.Vector3(0, 2.35, 4.55);
+/* ★ 2026-11-13（爀曦定）：选中后**相机跟着悬臂转** —— 不是「飞过去停住」。
+   星系整体在自转（gal.rotation.y = t*0.045），臂尖的世界坐标每帧都在变；
+   所以这里只记 followKey，真正的位置在 frame() 里每帧重算 camGoal。
+   收益是两件：① 视角不会「看着悬臂走开」；② 锚点在屏幕上落点稳定，
+   面板才敢贴在边上不动（否则每帧都得重挂位置）。 */
+let followKey = null;
+/* L2 的选中状态：{ arm, j } —— 选中某层里的某一座星座。
+   followConst 是「相机跟到哪座星座」，和 followKey（跟哪条臂）互斥。 */
+let constSel = null;
+let followConst = null;
+/* 相机注视点。OrbitControls 默认盯 (0,0,0)（星系核）——
+   要「推近看某座星座」，光挪相机不够，得把注视点也挪过去，否则永远在看中心。 */
+const targetGoal = new THREE.Vector3(0, 0, 0);
+function flyToArm(k) {
+  followConst = null;
+  followKey = k;
+  controls.autoRotate = false;
+}
+function flyToConst(arm, j) {
+  followKey = null;
+  followConst = { arm, j };
+  controls.autoRotate = false;
+}
+function resetCam() {
+  followKey = null; followConst = null;
+  camGoal = homeCamera.clone();
+  targetGoal.set(0, 0, 0);
+  controls.autoRotate = false;
+}
+
+function stepCamera() {
+  if (followConst) {
+    const g = constNodes[followConst.arm][followConst.j];
+    const p = gal.localToWorld(g.position.clone());
+    targetGoal.copy(p);
+    camGoal = p.clone().addScaledVector(p.clone().normalize(), 1.15).add(new THREE.Vector3(0, 0.34, 0));
+  } else if (followKey) {
+    const it = items.find(x => x.L.k === followKey);
+    targetGoal.set(0, 0, 0);
+    camGoal = gal.localToWorld(it.tip.clone()).multiplyScalar(2.40).add(new THREE.Vector3(0, 1.55, 0));
+  }
+  // 朝着同一个注视点飞：插值距离和方向，不让反向飞行的直线穿过注视点。
+  const camK = REDUCE ? 1 : 0.055;
+  if (camGoal) {
+    const from = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+    const to = new THREE.Spherical().setFromVector3(camGoal.clone().sub(targetGoal));
+    const turn = to.theta - from.theta;
+    from.theta += Math.atan2(Math.sin(turn), Math.cos(turn)) * camK;
+    from.phi += (to.phi - from.phi) * camK;
+    from.radius += (to.radius - from.radius) * camK;
+    controls.target.lerp(targetGoal, REDUCE ? 1 : 0.06);
+    camera.position.setFromSpherical(from).add(controls.target);
+  } else {
+    controls.target.lerp(targetGoal, REDUCE ? 1 : 0.06);
+  }
+  if (followConst) {
+    controls.minDistance = ORGAN_MIN_DISTANCE;
+  } else if (controls.minDistance < WIDE_MIN_DISTANCE) {
+    // 从 L2 拉远时让下限随飞行恢复，避免第一帧突然跳到 3.2。
+    controls.minDistance = Math.min(WIDE_MIN_DISTANCE, Math.max(ORGAN_MIN_DISTANCE,
+      controls.minDistance, camera.position.distanceTo(controls.target)));
+  }
+  controls.update();
+  // 只记录控制器处理后的实值；没有目标时是 null，不把「没在飞」报成 0 误差。
+  cameraFrame = {
+    number: ++cameraFrameCount,
+    focus: followConst ? "organ" : followKey ? "arm" : "core",
+    arm: selected,
+    organ: followConst ? constNodes[followConst.arm][followConst.j].userData.organ : null,
+    position: camera.position.toArray(),
+    target: controls.target.toArray(),
+    cameraTargetDist: camera.position.distanceTo(controls.target),
+    goalTargetDist: camGoal ? camGoal.distanceTo(targetGoal) : null,
+    goalGap: camGoal ? camera.position.distanceTo(camGoal) : null,
+    targetGap: controls.target.distanceTo(targetGoal),
+    minDistance: controls.minDistance
+  };
+  if (!followKey && !followConst && camGoal && cameraFrame.goalGap < 0.02 && cameraFrame.targetGap < 0.02) {
+    camGoal = null;
+    controls.autoRotate = !REDUCE;
+  }
+}
+
+const raycaster = new THREE.Raycaster();
+let selected = null;
+
+function resize(){
+  const w = window.innerWidth, h = window.innerHeight;
+  if (renderer) renderer.setSize(w, h, false);
+  if (composer) composer.setSize(w, h);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  const pix = Math.min(1.5, window.devicePixelRatio || 1) * (h / 900);
+  items.forEach(function(it){ it.mat.uniforms.uPix.value = pix; if (it.flowMat) it.flowMat.uniforms.uPix.value = pix; });
+  coreMat.uniforms.uPix.value = pix; starMat.uniforms.uPix.value = pix; dustMat.uniforms.uPix.value = pix;
+}
+resize(); window.addEventListener("resize", function(){
+  resize();
+  if (!renderer) placePanel(window.innerWidth, window.innerHeight, 0);
+});
+
+const clock = new THREE.Clock();
+let running = true;
+
+function applySel(){
+  items.forEach(function(it){
+    const on = selected === null || selected === it.L.k;
+    /* ★ 2026-11-13：选中的那条臂**压暗**而不是提亮 ——
+       它上面要浮出 9 团星云，粒子太亮就把星云淹了（第一版 1.35 倍实测就是这毛病）。 */
+    it.mat.uniforms.uAlpha.value = it.baseAlpha * (on ? (selected === it.L.k ? 0.55 : 1) : 0.07);
+    it.mat.uniforms.uSel.value = (selected === it.L.k) ? 1 : 0;
+    it.el.style.opacity = on ? 0.95 : 0.15;
+    it.el.className = "lb" + (selected === it.L.k ? " on" : "");
+  });
+  /* 面板的显隐交给 placePanel（它要跟锚点一起判断可见性），这里不碰 */
+}
+
+function frame(){
+  if (!renderer) { placePanel(window.innerWidth, window.innerHeight, 0); return; }
+  if (!running) return;
+  requestAnimationFrame(frame);
+  /* ★ REDUCE 时 t 恒为 0：自转、闪烁、流光、呼吸全部停在定格画面上。 */
+  const t = REDUCE ? 0 : clock.getElapsedTime();
+  items.forEach(function(it){ it.mat.uniforms.uTime.value = t; if (it.flowMat) it.flowMat.uniforms.uTime.value = t; });
+  coreMat.uniforms.uTime.value = t; starMat.uniforms.uTime.value = t;
+  glowMat.uniforms.uT.value = t;
+  diskMat.uniforms.uT.value = t;
+  gal.rotation.y = t * 0.045;
+  /* 鼠标视差：缓动追，别硬跟（硬跟会晕） */
+  const tiltK = REDUCE ? 0 : 0.05;
+  sceneTiltY += (mousePX * 0.021 - sceneTiltY) * tiltK;
+  sceneTiltX += (mousePY * 0.016 - sceneTiltX) * tiltK;
+  scene.rotation.y = sceneTiltY;
+  scene.rotation.x = sceneTiltX;
+  /* 星云插值：目标值来自 updateNebulae()，这里只做缓动（0.12 ≈ 0.4s 到位） */
+  nebSprites.forEach(function(sp){
+    const m = sp.material;
+    const tOn = (sp.userData.tOn === undefined) ? 0.16 : sp.userData.tOn;
+    m.opacity += ((tOn) - m.opacity) * 0.12;
+    const tS = sp.userData.tScale || sp.userData.baseScale;
+    sp.scale.x += (tS - sp.scale.x) * 0.12;
+    sp.scale.y = sp.scale.x;
+  });
+  /* 判决轨道：绕核球慢转。它跟「哪一层」无关（是全局性格），所以总览时也在场。 */
+  verdictNodes.forEach(function(sp){
+    if (!sp.userData.tOn) { sp.material.opacity += (0 - sp.material.opacity) * 0.10; return; }
+    const a = sp.userData.ph + t * 0.16;
+    sp.position.set(Math.cos(a) * 0.62, 0.15 + 0.055 * Math.sin(a * 2.0), Math.sin(a) * 0.62);
+    sp.material.opacity += (0.85 - sp.material.opacity) * 0.10;
+  });
+  /* 事件螺旋：只有站在 Ⅵ 事件这一层时亮；进 L2 压暗，让位给星球 */
+  evNodes.forEach(function(sp){
+    const on = (selected === "events") && sp.userData.tOn;
+    const tgt = on ? (constSel ? 0.20 : 0.95) : 0;
+    sp.material.opacity += (tgt - sp.material.opacity) * 0.10;
+  });
+  /* 星座淡入淡出 + L2 放大（0.10 ≈ 0.5s，比星云的 0.12 略慢，让「先有云、后有星座」） */
+  for (let a = 0; a < 6; a++){
+    constNodes[a].forEach(function(g){
+      const u = g.userData;
+      u.mat.opacity += ((u.tOn ? 0.78 : 0) - u.mat.opacity) * 0.10;
+      u.lineMat.opacity += ((u.tOn ? 0.20 : 0) - u.lineMat.opacity) * 0.10;
+      g.scale.x += (u.tScale - g.scale.x) * 0.08;
+      g.scale.y = g.scale.z = g.scale.x;
+    });
+  }
+
+  /* ══ L3：星球 + 卫星 ══════════════════════════════════════════════
+     选中某座星座 → 它的中心长出一颗星球，5 颗卫星绕它转。
+     卫星 = 这条 item 的字段（读数 / 说明 / 采集时间 / 来源 / 状态）。
+     为什么用 5 颗固定槽位而不是按字段数生成：几何一次建好，
+     换条目只改 opacity —— 切条目不闪、不重建。 */
+  if (constSel) {
+    const gn = constNodes[constSel.arm] && constNodes[constSel.arm][constSel.j];
+    if (gn) {
+      planetGrp.visible = true; moonGrp.visible = true;
+      planetGrp.position.copy(gn.position);
+      moonGrp.position.copy(gn.position);
+      planetCore.material.uniforms.uAlpha.value += (1 - planetCore.material.uniforms.uAlpha.value) * 0.10;
+      planetAtmo.material.opacity += (0.42 - planetAtmo.material.opacity) * 0.10;
+      const pulse = 1.75 * (1 + 0.06 * Math.sin(t * 2.1));
+      planetAtmo.scale.set(pulse, pulse, 1);
+      moonMeshes.forEach(function(m){
+        const a = t * 0.85 + m.userData.ph;
+        const r = m.userData.rad;
+        m.position.set(Math.cos(a) * r, Math.sin(a * 1.4) * 0.045 + m.userData.tilt * 0.22, Math.sin(a) * r);
+        m.material.opacity += (0.92 - m.material.opacity) * 0.10;
+      });
+      moonOrbits.forEach(function(l){ l.material.opacity += (0.20 - l.material.opacity) * 0.10; });
+      /* ★ 2026-11-13 停用：器官现在就是星座本身（层级改为 架构→器官→状态），
+         再挂一圈子环就是同一份数据画两遍。留代码备查，不显示。 */
+      if (false && ORGANS && ORGANS.length){
+        organGrp.visible = true;
+        organGrp.position.copy(planetGrp.position);
+        organDots.forEach(function(sp, i){
+          const o = ORGANS[i];
+          if (!o) { sp.material.opacity += (0 - sp.material.opacity) * 0.12; return; }
+          const a2 = -t * 0.42 + sp.userData.ph;
+          sp.position.set(Math.cos(a2) * 0.88, Math.sin(a2 * 0.7) * 0.07, Math.sin(a2) * 0.88);
+          sp.material.opacity += (0.85 - sp.material.opacity) * 0.10;
+          sp.material.color.setHex(o.level === "alert" ? 0xE88C7A : (o.level === "warn" ? 0xF4C87A : 0xA8D8B4));
+        });
+      }
+    }
+  } else {
+    planetCore.material.uniforms.uAlpha.value += (0 - planetCore.material.uniforms.uAlpha.value) * 0.12;
+    planetAtmo.material.opacity += (0 - planetAtmo.material.opacity) * 0.12;
+    moonMeshes.forEach(function(m){ m.material.opacity += (0 - m.material.opacity) * 0.12; });
+    moonOrbits.forEach(function(l){ l.material.opacity += (0 - l.material.opacity) * 0.12; });
+    organDots.forEach(function(sp){ sp.material.opacity += (0 - sp.material.opacity) * 0.12; });
+    if (planetCore.material.uniforms.uAlpha.value < 0.02) { planetGrp.visible = false; moonGrp.visible = false; organGrp.visible = false; }
+  }
+  glow.quaternion.copy(camera.quaternion);
+  stepCamera();
+  if (composer) composer.render(); else renderer.render(scene, camera);
+  placeLabels(t);
+}
+
+function placeLabels(t){
+  const w = window.innerWidth, h = window.innerHeight;
+  const v = new THREE.Vector3();
+  items.forEach(function(it){
+    v.copy(it.tip).applyMatrix4(gal.matrixWorld);
+    v.y += 0.22 * Math.sin(t * 0.6 + it.tip.x);
+    v.project(camera);
+    let x = (v.x*0.5+0.5)*w;
+    const y = (-v.y*0.5+0.5)*h;
+    /* 标签不许跑到右栏底下（面板 344 + 24 的边距），否则读数被玻璃吃掉 */
+    x = Math.max(60, Math.min(w - 396, x));
+    it.sx = x; it.sy = y;
+    it.el.style.left = x.toFixed(1) + "px";
+    it.el.style.top = y.toFixed(1) + "px";
+    it.el.style.display = (v.z > 1) ? "none" : "block";
+  });
+  /* 每座星座的屏幕落点 —— L1 点选星座要用（这里算一次，点击时直接用） */
+  for (let a = 0; a < 6; a++){
+    constNodes[a].forEach(function(g){
+      const pv = _anchor.copy(g.position).applyMatrix4(gal.matrixWorld).project(camera);
+      g.userData.sx = (pv.x * 0.5 + 0.5) * w;
+      g.userData.sy = (-pv.y * 0.5 + 0.5) * h;
+      g.userData.sz = pv.z;
+    });
+  }
+  /* L3：卫星标签跟着卫星转（每帧重写位置 —— 它们自己在绕，不重写就飘） */
+  updateMoonLabels();
+  if (constSel && moonGrp.visible) {
+    const vm = new THREE.Vector3();
+    moonMeshes.forEach(function(m, i){
+      vm.copy(m.position).applyMatrix4(moonGrp.matrixWorld).project(camera);
+      const d = moonLabels[i];
+      if (vm.z > 1) { d.style.opacity = "0"; return; }
+      d.style.left = ((vm.x * 0.5 + 0.5) * w).toFixed(1) + "px";
+      d.style.top = ((-vm.y * 0.5 + 0.5) * h).toFixed(1) + "px";
+      d.style.opacity = "1";
+    });
+  } else {
+    moonLabels.forEach(function(d){ d.style.opacity = "0"; });
+  }
+  /* 器官子环的标签（同一套投影，字号小一号） */
+  if (constSel && organGrp.visible && ORGANS && ORGANS.length) {
+    const vo = new THREE.Vector3();
+    organDots.forEach(function(sp, i){
+      const o = ORGANS[i], d = organLabels[i];
+      if (!o) { d.style.opacity = "0"; return; }
+      vo.copy(sp.position).applyMatrix4(organGrp.matrixWorld).project(camera);
+      if (vo.z > 1) { d.style.opacity = "0"; return; }
+      d.className = "mo or" + (o.level === "alert" ? " alert" : "");
+      if (o.key === "waker") d.textContent = "台账";
+      else d.innerHTML = "<b>" + String(o.name || "") + "</b>" + (o.value === null || o.value === undefined ? "—" : String(o.value));
+      d.style.left = ((vo.x * 0.5 + 0.5) * w).toFixed(1) + "px";
+      d.style.top = ((-vo.y * 0.5 + 0.5) * h).toFixed(1) + "px";
+      d.style.opacity = "1";
+    });
+  } else {
+    organLabels.forEach(function(d){ d.style.opacity = "0"; });
+  }
+  /* 判决点的屏幕落点（任何层级都可点 —— 它是全局的） */
+  {
+    const vv = new THREE.Vector3();
+    verdictNodes.forEach(function(sp){
+      vv.copy(sp.position).applyMatrix4(gal.matrixWorld).project(camera);
+      sp.userData.sx = (vv.x * 0.5 + 0.5) * w;
+      sp.userData.sy = (-vv.y * 0.5 + 0.5) * h;
+      sp.userData.sz = vv.z;
+    });
+  }
+  /* 事件点的屏幕落点（点击判定用） */
+  if (selected === "events") {
+    const ve = new THREE.Vector3();
+    evNodes.forEach(function(sp){
+      ve.copy(sp.position).applyMatrix4(gal.matrixWorld).project(camera);
+      sp.userData.sx = (ve.x * 0.5 + 0.5) * w;
+      sp.userData.sy = (-ve.y * 0.5 + 0.5) * h;
+      sp.userData.sz = ve.z;
+    });
+  }
+  placePanel(w, h, t);
+}
+
+/* ★ 2026-11-13：面板跟随相机。
+   锚点 = 选中臂 tip 的 0.62 处（星云弧的中段）再抬 0.16，投影到屏幕后：
+   · 左边留 34px 给面板，右边不越界（w - 326 - 40）
+   · 垂直居中于锚点，超出视口按 62vh/2 + 20 夹住
+   · 引线从面板右缘拉回锚点 —— 面板被挤开时，仍看得出它说的是哪一团星云 */
+const _anchor = new THREE.Vector3();
+function placePanel(w, h, t){
+  const el = document.getElementById("panel");
+  const lead = document.getElementById("lead");
+  if (!el) return;
+  /* ★ 2026-11-13：总览态面板保持在场，展示核球读数。
+     布局跟选中层时一致：贴右边、垂直居中、不出界。 */
+  if (!selected || !renderer) {
+    if (w <= 760) {
+      el.style.left = "16px"; el.style.right = "16px"; el.style.top = "auto";
+      el.style.bottom = "86px"; el.style.width = "auto"; el.style.maxHeight = "42vh";
+      el.style.transform = "none";
+    } else {
+      const PW0 = el.offsetWidth;
+      el.style.left = Math.max(16, w - PW0 - 26) + "px";
+      el.style.right = "auto"; el.style.top = Math.max(120, Math.min(h - 120, h * 0.44)) + "px";
+      el.style.bottom = "auto"; el.style.width = ""; el.style.maxHeight = "";
+      el.style.transform = "translate(0,-50%)";
+    }
+    el.classList.add("show");
+    /* 总览时收起左下角那张水位卡 —— 它有的几项概览面板里都有了，
+       两张卡同时在场等于同一件事说两遍。 */
+    const cEl0 = document.getElementById("corner");
+    if (cEl0) cEl0.style.opacity = "0";
+    if (lead) lead.classList.remove("show");
+    return;
+  }
+  const it = items.find(function(x){ return x.L.k === selected; });
+  if (!it) return;
+  if (constSel) _anchor.copy(targetGoal);
+  else {
+    _anchor.copy(it.tip).multiplyScalar(0.62).applyMatrix4(gal.matrixWorld);
+    _anchor.y += 0.16 + 0.03 * Math.sin(t * 0.7);
+  }
+  const p = _anchor.clone().project(camera);
+  if (!constSel && p.z > 1) { if (lead) lead.classList.remove("show"); return; }
+  const ax = (p.x * 0.5 + 0.5) * w;
+  const ay = p.z > 1 ? h * 0.44 : (-p.y * 0.5 + 0.5) * h;
+  /* 相机跟随悬臂之后，锚点在屏幕上的落点已经稳定 ——
+     面板就贴「锚点的对侧边」，只夹边界、不追点位，读起来最稳。 */
+  const PW = el.offsetWidth;
+  if (w <= 760) {
+    // 窄屏底部sheet：让出header与中部星系，并给rail/hint保留空间。
+    el.style.left = "16px"; el.style.right = "16px"; el.style.top = "auto";
+    el.style.bottom = "86px"; el.style.width = "auto"; el.style.maxHeight = "42vh";
+    el.style.transform = "none";
+    el.classList.add("show");
+    const cMobile = document.getElementById("corner"); if (cMobile) cMobile.style.opacity = "0";
+    if (lead) lead.classList.remove("show");
+    return;
+  }
+  // Wide canvas: dock the detail pane opposite the selected arm, never over its label or the title/header.
+  const left = Math.max(16, Math.min(w - PW - 16, constSel || ax < w * 0.5 ? w - PW - 30 : 26));
+  const halfH = el.offsetHeight / 2;
+  // #panel is vertically centered by translateY(-50%); clamp its top edge below header.
+  const topMin = 190 + halfH;
+  const topMax = h - halfH - 86;
+  const top = Math.max(topMin, Math.min(topMax, ay));
+  el.style.left = left.toFixed(1) + "px";
+  el.style.right = "auto";
+  el.style.top = top.toFixed(1) + "px";
+  el.style.bottom = "auto";
+  el.style.width = "";
+  el.style.maxHeight = "";
+  el.style.transform = "translate(0,-50%)";
+  el.classList.add("show");
+  if (lead && p.z > 1) lead.classList.remove("show");
+  else if (lead) {
+    const y0 = top;
+    const x0 = constSel ? left : left + PW;
+    const dx = ax - x0, dy = ay - y0;
+    lead.style.left = x0.toFixed(1) + "px";
+    lead.style.top = y0.toFixed(1) + "px";
+    lead.style.width = Math.max(0, Math.hypot(dx, dy)).toFixed(1) + "px";
+    lead.style.transform = "rotate(" + Math.atan2(dy, dx).toFixed(4) + "rad)";
+    lead.classList.add("show");
+  }
+}
+
+/* ★ 2026-11-13：鼠标视差 —— 场景跟着光标轻微倾斜（±1.2°），
+   给「这是一片有深度的空间」一个身体感觉。不碰相机（相机由 camGoal 管），
+   只转 scene，所以和飞行、跟随都不打架。 */
+let mousePX = 0, mousePY = 0, sceneTiltX = 0, sceneTiltY = 0;
+canvas.addEventListener("mousemove", function(e){
+  mousePX = (e.clientX / window.innerWidth - 0.5) * 2;
+  mousePY = (e.clientY / window.innerHeight - 0.5) * 2;
+  showHover(e.clientX, e.clientY);
+});
+
+/* ★ 2026-11-13：悬停预览。
+   判定全部用**已经算好的屏幕坐标**（placeLabels 每帧写 sx/sy），不引入 raycast ——
+   同一条数据算过一次就够了，再算一次只是多一份会漂的真相。
+   优先级：判决点 < 事件点 < 星座 < 悬臂（越小的越优先命中）。 */
+function showHover(mx, my){
+  const el = document.getElementById("hover");
+  if (!el) return;
+  let txt = null, eventText = false;
+  const hit = function(x, y, r){
+    return (x !== undefined && y !== undefined && Math.hypot(x - mx, y - my) < r);
+  };
+  // 判决点
+  let bv = 18, vi = -1;
+  verdictNodes.forEach(function(sp, i){
+    if (!sp.userData.tOn || sp.userData.sz > 1) return;
+    const d = Math.hypot(sp.userData.sx - mx, sp.userData.sy - my);
+    if (d < bv) { bv = d; vi = i; }
+  });
+  if (vi >= 0 && LIVE && LIVE.recent && LIVE.recent[vi]){
+    const V = LIVE.recent[vi];
+    txt = "LIVE 判词 · " + liveEventLabel(V); eventText = true;
+  }
+  // 事件点
+  if (!txt && selected === "events" && LIVE && LIVE.recent){
+    let be = 20, ei = -1;
+    evNodes.forEach(function(sp, i){
+      if (!sp.userData.tOn || sp.userData.sz > 1) return;
+      const d = Math.hypot(sp.userData.sx - mx, sp.userData.sy - my);
+      if (d < be) { be = d; ei = i; }
+    });
+    if (ei >= 0 && LIVE.recent[ei]){
+      const EV = LIVE.recent[ei];
+      txt = "LIVE 事件 · " + liveEventLabel(EV); eventText = true;
+    }
+  }
+  // 星座（器官）
+  if (!txt && selected){
+    const arm = ORDER.indexOf(selected);
+    let bj = -1, bd = 46;
+    (constNodes[arm] || []).forEach(function(g, j){
+      if (g.userData.sz > 1) return;
+      const d = Math.hypot(g.userData.sx - mx, g.userData.sy - my);
+      if (d < bd) { bd = d; bj = j; }
+    });
+    if (bj >= 0){
+      const o = organByKey((constNodes[arm][bj].userData || {}).organ);
+      if (constNodes[arm][bj].userData.organ === "waker") { txt = "台账 · 详情按需读取"; eventText = true; }
+      else if (o) txt = "<b>" + String(o.name) + "</b> · " + String(o.value === null || o.value === undefined ? "—" : o.value) + " · " + String(o.level || "");
+    }
+  }
+  // 悬臂
+  if (!txt){
+    let bi = -1, bD = 52;
+    items.forEach(function(it, i){
+      if (it.sx === undefined) return;
+      const d = Math.hypot(it.sx - mx, it.sy - my);
+      if (d < bD) { bD = d; bi = i; }
+    });
+    if (bi >= 0){
+      const it = items[bi];
+      const L = (STATUS && STATUS.layers || {})[it.L.k] || {};
+      txt = "<b>" + it.L.ro + " " + it.L.en + "</b> · " + it.L.zh + " · " + String(L.level || "—");
+    }
+  }
+  if (txt){
+    if (eventText) el.textContent = txt; else el.innerHTML = txt;
+    el.style.left = mx + "px";
+    el.style.top = my + "px";
+    el.classList.add("show");
+  } else {
+    el.classList.remove("show");
+  }
+}
+canvas.addEventListener("mouseleave", function(){ mousePX = 0; mousePY = 0; });
+
+canvas.addEventListener("dblclick", function(){ navigate(null); });
+
+/* ★ 滚轮 = 进/退一级（一镜到底的手感）。
+   L1 时向上滚 → 进入屏幕中心最近的那座星座；L2 时向下滚 → 退回层。
+   只在能进/退的时候 preventDefault，其余交给 OrbitControls 缩放 —— 两种缩放不打架。 */
+let lastWheel = 0;
+canvas.addEventListener("wheel", function(ev){
+  if (!selected) return;
+  const now = performance.now();
+  if (now - lastWheel < 650) return;
+  const armIdx = ORDER.indexOf(selected);
+  if (ev.deltaY > 0 && constSel) {
+    lastWheel = now; ev.preventDefault();
+    navigateUp();
+  } else if (ev.deltaY < 0 && !constSel && constNodes[armIdx].length) {
+    lastWheel = now; ev.preventDefault();
+    let bj = 0, bd = 1e9;
+    const cx = window.innerWidth * 0.5, cy = window.innerHeight * 0.5;
+    constNodes[armIdx].forEach(function(g, j){
+      const d = Math.hypot((g.userData.sx || 0) - cx, (g.userData.sy || 0) - cy);
+      if (d < bd) { bd = d; bj = j; }
+    });
+    navigate(selected, constNodes[armIdx][bj].userData.organ);
+  }
+}, { passive: false });
+
+canvas.addEventListener("click", function(ev){
+  /* ★ L2：已经选中某层时，先判这次点是不是落在某座星座上（70px 半径）。
+     命中就推进到那座星座；再点同一座 = 退回 L1。 */
+  if (selected) {
+    const arm = ORDER.indexOf(selected);
+    let bj = -1, bd = 70;
+    constNodes[arm].forEach(function(g, j){
+      if (g.userData.sz > 1) return;
+      const d = Math.hypot((g.userData.sx || 0) - ev.clientX, (g.userData.sy || 0) - ev.clientY);
+      if (d < bd) { bd = d; bj = j; }
+    });
+    /* 判决点：最小最密，最先判 */
+    {
+      let bv = -1, bdv = 20;
+      verdictNodes.forEach(function(sp, i){
+        if (!sp.userData.tOn || sp.userData.sz > 1) return;
+        const d = Math.hypot(sp.userData.sx - ev.clientX, sp.userData.sy - ev.clientY);
+        if (d < bdv) { bdv = d; bv = i; }
+      });
+      if (bv >= 0) { window.__verSel = LIVE.recent[bv]; window.__evSel = null; renderPanel(); return; }
+    }
+    /* ★ 事件螺旋优先：它比星座更小、更靠外，不先判它就会被星座抢走命中 */
+    if (selected === "events") {
+      let be = -1, bde = 26;
+      evNodes.forEach(function(sp, i){
+        if (sp.userData.sz > 1 || !sp.userData.tOn) return;
+        const d = Math.hypot(sp.userData.sx - ev.clientX, sp.userData.sy - ev.clientY);
+        if (d < bde) { bde = d; be = i; }
+      });
+      if (be >= 0) {
+        window.__evSel = LIVE.recent[be];
+        window.__verSel = null;
+        renderPanel();
+        return;
+      }
+    }
+    if (bj >= 0) {
+      const same = constSel && constSel.arm === arm && constSel.j === bj;
+      if (same) navigateUp();
+      else navigate(selected, constNodes[arm][bj].userData.organ);
+      return;
+    }
+  }
+  let best = null, bestD = 150;
+  items.forEach(function(it){
+    const d = Math.hypot(it.sx - ev.clientX, it.sy - ev.clientY);
+    if (d < bestD) { bestD = d; best = it.L.k; }
+  });
+  if (best) navigate(best);
+});
+
+// 深链接只在启动和历史导航读入；轮询不会切换层级。
+function restoreRoute() {
+  const q = new URLSearchParams(location.search);
+  const arm = q.get("sel"), key = q.get("organ"), legacy = q.get("c");
+  const requestedEchoLayer = q.get("echoLayer");
+  echoLayer = arm === "echo" && ECHO_LAYERS.some(x => x.id === requestedEchoLayer) ? requestedEchoLayer : null;
+  if (arm === null && key === null && legacy === null) return navigate(null, null, true);
+  const a = ORDER.indexOf(arm);
+  if (a < 0) return navigate(null, null, true, "无效旋臂，已回到总览。");
+  const nodes = constNodes[a];
+  if (key !== null) return nodes.some(g => g.userData.organ === key)
+    ? navigate(arm, key, true) : navigate(arm, null, true, "器官不在此旋臂，已回到旋臂。");
+  if (legacy !== null) {
+    const n = /^(0|[1-9]\d*)$/.test(legacy) && nodes[Number(legacy)];
+    return n ? navigate(arm, n.userData.organ, true) : navigate(arm, null, true, "无效星座序号，已回到旋臂。");
+  }
+  navigate(arm, null, true);
+}
+function navigateUp() {
+  if (selected === "echo" && !constSel && echoLayer) {
+    echoLayer = null;
+    const url = new URL(location.href); url.searchParams.delete("echoLayer");
+    history.pushState(null, "", url);
+    renderEchoLayers(); renderGalaxyNav(); renderPanel();
+    return;
+  }
+  if (selected) navigate(constSel ? selected : null, null, false, "", true);
+}
+function navigate(arm, key = null, restore = false, note = "", focus = false) {
+  const a = ORDER.indexOf(arm);
+  if (arm !== null && a < 0) return;
+  const j = key === null || a < 0 ? -1 : constNodes[a].findIndex(g => g.userData.organ === key);
+  if (key !== null && j < 0) return;
+  const same = selected === arm && (constSel ? constSel.j === j : j === -1);
+  if (arm !== "echo") echoLayer = null;
+  const url = new URL(location.href);
+  for (const [param, value] of [["sel", arm], ["organ", key], ["c", null], ["echoLayer", arm === "echo" && echoLayer ? echoLayer : null]]) {
+    if (value === null) { if (url.searchParams.has(param)) url.searchParams.delete(param); }
+    else if (url.searchParams.getAll(param).length !== 1 || url.searchParams.get(param) !== value) url.searchParams.set(param, value);
+  }
+  if (url.href !== location.href) {
+    if (restore) history.replaceState(history.state, "", url);
+    else if (!same) history.pushState(null, "", url);
+  }
+  const msg = document.getElementById("galaxy-link-note");
+  msg.textContent = note; msg.hidden = !note;
+  if (!same) {
+    selected = arm;
+    constSel = j < 0 ? null : { arm:a, j };
+    window.__evSel = null; window.__verSel = null;
+    if (constSel) flyToConst(a, j);
+    else if (arm) flyToArm(arm);
+    else resetCam();
+    applySel(); updateNebulae(); renderRail();
+  }
+  renderGalaxyNav(); renderEchoLayers(); renderPanel(); renderWakerLedger();
+  const panel = document.getElementById("panel");
+  if (!same) panel.scrollTop = 0;
+  if (focus) panel.querySelector("h2")?.focus({preventScroll:true});
+}
+
+/* ★ 2026-11-13：星云展开/收起的目标值。
+   每层 9 个星云，按该层真实 items 数点亮前 N 个（多余的留暗）。
+   选中层：点亮到 0.85 + 放大 1.55 倍；总览态：留 0.16 的微光，
+   让六条臂仍看得出「这上面有东西」，但不会抢核心。 */
+function updateNebulae(){
+  const idxOf = {};
+  ORDER.forEach(function(k, i){ idxOf[k] = i; });
+  const selIdx = selected ? idxOf[selected] : -1;
+  nebSprites.forEach(function(sp){
+    const arm = sp.userData.arm, i = sp.userData.idx;
+    const it = items[arm];
+    const n = (it && it.nItems) ? it.nItems : 6;
+    const real = i < n;
+    const on = (selIdx === arm) && real;
+    const dim = (selIdx === -1) && real;
+    /* ★ 2026-11-13（爀曦：「辉光太重了」）：星云是加色混合的大 sprite，
+       选中层时开到 1.0 会把整条臂糊成一片奶白，把星球和星座全吞掉。
+       0.38 是「看得出这层在发光」与「还能读出结构」的临界。 */
+    sp.userData.tOn = on ? 0.38 : (dim ? 0.10 : 0);
+    sp.userData.tScale = sp.userData.baseScale * (on ? 1.45 : 1.0);
+  });
+  /* 星座只在选中层亮起 —— 总览时全灭，否则六层 54 座星座会把整片星系糊成白点。
+     L2 的那一座额外放大 3.4 倍（其余保持 1 倍），这就是「一镜到底」的第三级。 */
+  for (let a = 0; a < 6; a++){
+    constNodes[a].forEach(function(g){
+      const u = g.userData;
+      /* L2 时同层其他座压到 0.16：既保留「这一层还有别的」的上下文，又不抢焦点 */
+      const sameNode = constSel && constSel.arm === a && constSel.j === u.j;
+      u.tOn = (selIdx === a) ? (constSel ? (sameNode ? 1 : 0.16) : 1) : 0;
+      /* 器官链：选中的层亮起；进了 L2 就压暗，让位给星球 */
+      if (chains[a]){
+        const ct = (selIdx === a) ? (constSel ? 0.14 : 0.55) : 0;
+        chains[a].material.opacity = ct;
+      }
+      u.tScale = (constSel && constSel.arm === a && constSel.j === u.j) ? 3.4 : 1.0;
+    });
+  }
+}
+
+let STATUS = null;
+function applyData(s){
+  STATUS = s;
+  const layers = (s && s.layers) || {};
+  const wm = (s && s.watermarks) || {};
+  let worst = "ok";
+  items.forEach(function(it){
+    const L = layers[it.L.k] || {};
+    const lv = L.level || "pending";
+    it.level = lv;
+    if (lv === "error" || (worst === "ok" && lv === "warn")) worst = lv;
+    const its = L.items || [];
+    let okN = 0, liveN = 0;
+    its.forEach(function(x){ if (x.na) return; liveN++; if (x.level === "ok") okN++; else if (x.level == null) okN++; });
+    const total = its.length || 1;
+    const okR = okN / total, liveR = liveN / total;
+    const c = LV[lv] || LV.pending;
+    it.mat.uniforms.uColor.value.setRGB(c[0], c[1], c[2]);
+    it.okR = okN / total; it.nItems = its.length; it.col = c;
+    paintRing(it);
+    const lvCol = lv === "error" ? "#E88C7A" : lv === "warn" ? "#F4C87A" : lv === "ok" ? "#A8D8B4" : "#6FA8FF";
+    const dash = (Math.min(1, okN / total) * 2 * Math.PI * 5).toFixed(1);
+    it.el.innerHTML = '<span class="r"><svg viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="5" stroke="rgba(203,191,174,.28)"></circle><circle cx="6.5" cy="6.5" r="5" stroke="' + lvCol + '" stroke-dasharray="' + dash + ' 99"></circle></svg></span>'
+      + "<b>" + it.L.ro + "</b> " + it.L.en + ' <s style="text-decoration:none;font-size:9.5px;letter-spacing:.1em;color:' + lvCol + '">' + lvZh(lv) + " · " + its.length + "</s>";
+    const lvW = lv === "ok" ? 1.0 : lv === "warn" ? 0.86 : lv === "error" ? 1.12 : 0.70;
+    it.baseAlpha = (0.86 + 0.58*okR) * lvW;
+    it.mat.uniforms.uAlpha.value = it.baseAlpha * ((selected === null || selected === it.L.k) ? 1 : 0.12);
+    it.mat.uniforms.uSpeed.value = 0.8 + 1.6 * (liveN / total);
+    if (it.flowMat) {
+      it.flowMat.uniforms.uFlow.value = 0.35 + 2.2 * (liveN / total);
+      it.flowMat.uniforms.uColor.value.setRGB(c[0]*0.7 + 0.3, c[1]*0.7 + 0.3, c[2]*0.7 + 0.32);
+      it.flowMat.uniforms.uSel.value = (selected === it.L.k) ? 1 : 0;
+    }
+    if (selected === it.L.k) it.mat.uniforms.uSel.value = 1;
+  });
+  updateNebulae();
+  /* 天空层的色温跟着整体水平走（环境即状态） */
+  if (window.asMood) window.asMood(worst === "error" ? "err" : (worst === "warn" ? "warn" : "ok"));
+  renderPanel();
+  const wc = LV[worst] || LV.pending;
+  glowMat.uniforms.uColor.value.setRGB(wc[0]*1.1+0.22, wc[1]*1.0+0.20, wc[2]*0.9+0.18);
+  coreMat.uniforms.uColor.value.setRGB(0.98, 0.90, 0.76);
+  renderRail(); applySel();
+  /* 左下角：一屏一焦点 = 那个 44px 的水位数字。其余五项降成小字对照表。
+   ★ 为什么把「本会话水位」单独放大：它是这一屏唯一一个「现在就该看」的数，
+     而且它越线是要出事的（80% 红灯）—— 其余五个都是背景。 */
+  const L2 = wm.lead || {}, A2 = wm.active || {}, M2 = wm.mirror || {};
+  const put = function(id, v){ const el2 = document.getElementById(id); if (el2) el2.textContent = v; };
+  put("cw-lead", L2.pct != null ? Math.round(L2.pct) + "%" : (L2.ok === false ? "—" : "—"));
+  put("cw-active", A2.count != null ? A2.count + " 条" : "—");
+  put("cw-mirror", M2.pct != null ? M2.pct.toFixed(1) + "%" : "—");
+  let nBad = 0, nWarn = 0;
+  items.forEach(function(x){ if (x.level === "error") nBad++; else if (x.level === "warn") nWarn++; });
+  put("cw-layers", nBad ? (nBad + " 异常") : (nWarn ? (nWarn + " 注意") : "全部正常"));
+  const c2 = s.core || {};
+  put("cw-meta", "pid " + (c2.pid || "—") + " · 已跑 " + Math.round((c2.uptimeSec || 0) / 60) + " 分钟 · 内存 " + (c2.rssMB || "—") + " MB"
+    + (L2.ok === false ? " · 水位读不到《墨》" : ""));
+  const leadPct = (wm.lead && wm.lead.pct != null) ? wm.lead.pct : null;
+  const stEl = document.getElementById("stamp");
+  if (stEl) stEl.textContent = "pid " + ((s.core && s.core.pid) || "—") + " · " + (s.core && s.core.node || "—")
+    + (leadPct != null ? " · 水位 " + leadPct.toFixed(1) + "%" : "");
+
+}
+
+/* 等级的中文名：ok/warn/error 是后端字段，读者要的是「正常/注意/异常」。 */
+/* ★ 同上：emergency 原来不在表里，lvZh('emergency') 直接把英文原样吐给读者。
+     读者是中文，而且这个级别最该一眼看懂。 */
+const LV_ZH = { ok:"正常", warn:"注意", error:"异常", alert:"异常", emergency:"紧急", pending:"待采" };
+function lvZh(v){ return LV_ZH[v] || (v || "—"); }
+/* 级别 → 颜色（十六进制）。原来是两处内联小表（L2 器官 / L1 器官），各写各的，
+   而且都没有 emergency —— 一份判据写两遍必然分叉，收敛成这一处。 */
+const LV_HEX = { ok:"#96CFA8", warn:"#F4C87A", error:"#E88C7A", alert:"#E88C7A", emergency:"#F25A51", pending:"#9FB2C6" };
+function lvHex(v){ return LV_HEX[v] || LV_HEX.pending; }
+
+function renderRail(){
+  const rail = document.getElementById("rail");
+  items.forEach(function(it){
+    const c = LV[it.level] || LV.pending;
+    let d = rail.querySelector('[data-k="' + it.L.k + '"]');
+    if (!d) {
+      d = document.createElement("button");
+      d.type = "button";
+      d.dataset.k = it.L.k;
+      d.onclick = () => navigate(it.L.k, null, false, "", true);
+      rail.appendChild(d);
+    }
+    d.className = "chip" + (selected === it.L.k ? " on" : "");
+    d.setAttribute("aria-pressed", String(selected === it.L.k));
+    d.innerHTML = '<u style="background:rgb(' + Math.round(c[0]*255) + ',' + Math.round(c[1]*255) + ',' + Math.round(c[2]*255) + ')"></u>' +
+      it.L.ro + " " + it.L.en + " <s>" + lvZh(it.level || "pending") + "</s>";
+  });
+}
+function renderEchoLayers(){
+  const section = document.getElementById("echo-layers"), box = document.getElementById("echo-layer-tabs");
+  const visible = selected === "echo" && !constSel;
+  section.hidden = !visible;
+  if (!visible) return;
+  if (!box.children.length) box.replaceChildren(...ECHO_LAYERS.map(layer => {
+    const button = document.createElement("button");
+    button.type = "button"; button.dataset.layer = layer.id; button.textContent = layer.id;
+    button.title = layer.title;
+    button.onclick = () => {
+      if (echoLayer === layer.id) return;
+      echoLayer = layer.id;
+      const url = new URL(location.href); url.searchParams.set("echoLayer", layer.id);
+      history.pushState(null, "", url);
+      renderGalaxyNav(); renderEchoLayers(); renderPanel();
+    };
+    return button;
+  }));
+  for (const button of box.children) {
+    button.setAttribute("aria-current", button.dataset.layer === echoLayer ? "page" : "false");
+  }
+}
+function renderGalaxyNav(){
+  const layer = LAYERS.find(l => l.k === selected);
+  const node = constSel && organNodeAt(constSel.arm, constSel.j);
+  const key = node && node.userData.organ;
+  const name = key === "waker" ? "台账" : key && (organByKey(key)?.name || key);
+  const crumb = document.getElementById("galaxy-crumb");
+  const trail = ["总览", layer?.en, layer?.k === "echo" ? echoLayer : null, name].filter(Boolean).join(" / ");
+  if (crumb.textContent !== trail) crumb.textContent = trail;
+  const up = document.getElementById("galaxy-up");
+  up.hidden = !layer;
+  if (layer) up.textContent = "上一级 · " + (key ? layer.en : "总览");
+  const box = document.getElementById("galaxy-organs");
+  const list = layer && !key ? constNodes[ORDER.indexOf(layer.k)] : [];
+  // 轮询仅更新标签，按钮本身留在原处，保留键盘焦点。
+  if (box.dataset.arm !== (list.length ? layer.k : "")) {
+    box.dataset.arm = list.length ? layer.k : "";
+    box.replaceChildren(...list.map(g => {
+      const b = document.createElement("button");
+      const organ = g.userData.organ;
+      b.type = "button";
+      b.dataset.organ = organ;
+      b.onclick = () => navigate(layer.k, organ, false, "", true);
+      return b;
+    }));
+  }
+  for (const b of box.children) {
+    const o = organByKey(b.dataset.organ);
+    b.textContent = b.dataset.organ === "waker" ? "台账" : (o?.name || b.dataset.organ) + (o?.level ? " · " + lvZh(o.level) : "");
+  }
+}
+
+/* ══ 面板里的迷你图表（2026-11-13）════════════════════════════════════
+   爀曦：「状态的展示尽可能是用图表」。3D 场景负责「在哪、多大」，图表负责「多少、趋势」。
+   用 SVG 不用 canvas：它们要活在 DOM 流里跟着面板走，面板缩小时矢量也清楚。 */
+function chartRing(pct, label, color){
+  const p = Math.max(0, Math.min(100, pct || 0));
+  const R = 30, C = 2 * Math.PI * R;
+  const dash = (C * p / 100).toFixed(1);
+  return '<div style="display:flex;align-items:center;gap:12px;padding:6px 0">'
+    + '<svg width="76" height="76" viewBox="0 0 76 76">'
+    + '<circle cx="38" cy="38" r="' + R + '" fill="none" stroke="rgba(203,191,174,.14)" stroke-width="7"/>'
+    + '<circle cx="38" cy="38" r="' + R + '" fill="none" stroke="' + color + '" stroke-width="7" stroke-linecap="round"'
+    + ' stroke-dasharray="' + dash + ' ' + C.toFixed(1) + '" transform="rotate(-90 38 38)"/>'
+    + '<text x="38" y="43" text-anchor="middle" font-size="16" fill="#F2EADD" font-family="Consolas,monospace">' + p.toFixed(0) + '%</text>'
+    + '</svg>'
+    + '<div style="flex:1"><div style="font-size:11.5px;color:#A79A88">' + label + '</div>'
+    + '<div style="font-size:10px;color:#8C8172;margin-top:2px">' + (p >= 80 ? "接近上限" : p >= 60 ? "偏高" : "健康") + '</div></div>'
+    + '</div>';
+}
+
+/* ★ 2026-11-18：本层健康环 —— L1 原来只有两列文字，一句图都没有。
+   爀曦 2026-11-13 说过「状态的展示尽可能是用图表」，L0 有水位环 + 三条 sparkline，L1/L2 一点没有，
+   于是「一镜到底」越往里走，画面里的信息密度反而越低。
+
+   ★ 为什么不画器官读数的条形对比：那些 value 量纲不同（83.9% / idle / 3758 文件 / 0），
+     并排成条等于把不可比的东西画成可比 —— 那是骗人。
+
+   ★★ 为什么不用「正常项占比」切三档（第一版就是这么写的，实测踩到）：
+     4/7 = 57% 会落进「多项异常」的红色档，可那 3 项只是 level=warn（注意），不是错误。
+     **把「注意」画成「异常」会让人以为出了大事** —— 图表不许夸大。
+     所以判据改成看 level 的分布：有 error 才是红，只有 warn 是黄，全 ok 才是绿。 */
+function chartLayerHealth(items){
+  const all = items || [];
+  const naN = all.filter(function(x){ return x && x.na; }).length;
+  const live = all.filter(function(x){ return x && !x.na; });
+  const liveN = live.length;
+  if (!liveN) return '<div class="note" style="padding:6px 0">这一层还没有可读的项。</div>';
+  /* ★★ 2026-11-18 实测纠正：/api/status 的 item **没有 level 字段**。
+     真实字段只有 label / value / unit / sub / why / at / pct / **na** / **bad**。
+     第一版按 x.level 判，于是「level 为 null 就算 ok」→ 每层恒报「全部正常」。
+     那不是图表难看，是图表在撒谎 —— 和今天早些时候那个 emergency 兜底是同一个病：
+     **不认识的东西被静默算成正常。**
+     现在按真实字段判：bad = 坏，na = 读不到，其余 = 正常。 */
+  let nOk = 0, nWarn = 0, nErr = 0, nOther = 0;
+  live.forEach(function(x){
+    if (x.bad) nErr++;
+    else if (x.na) nOther++;          // na 已在上面被 filter 掉，这里兜底
+    else nOk++;
+  });
+  // item 级没有 level，「注意」这一档只能从 sub/why 文本里认，这里不做猜测。
+  const warnText = null;
+  const col = nErr ? "#E88C7A" : "#A8D8B4";
+  const word = nErr ? ("有 " + nErr + " 项异常") : "全部可读";
+  const R = 22, C = 2 * Math.PI * R;
+  const pct = nOk / liveN;
+  const dash = (C * pct).toFixed(1);
+  return '<div style="display:flex;align-items:center;gap:12px;padding:2px 0 8px">'
+    + '<svg width="58" height="58" viewBox="0 0 58 58">'
+    + '<circle cx="29" cy="29" r="' + R + '" fill="none" stroke="rgba(203,191,174,.14)" stroke-width="6"/>'
+    + '<circle cx="29" cy="29" r="' + R + '" fill="none" stroke="' + col + '" stroke-width="6" stroke-linecap="round"'
+    + ' stroke-dasharray="' + dash + ' ' + C.toFixed(1) + '" transform="rotate(-90 29 29)"/>'
+    + '<text x="29" y="33" text-anchor="middle" font-size="13" fill="#F2EADD" font-family="Consolas,monospace">'
+    + nOk + "/" + liveN + '</text>'
+    + '</svg>'
+    + '<div style="flex:1"><div style="font-size:11.5px;color:' + col + '">' + word + '</div>'
+    + '<div style="font-size:10px;color:#8C8172;margin-top:2px">本层 ' + liveN + ' 项可读'
+    + (nErr ? ' · ' + nErr + ' 项异常' : '')
+    + (naN ? ' · ' + naN + ' 项读不到' : '')
+    + '</div></div>'
+    + '</div>';
+}
+
+function chartLayerBars(L){
+  let h = '<div style="padding:4px 0">';
+  items.forEach(function(it){
+    const lv = (L[it.L.k] && L[it.L.k].level) || "pending";
+    const n = ((L[it.L.k] && L[it.L.k].items) || []).length;
+    const col = lv === "error" ? "#E88C7A" : lv === "warn" ? "#F4C87A" : lv === "ok" ? "#96CFA8" : "#9FB2C6";
+    const w = Math.max(6, Math.min(100, n / 9 * 100));
+    h += '<div style="display:flex;align-items:center;gap:7px;margin:3px 0">'
+      + '<span style="width:56px;font-size:10px;color:#A79A88;text-align:right">' + it.L.ro + " " + it.L.en + '</span>'
+      + '<span style="flex:1;height:5px;background:rgba(203,191,174,.10);border-radius:3px;overflow:hidden">'
+      + '<span style="display:block;height:100%;width:' + w.toFixed(0) + '%;background:' + col + ';border-radius:3px"></span></span>'
+      + '<span style="width:22px;font-size:10px;color:#CBBFAE;text-align:right;font-variant-numeric:tabular-nums">' + n + '</span>'
+      + '</div>';
+  });
+  return h + '</div>';
+}
+
+function chartSpark(series, key, label, color){
+  const arr = (series || []).map(function(x){ return Number(x[key]) || 0; });
+  if (arr.length < 2) return '<div style="font-size:10px;color:#8C8172;padding:3px 0">' + label + " · 采样不足</div>";
+  const w = 268, h = 32, pad = 3;
+  const mn = Math.min.apply(null, arr), mx = Math.max.apply(null, arr);
+  const rng = (mx - mn) || 1;
+  const pts = arr.map(function(v, i){
+    const x = pad + (i / (arr.length - 1)) * (w - pad * 2);
+    const y = h - pad - ((v - mn) / rng) * (h - pad * 2);
+    return x.toFixed(1) + "," + y.toFixed(1);
+  }).join(" ");
+  return '<div style="padding:2px 0 3px">'
+    + '<div style="display:flex;justify-content:space-between;font-size:10px;color:#8C8172"><span>' + label + '</span>'
+    + '<span style="color:' + color + ';font-variant-numeric:tabular-nums">' + arr[arr.length - 1].toLocaleString() + '</span></div>'
+    + '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" style="display:block">'
+    + '<polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" opacity=".9"/>'
+    + '</svg></div>';
+}
+
+// The ledger read scans the source file. Keep it outside EP: only the user can start it.
+const WAKER_VIEWS = [["act", "待执行"], ["done", "已判执行"], ["audit", "待审计"], ["auto", "自主判定"]];
+const WAKER_STALE_MS = 60000, WAKER_LIMIT = 200;
+const WAKER_STAGES = ["pending", "woken", "decided", "done", "held", "auditing", "stuck", "blocked"];
+const WAKER_DECISIONS = ["resume", "hold", "audit"];
+const WAKER_CHARTERS = ["pass", "ask", "block", "unchecked"];
+const waker = { view:"act", pending:false, snapshot:null, issue:"", ageTimer:null, rendered:null };
+const wakerEl = id => document.getElementById("waker-" + id);
+const oneOf = (value, options) => options.includes(value) ? value : "—";
+function ledgerText(value, limit) {
+  if (typeof value !== "string" || !value.trim()) return "—";
+  // Free-form label/notes can embed a path. Withhold the field, not a guessed suffix.
+  if (/[\\/]/.test(value)) return "［含路径分隔符，已隐藏］";
+  return value.replace(/[\x00-\x08\x0b-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, "").slice(0, limit);
+}
+function ledgerTime(value) {
+  return typeof value === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(value)
+    && Number.isFinite(Date.parse(value)) ? value : "—";
+}
+function readWakerSnapshot(o) {
+  if (o?.ok !== true) return { issue:"error" };
+  // This adapter uses HTTP 200 with why even when the underlying read failed.
+  if (o.why != null) return { issue:typeof o.why === "string" && /^(文件不存在：|没有台账路径)/.test(o.why) ? "missing" : "error" };
+  const count = n => Number.isSafeInteger(n) && n >= 0;
+  if (!count(o.total)) return { issue:"error" };
+  const counts = {}, views = {};
+  for (const [key] of WAKER_VIEWS) {
+    const n = o.counts?.[key], rows = o.views?.[key];
+    if (!count(n) || n > o.total || !Array.isArray(rows) || rows.length > n) return { issue:"error" };
+    counts[key] = n;
+    views[key] = rows.slice(0, WAKER_LIMIT).map(r => ({
+      title:ledgerText(r?.title, 200), t:ledgerTime(r?.t), from:ledgerText(r?.from, 160), tier:ledgerText(r?.tier, 32),
+      stage:oneOf(r?.stage, WAKER_STAGES), decision:oneOf(r?.decision, WAKER_DECISIONS), charter:oneOf(r?.charter, WAKER_CHARTERS),
+      charterNote:ledgerText(r?.charterNote, 300), note:ledgerText(r?.note, 300)
+    }));
+  }
+  return { snapshot:{ at:Date.now(), total:o.total, counts, views }, issue:"" };
+}
+function ledgerNode(tag, text) {
+  const el = document.createElement(tag);
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+function wakerRow(row) {
+  const details = ledgerNode("details");
+  details.appendChild(ledgerNode("summary", row.title === "—" ? "未命名事件" : row.title));
+  const fields = ledgerNode("dl");
+  for (const [label, value] of [
+    ["事件时间", row.t], ["来源", row.from], ["级别", row.tier], ["台账阶段", row.stage],
+    ["登记判定", row.decision], ["宪章判词", row.charter], ["审计备注", row.charterNote], ["台账备注", row.note]
+  ]) {
+    fields.appendChild(ledgerNode("dt", label));
+    fields.appendChild(ledgerNode("dd", value));
+  }
+  details.appendChild(fields);
+  return details;
+}
+const wakerTabs = WAKER_VIEWS.map(([key, label], index) => {
+  const b = ledgerNode("button");
+  b.type = "button";
+  b.id = "waker-tab-" + key;
+  b.dataset.view = key;
+  b.setAttribute("role", "tab");
+  b.setAttribute("aria-controls", "waker-view");
+  b.appendChild(ledgerNode("b", label));
+  b.appendChild(ledgerNode("span", "—"));
+  b.onclick = () => { waker.view = key; renderWakerLedger(); };
+  b.onkeydown = e => {
+    const n = wakerTabs.length;
+    const dest = { ArrowLeft:(index + n - 1) % n, ArrowRight:(index + 1) % n, Home:0, End:n - 1 }[e.key];
+    if (typeof dest !== "number") return;
+    e.preventDefault();
+    wakerTabs[dest].onclick();
+    wakerTabs[dest].focus();
+  };
+  wakerEl("tabs").appendChild(b);
+  return b;
+});
+function renderWakerLedger() {
+  const visible = selected === "events";
+  wakerEl("ledger").hidden = !visible;
+  if (waker.ageTimer !== null) clearTimeout(waker.ageTimer);
+  waker.ageTimer = null;
+  if (!visible) return;
+  const snap = waker.snapshot;
+  const ttlLeft = snap ? WAKER_STALE_MS - (Date.now() - snap.at) : 0;
+  const stale = snap && (ttlLeft <= 0 || waker.issue);
+  const reason = waker.issue === "missing" ? "未读到台账（未接入或文件缺失）" : waker.issue === "error" ? "读取台账失败" : "";
+  const state = wakerEl("state");
+  state.dataset.state = stale ? "stale" : waker.pending ? "loading" : waker.issue || (snap ? "ready" : "idle");
+  state.textContent = [
+    waker.pending ? (snap ? "正在刷新…" : "正在读取…") : "",
+    reason,
+    snap ? (stale ? "陈旧缓存 · 上次读取 " : "最近读取 ") + new Date(snap.at).toLocaleString() : "",
+    !snap && !waker.pending && !reason ? "尚未读取台账" : ""
+  ].filter(Boolean).join(" · ");
+  if (ttlLeft > 0 && !waker.issue) waker.ageTimer = setTimeout(renderWakerLedger, ttlLeft);
+  const load = wakerEl("load");
+  load.textContent = waker.pending ? "读取中…" : snap ? "刷新台账" : waker.issue ? "重试读取" : "读取台账";
+  load.setAttribute("aria-disabled", String(waker.pending));
+  for (const b of wakerTabs) {
+    const key = b.dataset.view;
+    b.tabIndex = key === waker.view ? 0 : -1;
+    b.setAttribute("aria-selected", String(key === waker.view));
+    b.children[1].textContent = snap ? String(snap.counts[key]) : "—";
+  }
+  wakerEl("view").setAttribute("aria-labelledby", "waker-tab-" + waker.view);
+  if (waker.rendered?.snap === snap && waker.rendered.view === waker.view) return;
+  waker.rendered = { snap, view:waker.view };
+  const rows = snap ? snap.views[waker.view] : [];
+  const n = snap?.counts[waker.view];
+  wakerEl("count").textContent = snap ? "全本 " + snap.total + " 条 · 此视图 " + n + " 条 · 当前列出 " + rows.length + " 条"
+    + (n === 0 ? " · 此视图为空" : n > rows.length ? "（有界列表）" : "") : "视图计数 — · 当前行数 —";
+  wakerEl("rows").replaceChildren(...rows.map(wakerRow));
+}
+wakerEl("load").onclick = async function() {
+  if (selected !== "events" || waker.pending) return;
+  waker.pending = true;
+  renderWakerLedger();
+  const ctl = new AbortController();
+  const timeout = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const r = await fetch("/api/waker", { method:"GET", cache:"no-store", signal:ctl.signal });
+    const result = r.ok ? readWakerSnapshot(await r.json()) : { issue:r.status === 503 ? "missing" : "error" };
+    if (result.snapshot) waker.snapshot = result.snapshot;
+    waker.issue = result.issue;
+  } catch {
+    waker.issue = "error";
+  } finally {
+    clearTimeout(timeout);
+    waker.pending = false;
+    // Cache a late result; only the current Events scope owns this DOM.
+    if (selected === "events") renderWakerLedger();
+  }
+};
+
+const echoAuthority = { data:null, pending:false, issue:null, generation:0, appliedGeneration:0 };
+const echoAuthorityEl = id => document.getElementById("echo-authority-" + id);
+const authorityText = value => {
+  if (value === null || value === undefined || value === "") return "未知";
+  const text = String(value);
+  const isPath = /^[A-Za-z]:/.test(text) || text.startsWith("\\\\") || (text.startsWith("/") && text.indexOf("/", 1) > 0);
+  return isPath ? "含路径内容，已隐藏" : text;
+};
+function authorityRow(label, value) {
+  const dt = document.createElement("dt"); dt.textContent = label;
+  const dd = document.createElement("dd"); dd.textContent = authorityText(value);
+  const pair = document.createElement("div"); pair.append(dt, dd); return pair;
+}
+function renderEchoAuthority() {
+  const state = echoAuthorityEl("state"), rows = echoAuthorityEl("rows"), button = echoAuthorityEl("load");
+  if (!state || !rows || !button) return;
+  const data = echoAuthority.data;
+  button.disabled = echoAuthority.pending;
+  button.textContent = echoAuthority.pending ? "读取中…" : "读取权威索引";
+  state.dataset.state = echoAuthority.pending ? "loading" : echoAuthority.issue || (data ? "ready" : "unknown");
+  if (echoAuthority.pending) state.textContent = "读取中 · query 未查询";
+  else if (echoAuthority.issue === "error") state.textContent = data ? "读取失败 · 显示上次缓存（新鲜度未知）" : "读取失败 · 新鲜度未知 · query 未查询";
+  else if (!data) state.textContent = "尚未读取 · 未知 · query 未查询";
+  else {
+    const fresh = data.freshness && data.freshness.state;
+    const last = data.sync?.last;
+    const syncStatus = last?.ok === false ? "同步最近失败" : data.sync?.enabled === false ? "同步已禁用" : data.sources?.available === false ? "索引未接入" : "同步状态";
+    state.textContent = syncStatus + " · " + (fresh === "fresh" ? "新鲜度：新鲜" : fresh === "stale" ? "新鲜度：陈旧" : "新鲜度：未知")
+      + " · query 未查询" + (data.freshness?.checkedAt ? " · 采集 " + data.freshness.checkedAt : "");
+  }
+  if (!data) { rows.replaceChildren(); return; }
+  const sync = data.sync || {}, last = sync.last || {}, source = data.sources || {};
+  const summary = document.createElement("dl");
+  const syncLabel = source.available === false || data.issue === "database-not-wired" ? "未接入 / 未配置" : sync.configured === false ? "未配置" : sync.configured === true ? "已配置" : "未知";
+  summary.append(authorityRow("同步器接入", syncLabel));
+  summary.append(authorityRow("sync enabled", sync.enabled));
+  summary.append(authorityRow("sync running", sync.running));
+  summary.append(authorityRow("last at", last.at));
+  summary.append(authorityRow("last code", last.code));
+  summary.append(authorityRow("last stage", last.stage));
+  summary.append(authorityRow("last attempt id / count", [last.attemptId, last.attempt].filter(x => x != null).join(" / ") || null));
+  summary.append(authorityRow("last commit id / count", [last.commitId, last.commit].filter(x => x != null).join(" / ") || null));
+  summary.append(authorityRow("last authority", last.authority ? [last.authority.sourceId, last.authority.generation, last.authority.state].filter(x => x != null).join(" · ") : null));
+  summary.append(authorityRow("attempt / commit id", [last.attemptId, last.commitId].filter(Boolean).join(" / ") || null));
+  summary.append(authorityRow("query", data.query?.status || "not-queried"));
+  rows.replaceChildren(summary);
+  if (source.available !== true || !Array.isArray(source.rows)) {
+    rows.append(authorityRow("sources", source.available === false ? "未接入 / 未知" : "未知"));
+    return;
+  }
+  if (!source.rows.length) rows.append(authorityRow("sources", "无 source rows（不等于已同步或健康）"));
+  source.rows.forEach(row => {
+    const detail = document.createElement("details"), heading = document.createElement("summary"), dl = document.createElement("dl");
+    heading.textContent = "source " + authorityText(row.sourceId);
+    for (const [label, value] of [["generation",row.generation],["state",row.state],["cursor",row.cursorSeq],["words / FTS",row.counts ? String(authorityText(row.counts.words)) + " / " + authorityText(row.counts.wordsFts) : null],["summaries / FTS",row.counts ? String(authorityText(row.counts.summaries)) + " / " + authorityText(row.counts.summariesFts) : null],["source seqs / declared",row.counts ? String(authorityText(row.counts.srcSeqs)) + " / " + authorityText(row.counts.declaredSrcSeqs) : null],["aligned",row.aligned]]) dl.append(authorityRow(label,value));
+    detail.append(heading,dl); rows.append(detail);
+  });
+}
+echoAuthorityEl("load").onclick = async function() {
+  if (echoAuthority.pending || selected !== "echo" || constSel || echoLayer !== "L4") return;
+  const generation = ++echoAuthority.generation;
+  echoAuthority.pending = true; echoAuthority.issue = null; renderEchoAuthority();
+  const ctl = new AbortController(), timeout = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const r = await fetch("/api/echo/authority-view", { method:"GET", cache:"no-store", signal:ctl.signal });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const payload = await r.json();
+    if (generation === echoAuthority.generation) { echoAuthority.data = payload; echoAuthority.issue = null; }
+  } catch {
+    if (generation === echoAuthority.generation) echoAuthority.issue = "error";
+  } finally {
+    clearTimeout(timeout);
+    if (generation === echoAuthority.generation) {
+      echoAuthority.pending = false;
+      // Cache late data, but only render it while the ECHO arm remains active.
+      if (selected === "echo" && !constSel) renderEchoAuthority();
+    }
+  }
+};
+
+function liveEventLabel(event) {
+  return "阶段 " + oneOf(event.stage, WAKER_STAGES) + " · 宪章 " + oneOf(event.charter, WAKER_CHARTERS);
+}
+function liveEventSelection() {
+  const e = window.__evSel || window.__verSel;
+  return e ? '<div class="note">选中 LIVE ' + (window.__evSel ? '事件' : '判词') + ' · '
+    + ledgerTime(e.t) + ' · ' + liveEventLabel(e) + '（非执行回执）</div>' : '';
+}
+
+function renderPanel(){
+  const el = document.getElementById("galaxy-detail");
+  const panel = document.getElementById("panel");
+  const scroll = panel.scrollTop;
+  const headingFocused = el.querySelector("h2") === document.activeElement;
+  const authoritySection = document.getElementById("echo-authority");
+  const showAuthority = selected === "echo" && !constSel && echoLayer === "L4";
+  if (!showAuthority && echoAuthority.pending) { echoAuthority.generation++; echoAuthority.pending = false; }
+  if (authoritySection) authoritySection.hidden = !showAuthority;
+  if (showAuthority) renderEchoAuthority();
+  function put(html){
+    el.innerHTML = html;
+    const heading = el.querySelector("h2");
+    if (heading) heading.tabIndex = -1;
+    if (headingFocused) heading?.focus({preventScroll:true});
+    panel.scrollTop = scroll;
+  }
+  if (!selected) {
+    /* 全局运行概览：核球描述机器与宿主状态，不属于 ECHO 内层。 */
+    const L = STATUS?.layers || {};
+    const nBad = items.filter(function(x){ return x.level === "error"; }).length;
+    const nWarn = items.filter(function(x){ return x.level === "warn"; }).length;
+    let h = "<h2>核球</h2><div class=\"pm\">此刻在跑的这个我 · " + nBad + " 异常 / " + nWarn + " 注意</div>";
+    const O = OVERVIEW;
+    /* ★ 2026-11-13（爀曦：「不然不知道有没有连上宿主」）：
+       宿主的连接状态顶在最上面，带灯 —— 这是「它现在能不能被叫动」的总闸。 */
+    if (O) {
+      const conn = !!(O.control && O.control.connected);
+      const nl = conn ? "#96CFA8" : "#E88C7A";
+      const hostName = (O.control && O.control.hosts && O.control.hosts[0] && O.control.hosts[0].host) || "—";
+      h += '<div style="display:flex;align-items:center;gap:9px;padding:9px 11px;margin:2px 0 8px;border-radius:10px;'
+        + 'background:' + (conn ? "rgba(150,207,168,.10)" : "rgba(232,140,122,.10)") + ';border:1px solid ' + (conn ? "rgba(150,207,168,.34)" : "rgba(232,140,122,.34)") + '">'
+        + '<span style="width:9px;height:9px;border-radius:50%;background:' + nl + ';box-shadow:0 0 10px ' + nl + '"></span>'
+        + '<span style="font-size:12.5px;color:#F2EADD">宿主 ' + (conn ? "已连" : "未连") + '</span>'
+        + '<span style="margin-left:auto;font-size:10.5px;color:#8C8172">' + (conn ? hostName + " · " + (O.control.connected) + " 台" : "拿不到控制通道") + '</span>'
+        + '</div>';
+    }
+    if (!O) {
+      h += '<div class="note">概览读数还没到（/api/overview）。</div>';
+    } else {
+      const kv = function(k, v){ return '<div class="pi"><b>' + k + "</b><span>" + v + "</span></div>"; };
+      /* 水位搬进来 —— 否则左下角那张 #corner 卡与这见面板会各说一半 */
+      const W = (STATUS?.watermarks && STATUS.watermarks.lead) || null;
+      if (W){
+        const wp = W.pct || 0;
+        h += chartRing(wp, "本会话水位 · " + Math.round((W.used || 0) / 1000) + "K / " + Math.round((W.window || 0) / 1000) + "K",
+          wp >= 80 ? "#E88C7A" : wp >= 60 ? "#F4C87A" : "#96CFA8");
+      }
+      const AC = (STATUS?.watermarks && STATUS.watermarks.active) || null;
+      if (AC) h += kv("活跃会话", (AC.count || 0) + " 条");
+      h += kv("会话容器", O.sessions + " 个");
+      h += kv("索引行", Number(O.indexRows).toLocaleString() + " 行");
+      h += kv("数据体积", O.dataMB + " MB");
+      h += kv("索引缓存", O.cacheMB + " MB");
+      h += kv("进程内存", O.memMB + " MB（heap " + O.heapMB + " MB）");
+      h += kv("已运行", Math.round(O.uptimeSec / 60) + " 分钟 · node " + O.node);
+      h += kv("桥接", (O.control && O.control.connected) ? ("已连 " + O.control.connected + " 台") : "未连");
+      h += kv("模型", String(O.model || "—") + (O.llmUsable ? " · 可用" : " · 不可用"));
+      h += kv("人格层", O.persona.used + " / " + O.persona.budget + " B" + (O.persona.dropped && O.persona.dropped.length ? " · 丢 " + O.persona.dropped.length : ""));
+      h += kv("事件引擎", O.events.rules + " 条规则 · " + O.events.ticks + " 次心跳");
+    }
+    h += liveEventSelection();
+    h += '<div class="note" style="margin:12px 0 4px">六层 · 每层指标数</div>';
+    h += chartLayerBars(L);
+    if (OVERVIEW && OVERVIEW.series){
+      h += '<div class="note" style="margin:10px 0 2px">趋势 · 本进程窗口</div>';
+      h += chartSpark(OVERVIEW.series, "sessions", "会话数", "#9FB2C6");
+      h += chartSpark(OVERVIEW.series, "indexRows", "索引行", "#96CFA8");
+      h += chartSpark(OVERVIEW.series, "memMB", "进程内存 MB", "#C7A9D8");
+    }
+    h += "<div class=\"note\">点任意一条旋臂（或底部胶囊）进去。拖拽转、滚轮缩放。</div>";
+    put(h);
+    return;
+  }
+  // The status/organ readouts embed source paths; the ledger view does not reuse those free-form fields.
+  if (selected === "echo" && !constSel) {
+    if (echoLayer) {
+      const layer = ECHO_LAYERS.find(x => x.id === echoLayer);
+      let detail = '<h2>ECHO · ' + layer.id + ' · ' + layer.title + '</h2><div class="pm">ECHO 内层 · 与外层六分区分离</div><div class="note">' + layer.detail + '</div>';
+      if (layer.id === "L4") detail += '<div class="note">L4 是派生索引视图；显式点击下方“读取权威索引”才发送只读 GET。authority-view 不触发同步。</div>';
+      if (layer.id === "L5") detail += '<div class="note">L4 索引统计不等于 L5 查询结果；当前未接入 query receipt。</div>';
+      put(detail); return;
+    }
+    put('<h2>Ⅰ · ECHO</h2><div class="pm">外层旋臂 · 器官与探针分域；内层 L0–L5 见上方导航</div>' + liveEventSelection());
+    return;
+  }
+  if (selected === "events") {
+    const title = constSel ? "台账" : "Ⅵ · 事件";
+    const desc = constSel ? "Ⅵ 事件 · 唤醒台账器官" : "事件源 · 唤醒 · 台账";
+    put('<h2>' + title + '</h2><div class="pm">' + desc + '</div>' + liveEventSelection());
+    return;
+  }
+  /* ★ L2：选中了某一座星座 —— 星座就是**器官**，面板切成这个器官的明细 */
+  if (constSel) {
+    const nd = organNodeAt(constSel.arm, constSel.j);
+    const okey = nd && nd.userData.organ;
+    const o = okey ? organByKey(okey) : null;
+    const it0 = items.find(function(x){ return x.L.k === selected; });
+    if (o) {
+      const lvTxt = lvZh(o.level);
+      const lvCol = lvHex(o.level);
+      let g = "<h2>" + String(o.name || okey) + "</h2>";
+      g += '<div class="pm">' + (it0 ? it0.L.ro + " " + it0.L.en : "") + " · 器官 · "
+        + '<s style="text-decoration:none;color:' + lvCol + '">' + lvTxt + '</s></div>';
+      g += '<div class="pi"><b>当前</b><span>' + (o.value === null || o.value === undefined ? "—" : String(o.value)) + "</span></div>";
+      if (o.note) g += '<div class="note">' + String(o.note) + "</div>";
+      put(g);
+    } else {
+      put('<h2>' + okey + '</h2><div class="note">' + (ORGANS ? '器官读数未提供。' : '器官读数还没到（/api/organs）。') + '</div>');
+    }
+    return;
+  }
+  const it = items.find(function(x){ return x.L.k === selected; });
+  const L = (STATUS?.layers || {})[selected] || {};
+  const its = L.items || [];
+  let h = '<h2>' + it.L.ro + ' · ' + it.L.en + '</h2><div class="pm">' + it.L.zh + ' · ' + lvZh(L.level || "pending") + '</div>';
+  if (selected === "vital") h = '<h2>上下文管理</h2><div class="pm">观察 · 整理 · 压缩 · 交接 · 保护上下文连续性</div>';
+  if (!STATUS) { put(h + '<div class="note">旋臂读数还没到（/api/status）。</div>' + (selected === "vital" ? '<div class="note">上下文水位字段：not-connected</div>' : "")); return; }
+  h += chartLayerHealth(its);
+  if (!its.length) h += "<div class=\"note\">这一层现在没有可读的项。</div>";
+  its.forEach(function(x){
+    const v = (x.value === null || x.value === undefined) ? "—" : (String(x.value) + (x.unit || ""));
+    h += "<div class=\"pi" + (x.na ? " na" : "") + "\"><b>" + String(x.label || "") + "</b><span>" + v + "</span></div>";
+    if (x.sub) h += "<div class=\"note\" style=\"margin:2px 0 6px;font-size:10.5px\">" + String(x.sub) + "</div>";
+  });
+  if (L.note) h += "<div class=\"note\">" + String(L.note) + "</div>";
+  if (selected === "vital") {
+    const W = STATUS?.watermarks?.lead, A = STATUS?.watermarks?.active, M = STATUS?.watermarks?.mirror;
+    h += '<div class="note">上下文水位 · 来源：/api/status watermarks（各自独立口径）</div>';
+    h += '<div class="pi' + (W?.ok ? '' : ' na') + '"><b>本会话压力</b><span>' + (W?.ok && W.pct != null ? Math.round(W.pct) + '% · ' + (W.used != null ? Math.round(W.used/1000) + 'K' : '未知') + ' / ' + (W.window != null ? Math.round(W.window/1000) + 'K' : '未知') : 'not-connected') + '</span></div>';
+    h += '<div class="pi' + (A?.ok ? '' : ' na') + '"><b>活跃上下文样本</b><span>' + (A?.ok && A.count != null ? A.count + ' 条' : 'not-connected') + '</span></div>';
+    h += '<div class="pi' + (M?.ok ? '' : ' na') + '"><b>镜像帧估算（非水位）</b><span>' + (M?.ok && M.pct != null ? M.pct.toFixed(1) + '%' : 'not-connected') + '</span></div>';
+    h += '<div class="note">观察：读取已接入水位与来源；整理：保持可回取线索可见；压缩：交接时保留精确门牌；交接：保留责任与上下文。此页不触发清理或压缩操作。</div>';
+  }
+  /* ★ 2026-11-13：Ⅱ VITAL —— 换气出手（从 /api/organs 的 huanqi 卡抽取，
+     它的 note 里就有一手数字：DSH 额度 x/y · 累计熔断 N 次 · 最近一次 skip 原因） */
+  if (selected === "vital" && ORGANS) {
+    const hq = ORGANS.filter(function(x){ return x.key === "huanqi"; })[0];
+    if (hq) {
+      const note = String(hq.note || "");
+      const m1 = note.match(/额度\s*([0-9]+\s*\/\s*[0-9]+)/);
+      const m2 = note.match(/累计熔断\s*([0-9]+)/);
+      const m3 = note.match(/最近\s*([a-z:]+)/);
+      h += '<div class="note" style="margin-top:12px">换气 · 出手台账</div>';
+      h += '<div style="display:flex;gap:6px;margin:4px 0 6px">'
+        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10.5px;color:#9FB2C6;background:rgba(203,191,174,.07)">额度 ' + (m1 ? m1[1] : "—") + "</span>"
+        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10.5px;color:#F4C87A;background:rgba(203,191,174,.07)">熔断 ' + (m2 ? m2[1] : "—") + "</span>"
+        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10px;color:#8C8172;background:rgba(203,191,174,.07)">' + (m3 ? m3[1].slice(0, 12) : "—") + "</span>"
+        + "</div>";
+      h += '<div class="note" style="font-size:10px">' + note.slice(0, 110) + "</div>";
+    }
+  }
+  /* ★ 2026-11-13：Ⅱ VITAL —— 推理文本多样性（爀曦：换气插件新增这项检测，要展示） */
+  if (selected === "vital" && DIAG) {
+    const by = DIAG.byKind || {};
+    const kinds = ["repeat", "spin", "empty", "dup"];
+    h += '<div class="note" style="margin-top:12px">推理文本多样性 · 扫了 ' + (DIAG.frames || 0) + " 帧 · 可疑 " + (DIAG.total || 0) + ' 段</div>';
+    h += '<div style="display:flex;gap:6px;margin:4px 0 6px">';
+    kinds.forEach(function(k){
+      const n = by[k] || 0;
+      const col = n > 0 ? "#F4C87A" : "#96CFA8";
+      h += '<span style="flex:1;text-align:center;padding:4px 0;border-radius:6px;font-size:10.5px;color:' + col + ';background:rgba(203,191,174,.07)">' + k + " " + n + "</span>";
+    });
+    h += "</div>";
+    (DIAG.items || []).slice(0, 4).forEach(function(it){
+      h += '<div class="pi" style="align-items:flex-start;gap:8px"><b style="flex:1;min-width:0;font-size:10.5px;line-height:1.5;color:#CBBFAE">' + String(it.kind || "") + " ×" + (it.count || 1) + " — " + String(it.why || "").slice(0, 34) + "</b></div>";
+    });
+    if (DIAG.note) h += '<div class="note" style="font-size:10px">' + String(DIAG.note).slice(0, 120) + "</div>";
+  }
+  /* ★ 2026-11-13：Ⅰ ECHO —— 回声哨兵（记忆链路的自探针） */
+  if (selected === "echo" && SENT) {
+    const st = String(SENT.state || "—");
+    const col = st === "ok" ? "#96CFA8" : (st === "unknown" ? "#8C8172" : "#E88C7A");
+    const rec = SENT.record || {};
+    h += '<div class="note" style="margin-top:12px">回声哨兵 · <b style="color:' + col + '">' + st + "</b>" + (SENT.stale ? ' · <span style="color:#F4C87A">数据陈旧</span>' : "") + "</div>";
+    h += '<div class="pi"><b>上次探测</b><span>' + String(SENT.resultAt || "—").replace("T", " ").slice(5, 19) + "</span></div>";
+    h += '<div class="pi"><b>耗时</b><span>' + (rec.latencyMs || 0) + " ms · " + String(rec.mode || "—") + "</span></div>";
+    if (rec.error) h += '<div class="note" style="font-size:10px">' + String(rec.error).slice(0, 90) + "</div>";
+  }
+  put(h);
+}
+
+
+/* 卫星标签：5 个槽位对应 5 个字段（读数 / 说明 / 采集 / 来源 / 状态） */
+const moonLabels = [];
+(function(){
+  const box = document.getElementById("moons");
+  for (let i = 0; i < MOON_N; i++){
+    const d = document.createElement("div");
+    d.className = "mo";
+    box.appendChild(d);
+    moonLabels.push(d);
+  }
+})();
+
+/* 卫星 = 这个器官的状态字段（当前值 / 状态 / 器官名 / 说明 / 来源） */
+function moonTexts(){
+  if (!constSel || !selected) return null;
+  const nd = organNodeAt(constSel.arm, constSel.j);
+  const okey = nd && nd.userData.organ;
+  if (okey === "waker") return [["当前", "按需读取"], ["状态", "见详情"], ["器官", "台账"], ["说明", "只读"], ["来源", "/api/waker"]];
+  const o = okey ? organByKey(okey) : null;
+  if (!o) return null;
+  // ★ 2026-11-18：第三处内联级别表也收敛到 lvZh —— 三处各写各的，必有一处漏掉新级别。
+  const lvTxt = lvZh(o.level);
+  return [
+    ["当前", (o.value === null || o.value === undefined) ? "—" : String(o.value)],
+    ["状态", lvTxt],
+    ["器官", String(o.name || okey)],
+    ["说明", String(o.note || "—").slice(0, 18)],
+    ["来源", "/api/organs"]
+  ];
+}
+
+function updateMoonLabels(){
+  if (!constSel || !selected) { moonLabels.forEach(function(d){ d.style.opacity = "0"; }); return; }
+  const tx = moonTexts();
+  if (!tx) { moonLabels.forEach(function(d){ d.style.opacity = "0"; }); return; }
+  moonLabels.forEach(function(d, i){ d.innerHTML = "<b>" + tx[i][0] + "</b>" + tx[i][1]; });
+}
+
+
+/* ══ 器官子环（2026-11-13 爀曦定：接入 /api/organs）══════════════════
+   星球外再挂一圈（比卫星更外层、更小）：每个点 = 一个器官，
+   颜色按它的 level（ok / 其它），标签是「器官名 · 当前值」。
+   为什么和卫星分开：卫星是「这一条读数的字段」，器官是「这个进程在跑什么」——
+   两者是不同层级的东西，混在同一圈里会读成「6 个字段」，而实际是 5 字段 + 7 器官。 */
+const ORGAN_N_MAX = 8;
+const organGrp = new THREE.Group();
+organGrp.visible = false;
+const organDots = [], organLabels = [];
+(function(){
+  const box = document.getElementById("moons");
+  for (let i = 0; i < ORGAN_N_MAX; i++){
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: dotTex, color: 0xA8D8B4, transparent: true, opacity: 0,
+      depthWrite: false, blending: THREE.AdditiveBlending
+    }));
+    sp.scale.set(0.13, 0.13, 1);
+    sp.userData.ph = (i / ORGAN_N_MAX) * Math.PI * 2;
+    organGrp.add(sp);
+    organDots.push(sp);
+    const d = document.createElement("div");
+    d.className = "mo or";
+    box.appendChild(d);
+    organLabels.push(d);
+  }
+})();
+gal.add(organGrp);
+let ORGANS = null;
+/* 概览（/api/overview）：总览面板就是原来 /dashboard 的那套读数 ——
+   核球代表「此刻在跑的这个我」，它的面板理应是全局状态，而不是六层列表。 */
+let OVERVIEW = null;
+/* 事件（/api/live）：Ⅵ 事件那条臂的真实内容 —— 台账/投递/唤醒。
+   它是「流」不是「网」：14 条事件按时间排，每条带 stage + charter 判定。 */
+let LIVE = null;
+/* 换气诊断（/api/diagnose）= 推理文本多样性检测：repeat / spin / empty / dup 四类；
+   回声哨兵（/api/echo-sentinel）= 记忆链路的自探针。两者都是「这台机器怎么想事」的证据。 */
+let DIAG = null;
+let SENT = null;
+function organByKey(k){
+  if (!ORGANS) return null;
+  for (let i = 0; i < ORGANS.length; i++) if (ORGANS[i].key === k) return ORGANS[i];
+  return null;
+}
+function organNodeAt(arm, idx){
+  return (constNodes[arm] && constNodes[arm][idx]) ? constNodes[arm][idx] : null;
+}
+
+/* ==========================================================================
+   取数层（2026-11-17 task-10 重写）
+   --------------------------------------------------------------------------
+   旧实现（2026-11-13）是 setInterval(load, 5000)，每次 load() 并发打 7 个接口
+   （/api/status /api/diagnose /api/echo-sentinel /api/live /api/overview /api/organs /api/vitals）。
+   它有两个实测会犯的病：
+     ① 页面一直开着就是每 5 秒一次 7 连击，其中 status/overview/organs 都是重接口
+        （status 要建 1400+ 会话索引、overview 要 stat 每个会话）。
+        2026-11-17 01:38~02:24 实测：一次 /api/status 就足以把后端事件循环钉死
+        （data/loop-stall.log: stallMs 659272 / 383210），之后连 /api/health 都不回。
+     ② 页面隐藏时只停了渲染，没停轮询（旧的 visibilitychange 只动 running）。
+        也就是最小化之后它还在每 5 秒锤一次后端。
+   现在的规则（四条，每条对应上面一个病）：
+     A. 串行：全页只有一个定时器，一次只发一个请求，前一个没结束不发下一个。
+     B. 分类节流：轻口（vitals/health）5~20 秒；重口（status/overview/organs/live）
+        15~60 秒，且自带超时与失败冷却（失败一次冷却 3 倍，最多 5 分钟）。
+     C. 冷启动保护：页面打开的前 20 秒只打轻口 —— 那时如果后端刚启动，
+        status 正撞在预热窗口上，一次就够它卡十秒。
+     D. 页面隐藏就停：hidden 时 clearTimeout，visible 时先补一次轻口再恢复节奏。
+   ★ 还有一条不属于取数、属于诚实：每个接口各自记 lastGoodAt。
+     连续失败时界面写「读数中断 · 上次成功 hh:mm:ss」，不拿旧值当新值。
+     这一条是这一版最要紧的东西：屏幕上的数字必须能回答「这是几点的」。
+   ========================================================================== */
+const EP = {
+  vitals:   { path:"/api/vitals",        every:6000,  timeout:4000,  heavy:false, apply:function(o){ applyVitals(o); } },
+  health:   { path:"/api/health",        every:20000, timeout:4000,  heavy:false, apply:function(o){ applyHealth(o); } },
+  status:   { path:"/api/status",        every:15000, timeout:12000, heavy:true,  apply:function(o){ applyData(o); } },
+  overview: { path:"/api/overview",      every:30000, timeout:12000, heavy:true,  apply:function(o){ OVERVIEW = o; if (!selected) renderPanel(); paintFeed(); } },
+  organs:   { path:"/api/organs",        every:30000, timeout:12000, heavy:true,  apply:function(o){ if (Array.isArray(o?.organs)) { ORGANS = o.organs; renderGalaxyNav(); if (selected) renderPanel(); } } },
+  live:     { path:"/api/live",          every:20000, timeout:12000, heavy:true,  apply:function(o){ LIVE = o; layoutEventSpiral(); layoutVerdicts(); } },
+  /* ★ 这两个接口若回 unavailable（回放层没有真实抓取），一律置 null ——
+     面板没有内容好过面板写一个假的「扫了 0 帧」。 */
+  diagnose: { path:"/api/diagnose",      every:60000, timeout:15000, heavy:true,  apply:function(o){ DIAG = (o && o.unavailable) ? null : o; } },
+  sentinel: { path:"/api/echo-sentinel", every:60000, timeout:15000, heavy:true,  apply:function(o){ SENT = (o && o.unavailable) ? null : o; } }
+};
+const NET = { at:{}, err:{}, next:{}, slow:{}, inflight:null, boot:Date.now(), tick:null, paused:false };
+/* 一次请求：自带超时。超时不是异常，是要展示的状态。 */
+function fetchEP(key){
+  const ep = EP[key];
+  const ctl = ("AbortController" in window) ? new AbortController() : null;
+  const t0 = Date.now();
+  const timer = ctl ? setTimeout(function(){ try { ctl.abort(); } catch(e){} }, ep.timeout) : null;
+  return fetch(ep.path, { cache:"no-store", signal: ctl ? ctl.signal : undefined })
+    .then(function(r){ if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(function(o){
+      if (timer) clearTimeout(timer);
+      NET.at[key] = Date.now();
+      const took = Date.now() - t0;
+      delete NET.err[key];
+      /* 慢请求单独记账：它没失败，但是「后端吃力」的早期征兆 —— 比等它超时早十秒看见。 */
+      if (took > ep.timeout * 0.6) NET.slow[key] = took; else delete NET.slow[key];
+      try { ep.apply(o); } catch(e){ NET.err[key] = { msg:"渲染出错 " + ((e && e.message) || e), at:Date.now(), fails:1 }; }
+      return true;
+    })
+    .catch(function(e){
+      if (timer) clearTimeout(timer);
+      const prev = NET.err[key];
+      const fails = ((prev && prev.fails) || 0) + 1;
+      const msg = (e && e.name === "AbortError") ? ("超时 " + ep.timeout + "ms") : String((e && e.message) || e);
+      NET.err[key] = { msg:msg, at:Date.now(), fails:fails };
+      return false;
+    });
+}
+/* 冷却：基础间隔 x 3^失败次数，封顶 5 分钟。失败不重试，只等冷却。 */
+function cooldownOf(key){
+  const ep = EP[key], bad = NET.err[key];
+  if (!bad || !bad.fails) return 0;
+  return Math.min(300000, ep.every * Math.pow(3, Math.min(4, bad.fails)));
+}
+/* 下一次该轮到谁：轻口先、重口排队，一个周期只发一个。 */
+function pickNext(){
+  const now = Date.now();
+  const order = ["vitals","health","status","overview","organs","live","diagnose","sentinel"];
+  const cold = (now - NET.boot) < 20000;
+  for (let i = 0; i < order.length; i++){
+    const k = order[i], ep = EP[k];
+    if (cold && ep.heavy) continue;          /* C：冷启动前 20 秒不碰重口 */
+    if (now < (NET.next[k] || 0)) continue;
+    const cd = cooldownOf(k);
+    if (cd && now < NET.err[k].at + cd) continue;
+    return k;
+  }
+  return null;
+}
+async function pump(){
+  if (NET.paused) return;
+  if (NET.inflight) { schedule(400); return; }
+  const key = pickNext();
+  if (!key) { schedule(600); return; }
+  NET.inflight = key;
+  const ok = await fetchEP(key);
+  NET.inflight = null;
+  NET.next[key] = Date.now() + (ok ? EP[key].every : cooldownOf(key));
+  paintFeed();
+  schedule(ok ? 350 : 1200);
+}
+function schedule(ms){
+  if (NET.tick) clearTimeout(NET.tick);
+  NET.tick = setTimeout(pump, ms);
+}
+function boot(){
+  /* D：页面隐藏就彻底停 —— 最小化之后不该继续锤后端（旧版这里是个漏）。 */
+  document.addEventListener("visibilitychange", function(){
+    if (document.hidden) { NET.paused = true; if (NET.tick) clearTimeout(NET.tick); }
+    else { NET.paused = false; schedule(200); }
+  });
+  pump();
+}
+/* ---- 各接口的 apply ---- */
+var HEALTH = null, VITALS = null;
+function setTxt(id, v){ var e = document.getElementById(id); if (e) e.textContent = v; }
+function timeHMS(ms){ if (!ms) return "—"; return new Date(ms).toTimeString().slice(0,8); }
+function applyVitals(v){
+  var p = v.persona || {};
+  setTxt("cw-persona", p.chars != null
+    ? (p.chars >= 1000 ? (p.chars/1000).toFixed(1) + "K" : p.chars) + (p.budget ? " / " + Math.round(p.budget/1000) + "K" : "")
+    : "—");
+  setTxt("cw-sessions", v.sessions != null ? v.sessions : "—");
+  setTxt("cw-questions", v.openQuestions != null ? v.openQuestions : "—");
+  VITALS = v;
+}
+function applyHealth(h){ HEALTH = h; paintFeed(); }
+/* 链路条：回答「这块屏幕上的数字是几点的」。
+   它不是装饰 —— 后端卡死时（2026-11-17 实测过），它是唯一还在说真话的一行。 */
+function paintFeed(){
+  var el = document.getElementById("feed");
+  if (!el) return;
+  var worst = null, worstKey = null;
+  Object.keys(NET.err).forEach(function(k){
+    var e = NET.err[k];
+    if (!worst || e.at > worst.at) { worst = e; worstKey = k; }
+  });
+  var lastStatus = NET.at.status || NET.at.overview || NET.at.vitals;
+  var cEl = document.getElementById("corner");
+  if (worst){
+    el.className = "bad";
+    el.innerHTML = "读数中断 · <b>" + (EP[worstKey] ? EP[worstKey].path.replace("/api/","") : worstKey) + "</b> " + worst.msg
+      + " · 上次成功 " + timeHMS(lastStatus);
+    setTxt("cw-lead-tag", "陈旧");
+    if (cEl) cEl.className = "stale";
+  } else {
+    el.className = "";
+    var slowKeys = Object.keys(NET.slow || {});
+    var slow = slowKeys.length ? (" · 慢 " + slowKeys.map(function(k){ return k + " " + NET.slow[k] + "ms"; }).join(" / ")) : "";
+    el.innerHTML = "读数 <b>" + timeHMS(lastStatus) + "</b> · 采集 "
+      + (STATUS && STATUS.tookMs != null ? STATUS.tookMs + "ms" : "—")
+      + " · 外层分区 " + (STATUS ? Object.keys(STATUS.layers || {}).length : 0) + "/6" + slow;
+    if (cEl) cEl.className = "";
+    setTxt("cw-lead-tag", "");
+  }
+}
+/* 排查开关（保留原有两个）：?sky=0 关天空层（本版天空已默认关，留着作对照）；
+   ?debug=1 点任意位置打印元素链；?sel=<旋臂>&organ=<器官> 为可分享的深链接。 */
+var QR = new URLSearchParams(location.search);
+if (QR.get("debug") === "1") {
+  document.addEventListener("click", function(e){
+    var els = document.elementsFromPoint(e.clientX, e.clientY).map(function(el){
+      var r = el.getBoundingClientRect();
+      return el.tagName.toLowerCase() + "." + (el.className || "") + " [" + Math.round(r.left) + "," + Math.round(r.top) + " " + Math.round(r.width) + "x" + Math.round(r.height) + "]";
+    });
+    console.log("HIT " + e.clientX + "," + e.clientY + " => " + els.join("  >  "));
+  }, true);
+}
+document.getElementById("galaxy-up").onclick = navigateUp;
+window.addEventListener("popstate", function(){
+  const panel = document.getElementById("panel");
+  const inPanel = panel.contains(document.activeElement);
+  restoreRoute();
+  renderEchoLayers();
+  if (inPanel) panel.querySelector("h2")?.focus({preventScroll:true});
+});
+document.addEventListener("keydown", function(e){
+  if (e.defaultPrevented || e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey ||
+      e.target.closest?.("input,textarea,select,[contenteditable]")) return;
+  if (e.key === "Escape" && selected) { e.preventDefault(); navigateUp(); }
+  else if (e.key === "0") { e.preventDefault(); navigate(null, null, false, "", true); }
+  else if (/^[1-6]$/.test(e.key)) { e.preventDefault(); navigate(ORDER[Number(e.key) - 1], null, false, "", true); }
+});
+/* 渲染循环起转。★ 它与取数是两条独立的链：画布先动起来（空星系也有骨架），
+   数据后到（applyData 里再上色/上环）。这也是「骨架先渲染、数据后到」那条老规矩。 */
+/* ★ 骨架先渲染（老规矩）：数据还没到，底部六枚胶囊与面板的空态已经在了。
+   这样首屏不会是一块「什么都没有」的黑，也不会让用户以为界面坏了。
+   数据到了以后 renderRail/renderPanel 会把它们替换成真读数。 */
+/* 只读诊断口：验收脚本用它判断「画布到底在不在动」。
+   ★ 为什么不靠两张截图比字节：PNG 编码本身可能有差异，字节不同不等于画面在动。
+   这里读的是运动来源本身 —— 星系自转角、相机距离、着色器时间 uniform、帧计数。 */
+window.__galaxyDiag = function(){
+  return {
+    reduce: REDUCE,
+    webgl: !!renderer,
+    organ: constSel ? organNodeAt(constSel.arm, constSel.j).userData.organ : null,
+    cameraFocus: followConst ? "organ" : followKey ? "arm" : "core",
+    targetDist: controls.target.length(),
+    cameraFrame,
+    planetVisible: planetGrp.visible,
+    autoRotate: controls.autoRotate,
+    galRotY: Math.round(gal.rotation.y * 100000) / 100000,
+    camDist: Math.round(camera.position.length() * 1000) / 1000,
+    uTime: Math.round(coreMat.uniforms.uTime.value * 1000) / 1000,
+    selected: selected || null
+  };
+};
+
+renderRail();
+restoreRoute();
+frame();
+boot();
+</script>
+</body></html>

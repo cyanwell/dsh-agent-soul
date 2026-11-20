@@ -1,14 +1,7 @@
 // 动态目标 —— 「留空 = 跟随《墨》当前 lead」
 //
-// ★★ 这个文件**不读《墨》**。
-//   lead 的判据只有一个真源：DSH 的 dsh-yanqing-heartbeat 插件 —— 它读《墨》里最后一条 lead、
-//   在**活的会话根**里匹配，再把 primarySessionId 经 GET /heartbeat/auto 报出来。
-//   v4 只做一件事：**把那个 id 取回来用**。
-//
-//   ★ 为什么不在 v4 里写「读 02-墨.jsonl 找最后一条 lead」：那是**第二套主脑规则**。
-//     两份实现迟早给出两个答案，而「投给谁」这件事没有第二个答案可以容忍 ——
-//     一旦两边不一致，面板说一套、投递做一套，而错的从来不会被发现（投错没人看得见）。
-//   ★ 也不读 /heartbeat/state（那是面板用的聚合），只读 /heartbeat/auto —— 它回的才是活值。
+// lead target uses the MetaStore's authoritative latest live lead. JSONL remains
+// an explicitly degraded compatibility path when SQL is unavailable.
 //
 // 三条语义（2026-11-11 爀曦定）：
 //   ① targetSession **留空** → 动态跟随当前 lead；交接后**下一次 tick 就用新 id**（不缓存旧 id 当目标）；
@@ -27,6 +20,7 @@
 //   ★ 每一次 refresh 都重新解析地址：端口变了，**下一个 tick** 就用新 origin，旧端口不留任何缓存。
 
 import fs from 'node:fs';
+import path from 'node:path';
 import { readJsonWith } from '../web/runtime-status.mjs';
 import { resolveHeartbeatEndpoint } from './dsh-origin.mjs';
 
@@ -184,13 +178,20 @@ export function createLeadTargetResolver(opts) {
   const log = typeof o.log === 'function' ? o.log : () => {};
   // ★ 地址来源的三条注入点（测试用）：不注入就按 config + 本机默认位置自己发现。
   const endpointOpts = { logDir: o.logDir, originFile: o.originFile, discover: o.discover, now };
+  // ★ 2026-11-13：宿主自报地址的取值器。**每 tick 现取，不缓存** ——
+  //   缓存旧端口正是这次要消灭的那个故障本身（它不报错，只是永远不再通）。
+  const hostOriginOf = typeof o.hostOriginOf === 'function' ? o.hostOriginOf : null;
   // ★ 2026-11-11：账本兜底要能列会话（把账本里的 8 位署名对到完整 id）。不注入就不兜底。
   const sessionsProvider = typeof o.sessionsProvider === 'function' ? o.sessionsProvider : null;
   const ledgerFile = String(o.ledgerFile || it.ledgerFile || '');
+  const metaStore = o.metaStore || null;
+  const fallbackLogFile = String(o.fallbackLogFile || (ledgerFile ? path.join(path.dirname(ledgerFile), 'lead-target-degrade.jsonl') : ''));
   const ledgerFallback = it.ledgerFallback === true;
 
   const stats = { refreshes: 0, fetches: 0 };
   let lastEndpointKey = null;
+  /** ★ 2026-11-13：上一次记下的 lead 会话 —— 只在变化时打日志。 */
+  let lastSessionKey = null;
   let last = {
     ok: false, source: TARGET_SOURCE.LEAD, sessionId: null, candidates: 0, leadSource: null,
     atMs: 0, why: '还没有解析过当前 lead（本进程还没走过一次需要动态目标的 tick）',
@@ -198,87 +199,37 @@ export function createLeadTargetResolver(opts) {
 
   async function refresh() {
     const t = now();
-    // ★★ 每一 tick 现解析一次地址（显式配置 > 自动发现 > fail-closed），**不缓存 origin**：
-    //   缓存旧端口就是这次要修的那个故障本身 —— 它不报错，只是永远不再通。
-    // ★★★ 2026-11-13 修：**账本兜底要覆盖两种失败** ——
-    //   ① 心跳地址解析不出来（DSH 插件不在 = 没有任何 origin）
-    //   ② 地址有、但请求失败
-    //   原来只有 ② 走兜底，① 直接早退 —— 而「禁掉 DSH 心跳插件」正好制造的是 ①。
-    //   于是「准备解耦」的兜底在真正该起作用的那一刻**永远不触发**。
-    //   教训形状：兜底写在了**第二个失败出口**，而最常见的失败走的是第一个。
-    const tryLedger = (why) => {
-      if (!ledgerFallback || !ledgerFile || !sessionsProvider) return null
-      let sess = []
-      try { sess = sessionsProvider() || [] } catch { sess = [] }
-      const led = leadFromLedger(ledgerFile, sess)
-      if (!led.ok) {
-        log('账本兜底没成：' + led.why)
-        return null
-      }
-      log('当前 lead = ' + led.sessionId + '（账本，' + why + '）')
-      return {
-        ...last,
-        ok: true,
-        sessionId: led.sessionId,
-        candidates: 1,
-        leadSource: 'ledger:last-lead',
-        atMs: t,
-        why: '心跳不通（' + why + '）→ 账本兜底命中：' + led.why,
-      }
-    }
-
-    const ep = resolveHeartbeatEndpoint(config, { ...endpointOpts, now: t });
-    if (!ep.ok) {
-      const led = tryLedger('地址解析失败：' + ep.why)
-      if (led) { last = led; return last }
-      last = failAt(t, ep.why)
-      return last
-    }
-    // ★ 只在地址**变了**的时候说一句（不然每 60 秒刷一行同样的字）。
-    const key = ep.source + '|' + (ep.origin || ep.url || '');
-    if (key !== lastEndpointKey) {
-      lastEndpointKey = key;
-      log('心跳地址：' + (ep.origin || ep.url) + '（来源：' + ep.source
-        + (ep.file ? ' / ' + ep.file : '') + '）');
-    }
-    if (typeof fetchImpl !== 'function') { last = failAt(t, '运行时没有 fetch —— 解析不到当前 lead'); return last; }
-
-    stats.fetches++;
-    let r = null;
-    try { r = await readJsonWith(ep.url, timeoutMs, fetchImpl); }
-    catch (e) { r = { ok: false, error: String((e && e.message) || e) }; }
-    if (!r || r.ok !== true) {
-      const why = '读心跳失败：' + String((r && r.error) || '未知错误').slice(0, 160);
-      // ★★ 2026-11-11：账本兜底（默认关，integrations.ledgerFallback 打开）。
-      //   它不是为了「心跳坏了也能跑」，是为了「解耦之后不依赖 DSH」。
-      //   命中时 source 标成 ledger:last-lead —— 面板与日志能分清这一轮是谁给的答案。
-      if (ledgerFallback && ledgerFile && sessionsProvider) {
-        let sess = [];
-        try { sess = sessionsProvider() || []; } catch { sess = []; }
-        const led = leadFromLedger(ledgerFile, sess);
-        if (led.ok) {
-          last = {
-            ok: true, source: TARGET_SOURCE.LEAD, sessionId: led.sessionId,
-            candidates: 1, leadSource: led.source, atMs: t, by: led.by, at: led.at,
-            why: why + ' → 已由账本兜底（' + led.why + '）',
-            endpoint: { source: ep.source, origin: ep.origin, file: ep.file || null },
-          };
-          log('当前 lead = ' + led.sessionId + '（账本兜底；心跳失败：' + why.slice(0, 60) + '）');
-          return last;
+    let sess = [];
+    try { sess = sessionsProvider() || []; } catch { sess = []; }
+    const useJsonl = (reason) => {
+      const degradedReason = String(reason || 'MetaStore 未注入').slice(0, WHY_SLICE);
+      const led = ledgerFile ? leadFromLedger(ledgerFile, sess) : { ok: false, why: '没有配置 JSONL 账本路径' };
+      try {
+        if (fallbackLogFile) {
+          fs.mkdirSync(path.dirname(fallbackLogFile), { recursive: true });
+          fs.appendFileSync(fallbackLogFile, JSON.stringify({ at: new Date(t).toISOString(), backend: 'jsonl', reason: degradedReason, ok: Boolean(led.ok) }) + '\n', 'utf8');
         }
-        last = failAt(t, why + '；账本兜底也没成：' + led.why);
-        return last;
-      }
-      last = failAt(t, why);
+      } catch (e) { log('JSONL fallback 留痕失败：' + String((e && e.message) || e).slice(0, 120)); }
+      log('lead SQL 不可用，明确降级到 JSONL：' + degradedReason);
+      if (!led.ok) return { ...failAt(t, 'SQL 不可用，JSONL fallback 也未解析到 lead：' + led.why), leadSource: 'jsonl', backend: 'jsonl', degraded: true, degradedReason };
+      return { ok: true, source: TARGET_SOURCE.LEAD, sessionId: led.sessionId, candidates: 1, leadSource: 'jsonl:last-lead', backend: 'jsonl', degraded: true, degradedReason, atMs: t, by: led.by, at: led.at, why: '降级读取 JSONL 最后一条 lead（' + led.why + '）' };
+    };
+
+    if (!ledgerFile && !metaStore) return last = { ...failAt(t, '没有 MetaStore 或 JSONL 账本路径'), leadSource: 'none', backend: 'none', degraded: true, degradedReason: '配置缺失' };
+    if (!metaStore) return last = useJsonl('MetaStore 未注入');
+    try {
+      const row = metaStore.latestLead();
+      if (!row) return last = { ...failAt(t, 'SQL mo_ledger 没有 live lead'), leadSource: 'mo_ledger:live', backend: 'sqlite', degraded: false };
+      const by = String(row.by || '').trim();
+      const hits = sess.filter((s) => by && String((s && s.id) || '').includes(by));
+      if (!by) return last = { ...failAt(t, 'SQL live lead 的 by 为空'), leadSource: 'mo_ledger:live', backend: 'sqlite', degraded: false };
+      if (hits.length !== 1) return last = { ...failAt(t, hits.length ? 'SQL live lead 署名匹配多个会话（fail-closed）' : 'SQL live lead 署名在会话目录中找不到'), leadSource: 'mo_ledger:live', backend: 'sqlite', degraded: false, by };
+      last = { ok: true, source: TARGET_SOURCE.LEAD, sessionId: String(hits[0].id), candidates: 1, leadSource: 'mo_ledger:live', backend: 'sqlite', degraded: false, atMs: t, by, at: row.t || null, why: 'SQL mo_ledger 最新 live lead' };
+      if (lastSessionKey !== last.sessionId) { lastSessionKey = last.sessionId; log('当前 lead = ' + last.sessionId + '（SQL mo_ledger live lead）'); }
       return last;
+    } catch (e) {
+      return last = useJsonl((e && e.code ? e.code + ': ' : '') + String((e && e.message) || e));
     }
-    const res = resolveTargetFromHeartbeatPayload(r.data, { atMs: t });
-    // ★ endpoint 一并留下（**只有 origin / 来源 / 文件名**，永远没有查询串）：
-    //   面板与排障要能回答「这一次到底问的是哪个端口」，而「连不上」和「问错了端口」是两种病。
-    last = { ...res, fetchedAtMs: t, endpoint: { source: ep.source, origin: ep.origin, file: ep.file || null } };
-    if (res.ok) log('当前 lead = ' + res.sessionId + '（' + (res.leadSource || '来源未标注') + '，候选 ' + res.candidates + '）');
-    else log('动态目标解析失败（不动）：' + res.why);
-    return last;
   }
 
   /**

@@ -193,9 +193,9 @@ h1 i{font-style:normal;color:var(--as-ok)}
 </head>
 <body>
 <nav id="navline">
-  <a href='/dashboard'><b></b>概览</a>
+  
   <a href='/'><b></b>调度 LLM</a>
-  <a href='/lumen' class='on'><b></b>星系</a>
+  <a href='/' class='on'><b></b>星系</a>
   <a href='/organs'><b></b>器官</a>
   <a href='/diary'><b></b>日记</a>
   <a href='/yantai'><b></b>砚台</a>
@@ -253,7 +253,9 @@ h1 i{font-style:normal;color:var(--as-ok)}
 
   var ORDER = ['echo', 'vital', 'capability', 'archive', 'ops', 'events'];
   var NUM = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ', 'Ⅵ'];
-  var LV = { ok: '正常', warn: '注意', error: '异常', pending: '待读' };
+  /* ★ 2026-11-18：补 emergency / alert —— /api/organs 会返回 emergency（水位器官），
+   缺了它就会把英文原样吐给读者。 */
+var LV = { ok: '正常', warn: '注意', error: '异常', alert: '异常', emergency: '紧急', pending: '待读' };
   /* 四态 → [r,g,b]。球面点的颜色由**该层的 level** 决定（一整条纬带变色），
      所以「哪一层病了」在球上直接看得见，不需要读文字。 */
   var RGB = { ok: [63, 227, 168], warn: [242, 193, 92], error: [255, 122, 104], pending: [111, 182, 255] };
@@ -339,8 +341,14 @@ h1 i{font-style:normal;color:var(--as-ok)}
     return String(Math.round(v * 10) / 10);
   }
   function clamp(x, a, b) { return x < a ? a : (x > b ? b : x); }
+  /* ★ 2026-11-18：原来只认 error/warn/ok，其余全落 'pend'（灰）。
+     emergency 于是被画成「待读」的灰 —— 最严重的状态看着像还没采到数。 */
   function lvColor(lv) {
-    return 'var(--as-' + (lv === 'error' ? 'err' : lv === 'warn' ? 'warn' : lv === 'ok' ? 'ok' : 'pend') + ')';
+    return 'var(--as-' + (
+      (lv === 'error' || lv === 'emergency' || lv === 'alert') ? 'err'
+      : lv === 'warn' ? 'warn'
+      : lv === 'ok' ? 'ok'
+      : 'pend') + ')';
   }
   function pctLevel(p) { return p == null ? 'pending' : (p >= 80 ? 'error' : p >= 45 ? 'warn' : 'ok'); }
 

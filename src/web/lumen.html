@@ -61,7 +61,7 @@ h1 i{font-style:normal;color:#6FE3B4}
 </style>
 <script type="importmap">{"imports":{"three":"/vendor/three.module.min.js"}}</script>
 </head><body><canvas id="c"></canvas><div class="vig"></div><div id="labels"></div>
-<nav><div class='brand'>agent<i>·</i>soul<em>CONSOLE</em></div><a href='/dashboard'><b></b>概览</a><a href='/chat'><b></b>对话</a><a href='/lumen' class='on'><b></b>星系</a><a href='/organs'><b></b>器官</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><a href='/settings'><b></b>设置</a></nav>
+<nav><div class='brand'>agent<i>·</i>soul<em>CONSOLE</em></div><a href='/chat'><b></b>对话</a><a href='/' class='on'><b></b>星系</a><a href='/organs'><b></b>器官</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><a href='/settings'><b></b>设置</a></nav>
 <header><div class="kick">AgentSoul v4 · 六层运行状态</div><h1>星<i>系</i></h1>
 <div class="sub">六条旋臂各是一层 · 中心的核球是此刻在跑的那个我</div><!-- ★ 2026-11-13：状态球已并入本页（三水位 + 六层明细 + 三项读数），入口取消 --></header>
 <div id="corner">
@@ -80,7 +80,17 @@ h1 i{font-style:normal;color:#6FE3B4}
 import * as THREE from "three";
 import { OrbitControls } from "/vendor/OrbitControls.js";
 
-const LV = { ok:[0.24,0.86,0.62], warn:[0.96,0.76,0.29], error:[1.00,0.45,0.42], pending:[0.44,0.66,1.00] };
+/* ★ 2026-11-18：补 LV_ZH / lvZh / lvHex。
+   这一页原来**根本没有中文级别表** —— 药丸标签直接把 `ok`/`warn` 印给读者。
+   而 galaxy.html 早就有 lvZh()，同一套后端数据在两个页面上两种口径。
+   ★ emergency 也要补：它此刻只出现在 organs 上（本页不读 organs），
+     但级别体系是共用的，缺一格迟早再撞一次 —— 今天已经撞了三次。 */
+const LV = { ok:[0.24,0.86,0.62], warn:[0.96,0.76,0.29], error:[1.00,0.45,0.42],
+             alert:[1.00,0.45,0.42], emergency:[1.00,0.36,0.32], pending:[0.44,0.66,1.00] }
+const LV_ZH = { ok:"正常", warn:"注意", error:"异常", alert:"异常", emergency:"紧急", pending:"待读" }
+function lvZh(v){ return LV_ZH[v] || (v || "—") }
+const LV_HEX = { ok:"#3DDB9E", warn:"#F5C24A", error:"#FF736B", alert:"#FF736B", emergency:"#FF5C52", pending:"#70A8FF" }
+function lvHex(v){ return LV_HEX[v] || LV_HEX.pending };
 const LAYERS = [
   { k:"echo",       ro:"Ⅰ", en:"ECHO",  zh:"记忆 · 索引 · 检索" },
   { k:"vital",      ro:"Ⅱ", en:"VITAL", zh:"呼吸 · 自主 · 换气" },
@@ -601,7 +611,11 @@ function applyData(s){
     if (lv === "error" || (worst === "ok" && lv === "warn")) worst = lv;
     const its = L.items || [];
     let okN = 0, liveN = 0;
-    its.forEach(function(x){ if (x.na) return; liveN++; if (x.level === "ok") okN++; else if (x.level == null) okN++; });
+    /* ★ 2026-11-18：/api/status 的 item **没有 level 字段**（实测真实字段只有
+       label/value/unit/sub/why/at/pct/na/bad）。原来写「level==null 就算 ok」，
+       于是 okR 恒等于 1 —— 环上那个「健康占比」一直是假的。
+       改成按真实字段判：bad = 坏，na = 读不到，其余 = 正常。 */
+    its.forEach(function(x){ if (x.na) return; liveN++; if (!x.bad) okN++; });
     const total = its.length || 1;
     const okR = okN / total, liveR = liveN / total;
     const c = LV[lv] || LV.pending;
@@ -654,7 +668,7 @@ function renderRail(counts){
     d.className = "chip" + (selected === it.L.k ? " on" : "");
     d.dataset.k = it.L.k;
     d.innerHTML = '<u style="background:rgb(' + Math.round(c[0]*255) + ',' + Math.round(c[1]*255) + ',' + Math.round(c[2]*255) + ')"></u>' +
-      it.L.ro + " " + it.L.en + " <s>" + it.level + "</s>";
+      it.L.ro + " " + it.L.en + " <s>" + lvZh(it.level) + "</s>";
     d.onclick = function(){ select(selected === it.L.k ? null : it.L.k); };
     rail.appendChild(d);
   });
@@ -682,7 +696,7 @@ function renderPanel(){
   const it = items.find(function(x){ return x.L.k === selected; });
   const L = (STATUS.layers || {})[selected] || {};
   const its = L.items || [];
-  let h = "<h2>" + it.L.ro + " · " + it.L.en + "</h2><div class=\"pm\">" + it.L.zh + " · " + (L.level || "—") + "</div>";
+  let h = "<h2>" + it.L.ro + " · " + it.L.en + "</h2><div class=\"pm\">" + it.L.zh + " · " + (L.level ? lvZh(L.level) : "—") + "</div>";
   if (!its.length) h += "<div class=\"note\">这一层现在没有可读的项。</div>";
   its.forEach(function(x){
     const v = (x.value === null || x.value === undefined) ? "—" : (String(x.value) + (x.unit || ""));

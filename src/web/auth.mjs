@@ -60,7 +60,7 @@ export function createAuth({ dataDir, log = () => {} } = {}) {
 /** 需要 token 的路径（前缀匹配）。 */
 // ★ 2026-11-12：加入 /api/session —— POST 会**真的叫醒一个会话**，是这台机器上副作用最大的一个口。
 //   前缀匹配，所以 GET /api/session 也一并要 token（观测面本身不敏感，但少一个例外少一条要记的规矩）。
-export const GUARDED = ['/api/turn', '/api/shutdown', '/api/answer', '/api/guard', '/api/restart', '/api/compact', '/api/session'];
+export const GUARDED = ['/api/turn', '/api/shutdown', '/api/answer', '/api/guard', '/api/restart', '/api/compact', '/api/session', '/api/manager-proof'];
 
 export function needsAuth(pathname, method) {
   const p = String(pathname || '');

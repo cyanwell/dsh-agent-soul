@@ -82,9 +82,10 @@ export const EVENT_WRITE_DOMAIN = Object.freeze({
 // ═══════════════════════════════════════════════════════════════════════
 export const MCP_WRITE_MANIFEST = {
   // —— 写类 ——
+  // soul_ledger 只读；action=write 由 runLedger/callSoulLedger 永久 fail-closed。
   soul_ledger: {
-    kind: 'write', on: ['write'], default: 'list',
-    why: 'organs/ledger.mjs:139-140 追加一行（落点是 pickLedger 选中的那本，通常就是生产 02-墨.jsonl）',
+    kind: 'read', default: 'list',
+    why: '只读 list/stats；action=write 在 runLedger 与 MCP 边界均回 LEDGER_AUTH_REQUIRED，原始 JSONL 是历史档案。',
   },
   soul_waker: {
     kind: 'write', on: ['ingest', 'decide'], default: 'state',
@@ -126,6 +127,39 @@ export const MCP_WRITE_MANIFEST = {
   soul_query: { kind: 'read', why: '墨 / 索引 / 书房只读检索' },
   // ★ 2026-11-12：索引面（meta.sqlite FTS）。只读 —— 它不改库，只 search()。
   soul_grep: { kind: 'read', why: 'meta.sqlite FTS 只读检索（取回式同步的入口）' },
+  // ★ 2026-11-14：ECHO 派生索引（v9）的只读面。三条都**只有 SELECT**：
+  //   Store 侧（src/db/store.mjs 的 echoSearch/echoOpen/echoStats）只碰 echo_* 七张表
+  //   + sqlite_master；连 frame_index 都不读（idx: 永远打不开帧）。
+  //   工具入口以 mode:'readonly' 打开 meta.sqlite（不迁移、不建库、不 mkdir）。
+  //   ★ 它们还**先于 store()** 分派 —— 不构造 SessionStore（那个构造函数里有 mkdirSync）。
+  soul_echo_search: {
+    kind: 'read',
+    why: 'adapters/mcp-tools.mjs runEchoTool → openMetaStore({mode:"readonly"}) → store.echoSearch()：'
+      + '只有 SELECT（echo_words/_fts、echo_summaries/_fts、echo_index_sources）；无 INSERT/UPDATE/DELETE，不迁移',
+  },
+  soul_echo_open: {
+    kind: 'read',
+    why: '同一出口 → store.echoOpen()：SELECT echo_words / echo_summaries / echo_summary_src_seqs / echo_index_sources；'
+      + 'idx: 只开摘要与有序 srcSeqs —— 不打开帧，也不读 frame_index',
+  },
+  soul_echo_stats: {
+    kind: 'read',
+    why: '同一出口 → store.echoStats()：SELECT + count(*)（含 sqlite_master 判表存在）；缺表时回 available:false，绝不建表',
+  },
+  soul_echo_semantic_search: {
+    kind: 'read',
+    why: 'adapters/mcp-tools.mjs runEchoTool → openMetaStore({mode:"readonly"}) + pinned local embedder; reads echo_vector_models/echo_word_vectors joined to echo_words and SELECTs source hashes only; no writes, no migration, no lexical fallback',
+  },
+  // ★ 2026-11-18 04:04 补登记：soul_echo_window_search 随第二套向量层（句子窗口）进来的，
+  //   但只加进了 ECHO_TOOL_NAMES、没加进 manifest。
+  //   后果和 11-11 那次 soul_skill 一模一样：G1「tools/list ↔ manifest 逐名相同」由 34 变 35 而挂，
+  //   而这条自检正是防止「工具能调但权限判定不认识它」的 —— 红得对，是登记漏了。
+  //   why 要能自己证明只读：只 SELECT echo_word_windows / echo_words / echo_vector_models，
+  //   查询向量来自进程内 embedder，无写入、无迁移、无词面回退。
+  soul_echo_window_search: {
+    kind: 'read',
+    why: 'adapters/mcp-tools.mjs → db/echo-window-search.mjs searchWindowVectors：SELECT echo_word_windows（word_ord/window_ord/char_start/char_end/vector_blob）+ echo_words（session/seq/content_hash）+ echo_vector_models；点积在 JS 侧算；无 INSERT/UPDATE/DELETE，不迁移',
+  },
   soul_self: { kind: 'read', why: 'SELF 装配体检（只读文件）' },
   soul_mnemon: { kind: 'read', why: '热记忆投影探针（只读）' },
   soul_health: { kind: 'read', why: '计数 / 只读探针' },
@@ -276,7 +310,7 @@ export const HTTP_GET_READ_ROUTES = [
   '/api/live', '/api/overview', '/api/yantai', '/api/status',
   '/api/diary/list', '/api/diary/doc', '/api/organs',
   '/api/diagnose', '/api/control', '/api/health', '/api/events', '/api/persona',
-  '/api/config', '/api/sessions', '/api/search',
+  '/api/config', '/api/sessions', '/api/search', '/api/manager-proof',
   // ★ 2026-11-10：概览的运行状态口。只读的 GET —— 它读的是**别的进程**（DSH 的
   //   /mcp-hub/servers 与 /heartbeat/auto），自己不落盘、不改配置、不重连。
   //   登记在这里是因为上面那张清单是判据：新加一条 GET 就要回答一次「它写不写盘」。

@@ -1,0 +1,625 @@
+{
+  "fixtureSchema": "echo-fixed-query-parity/2",
+  "purpose": "Fixed query set Q01-Q12 from the 2026-11-14 baseline, replayed ONLY against synthetic fixtures. Each row is marked COVERED_FIXTURE or NOT_COVERED by the rule below; no production index/log/墨 source is read and no live hit count or live first pointer is claimed.",
+  "coverageRule": "COVERED_FIXTURE is a narrow claim about ONE named surface leg at the baseline's own limit: Store, MCP and the importer helper (searchEchoWords / searchEchoSummaries) must match an independent oracle on pointer set, pointer order, count, exhausted and truncation. A row may be COVERED_FIXTURE only if its whole baseline SOURCE-LEG set is representable by the imported v9 ECHO derived index (i.e. it has no 墨 leg) AND no baseline option is ambiguous in v9 (a timezone-less since is ambiguous) AND at least one probe runs at the baseline's own limit on the surface the row's purpose names. A negative control (0 hits on a synthetic corpus) can never be COVERED: it says nothing about the baseline's global zero result over src=墨,索引. COVERED_FIXTURE never means live parity. Live hit counts, live first pointers, the 墨 leg, the words leg of src=索引, semantic recall and live memq opens are listed per row under notReproduced and are never counted as covered.",
+  "auxiliaryRule": "A probe whose role is AUXILIARY_FIXTURE is a labelled synthetic test, never a coverage claim: it is run and reported, but it can never make its row COVERED_FIXTURE. Each carries establishes (what this synthetic run actually shows) and doesNotEstablish (what it must never be read as). Q01-Q03/Q07-Q09 auxiliaries exist because the row needs a 墨 leg or a global negative that v9 cannot express; Q04#2 exists only because limit=6 is beyond the baseline limit=3; Q06#1 uses an explicit UTC instant that is NOT the baseline timezone-less instant.",
+  "baseline": {
+    "path": "D:/AI/yanqing-soul/30-状态/基线-ECHO到v4固定查询集-20261114.md",
+    "sha256": "f7879dba793a273dd73ef47ff1c215b8747de46b534a04670688c2b788adeb51",
+    "usedFor": "Q01-Q12 ids, inputs, options, baseline evidence and coverage/use; the baseline itself is never edited"
+  },
+  "sources": [
+    {
+      "name": "corpus-log",
+      "manifest": "corpus-log/manifest.json",
+      "importOrder": 1
+    },
+    {
+      "name": "corpus-v4log",
+      "manifest": "corpus-v4log/manifest.json",
+      "importOrder": 2
+    }
+  ],
+  "queries": [
+    {
+      "id": "Q01",
+      "baselineInput": "meta.sqlite",
+      "baselineOptions": "limit=5, src=墨,索引",
+      "baselineEvidence": "ECHO CLI 47 命中；首位 墨:2026-11-14T11:06:04+08:00；另有 log:...#seq=4236/4228/4221",
+      "scope": {
+        "legs": [
+          "墨",
+          "索引"
+        ],
+        "sinceForm": null
+      },
+      "coverage": "NOT_COVERED",
+      "why": "The baseline row searches src=墨,索引. The v9 ECHO derived index has no 墨 surface at all, so the baseline hit set and its first pointer (墨:...) cannot be reproduced here; only the 索引-derived words table is exercised by the probe.",
+      "gaps": [
+        {
+          "kind": "MISSING_SOURCE_LEG",
+          "detail": "baseline src includes 墨; v9 ECHO derived index has no 墨 surface"
+        }
+      ],
+      "notReproduced": [
+        "live hit count 47",
+        "live first pointer 墨:2026-11-14T11:06:04+08:00",
+        "墨 leg of src=墨,索引",
+        "live memq CLI"
+      ],
+      "probes": [
+        {
+          "role": "AUXILIARY_FIXTURE",
+          "establishes": "words 面上 'meta.sqlite' 的三条合成命中与顺序（limit=5 下 exhausted=true）",
+          "doesNotEstablish": "基线的 47 命中与首位 墨: 指针；src=墨 那条腿在 v9 里根本不存在",
+          "query": "meta.sqlite",
+          "surface": "words",
+          "limit": 5,
+          "expect": {
+            "hits": 3,
+            "truncated": false,
+            "exhausted": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "Q02",
+      "baselineInput": "BGE",
+      "baselineOptions": "limit=5, src=墨,索引",
+      "baselineEvidence": "ECHO CLI 30 命中；首位 log:session-bf00a6ed-1873-420d-a29d-7a7378500675#seq=2202",
+      "scope": {
+        "legs": [
+          "墨",
+          "索引"
+        ],
+        "sinceForm": null
+      },
+      "coverage": "NOT_COVERED",
+      "why": "The baseline row searches src=墨,索引 including the 墨 ledger leg, which v9 does not carry; the fixture probe is a lexical words-table probe only, so neither the baseline hit set nor BGE semantics are reproduced.",
+      "gaps": [
+        {
+          "kind": "MISSING_SOURCE_LEG",
+          "detail": "baseline src includes 墨; v9 ECHO derived index has no 墨 surface"
+        },
+        {
+          "kind": "SEMANTIC_SURFACE",
+          "detail": "BGE is a vector model; this probe is lexical substring matching only"
+        }
+      ],
+      "notReproduced": [
+        "live hit count 30",
+        "live first pointer log:session-bf00a6ed-...#seq=2202",
+        "墨 leg of src=墨,索引",
+        "BGE/vector semantics",
+        "live memq CLI"
+      ],
+      "probes": [
+        {
+          "role": "AUXILIARY_FIXTURE",
+          "establishes": "words 面上 'BGE' 的 2 条词面命中（大小写不敏感的同一子串语义）",
+          "doesNotEstablish": "BGE/向量语义召回；基线的 30 命中与首位 log:...#seq=2202；墨腿",
+          "query": "BGE",
+          "surface": "words",
+          "limit": 5,
+          "expect": {
+            "hits": 2,
+            "truncated": false,
+            "exhausted": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "Q03",
+      "baselineInput": "echo_search",
+      "baselineOptions": "limit=5, src=墨,索引",
+      "baselineEvidence": "ECHO CLI 115 命中；首位 墨:2026-11-04T12:50:16+08:00",
+      "scope": {
+        "legs": [
+          "墨",
+          "索引"
+        ],
+        "sinceForm": null
+      },
+      "coverage": "NOT_COVERED",
+      "why": "The baseline row searches src=墨,索引; the 墨 ledger leg is absent from the v9 ECHO derived index, so its 115 hits and 墨: first pointer are not reproducible. The probe covers the 索引 words table only.",
+      "gaps": [
+        {
+          "kind": "MISSING_SOURCE_LEG",
+          "detail": "baseline src includes 墨; v9 ECHO derived index has no 墨 surface"
+        }
+      ],
+      "notReproduced": [
+        "live hit count 115",
+        "live first pointer 墨:2026-11-04T12:50:16+08:00",
+        "墨 leg of src=墨,索引",
+        "live memq CLI"
+      ],
+      "probes": [
+        {
+          "role": "AUXILIARY_FIXTURE",
+          "establishes": "words 面上 'echo_search' 的 3 条词面命中",
+          "doesNotEstablish": "基线的 115 命中与首位 墨: 指针；墨腿",
+          "query": "echo_search",
+          "surface": "words",
+          "limit": 5,
+          "expect": {
+            "hits": 3,
+            "truncated": false,
+            "exhausted": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "Q04",
+      "baselineInput": "ECHO",
+      "baselineOptions": "limit=3, src=索引",
+      "baselineEvidence": "ECHO CLI 1741 命中；首位 idx:cmp-fd96d961（2026-11-02）",
+      "scope": {
+        "legs": [
+          "索引"
+        ],
+        "sinceForm": null
+      },
+      "coverage": "COVERED_FIXTURE",
+      "coveredLeg": {
+        "surface": "summaries",
+        "limit": 3
+      },
+      "coveredLegNote": "COVERED_FIXTURE covers the summaries leg at the baseline's own limit=3 (idx pointers, order, count, exhausted, truncation). It does not cover the words leg of src=索引 and does not reproduce the CLI's single combined ranking.",
+      "gaps": [],
+      "notReproduced": [
+        "live first idx pointer idx:cmp-fd96d961",
+        "live hit count 1741",
+        "words leg of src=索引 (v9 reports per-surface receipts; the CLI reports one combined ranking)",
+        "production summary contents and dates (fixture cmp ids only)",
+        "live memq open on the production idx pointer (Q12)"
+      ],
+      "probes": [
+        {
+          "role": "COVERAGE",
+          "query": "ECHO",
+          "surface": "summaries",
+          "limit": 3,
+          "expect": {
+            "hits": 3,
+            "truncated": true,
+            "exhausted": false
+          }
+        },
+        {
+          "role": "AUXILIARY_FIXTURE",
+          "establishes": "summaries 面在 limit=6 下取满 5 条且 exhausted=true（无截断路径）",
+          "doesNotEstablish": "★ 这是 fixture 额外探针、**超出基线自己的 limit=3**：只证明「不截断时全取到」，不是基线复现，不计覆盖",
+          "query": "ECHO",
+          "surface": "summaries",
+          "limit": 6,
+          "expect": {
+            "hits": 5,
+            "truncated": false,
+            "exhausted": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "Q05",
+      "baselineInput": "memq",
+      "baselineOptions": "limit=3, src=索引",
+      "baselineEvidence": "ECHO CLI 571 命中；首位 idx:cmp-a331652d（2026-10-31）",
+      "scope": {
+        "legs": [
+          "索引"
+        ],
+        "sinceForm": null
+      },
+      "coverage": "COVERED_FIXTURE",
+      "coveredLeg": {
+        "surface": "summaries",
+        "limit": 3
+      },
+      "coveredLegNote": "COVERED_FIXTURE covers the summaries leg at the baseline's own limit=3. It does not cover the words leg of src=索引 and does not reproduce the CLI's single combined ranking.",
+      "gaps": [],
+      "notReproduced": [
+        "live first idx pointer idx:cmp-a331652d",
+        "live hit count 571",
+        "words leg of src=索引 (v9 reports per-surface receipts; the CLI reports one combined ranking)",
+        "production summary contents and dates",
+        "live memq CLI"
+      ],
+      "probes": [
+        {
+          "role": "COVERAGE",
+          "query": "memq",
+          "surface": "summaries",
+          "limit": 3,
+          "expect": {
+            "hits": 2,
+            "truncated": false,
+            "exhausted": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "Q06",
+      "baselineInput": "摘要",
+      "baselineOptions": "since=2026-11-13T00:00:00, limit=5, src=索引",
+      "baselineEvidence": "ECHO CLI 24 命中；首位 log:session-d8edb1fb-b912-4477-9f4f-9be48750e317#seq=3333（2026-11-13）",
+      "scope": {
+        "legs": [
+          "索引"
+        ],
+        "sinceForm": "timezone-less-local"
+      },
+      "coverage": "NOT_COVERED",
+      "why": "The baseline since string carries no timezone: parsed as local time (UTC+08:00 on this machine) it is 2026-11-12T16:00:00Z, not 2026-11-13T00:00:00Z, so the exact baseline instant is not reproduced. Its first pointer is also a words-surface row, which this probe does not exercise, and the importer helper has no date filter.",
+      "gaps": [
+        {
+          "kind": "TIMEZONE_LESS_SINCE",
+          "detail": "since=2026-11-13T00:00:00 has no offset; normalizing it as UTC changes the instant by 8 hours"
+        },
+        {
+          "kind": "WORDS_LEG_UNPROBED",
+          "detail": "baseline first pointer log:session-...#seq=3333 is a words-surface row; the probe searches summaries only"
+        }
+      ],
+      "notReproduced": [
+        "exact baseline instant (timezone-less since)",
+        "live first pointer log:session-d8edb1fb-...#seq=3333",
+        "live hit count 24",
+        "date-filtered importer-helper leg (searchEchoSummaries has no since option)"
+      ],
+      "probes": [
+        {
+          "role": "AUXILIARY_FIXTURE",
+          "establishes": "UTC 形式 since=2026-11-13T00:00:00.000Z 下的 1 条命中（bigram 预筛 + 子串核实）",
+          "doesNotEstablish": "基线那条没有时区的 since（本机按 +08:00 解析成 2026-11-12T16:00:00Z，差 8 小时）；基线的 24 命中与首位 log: 指针；helper 腿没有时间过滤",
+          "query": "摘要",
+          "surface": "summaries",
+          "limit": 5,
+          "since": "2026-11-13T00:00:00.000Z",
+          "expect": {
+            "hits": 1,
+            "truncated": false,
+            "exhausted": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "Q07",
+      "baselineInput": "迎宾屏",
+      "baselineOptions": "limit=3, src=墨,索引",
+      "baselineEvidence": "ECHO CLI 0 命中（近义回退仍 0）",
+      "scope": {
+        "legs": [
+          "墨",
+          "索引"
+        ],
+        "sinceForm": null
+      },
+      "coverage": "NOT_COVERED",
+      "why": "A zero hit on a synthetic corpus only shows that THIS fixture holds no matching row. It does not establish the baseline's global zero result over src=墨,索引, whose 墨 leg does not exist in the v9 derived index at all.",
+      "gaps": [
+        {
+          "kind": "NEGATIVE_CONTROL_NOT_GLOBAL_ZERO",
+          "detail": "synthetic no-hit cannot establish a global live zero result"
+        },
+        {
+          "kind": "MISSING_SOURCE_LEG",
+          "detail": "baseline src includes 墨; v9 ECHO derived index has no 墨 surface"
+        }
+      ],
+      "notReproduced": [
+        "global zero result over live src=墨,索引",
+        "near-synonym fallback of the ECHO CLI",
+        "墨 leg of src=墨,索引"
+      ],
+      "probes": [
+        {
+          "role": "AUXILIARY_FIXTURE",
+          "establishes": "这份合成语料里没有 '迎宾屏'（0 命中、exhausted=true）",
+          "doesNotEstablish": "live 全局零命中（src=墨,索引 的 0 是另一件事）；CLI 的近义回退",
+          "query": "迎宾屏",
+          "surface": "words",
+          "limit": 3,
+          "expect": {
+            "hits": 0,
+            "truncated": false,
+            "exhausted": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "Q08",
+      "baselineInput": "接听区",
+      "baselineOptions": "limit=3, src=墨,索引",
+      "baselineEvidence": "ECHO CLI 0 命中（近义回退仍 0）",
+      "scope": {
+        "legs": [
+          "墨",
+          "索引"
+        ],
+        "sinceForm": null
+      },
+      "coverage": "NOT_COVERED",
+      "why": "A zero hit on a synthetic corpus only shows that THIS fixture holds no matching row; it cannot establish the baseline's global zero result over src=墨,索引, whose 墨 leg is not represented in v9.",
+      "gaps": [
+        {
+          "kind": "NEGATIVE_CONTROL_NOT_GLOBAL_ZERO",
+          "detail": "synthetic no-hit cannot establish a global live zero result"
+        },
+        {
+          "kind": "MISSING_SOURCE_LEG",
+          "detail": "baseline src includes 墨; v9 ECHO derived index has no 墨 surface"
+        }
+      ],
+      "notReproduced": [
+        "global zero result over live src=墨,索引",
+        "near-synonym fallback of the ECHO CLI",
+        "墨 leg of src=墨,索引"
+      ],
+      "probes": [
+        {
+          "role": "AUXILIARY_FIXTURE",
+          "establishes": "这份合成语料里没有 '接听区'（0 命中、exhausted=true）",
+          "doesNotEstablish": "live 全局零命中；CLI 的近义回退",
+          "query": "接听区",
+          "surface": "words",
+          "limit": 3,
+          "expect": {
+            "hits": 0,
+            "truncated": false,
+            "exhausted": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "Q09",
+      "baselineInput": "微信 自动化",
+      "baselineOptions": "limit=3, src=墨,索引",
+      "baselineEvidence": "ECHO CLI 0 命中（近义回退仍 0）",
+      "scope": {
+        "legs": [
+          "墨",
+          "索引"
+        ],
+        "sinceForm": null
+      },
+      "coverage": "NOT_COVERED",
+      "why": "A zero hit on a synthetic corpus only shows that THIS fixture holds no matching row, and v9 takes one contiguous substring while the CLI ANDs terms; neither the baseline's global zero over src=墨,索引 nor its multi-term semantics is established here.",
+      "gaps": [
+        {
+          "kind": "NEGATIVE_CONTROL_NOT_GLOBAL_ZERO",
+          "detail": "synthetic no-hit cannot establish a global live zero result"
+        },
+        {
+          "kind": "MISSING_SOURCE_LEG",
+          "detail": "baseline src includes 墨; v9 ECHO derived index has no 墨 surface"
+        },
+        {
+          "kind": "MULTI_TERM_SEMANTICS",
+          "detail": "v9 searches one contiguous substring; the CLI ANDs separate terms (fixture rows hold 微信 and 自动化 apart)"
+        }
+      ],
+      "notReproduced": [
+        "global zero result over live src=墨,索引",
+        "multi-term AND semantics",
+        "near-synonym fallback of the ECHO CLI",
+        "墨 leg of src=墨,索引"
+      ],
+      "probes": [
+        {
+          "role": "AUXILIARY_FIXTURE",
+          "establishes": "这份语料里没有连续子串 '微信 自动化'（0 命中）",
+          "doesNotEstablish": "CLI 的多词 AND 语义（词分开出现时 CLI 会命中，v9 单串不会）；live 全局零命中",
+          "query": "微信 自动化",
+          "surface": "words",
+          "limit": 3,
+          "expect": {
+            "hits": 0,
+            "truncated": false,
+            "exhausted": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "Q10",
+      "baselineInput": "语义段：回声索引收敛到 SQLite 后，如何保证原文指针仍然可回取？",
+      "baselineOptions": "echo_recall context, limit=6",
+      "baselineEvidence": "待补（live MCP echo_recall 未取得输出）",
+      "scope": {
+        "legs": [],
+        "sinceForm": null
+      },
+      "coverage": "NOT_COVERED",
+      "why": "Semantic (BGE/vector) recall is not represented by the v9 ECHO derived index: no embedding fixture exists and echo_recall is not an imported-v9 surface. Not claimed complete.",
+      "gaps": [
+        {
+          "kind": "SEMANTIC_SURFACE",
+          "detail": "BGE/vector recall has no v9 derived-index surface and no fixture"
+        }
+      ],
+      "notReproduced": [
+        "echo_recall context output",
+        "semantic neighbours and scores",
+        "live MCP leg"
+      ],
+      "probes": []
+    },
+    {
+      "id": "Q11",
+      "baselineInput": "查询 Q01 首位墨 pointer",
+      "baselineOptions": "echo_open(ptr)",
+      "baselineEvidence": "待补（live MCP echo_open 未取得输出）",
+      "scope": {
+        "legs": [
+          "墨"
+        ],
+        "sinceForm": null
+      },
+      "coverage": "NOT_COVERED",
+      "why": "Live source open: the 墨 ledger is not imported into the v9 ECHO derived index and this harness must not read production 墨/log sources. The log/v4log open mechanism is covered separately by pointer cases P-LOG-OPEN / P-V4LOG-OPEN.",
+      "gaps": [
+        {
+          "kind": "LIVE_SOURCE_OPEN",
+          "detail": "the 墨 ledger body is a live source this harness may not read"
+        },
+        {
+          "kind": "MISSING_SOURCE_LEG",
+          "detail": "v9 ECHO derived index has no 墨 surface"
+        }
+      ],
+      "notReproduced": [
+        "live 墨 pointer open",
+        "live 墨 body text"
+      ],
+      "probes": []
+    },
+    {
+      "id": "Q12",
+      "baselineInput": "查询 Q04 首位 idx pointer",
+      "baselineOptions": "echo_open(ptr) + memq open idx:...",
+      "baselineEvidence": "待补（idx:cmp-fd96d961 只记录到 CLI 输出）",
+      "scope": {
+        "legs": [
+          "索引"
+        ],
+        "sinceForm": null
+      },
+      "coverage": "NOT_COVERED",
+      "why": "Live source open: the baseline pointer points at the production index and the second hop uses the live memq CLI; neither may be read here. The fixture-local idx -> srcSeqs -> frame contract is covered separately by pointer cases P-IDX-OPEN / P-IDX-TWO-HOP / P-IDX-V4.",
+      "gaps": [
+        {
+          "kind": "LIVE_SOURCE_OPEN",
+          "detail": "the production idx pointer and the live memq CLI may not be read"
+        },
+        {
+          "kind": "LIVE_COUNT_AND_POINTER_NOT_REPRODUCED",
+          "detail": "production cmp ids and srcSeqs are not carried by the fixture"
+        }
+      ],
+      "notReproduced": [
+        "live idx:cmp-fd96d961 open",
+        "live memq open idx:... second hop",
+        "production srcSeqs"
+      ],
+      "probes": []
+    }
+  ],
+  "pointerCases": [
+    {
+      "id": "P-LOG-OPEN",
+      "ptr": "log:session-echoq-log#seq=1",
+      "expect": {
+        "kind": "word",
+        "namespace": "log",
+        "text": "meta.sqlite 是 ECHO 派生索引的宿主库"
+      },
+      "coverage": "COVERED_FIXTURE"
+    },
+    {
+      "id": "P-LOG-TRUNCATED",
+      "ptr": "log:session-echoq-log#seq=14",
+      "expect": {
+        "kind": "word",
+        "namespace": "log",
+        "truncated": true,
+        "len": 4096,
+        "text": "TRUNCATED-CANARY 长行只保留开头"
+      },
+      "coverage": "COVERED_FIXTURE"
+    },
+    {
+      "id": "P-V4LOG-OPEN",
+      "ptr": "v4log:session-echoq-shared#seq=12",
+      "expect": {
+        "kind": "word",
+        "namespace": "v4log",
+        "text": "V4 流第十二帧：meta.sqlite 镜像行"
+      },
+      "coverage": "COVERED_FIXTURE"
+    },
+    {
+      "id": "P-NS-SAME-SESSION-SEQ",
+      "ptrs": [
+        "log:session-echoq-shared#seq=12",
+        "v4log:session-echoq-shared#seq=12"
+      ],
+      "expect": {
+        "logText": "LOG 命名空间里的同名帧（不是 v4log 那条）",
+        "v4Text": "V4 流第十二帧：meta.sqlite 镜像行"
+      },
+      "coverage": "COVERED_FIXTURE"
+    },
+    {
+      "id": "P-IDX-OPEN",
+      "ptr": "idx:cmp-echoq-log-01",
+      "expect": {
+        "kind": "summary",
+        "status": "active",
+        "srcSeqs": [
+          12,
+          13
+        ],
+        "opensFrame": false
+      },
+      "coverage": "COVERED_FIXTURE"
+    },
+    {
+      "id": "P-IDX-TWO-HOP",
+      "ptr": "idx:cmp-echoq-log-01",
+      "expect": {
+        "srcSeqs": [
+          12,
+          13
+        ],
+        "namespace": "log",
+        "framePtrs": [
+          "log:session-echoq-log#seq=12",
+          "log:session-echoq-log#seq=13"
+        ],
+        "frameTexts": [
+          "第十二帧：小写 bge 也应命中",
+          "第十三帧：索引收敛后原文仍可回取"
+        ]
+      },
+      "coverage": "COVERED_FIXTURE"
+    },
+    {
+      "id": "P-IDX-V4",
+      "ptr": "idx:cmp-echoq-v4-01",
+      "expect": {
+        "srcSeqs": [
+          12
+        ],
+        "framePtrs": [
+          "v4log:session-echoq-shared#seq=12"
+        ],
+        "frameTexts": [
+          "V4 流第十二帧：meta.sqlite 镜像行"
+        ]
+      },
+      "coverage": "COVERED_FIXTURE"
+    },
+    {
+      "id": "P-IDX-VOID",
+      "ptr": "idx:cmp-echoq-log-04",
+      "expect": {
+        "kind": "summary",
+        "status": "void",
+        "srcSeqs": [
+          15,
+          16
+        ]
+      },
+      "coverage": "COVERED_FIXTURE"
+    }
+  ]
+}

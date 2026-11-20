@@ -11,7 +11,7 @@
 //   Windows 上**没有可捕获的 SIGINT 交给另一个进程**。Node 的 child.kill('SIGINT')
 //   走的是 TerminateProcess —— 处理器一行都跑不到（这正是生产上 taskkill /F 杀不干净的原因）。
 //   而 Ctrl+C 那条路要控制台事件（GenerateConsoleCtrlEvent），后台跑的自测里没有控制台。
-//   所以这里 launcher 先真的 import src/index.mjs（真代码、真 server、真 store、真信号处理器），
+//   所以这里 launcher 先真的 import src/core-entry.mjs（真代码、真 server、真 store、真信号处理器），
 //   再由它自己 process.emit('SIGINT') —— 那正是 node 收到 SIGINT 时做的事情，
 //   绕过的只有「内核把信号交给 node」这一跳，被测的那段代码一行没换。
 //   ★ 代价要说清：这一条**没有**验证「操作系统真能递到我们手上」，它验证的是
@@ -31,7 +31,7 @@ import { SessionStore } from '../src/session/store.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
-const INDEX = path.join(ROOT, 'src', 'index.mjs');
+const INDEX = path.join(ROOT, 'src', 'core-entry.mjs');
 const NODE = process.execPath;
 const VERBOSE = process.argv.includes('--verbose');
 

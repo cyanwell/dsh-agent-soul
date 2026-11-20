@@ -1,0 +1,6 @@
+{"t":"2026-09-26T10:00:00+08:00","by":"aabbccdd","type":"fact","概要":"CRLF 文件的第一条事实"}
+{"t":"2026-09-26T11:01:00+08:00","by":"aabbccdd","type":"gain","概要":"CRLF 文件的一条得","feel":"轻"}
+
+{"t":"2026-09-26T11:02:00+08:00","by":"aabbccdd","type":"loss","text":"CRLF 的一条失"}
+{"t":"2026-09-26T11:03:00+08:00","by":"aabbccdd","type":"persona","text":"CRLF 的一条人格"}
+{"t":"2026-09-26T11:04:00+08:00","by":"aabbccdd","type":"container","概要":"CRLF 的一条容器"}

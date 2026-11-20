@@ -184,7 +184,13 @@ const itemOf = (layer, label) => (layer.items || []).find((x) => String(x.label)
   const L = readEventsLayer({ config: { dataDir }, opts: { core: core(), statusDir: path.join(TMP, 'empty-status') } });
   const it = (L.items || []).find((x) => String(x.label).indexOf('事件台账') === 0);
   ok(it && it.na === true && /不存在/.test(it.why || ''), 'H1 文件不在 → 无读数 + 原因', it);
-  ok(L.level === 'error', 'H2 读不到台账时整层 error（不是 ok）', L.level);
+  // ★ 2026-11-13（第 13 代）：这条断言原来写的是 level === 'error'，但
+  //   status-data.mjs:1112-1115（2026-11-11 的决策）明确写着：
+  //   「文件不存在**不是**错误 —— 那是还没接线，画成 error 会让人以为坏了；
+  //    真正的 error 只留给「文件在、但读不动 / 格式坏了」」。
+  //   所以这条断言一直是**测试没跟上设计**，不是代码 bug。在这里把它对齐，
+  //   同时保留原来的意图：整层**不是 ok**（不能假装读到了）。
+  ok(L.level !== 'ok' && L.level === 'warn', 'H2 读不到台账时整层 warn（「还没接线」不是故障）', L.level);
 }
 
 // ── I · 只读闸：Ledger(readOnly) 拒绝写 ──────────────────────────────

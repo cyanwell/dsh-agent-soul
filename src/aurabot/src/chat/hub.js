@@ -145,7 +145,9 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     const dir = workspaceDirOf(getConfig())
     mkdirSync(dir, { recursive: true })
     const norm = (p) => String(p || '').replace(/[\\/]+$/, '').toLowerCase()
-    let ws = reg.list().find((w) => norm(w.path) === norm(dir))
+    // ★ 2026-11-13（第 14 代）：reg 现在可能是 v4 侧的 bridge 代理（异步）。
+    //   await 一个普通数组是合法的 —— 所以这行对「真 DSH registry」和「bridge 代理」同样成立。
+    let ws = (await reg.list()).find((w) => norm(w.path) === norm(dir))
     if (!ws) {
       ws = await reg.create(dir, WORKSPACE_TITLE)
       log.info('建好了工作区「' + WORKSPACE_TITLE + '」：' + dir)

@@ -12,6 +12,7 @@ import { readonlyEnabled, classifyMcpCall } from '../security/write-manifest.mjs
 // ★ 2026-11-11：QQ 只读工具面单独成一个模块（adapters/qq/）。理由见那个文件的头注释：
 //   它读的是**另一个进程**（QQ 网关 / SnowLuma 桥接），与 soul_* 那套「读灵魂自己」的依赖不同。
 import { QQ_READ_TOOLS, qqJsonSchema } from './qq/tools.mjs';
+import { createBgeEmbedder } from '../../tools/echo-embed.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../..');
@@ -127,21 +128,325 @@ export function closeStore() {
   if (_store) { try { _store.saveIndexCache(); } catch {} try { _store.closeAll(); } catch {} }
 }
 
+// ── ECHO 派生索引：只读工具面（2026-11-14）──────────────────────────────
+//
+// ★ 这三个工具**在 store() 之前分派**（其它工具都在之后）。理由是判断，不是顺手：
+//   ECHO 读的是 meta.sqlite，与会话存储（data/sessions）**没有关系**。
+//   走 store() 会 loadConfig + new SessionStore()，而那个构造函数里有 mkdirSync ——
+//   只读模式 / 没有 sessions 目录时，一条纯读的 ECHO 查询会因为一个无关依赖报 SOUL_OFFLINE，
+//   而那次 mkdir 本身就是「只读进程写了盘」。G2a 的那个事故正是这个形状。
+//
+// ★ 库路径：config.memory.libraryDir（与 soul_grep 同一份公式，见 metaDbPath）。
+//   AGENT_SOUL_META_DB 是给自检/排障的显式覆盖 —— **不来自 MCP 参数**：
+//   调用者不该能指定「读哪个 sqlite」。
+//
+// ★★ 调用者身份：这三个工具**不读 args.session / args.by**，也没有「我的会话」这种概念。
+//   参数里的时间/来源只是**过滤条件**，不是身份；谁在调不影响结果。
+// ★ 2026-11-18：加了第 5 个 —— 句子级窗口检索（第二套向量层）。
+//   它是唯一真源：callTool 的 ECHO 分派只查这张表，不另列名字。
+export const ECHO_TOOL_NAMES = Object.freeze(['soul_echo_search', 'soul_echo_open', 'soul_echo_stats', 'soul_echo_semantic_search', 'soul_echo_window_search']);
+
+const SEMANTIC_MODEL_FINGERPRINT = Object.freeze({
+  modelId:'BAAI/bge-small-zh-v1.5', modelRevision:'local-bundled-unpinned', transformersVersion:'4.3.2',
+  modelSha256:'15b717c382bcb518ba457b93ea6850ede7f4f1cd8937454aa06972366cd19bcc',
+  tokenizerSha256:'48cea5d44424912a6fd1ea647bf4fe50b55ab8b1e5879c3275f80e339e8fae26',
+  configSha256:'d4193ead3a810fd694fa8a31d7fc72fbaebc0668b603e398734bf2f6538ff42f',
+  dimension:512,dtype:'q8',pooling:'mean',normalized:true,
+  queryPrefix:'为这个句子生成表示以用于检索相关文章：',documentPrefix:'',
+  maxInputChars:1000,truncation:'slice-code-units-before-tokenization',
+});
+function vectorSpecFromFingerprint(f) {
+  return {
+    modelId:f.modelId,revision:f.modelRevision,modelSha256:f.modelSha256,
+    tokenizerSpec:JSON.stringify({sha256:f.tokenizerSha256,configSha256:f.configSha256}),
+    preprocessSpec:JSON.stringify({queryPrefix:f.queryPrefix,documentPrefix:f.documentPrefix,maxInputChars:f.maxInputChars,truncation:f.truncation}),
+    poolingSpec:JSON.stringify({pooling:f.pooling,dtype:f.dtype}),
+    normalize:f.normalized,dimension:f.dimension,maxSeqLength:f.maxInputChars,
+  };
+}
+
+/**
+ * 窗口向量的 spec —— 与 vectorSpecFromFingerprint 同形，只多一个 granularity 标记。
+ * ★ 为什么必须多这个字段：长文本与窗口共用同一个 BGE 模型，但**覆盖口径不同**，
+ *   没有 granularity 就分不清两套向量，registry 里会撞成一个 model_key。
+ */
+function windowSpecFromFingerprint(f) {
+  const base = vectorSpecFromFingerprint(f);
+  const inner = JSON.parse(base.preprocessSpec);
+  return Object.assign({}, base, {
+    preprocessSpec: JSON.stringify(Object.assign({}, inner, { granularity: 'sentence-window' })),
+  });
+}
+
+export async function runEchoSemanticSearch(store, args, embedder) {
+  const a=args&&typeof args==='object'?args:{};
+  const query=typeof a.query==='string'?a.query.trim():'';
+  if (!query) { const e=new Error('query must be a non-empty string'); e.code='INVALID_INPUT'; throw e; }
+  if (typeof a.echoSourceId!=='string'||!a.echoSourceId.trim()) { const e=new Error('echoSourceId is required; semantic search always requires an explicit source'); e.code='ECHO_VECTOR_SOURCE_REQUIRED'; throw e; }
+  if (!embedder || typeof embedder.embedQueries!=='function' || !embedder.fingerprint) { const e=new Error('local BGE query embedder is unavailable'); e.code='MODEL_UNAVAILABLE'; throw e; }
+  const { findEchoVectorModel } = await import('../db/echo-vectors.mjs');
+  const model=findEchoVectorModel(store.db, vectorSpecFromFingerprint(embedder.fingerprint), { granularity: null });
+  if (!model) { const e=new Error('no vectors exist for the pinned BGE model fingerprint'); e.code='MODEL_UNAVAILABLE'; throw e; }
+  const embedded=await embedder.embedQueries([query]);
+  if (!Array.isArray(embedded)||embedded.length!==1||!embedded[0]||!embedded[0].vector) { const e=new Error('query embedder returned no single vector'); e.code='MODEL_UNAVAILABLE'; throw e; }
+  // ★★ 2026-11-18 03:36 修：这里原来读 model.model_key —— 那是**数据库列名**，
+  //   而 findEchoVectorModel 返回的是驼峰 { modelKey }。于是 model.model_key 恒为 undefined，
+  //   searchEchoSourceVectors 立刻抛 ECHO_VECTOR_MODEL_REQUIRED。
+  //   症状会非常误导：向量明明全跑完了、库里 54,858 条都在，语义检索却报「没有模型」。
+  //   ★ 对照：同一份代码里窗口检索那半边写的是 wModel.modelKey（对的）——
+  //     两侧一个对一个错，正是这种不对称最容易藏 bug。
+  const modelKey=model.modelKey;
+  if(!modelKey){ const e=new Error('vector model registry returned no modelKey'); e.code='MODEL_UNAVAILABLE'; throw e; }
+  const result=store.echoVectorSearch(embedded[0].vector,{modelKey,echoSourceId:a.echoSourceId,limit:Number.isFinite(Number(a.limit))?Math.max(1,Math.min(50,Number(a.limit))):10});
+  return {ok:true,readonly:true,semantic:true,results:result.results.map((r)=>({ptr:r.ptr,echoSourceId:r.echoSourceId,score:r.score}))};
+}
+
+let _echoCfg = null;
+function echoConfig() {
+  if (_echoCfg) return _echoCfg;
+  try { _echoCfg = loadConfig(path.join(appRoot(), 'config.json')); }
+  catch (e) { _echoCfg = { dataDir: path.join(appRoot(), 'data'), memory: {} }; }
+  return _echoCfg;
+}
+
+/** meta.sqlite 在哪 —— soul_grep 与 soul_echo_* **共用这一条**。 */
+export function metaDbPath(cfg) {
+  const override = String(process.env.AGENT_SOUL_META_DB || '').trim();
+  if (override) return path.resolve(override);
+  const c = cfg || {};
+  const libDir = (c.memory && c.memory.libraryDir) || '';
+  if (libDir) return path.join(libDir, (c.memory && c.memory.indexFile) || 'meta.sqlite');
+  return path.join(c.dataDir || path.join(appRoot(), 'data'), 'meta.sqlite');
+}
+
+const ECHO_CODE_TEXT = Object.freeze({
+  ECHO_INDEX_MISSING: '这个库没有 v9 的 ECHO 派生索引（是「没建过」，不是「索引是空的」）',
+  ECHO_INDEX_STALE: '索引计数不对齐（words/summaries 与 FTS 或有序 srcSeqs 不一致）—— 拒绝返回一份会静默少命中的结果',
+  ECHO_PTR_MALFORMED: '指针形状不对',
+  ECHO_PTR_UNKNOWN_NAMESPACE: '命名空间不认识（只认 log / v4log / idx）',
+  ECHO_PTR_NOT_FOUND: '索引里没有这个指针',
+  ECHO_PTR_AMBIGUOUS: '同一个指针命中多个来源 —— 不猜，候选在下面',
+  ECHO_PTR_SOURCE_MISMATCH: '给的 echoSourceId 不是这个指针的来源 —— 不猜，候选在下面',
+  ECHO_SOURCE_NOT_FOUND: '没有这个 ECHO 来源',
+  ECHO_DB_UNOPENABLE: '索引库打不开',
+  MODEL_UNAVAILABLE: '本地语义模型或对应向量不可用；不会回退到词面检索',
+  ECHO_QUERY_FAILED: '查询失败',
+});
+
+function echoIndexDigest(info) {
+  return {
+    sources: info.sources.map(function (s) {
+      return {
+        echoSourceId: s.echoSourceId, sourcePath: s.sourcePath, sourceVersion: s.sourceVersion,
+        namespace: s.namespace, generation: s.generation,
+        words: s.words, wordsFts: s.wordsFts, summaries: s.summaries, summariesFts: s.summariesFts,
+        aligned: s.aligned,
+      };
+    }),
+    words: info.words,
+    summaries: info.summaries,
+    aligned: info.aligned,
+  };
+}
+
+function echoFailText(e) {
+  const code = e && typeof e.code === 'string' ? e.code : 'ECHO_QUERY_FAILED';
+  const d = (e && e.details) || null;
+  const out = {
+    ok: false,
+    code,
+    why: ECHO_CODE_TEXT[code] || '查询失败',
+    detail: e && e.message ? String(e.message) : String(e),
+  };
+  if (d && Array.isArray(d.candidates)) {
+    // ★「歧义」不等于「失败得说不清」：候选是**显式来源路径**，由调用者自己挑。
+    out.candidates = d.candidates.map(function (c) {
+      return {
+        echoSourceId: c.echoSourceId, sourcePath: c.sourcePath, sourceVersion: c.sourceVersion,
+        namespace: c.namespace, generation: c.generation,
+      };
+    });
+    if (Array.isArray(d.candidateIds)) out.candidateIds = d.candidateIds.slice();
+    // ★ 两个码的下一步不同：歧义 = 还没选；不匹配 = 选错了（别在候选之外找）。
+    out.hint = code === 'ECHO_PTR_SOURCE_MISMATCH'
+      ? '你给的 echoSourceId 不是这个指针的候选之一。从 candidates 里挑一个 echoSourceId 原样重传即可精确打开。**不替你挑，也不跨候选找。**'
+      : '按 sourcePath 自己选一个来源，把它的 echoSourceId 传给 soul_echo_open 就能精确打开（或用 soul_echo_search 的 echoSourceId 参数缩小范围）。**不替你挑。**';
+  } else if (d) {
+    out.details = d;
+  }
+  return JSON.stringify(out, null, 2);
+}
+
+async function runEchoTool(name, args) {
+  const cfg = echoConfig();
+  const dbPath = metaDbPath(cfg);
+  if (!fs.existsSync(dbPath)) {
+    return JSON.stringify({
+      ok: false, code: 'ECHO_INDEX_MISSING', db: dbPath,
+      why: '索引库不存在（是「没有库」，不是「索引是空的」）',
+      howToFix: '先跑 node tools/db-sync.mjs 建库；或检查 config.memory.libraryDir / AGENT_SOUL_META_DB',
+    }, null, 2);
+  }
+  const { openMetaStore } = await import('../db/index.mjs');
+  let st = null;
+  try {
+    // ★ 只读打开：这三个工具没有任何写路径，库也不需要被建出来（上面已经判过存在性）。
+    st = openMetaStore({ path: dbPath, mode: 'readonly' });
+  } catch (e) {
+    return JSON.stringify({
+      ok: false, code: 'ECHO_DB_UNOPENABLE', db: dbPath,
+      why: ECHO_CODE_TEXT.ECHO_DB_UNOPENABLE,
+      detail: String((e && e.message) || e).slice(0, 300),
+    }, null, 2);
+  }
+  try {
+    if (name === 'soul_echo_stats') {
+      const r = st.echoStats();
+      return JSON.stringify(Object.assign({ ok: r.ok === true, db: dbPath, readonly: true }, r), null, 2);
+    }
+
+    if (name === 'soul_echo_semantic_search') {
+      let embedder;
+      try {
+        // ★ 2026-11-17：不再在这里写死开发机路径。
+        //   顺序：配置 > 环境变量 > **留给 echo-embed 用它自己那份（程序自带 models/）**。
+        const modelDir = (cfg.memory && cfg.memory.bgeModelDir) || process.env.ECHO_BGE_MODEL_DIR || undefined;
+        embedder = await createBgeEmbedder({ modelDir, expectedModelFingerprint: SEMANTIC_MODEL_FINGERPRINT });
+      } catch (error) {
+        return JSON.stringify({ ok:false, code:'MODEL_UNAVAILABLE', readonly:true, semantic:true, why:ECHO_CODE_TEXT.MODEL_UNAVAILABLE, detail:String((error&&error.message)||error).slice(0,300), results:[] }, null, 2);
+      }
+      try {
+        const result = await runEchoSemanticSearch(st, args, embedder);
+        return JSON.stringify(Object.assign({ db:dbPath }, result), null, 2);
+      } catch (error) {
+        if (error && (error.code==='MODEL_UNAVAILABLE' || String(error.code||'').startsWith('ECHO_VECTOR_') || error.code==='INVALID_INPUT')) {
+          return JSON.stringify({ ok:false, code:error.code, readonly:true, semantic:true, why:ECHO_CODE_TEXT[error.code]||String(error.message), detail:String((error&&error.message)||error).slice(0,300), results:[] }, null, 2);
+        }
+        throw error;
+      }
+    }
+
+    if (name === 'soul_echo_window_search') {
+      // ★★ 2026-11-18：句子级窗口向量检索（第二套向量层）。
+      //   与 semantic_search 的分工：
+      //     semantic_search → 长文本（一个词一个向量）：问「哪一段在讲这件事」，适合结论提炼。
+      //     window_search   → 句子窗口：问「哪一句真的说了这件事」，更锐利，带原文字符区间。
+      //   ★ model key 不能自己编：走 windowSpecFromFingerprint + 库里查，与 semantic_search 同一套判据。
+      let embedder;
+      try {
+        const modelDir = (cfg.memory && cfg.memory.bgeModelDir) || process.env.ECHO_BGE_MODEL_DIR || undefined;
+        embedder = await createBgeEmbedder({ modelDir, expectedModelFingerprint: SEMANTIC_MODEL_FINGERPRINT });
+      } catch (error) {
+        return JSON.stringify({ ok: false, code: 'MODEL_UNAVAILABLE', readonly: true, granularity: 'sentence-window',
+          why: ECHO_CODE_TEXT.MODEL_UNAVAILABLE, detail: String((error && error.message) || error).slice(0, 300), results: [] }, null, 2);
+      }
+      const wQuery = String(args.query == null ? '' : args.query).trim();
+      if (!wQuery) return JSON.stringify({ ok: false, code: 'INVALID_INPUT', readonly: true, granularity: 'sentence-window', why: 'query 不能为空', results: [] }, null, 2);
+      if (!args.echoSourceId) return JSON.stringify({ ok: false, code: 'ECHO_WINDOW_SOURCE_REQUIRED', readonly: true, granularity: 'sentence-window', why: '必须给 echoSourceId（见 soul_echo_stats）', results: [] }, null, 2);
+      try {
+        const { searchWindowVectors } = await import('../db/echo-window-search.mjs');
+        // ★★ 2026-11-18 修：读端复现不出写端 spec 里的 targetChars/maxChars，
+        //   所以不能做 9 字段精确匹配（那会永远 0 命中，症状是「库里明明有向量却报 MODEL_NOT_FOUND」）。
+        //   判据交给 findEchoVectorModel 一处 —— 只比决定向量可比性的字段 + granularity。
+        const { findEchoVectorModel } = await import('../db/echo-vectors.mjs');
+        const wModel = findEchoVectorModel(st.db, windowSpecFromFingerprint(embedder.fingerprint), { granularity: 'sentence-window' });
+        if (!wModel) return JSON.stringify({ ok: false, code: 'ECHO_WINDOW_MODEL_NOT_FOUND', readonly: true, granularity: 'sentence-window',
+          why: '窗口向量模型还没登记（先跑 tools/echo-window-vectorize.mjs）', results: [] }, null, 2);
+        const qs = await embedder.embedQueries([wQuery]);
+        const result = searchWindowVectors(st.db, qs[0].vector, {
+          modelKey: wModel.modelKey,
+          echoSourceId: args.echoSourceId,
+          limit: Number.isFinite(Number(args.limit)) ? Math.max(1, Math.min(100, Number(args.limit))) : 10,
+        });
+        return JSON.stringify(Object.assign({ ok: true, db: dbPath, readonly: true }, result), null, 2);
+      } catch (error) {
+        const wCode = String((error && error.code) || '');
+        if (wCode.startsWith('ECHO_WINDOW_') || wCode === 'INVALID_INPUT') {
+          return JSON.stringify({ ok: false, code: wCode, readonly: true, granularity: 'sentence-window', detail: String((error && error.message) || error).slice(0, 300), results: [] }, null, 2);
+        }
+        throw error;
+      }
+    }
+
+    if (name === 'soul_echo_search') {
+      const r = st.echoSearch(String(args.query == null ? '' : args.query), {
+        surface: args.surface,
+        limit: Number.isFinite(Number(args.limit)) ? Math.max(1, Math.min(50, Number(args.limit))) : 10,
+        since: args.since,
+        until: args.until,
+        echoSourceId: args.echoSourceId,
+        includeNonDialogue: args.includeNonDialogue,
+      });
+      const surfaceDigest = function (s) {
+        return { surface: s.surface, skipped: s.skipped, candidates: s.candidates, scanned: s.scanned, batches: s.batches, exhausted: s.exhausted, hits: s.results.length };
+      };
+      return JSON.stringify({
+        ok: true, db: dbPath, readonly: true,
+        query: r.query, needle: r.needle, matchMode: r.matchMode, tokens: r.tokens, scanPath: r.scanPath,
+        filters: r.filters,
+        index: echoIndexDigest(r.index),
+        candidates: r.candidates, scanned: r.scanned, batches: r.batches, exhausted: r.exhausted,
+        perSurface: { words: surfaceDigest(r.surfaces.words), summaries: surfaceDigest(r.surfaces.summaries) },
+        results: r.results,
+        note: r.exhausted
+          ? '每个面都扫到底：这一轮的真命中已全部取到（不等于「库里只有这么多」）。'
+          : '未证明完整：某个面取够 limit 就停了。要证明完整，把 limit 放大到 ≥ 真命中数再查一次。',
+      }, null, 2);
+    }
+
+    if (name === 'soul_echo_open') {
+      // ★ echoSourceId 是可选的**来源选择器**：只在该指针命中多个来源时用来指定打开哪一个；
+      //   指针文本原样传下去（不做任何改写），给错 id 由 Store 报 ECHO_PTR_SOURCE_MISMATCH。
+      const r = st.echoOpen(String(args.ptr == null ? '' : args.ptr), {
+        echoSourceId: args.echoSourceId === undefined || args.echoSourceId === null || args.echoSourceId === ''
+          ? null
+          : String(args.echoSourceId),
+      });
+      const out = { ok: true, db: dbPath, readonly: true, status: r.status, kind: r.kind, ptr: r.ptr, source: r.source };
+      if (r.kind === 'summary') {
+        out.summary = Object.assign({}, r.summary);
+        delete out.summary.fullJson;
+        out.srcSeqs = r.srcSeqs;
+        out.opensFrame = false;
+        out.note = 'idx: 只开摘要 + 有序 srcSeqs。要正文请用 log:/v4log: 门牌或 soul_frame —— 摘要不是正文。';
+      } else {
+        out.namespace = r.namespace;
+        out.word = r.word;
+      }
+      return JSON.stringify(out, null, 2);
+    }
+
+    return JSON.stringify({ ok: false, code: 'NO_TOOL', why: '没有这个工具: ' + name }, null, 2);
+  } catch (e) {
+    if (e && e.code === 'MIGRATION_REQUIRED') {
+      return JSON.stringify({
+        ok: false, code: 'ECHO_INDEX_MISSING', db: dbPath,
+        why: '库还没迁到 v9（readonly 连接从不迁移）',
+        details: (e && e.details) || null,
+      }, null, 2);
+    }
+    if (e && typeof e.code === 'string' && (String(e.code).startsWith('ECHO_') || e.code === 'INVALID_INPUT')) {
+      return echoFailText(e);
+    }
+    return JSON.stringify({ ok: false, code: 'ECHO_QUERY_FAILED', db: dbPath, why: String((e && e.message) || e) }, null, 2);
+  } finally {
+    try { st.close(); } catch (_) { /* 关闭失败不掩盖原结果 */ }
+  }
+}
+
 export const TOOLS = [
   {
     name: 'soul_ledger',
     description: '账本（墨）：只追加的记录。读它知道「谁在什么时候承诺了什么」；' +
-      '写它记下事实 / 搁置 / 得失。★ promise 只有主导会话能写 —— 不是约定，是代码闸门（写不进去）。',
+      '★ 2026-11-15（task-7 rev 3）：action=write 在**任何入口**上一律拒绝' +
+      '（code=LEDGER_AUTH_REQUIRED）—— 原始 JSONL 账本已永久只读，' +
+      '替代它的 SQLite LedgerService 尚未实现，所以现在没有写通道；list / stats 照常读。',
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['write', 'list', 'stats'], description: '默认 list' },
-        type: { type: 'string', enum: ['lead', 'promise', 'fact', 'shelved', 'gain', 'loss', 'persona', 'container'], description: '写什么类型 / list 时过滤' },
-        text: { type: 'string', description: '正文（write 必填）' },
-        by: { type: 'string', description: '谁写的。不给就用当前会话 id' },
-        ref: { type: 'string', description: '证据指针（文件路径 / log:...#seq= / 网址）' },
-        feel: { type: 'string', description: '当时的感受 —— 一手，可缺省' },
-        limit: { type: 'number', description: 'list 返回几条（默认 20）' },
+        action: { type: 'string', enum: ['write', 'list', 'stats'], description: '默认 list；list/stats 只读；write 保留枚举以返回 LEDGER_AUTH_REQUIRED，绝不写 JSONL' },
+        type: { type: 'string', enum: ['lead', 'promise', 'fact', 'shelved', 'gain', 'loss', 'persona', 'container'], description: '仅 list 时按类型过滤' },
+        limit: { type: 'number', description: '仅 list 时返回几条（默认 20）' },
       },
     },
   },
@@ -306,6 +611,89 @@ export const TOOLS = [
     },
   },
   {
+    name: 'soul_echo_search',
+    // ★ 2026-11-14：ECHO 派生索引（v9）的检索面。与 soul_grep 是**两个不同的面**：
+    //   soul_grep   → frame_fts（帧；v4log 门牌）
+    //   soul_echo_* → echo_words_fts / echo_summaries_fts（ECHO 派生索引；log / v4log / idx 三种门牌）
+    //   ★ 不合并的理由：帧是「说过的话」，派生索引是「别人建的一份索引」——两份来源不同的数据，
+    //     合并查询会让「这条是谁说的、来自哪份索引」变得不可回答。
+    description: 'ECHO 派生索引检索（meta.sqlite 的 echo_words / echo_summaries）——只读。'
+      + '语义与 v9 原型同一条：ECHO 同款归一 + AND + 原文子串核实，FTS 只是候选超集。'
+      + '结果是带门牌的命中：log:/v4log:<sid>#seq=<n> 与 idx:<cmp-id>。'
+      + '★ exhausted=false 只表示「没有证明完整」，不等于「后面还有」。'
+      + '★ 索引与 FTS 计数不一致时显式报 ECHO_INDEX_STALE，绝不回一份少命中的结果。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '查询串（整串子串语义，大小写不敏感）' },
+        surface: { type: 'string', enum: ['all', 'words', 'summaries'], description: '搜哪一面（默认 all）' },
+        limit: { type: 'integer', description: '每个面最多几条（默认 10，上限 50）' },
+        since: { type: 'string', description: '起始时间 ISO-8601（含）' },
+        until: { type: 'string', description: '截止时间 ISO-8601（含）' },
+        echoSourceId: { type: 'string', description: '只搜这一个 ECHO 来源（id 见 soul_echo_stats）' },
+        includeNonDialogue: { type: 'boolean', description: '可选：true 时包括 injection / other 词行；默认仅搜 dialogue 词行。摘要面不受此开关影响。' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'soul_echo_semantic_search',
+    description: '单独的 ECHO 语义召回：本地 BGE 向量检索，只读。必须指定 echoSourceId；返回仅含 log:/v4log: 指针、echoSourceId 与 cosine score，不返回文本。模型、向量或来源不可用时 fail-closed，不回退词面检索。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type:'string', description:'用于语义检索的查询文本' },
+        echoSourceId: { type:'string', description:'必须提供明确的已索引来源 id（来自 soul_echo_stats）' },
+        limit: { type:'integer', description:'最多返回几条（默认 10，上限 50）' },
+      },
+      required:['query','echoSourceId'],
+    },
+  },
+  {
+    name: 'soul_echo_window_search',
+    // ★★ 2026-11-18：第二套向量层的读面（句子级窗口）。与 semantic_search 的分工写在这里：
+    //   semantic_search  → 长文本（一个词一个向量）：问「哪一段在讲这件事」，召回一片，适合结论提炼。
+    //   window_search    → 句子窗口（一句/一小段一个向量）：问「哪一句真的说了这件事」，更锐利。
+    //   ★ 只回门牌 + 字符区间，**不回正文** —— 正文必须走账本那条路，否则这里成了第二份真相。
+    description: 'ECHO 句子级窗口语义检索（meta.sqlite 的 echo_word_windows）——只读。'
+      + '与 soul_echo_semantic_search 的分工：那个是长文本向量（问「哪一段在讲这件事」，适合结论提炼），'
+      + '这个是句子窗口向量（问「哪一句真的说了这件事」，更锐利，带原文字符区间）。'
+      + '命中只回 log:/v4log: 门牌 + charStart/charEnd，正文要用 soul_echo_open 或 soul_frame 取。'
+      + '★ 窗口向量还没建完时回 ECHO_WINDOW_SOURCE_EMPTY，绝不回一份少命中的结果。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type:'string', description:'用于语义检索的查询文本' },
+        echoSourceId: { type:'string', description:'必须提供明确的已索引来源 id（来自 soul_echo_stats）' },
+        limit: { type:'integer', description:'最多返回几条（默认 10，上限 100）' },
+      },
+      required:['query','echoSourceId'],
+    },
+  },
+  {
+    name: 'soul_echo_open',
+    description: '打开 ECHO 指针：log:/v4log:<sid>#seq=<n> 开一条 words；idx:<cmp-id> 只开 L4 摘要 + 有序 srcSeqs（**绝不开帧**）。'
+      + '★ 同一个 sid+seq 命中多个来源时回 ECHO_PTR_AMBIGUOUS 与显式候选路径，绝不挑一个。'
+      + '★ 歧义之后怎么办：把候选里的 echoSourceId 传回来，就打开那一个（指针文本原样不动）。'
+      + '★ 给的 echoSourceId 不是这个指针的候选之一 → ECHO_PTR_SOURCE_MISMATCH，绝不跨候选找一条。'
+      + '★ 指针畸形 / 命名空间不认识 / 索引缺失或过期，都显式报码，不做「尽力而为」的解析。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ptr: { type: 'string', description: 'log:session-x#seq=12 / v4log:session-x#seq=12 / idx:cmp-0001' },
+        echoSourceId: { type: 'string', description: '可选：只在 ptr 命中多个来源时用，必须是该 ptr 的候选之一（来自 soul_echo_search 的命中或 soul_echo_stats 的 sources）；给错回 ECHO_PTR_SOURCE_MISMATCH' },
+      },
+      required: ['ptr'],
+    },
+  },
+  {
+    name: 'soul_echo_stats',
+    description: 'ECHO 派生索引的状态：每个来源（路径/版本/namespace/代次/state/游标）+ words/summaries 与两张 FTS 的计数与对齐，'
+      + '以及构建审计（echo_source_builds 只追加、一代一行）是否自洽。'
+      + '★ 库没有 v9 表时回 available:false + ECHO_INDEX_MISSING（不抛、不冒充「0 条」）。',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'soul_self',
     description: 'SELF 装配体检：检查自我层有没有被静默丢掉（文件在不在 / 有没有外链到会消失的地方 / 超预算了吗 / 活体段标了「自动生成」吗）。',
     inputSchema: {
@@ -425,51 +813,103 @@ export const TOOLS = [
 //   实测证据：data/ledger.jsonl 里那条 container（by=qq-lead-session-bf00a6ed），
 //   在《墨》747 条里 0 命中 —— 它压根不在被读的那本里。
 //
-//   现在的规矩只有一条：**选源只有 pickLedger 一份，写和读都问它。**
+//   规矩只有一条：**选源只有 pickLedger 一份，读就问它。**
+//   ★ 2026-11-15（task-7 rev 3）之后写根本不选源 —— write 在选源之前就拒绝了。
 //   ★ 为什么复用 pickLedger 而不是在 mcp-tools 里再写一遍三级判断：
 //     抄一遍就迟早漂一次，而这次漂的正是「读看了一遍、写没看」。
 
-/** 账本文件在哪 —— 写与读**共用这一条**。返回值就是 pickLedger 的结论，这里不做二次判断。 */
+// ── 账本写者闸门（task-6 · MCP 边界 → task-7 rev 3 · 库层也一并关闭）──────
+//
+// ★★ 2026-11-15（task-7 rev 3）**收紧到库层**：runLedger() 是唯一写入口
+//   （查过：除 callTool 外没有应用调用方；yantai 面板只用 LedgerBase 读、
+//    src/tools/query.mjs 只把账本当读源；tools/ 下两个自检直接 import runLedger），
+//   所以只把闸门装在 callTool 上还漏着这个口。现在 runLedger 的 action=write
+//   一样回 LEDGER_AUTH_REQUIRED。
+//   目标态：**原始 JSONL 账本永久只读** —— 替代它的 SQLite LedgerService 还没实现，
+//   在它落地之前「没有写通道」是结论，不是漏配，也不是「换个入口试试」。
+//
+// ★ 这次的全部要点是**顺序**：write 的拒绝发生在
+//   await import('../organs/ledger.mjs') / resolveLedgerPath / LedgerBase 构造 /
+//   任何 fs 调用**之前**。判据可被外部观测：cfg 坏成非法 JSON、路径根本不存在、
+//   连 dataDir 都没给时，write 仍然回 LEDGER_AUTH_REQUIRED，而不是「配置解析失败」。
+//   对照：读路径**一样会** loadConfig，所以同样的坏 cfg 下 list / stats 会报解析失败
+//   （见 tools/ledger-mcp-write-guard-selftest.mjs 的 badcfg 场景）。
+//
+// ★ 什么**不能**当授权：args.by、args.sessionId、ctx.sessionId。
+//   它们是「我是谁」的宣示，不是「我被允许」的证明 —— 而宣示由调用方自己填，连伪造都不用。
+//   所以拒绝分支**一个身份参数都不看**，只认 action。
+export const LEDGER_WRITE_LOCK_CODE = 'LEDGER_AUTH_REQUIRED';
+export const LEDGER_INVALID_ACTION_CODE = 'INVALID_ACTION';
+/** 读动作 —— 只有这两个。write 不在其中，永远不在（直到 SQLite LedgerService 真的落地）。 */
+export const LEDGER_MCP_READ_ACTIONS = Object.freeze(['list', 'stats']);
+
+/**
+ * 写拒绝的统一回执 —— 库层（runLedger）与 MCP 边界（callSoulLedger）**共用这一份**。
+ * ★ 形状 = 整条腿通用的「结构拒绝」：ok=false + status='rejected' + code + tool。
+ *   **只给 code 不够** —— 按 status 判拒的上游（tools/g2a-readonly-selftest.mjs 的
+ *   isRejection 就是那种读法）会把「没有 status 的拒绝」读成成功。
+ * ★ 两层共用同一个函数，是为了不留第二份措辞：措辞一漂，
+ *   「到底还有没有写通道」就又得靠猜。
+ */
+function ledgerLockedReply(action) {
+  return JSON.stringify({
+    ok: false,
+    status: 'rejected',
+    code: LEDGER_WRITE_LOCK_CODE,
+    tool: 'soul_ledger',
+    action,
+    why: 'soul_ledger.action=write 被关死在账本层与 MCP 边界上（fail-closed）',
+    note: '这不是参数错误，也不是「换个身份就能过」的提示：type / by / sessionId / ctx.sessionId 都不能授权。' +
+      '原始 JSONL 账本（02-墨.jsonl / ledger.jsonl）已永久只读；替代它的 SQLite LedgerService 尚未实现 —— 现在没有任何写通道。',
+    allowed: [...LEDGER_MCP_READ_ACTIONS],
+  }, null, 2);
+}
+
+/** INVALID_ACTION 回执里回显那个值 —— 只回**形状**，不回内容全文（不猜、不改写）。 */
+function actionEcho(raw) {
+  if (typeof raw === 'string') return raw;
+  try { const j = JSON.stringify(raw); return j === undefined ? String(typeof raw) : j.slice(0, 80); }
+  catch { return String(typeof raw); }
+}
+
+/** 账本文件在哪 —— **读**时选源（写不选源了：write 在选源之前就拒）。返回值就是 pickLedger 的结论，这里不做二次判断。 */
 export async function resolveLedgerPath(config) {
   const { pickLedger } = await import('../yantai/panel.mjs');
   return pickLedger(config);
 }
 
 /**
- * soul_ledger 的全部动作（write / list / stats）。
+ * soul_ledger 的动作（list / stats 读；write 永久拒绝）。
  * ★ cfg 由调用方显式传入：生产传 store 的 cfg，自检传临时目录的配置 —— 同一份代码，不认环境。
+ * ★★ 2026-11-15（task-7 rev 3）：**这个函数不再写账本**。action=write 在第一行就拒，
+ *   而且拒在 import / 选源 / 任何 fs 之前（顺序的判据见上面那段闸门注释）。
+ *   原始 JSONL 账本永久只读；未来的写通道是 SQLite LedgerService，它还没实现。
+ * ★ 签名里的 sessionId 留着只为不打断调用方（callSoulLedger 仍在传 ctx.sessionId）——
+ *   拒绝分支不看它，读分支也不用它：身份参数从来不是授权证明。
  */
 export async function runLedger(args, cfg, sessionId) {
+  const a = (args && typeof args === 'object' && !Array.isArray(args)) ? args : {};
+  const rawAction = a.action;
+  const action = (rawAction === undefined || rawAction === null || rawAction === '')
+    ? 'list'
+    : (typeof rawAction === 'string' ? rawAction : null);
+
+  // ── 写：永久拒绝（fail-closed）—— 这是这个函数存在的一半理由 ──────────
+  // ★ 位置就是判据：下一行**之前**没有任何 import / resolveLedgerPath / fs 调用。
+  //   所以坏 cfg、不存在的路径、缺失的 dataDir 都不会改变这个结论。
+  if (action === 'write') return ledgerLockedReply('write');
+  if (action === null || !LEDGER_MCP_READ_ACTIONS.includes(action)) {
+    return JSON.stringify({
+      ok: false, status: 'invalid', code: LEDGER_INVALID_ACTION_CODE, tool: 'soul_ledger',
+      action: actionEcho(rawAction), actionType: typeof rawAction, allowed: [...LEDGER_MCP_READ_ACTIONS],
+      why: '不认识的动作（只认字符串 list / stats）。write 被单独关闭（' + LEDGER_WRITE_LOCK_CODE + '）。',
+    }, null, 2);
+  }
+
   const { LedgerBase, LABEL, TYPES, normId } = await import('../organs/ledger.mjs');
-  const a = args || {};
   const picked = await resolveLedgerPath(cfg);
   const lf = (picked && picked.file) || '';
   const tried = ((picked && picked.tried) || []).join(' / ');
-  const action = a.action || 'list';
-
-  // ── 写 ──
-  if (action === 'write') {
-    // ★★ 只在「读也会选中的那一本、而且它确实存在」时追加。**不新建**。
-    //   新建一本书就是造出第二本 —— 正是这次 bug 的原形（写进兜底账、读走别处，两边不报错）。
-    //   只追加账本该由人来建（或初始化流程建），工具不顺手造一本。
-    if (!lf || !picked.exists) {
-      return '✗ UNCONFIGURED：没有可用的账本文件，没写。' +
-        '\n  找过：' + (tried || '(一个候选都没有)') +
-        '\n  配 config.ledger.file，或配 config.soul.root（下面放 02-墨.jsonl）。';
-    }
-    const r = new LedgerBase(lf).write({
-      type: a.type, text: a.text,
-      by: a.by || sessionId || 'mcp',
-      ref: a.ref, feel: a.feel,
-    });
-    if (!r.ok) {
-      // ★ 拒绝就是拒绝 —— 说清哪条闸门拦的，不软化
-      return '✗ 没写进去（' + r.code + '）：' + r.message;
-    }
-    // ★ 回执里带落点：这次 bug 能悄悄存在，一半是因为回执只说「已记入账本」、不说哪一本。
-    return '✓ 已记入账本 ' + lf + '（选源：' + picked.source + '）\n  ' + r.row.t + '  [' + (LABEL[r.row.type] || r.row.type) + ']  ' +
-      r.row.text + (r.row.ref ? '\n  └ ' + r.row.ref : '');
-  }
 
   // ── 读（stats / list）──
   // ★「文件不在」和「账本是空的」必须分得开：合成一句「没有记录」，人就会以为账本空着，
@@ -524,9 +964,17 @@ export async function callTool(name, args, ctx = {}) {
       return JSON.stringify(await qq.run(args || {}), null, 2);
     }
   }
+
+  // ★★ 2026-11-18：ECHO 工具**同样在 store() 之前**分派。
+  //   判据与上面 qq_ 一致：读 ECHO 不需要开本进程的会话存储（store() 会 mkdirSync，
+  //   只读进程里那本身就是一次写盘）。★ 名字只认 ECHO_TOOL_NAMES 这张表。
+  if (typeof name === 'string' && ECHO_TOOL_NAMES.includes(name)) {
+    return runEchoTool(name, args || {});
+  }
   const s = store();
   const cfg = s.__cfg;
   const a = args || {};
+
 
   if (name === 'soul_recall') {
     const q = String(a.query || '');
@@ -1001,7 +1449,10 @@ export async function callTool(name, args, ctx = {}) {
   }
   if (name === 'soul_self') {
     const { checkSelf } = await import('../tools/self.mjs');
-    const file = a.file || (cfg.self && cfg.self.file) || null;
+    // ★ 2026-11-17：单一来源 —— 与 index.mjs 用的是同一个解析器（self.file → AGENT_SOUL_SELF
+    //   → devFileOr('selfMd') → <soul.root>/SELF.md）。这里再自己拼一份就是第二处判断。
+    const { resolveSelfFile } = await import('../config.mjs');
+    const file = a.file || resolveSelfFile(cfg) || null;
     const r = checkSelf({ file, budget: Number(a.budget) || undefined });
     const lines = [r.code + (r.file ? '  ' + r.file : ''), r.hint || ''].filter(Boolean);
     for (const c of r.checks || []) lines.push('  [' + (c.ok ? '✓' : '✗') + '] ' + c.title + (c.why ? '  ' + c.why : ''));

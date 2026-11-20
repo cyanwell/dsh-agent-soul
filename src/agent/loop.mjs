@@ -141,7 +141,26 @@ export class AgentLoop {
         }
       }
     } catch { qs = ''; }
-    return base + toolLine + ctx + qs + (p ? '\n\n===== 人格 / 长期约定 =====' + p : '');
+    // ★★★ 2026-11-17（爀曦要求把 self 注入搬进 v4）：**自我层排在人格之前**。
+    //   顺序不是随手拍：
+    //     ① 自我层的骨架段**每轮不变** —— 它越靠前，prefix cache 命中的部分越长；
+    //     ② 活体段（此刻 / 距上次 / 本容器）随它变，但只影响它自己那一小截；
+    //     ③ 人格 / 长期约定放在后面：它也是稳定内容，但不该压过「我是谁、硬线在哪」。
+    //   ★ 装配失败一律不写这一段（与 ctx / qs 同一条纪律：**绝不影响对话本身**）。
+    let selfLayer = '';
+    try {
+      const sl = this.__selfLayer;
+      if (sl && typeof sl.render === 'function') {
+        selfLayer = sl.render({
+          at: new Date(),
+          sessionId,
+          gapMinutes: Number.isFinite(this.__idleMs) ? Math.round(this.__idleMs / 60000) : undefined,
+          lastNote: this.__lastNote,
+        });
+      }
+    } catch { selfLayer = ''; }
+    const selfBlock = selfLayer ? '\n\n===== 自我层（SELF） =====\n' + selfLayer : '';
+    return base + toolLine + selfBlock + ctx + qs + (p ? '\n\n===== 人格 / 长期约定 =====' + p : '');
   }
 
   /**

@@ -35,6 +35,14 @@ export function createLeadRelayIngress (opts = {}) {
     now = () => Date.now(),
     maxLineBytes = 256 * 1024,
     onFlush = null,
+    // ★★★ 2026-11-13（第 14 代）：宪章闸门。
+    //   charter({ rec, chatId, line }) → { verdict: 'pass'|'ask'|'block'|'unchecked', why }
+    //   ★ 缺省 null = **直通**，行为与接闸门之前逐字一致（这条 ingress 每分钟都在跑，
+    //     改它必须能退回原状态）。
+    //   ★ 抛错 → unchecked，**绝不当 pass**，也绝不因此丢掉这条申请。
+    charter = null,
+    //   block 时的落点（写回执、计数）——由调用方给，本文件不自己决定写哪。
+    onBlocked = null,
   } = opts
 
   const counters = {
@@ -45,6 +53,8 @@ export function createLeadRelayIngress (opts = {}) {
     badLines: 0,
     truncated: 0,
     rejected: 0,
+    // ★ 2026-11-13（第 14 代）：被宪章拦下、没进事件账的条数（不是错误，是决策）
+    blocked: 0,
     // ★ 以下两个是 2026-11-10 可靠性修复加的「可观察面」：
     stalled: 0,          // 因为拒写而卡在同一行的**轮询次数**（>0 = 队列被卡住，不是静默跳过）
     pollsAfterStop: 0,   // stop() 之后仍被调用的轮询次数（迟到轮询一律拒绝，但要能看见）
@@ -92,7 +102,9 @@ export function createLeadRelayIngress (opts = {}) {
   }
 
   /** 一次轮询：读新增的完整行。**只读**，r 模式。 */
-  function poll () {
+  // ★★ 2026-11-13（第 14 代）：改 async —— 宪章闸门要 await guard（它会走 LLM）。
+  //   ★ 注意：下面 loop() 里的 try/catch 抓不到 async 的拒绝，已经配套改成 .catch + 重入锁。
+  async function poll () {
     // ★★ stop 之后一律拒绝：不读文件、不 append、不推进游标。
     //    计数留痕（pollsAfterStop）—— 停止是**一次状态转换**，不是「这一瞬间之后绝对没有回调」：
     //    定时器可能已经排上、调用方可能还捏着 poll()，所以拒绝要写成**可观察**的，而不是假装不会发生。
@@ -208,6 +220,53 @@ export function createLeadRelayIngress (opts = {}) {
       const chatId = String(rec.chatId || (rec.kind === 'group' && rec.groupId ? 'group:' + rec.groupId
         : (rec.kind === 'private' && rec.userId ? 'private:' + rec.userId : '')))
 
+      // ★★★ 2026-11-13（第 14 代）：宪章闸门 —— 把申请交给 core 之前先审一次。
+      //
+      //   为什么在**这里**：入队侧（aurabot 的 report_to_lead）是她的写域，队列格式不动；
+      //   消费侧归 core，审核也归 core。位置放在「读到完整行 → 建 Envelope」之间，
+      //   于是被拦下的那条**从不进事件账** —— 也就不会有人从账里再捞出来投一次。
+      //
+      //   ★ 三条硬规矩（照 2026-11-13 那天付的学费）：
+      //     ① gate 抛错 = unchecked，**绝不当 pass**；宁可多叫一次 lead，不可静默放行。
+      //     ② block **不丢**：写回执（onBlocked）之后游标照常前移 ——
+      //        不然队列会永久卡在这一行，那是比漏投更坏的故障。
+      //     ③ 没注入 charter = 直通，与接闸门之前逐字一致。
+      let gate = null
+      if (typeof charter === 'function') {
+        try {
+          gate = await charter({ rec, chatId, line: thisLine })
+        } catch (e) {
+          gate = { verdict: 'unchecked', why: 'gate 报错：' + String((e && e.message) || e).slice(0, 80) }
+        }
+        const v = gate && gate.verdict
+        if (v !== 'pass' && v !== 'ask' && v !== 'block' && v !== 'unchecked') {
+          gate = { verdict: 'unchecked', why: 'gate 没有返回可用结论' }
+        }
+      }
+
+      if (gate && gate.verdict === 'block') {
+        counters.blocked++
+        const why = redact(String(gate.why || '宪章未通过').slice(0, 200))
+        const entry = {
+          t: new Date(now()).toISOString(),
+          kind: 'charter-block',
+          title: redact(String(rec.title || '').slice(0, 120)),
+          reason: why,
+          chatId,
+          queueLine: thisLine,
+        }
+        if (typeof onBlocked === 'function') {
+          try { onBlocked(entry) } catch (e) {
+            // ★ 回执写失败不影响决策 —— 但必须可见（异常路径不许不留痕）
+            note('BLOCK_RECEIPT_FAILED', '被拦下的回执写不进去：' + redact(String((e && e.message) || e)))
+          }
+        }
+        state.lastBlocked = entry
+        commitTo = lineEnd
+        commitLines = seen
+        continue
+      }
+
       const env = buildEnvelope({
         source: 'lead-relay',
         type: 'report',
@@ -228,6 +287,8 @@ export function createLeadRelayIngress (opts = {}) {
           tier: rec.tier === undefined ? '' : String(rec.tier),
           kind: rec.kind === undefined ? '' : String(rec.kind),
           status: rec.status === undefined ? '' : String(rec.status),
+          // ★ 宪章结论随 Envelope 一起进账 —— 下游（waker / 面板）不用再猜它审没审过
+          charter: gate ? String(gate.verdict) : '',
         },
       })
 
@@ -289,9 +350,19 @@ export function createLeadRelayIngress (opts = {}) {
     return { read: commitTo, lines: commitLines, blocked, offset, line: lineNo }
   }
 
+  // ★★★ 2026-11-13（第 14 代）：poll 变 async 之后，这里必须改两样东西 ——
+  //   ① 同步 try/catch 抓不到 Promise 拒绝，改成 .catch（不然一条坏行 = unhandledRejection）；
+  //   ② **重入锁**：闸门可能比 pollMs 慢（guard 要等 LLM），没有锁的话两轮 poll 会
+  //      同时读同一段，而游标还没前移 —— 那会把同一条申请投两遍。
+  let polling = false
   function loop () {
     if (stopped) return
-    try { poll() } catch (e) { note('POLL_FAILED', String((e && e.message) || e)) }
+    if (!polling) {
+      polling = true
+      Promise.resolve(poll())
+        .catch((e) => note('POLL_FAILED', String((e && e.message) || e)))
+        .finally(() => { polling = false })
+    }
     timer = setTimeout(loop, Math.max(200, Number(pollMs) || 2000))
     if (timer.unref) timer.unref()
   }

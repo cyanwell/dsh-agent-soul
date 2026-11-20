@@ -1,0 +1,1 @@
+{"cmpId":"cmp-echoq-v4-01","t":"2026-11-09T00:00:00.000Z","session":"session-echoq-shared","ws":"ws-echoq-v4","log":"D:/synthetic/logs/echoq-v4.jsonl","srcSeqs":[12],"shadowedTokens":11,"shadowedChars":22,"provider":null,"model":null,"status":"active","summary":"v4log ECHO summary：memq 与 echo_search 的镜像压缩"}

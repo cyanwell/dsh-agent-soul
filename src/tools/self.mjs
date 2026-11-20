@@ -126,11 +126,17 @@ export function checkSelf(cfg = {}) {
   if (cut < 0) liveDetail = ['没有「' + SELF_LIVE_MARK + '」段'];
   else {
     const lineNo = text.slice(0, cut).split('\n').length;
-    liveDetail = /自动生成/.test(live)
+    // ★★ 2026-11-18 修一个**判据与实现不同词**的 bug：
+    //   生成器（self.mjs:91）写的标题是「## 活体（**自动装配**）」，
+    //   而这个检查器只找「自动生成」—— 两个词不一样，于是**只要文件是正常生成的，它就永远报错**。
+    //   实测：SELF.md 确实由 self.mjs 生成（骨架来自 SELF.src.md、活体每轮刷新），
+    //   但 soul_self 每次都说「③ 活体段是自动生成的 ❌」。
+    //   ★ 判据该认的是「这段是机器写的」，不是某个特定词 —— 两个词都收。
+    liveDetail = /自动生成|自动装配/.test(live)
       ? ['标记在，第 ' + lineNo + ' 行起']
-      : ['「' + SELF_LIVE_MARK + '」段（第 ' + lineNo + ' 行起）没有标注「自动生成」'];
+      : ['「' + SELF_LIVE_MARK + '」段（第 ' + lineNo + ' 行起）既没写「自动生成」也没写「自动装配」'];
   }
-  const liveOk = cut >= 0 && /自动生成/.test(live);
+  const liveOk = cut >= 0 && /自动生成|自动装配/.test(live);
   checks.push({ id: 'live', title: '③ 活体段是自动生成的', ok: liveOk, why: WHY.live, detail: liveDetail });
 
   const failed = checks.filter((c) => !c.ok).map((c) => c.id);

@@ -17,6 +17,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { normId } from '../organs/ledger.mjs';
 import {
   appRoot, devPathOr,
@@ -28,6 +30,7 @@ import { readWakerLedger, readWakerDelivered } from '../organs/waker-read.mjs';
 import { readEchoSentinel } from '../organs/echo-sentinel.mjs';
 import { readCleanupState } from '../organs/cleanup.mjs';
 import { Diary } from './diary.mjs';
+import { openMetaStore } from '../db/index.mjs';
 
 // ── 0 · 常量与路径 ────────────────────────────────────────────────────
 
@@ -157,6 +160,45 @@ export async function readLeadWater(config, opts) {
   //   不是「现在活着的主脑是谁」。心跳已经把这件事解对了（primarySessionId），
   //   所以这里复用同一个解析器（organs/lead-target.mjs），**不写第二套判据**。
   const dyn = await currentLeadId(config, o);
+  // ★★★ 2026-11-13（第二批）：**state 命中就不用开文件。**
+  //   判据：bridge 每轮推来的 state 里 sessionId 与当前 lead 是同一个 —— 那它就是那个会话的水位，
+  //   contextTokens 与 projcache 的 pressureTokens 同源（都是 input + cacheRead）。
+  //   ★ 省掉的是「读 projcache 目录 + 解析 1.6MB JSON」这两步，也就是最后一条能看见的 DSH 路径依赖。
+  //   ★ 拿不到（state 里没 sessionId / 对不上 / 没 contextTokens）就**原样往下走**，
+  //     不是「降级」，是「这条路这次不适用」—— 状态台原本的两条路都还在。
+  if (dyn.ok && o.control && typeof o.control.snapshot === 'function') {
+    let hitState = null
+    try {
+      const hosts = o.control.snapshot() || []
+      for (const h of hosts) {
+        const st = h && h.state
+        if (!st || !st.sessionId) continue
+        if (String(st.sessionId) !== String(dyn.sessionId)) continue
+        if (!Number.isFinite(Number(st.contextTokens)) || Number(st.contextTokens) <= 0) continue
+        hitState = { host: h.host, st }
+        break
+      }
+    } catch { /* 快照拿不到就往下走原路 */ }
+    if (hitState) {
+      const st = hitState.st
+      const used = Number(st.contextTokens)
+      const win = Number(st.contextWindow) > 0 ? Number(st.contextWindow) : null
+      return {
+        ok: true,
+        pct: win ? pctOf(used, win) : null,
+        used, window: win,
+        source: 'bridge state（' + (hitState.host || 'host') + '）· ' + String(st.turnId || ''),
+        why: null,
+        title: st.sessionTitle === undefined ? null : st.sessionTitle,
+        isSub: st.isSub === undefined ? null : st.isSub,
+        leadBy: dyn.sessionId,
+        leadIdSource: dyn.source || TARGET_SOURCE_FALLBACK,
+        matches: 1,
+        seq: null,
+        fromState: true,
+      }
+    }
+  }
   if (dyn.ok) {
     const hit = pickProjcacheForSession(dir, dyn.sessionId);
     if (hit) {
@@ -479,18 +521,62 @@ export function measureCacheBytes(store, config) {
 
 // ── 7 · 六层 ──────────────────────────────────────────────────────────
 
-/** 书房文件数：按根目录缓存 60 秒（一次全 walk 实测 445ms / 1925 文件，不能每请求都走）。 */
+/* ★★★ 2026-11-14（第 14 代）：书房文件数改成 **stale-while-revalidate**。
+ *
+ * 原来是「缓存 60 秒，过期就同步全 walk」。两个问题叠加：
+ *   ① 面板切页的间隔通常**超过 60 秒** → 每次切页都赶在缓存过期后 → 每次付 445ms；
+ *   ② 那一趟 walk 是**同步**的（ix.refresh()），不只是让这次请求慢，
+ *      是把整个事件循环按住 445ms —— 同进程里所有别的请求一起等。
+ *      实测：/api/organs 冷启动 13ms、跑久了 1197ms，92 倍差就是这么来的。
+ *
+ * 现在：
+ *   · TTL 60s → 10 分钟（书房文件数是慢变量，十分钟的误差没有意义）；
+ *   · 过期后**立刻返回旧值**，刷新丢到后台，不在请求路径上；
+ *   · 后台刷新加锁（soulRefreshing），并发请求不会叠着 walk；
+ *   · 首次（没有旧值）仍然同步算一次 —— 宁可第一次慢，也不要显示一个假的 0。
+ *     （「无读数」和「0 个文件」是两件事，这条在本文件其它地方也写着。）
+ */
+const SOUL_TTL_MS = 10 * 60 * 1000;
 let soulCache = null;
+let soulRefreshing = false;
+
+function refreshSoulStatsInBackground(root) {
+  if (soulRefreshing) return;
+  soulRefreshing = true;
+  Promise.resolve()
+    .then(() => import('../organs/soul-scan.mjs'))
+    .then(({ SoulIndex }) => {
+      const ix = new SoulIndex(root, { ttl: SOUL_TTL_MS });
+      ix.refresh();
+      soulCache = { root, at: Date.now(), st: ix.stats() };
+    })
+    .catch(() => { /* 刷不出来就继续用旧的；下一次过期再试 */ })
+    .finally(() => { soulRefreshing = false; });
+}
+
 async function fillSoulStats(root) {
   if (!root) return null;
   const now = Date.now();
-  if (soulCache && soulCache.root === root && now - soulCache.at < 60000) return soulCache.st;
+  const hit = soulCache && soulCache.root === root;
+  if (hit && now - soulCache.at < SOUL_TTL_MS) return soulCache.st;
+  if (hit) {
+    // 过期：先给旧的，后台刷（请求路径 0ms）
+    refreshSoulStatsInBackground(root);
+    return soulCache.st;
+  }
+  // 首次：**先读清单缓存**（实测 27ms），没有再退回全量遍历。
+  // ★ 2026-11-17（阶段 1）：原来这里无条件同步 refresh() —— 一个「读书房有几个文件」的调用
+  //   要按住事件循环 1.6~4 秒。现在缓存命中就 27ms；没命中才付一次遍历的代价（并落缓存）。
   try {
     const { SoulIndex } = await import('../organs/soul-scan.mjs');
-    const ix = new SoulIndex(root, { ttl: 60000 });
-    ix.refresh();
+    const ix = new SoulIndex(root, { ttl: SOUL_TTL_MS, cacheDir: (config && config.dataDir) || undefined });
+    const hit = typeof ix.loadManifestFromCache === 'function' ? ix.loadManifestFromCache() : false;
+    if (!hit) {
+      if (typeof ix.refreshAsync === 'function') await ix.refreshAsync({ force: true, yieldMs: 32 });
+      else ix.refresh(true);
+    }
     const s = ix.stats();
-    soulCache = { root, at: now, st: s };
+    soulCache = { root, at: Date.now(), st: s };
     return s;
   } catch { return null; }
 }
@@ -509,11 +595,27 @@ export async function readEchoLayer(ctx) {
       for (const m of metas) bytes += Number(m.bytes) || 0;
       dataMB = mb(bytes);
     } catch (e) { note += '会话列表读失败；'; }
-    // ★ 没建就建一次 —— 与 /api/overview 同一条路（server.warmup 在启动时已经建好，
-    //   这里只是兜底：否则刚启动那一秒打开状态台，会看到一个假的「索引行 无读数」）。
-    //   代价只在「真的没建」时付一次（0.65s），之后是内存里的 Map。
-    if (!store.ixBuilt && typeof store.buildIndex === 'function') {
-      try { store.buildIndex(); } catch { /* 建不起来就照实说没建 */ }
+    // ★★★ 2026-11-17（阶段 2）：**这里原来会同步建索引，已改掉。**
+    //
+    //   原注释说「代价只在真的没建时付一次（0.65s）」—— 那句话在缓存小的时候成立，
+    //   在本机已经不成立了。实测（fs-watch 抓到调用栈）：
+    //     readFileSync _index.cache  124.8MB  **1,669 ms**
+    //       ← store.mjs:469  ← status-data.mjs:602  ← status-data.mjs:1518
+    //   也就是说：**/api/status 一条请求，就可能同步整读 124.8MB 的索引缓存。**
+    //   而它正好落在面板刷新路径上 —— 「刷一下状态台，事件循环停 1.7 秒」。
+    //
+    //   现在的口径：**发现没建就如实说「未建」，同时踢一次后台构建**，绝不在这里同步建。
+    //   这与阶段 2 对 echoStats 的处理是同一条判据：**请求路径不做重活，只报读数**。
+    if (!store.ixBuilt) {
+      let kicked = false;
+      try {
+        if (typeof store.buildIndexAsync === 'function') {
+          store.buildIndexAsync({ yieldMs: 8 }).catch(() => { /* 建不起来就下次再说 */ });
+          kicked = true;
+        }
+      } catch { /* 拉不起来也不阻塞请求 */ }
+      // 记在 note 里 —— 面板上要能看出「这是还没建，不是没有」
+      note += kicked ? '索引未建，已在后台开始构建；' : '索引未建（无分片构建能力）；';
     }
     if (store.ixBuilt && store.ix) {
       let n = 0;
@@ -912,11 +1014,263 @@ export async function readArchiveLayer(ctx) {
   };
 }
 
+/** Read the single v9 ECHO store without probing external doctor or changing the DB. */
+// ── echoStats 进程内缓存（阶段 2 · 2026-11-17）─────────────────────────────
+//
+// ★ 为什么必须缓存：analyzeEchoIntegrity 是**同步** SQL（node:sqlite 没有异步版），
+//   实测单次 954ms~7.6s，而它落在 /api/status 与 /api/organs 的热路径上 ——
+//   等于「面板刷一下，事件循环被按住一秒起」。
+// ★ 为什么 TTL 是 30 秒：ECHO 索引只在**导入时**变（tools/echo-index-import.mjs，
+//   手工/脚本触发，不是每秒）。30 秒的读数差异对状态台没有意义，而它能把
+//   请求路径上的成本从「秒级」压到「几毫秒」。
+// ★ 缓存的是**结论不是证据**：命中时回的是上一次真实算出来的 items，
+//   并且带上 cached/ageMs —— 让人看得出「这是 20 秒前的读数」，不冒充此刻。
+const ECHO_INTEGRITY_TTL_MS = 30 * 1000;
+let echoIntegrityCache = null;   // { at, item }
+let echoIntegrityInflight = null;
+
+export function invalidateEchoIntegrityCache() {
+  echoIntegrityCache = null;
+}
+
+export function readEchoIntegrityItem(config, opts) {
+  const o = opts || {};
+  const dataDir = config && config.dataDir;
+  const echoDb = o.echoDbPath || (config && config.memory && config.memory.libraryDir
+    ? path.join(config.memory.libraryDir, config.memory.indexFile || 'meta.sqlite')
+    : (dataDir ? path.join(dataDir, 'meta.sqlite') : null));
+
+  // ① 显式要求新鲜（排障 / 自检）：真的同步算一次。**只有这条路会阻塞**，而且是调用方自己点的。
+  if (o.fresh === true) {
+    const fresh = computeEchoIntegrityItem(config, o);
+    echoIntegrityCache = { at: Date.now(), item: fresh };
+    return fresh;
+  }
+
+  // ② 进程内缓存
+  const now = Date.now();
+  if (echoIntegrityCache && now - echoIntegrityCache.at < ECHO_INTEGRITY_TTL_MS) {
+    return Object.assign({}, echoIntegrityCache.item, { cached: true, ageMs: now - echoIntegrityCache.at });
+  }
+
+  // ③ 磁盘读数 —— 由**子进程**算出来的那份
+  //   ★★ 2026-11-17（阶段 2）：为什么必须走子进程，而不是在这里同步算：
+  //     analyzeEchoIntegrity 是 node:sqlite 的**同步**调用，里面的 FTS5 全表 GROUP BY
+  //     与 UNINDEXED 列上的孤儿检查让它单次耗时从 4 秒（分条实测）到 40 秒（整体实测）不等。
+  //     同步函数一旦开始就没法中断 —— 放在请求路径上，等于把 /api/status 和 /api/organs 一起钉死。
+  //     挪到子进程之后：它慢多久都与 core 无关，core 只读一个几百字节的 JSON。
+  if (dataDir) {
+    const got = readEchoProbeRecord(dataDir);
+    if (got && got.at && now - got.at < ECHO_PROBE_TTL_MS) {
+      const item = echoItemFromProbe(got.rec, now - got.at);
+      echoIntegrityCache = { at: now, item };
+      return item;
+    }
+    // ★★ 2026-11-17 修一个我自己造的事故：这里原来会**自动拉子进程**。
+    //   实测后果：探针在某些页缓存状态下要跑几分钟，于是每过一次 SPAWN_GAP 就再拉一个 ——
+    //   8 分钟里起了 **17 个** node 进程，每个都在同步扫 2.5GB 的 FTS5。
+    //   那正是我要消灭的那种「多写者 + IO 重载」，只是换了个地方长出来。
+    //   ★ 现在的口径：**读数只由显式动作产生**（node tools/echo-integrity-refresh.mjs
+    //     或 POST /api/echo/integrity/refresh）。请求路径绝不自己起进程。
+    //   没有读数就如实说「还没算过」—— 这比一个悄悄把机器拖垮的自动刷新诚实得多。
+    if (got && got.at) {
+      const item = echoItemFromProbe(got.rec, now - got.at);
+      item.stale = true;
+      return item;
+    }
+    return na('ECHO v9 索引', '索引体检正在后台计算（首次要几十秒；算完之前不阻塞任何请求）');
+  }
+
+  // ④ 没有 dataDir 的极端情况：退回同步算（宁可慢，也不给假数）
+  return computeEchoIntegrityItem(config, o);
+}
+
+// ── 子进程体检的读数层（阶段 2 · 2026-11-17）────────────────────────────────
+//
+// ★ 三个常量各自的理由：
+//   TTL 10 分钟 —— ECHO 索引只在**导入时**变（tools/echo-index-import.mjs，手工/脚本触发）。
+//     10 分钟里它不可能变两次；而体检本身要几十秒，拉太勤只是白烧 CPU。
+//   SPAWN 间隔 30 秒 —— 防止「读数过期」时每个请求都 spawn 一个（那会变成进程风暴）。
+//   STALE_MAX 1 小时 —— 超过就明说「这份读数太旧」，不拿三小时前的结论冒充现在。
+const ECHO_PROBE_TTL_MS = 10 * 60 * 1000;
+const ECHO_PROBE_SPAWN_GAP_MS = 30 * 1000;
+const ECHO_PROBE_STALE_MAX_MS = 60 * 60 * 1000;
+const ECHO_PROBE_FILE = '_echo-integrity.json';
+const ECHO_PROBE_SCRIPT = fileURLToPath(new URL('../db/echo-stats-probe.mjs', import.meta.url));
+let echoProbeSpawnedAt = 0;
+
+function echoProbePathOf(dataDir) {
+  return path.join(dataDir, ECHO_PROBE_FILE);
+}
+
+function readEchoProbeRecord(dataDir) {
+  try {
+    const raw = fs.readFileSync(echoProbePathOf(dataDir), 'utf8');
+    const rec = JSON.parse(raw);
+    const at = Date.parse(rec && rec.at);
+    return { rec, at: Number.isFinite(at) ? at : null };
+  } catch { return null; }
+}
+
+/**
+ * 起一个子进程去算体检。**只许显式调用**（CLI / 专用端点），不许在请求路径上自动调。
+ * @returns {number|null} 子进程 pid；拉不起来 → null
+ */
+export function spawnEchoProbe(dataDir, echoDb) {
+  const now = Date.now();
+  if (now - echoProbeSpawnedAt < ECHO_PROBE_SPAWN_GAP_MS) return null;
+  echoProbeSpawnedAt = now;
+  try {
+    const child = spawn(process.execPath, [ECHO_PROBE_SCRIPT, echoProbePathOf(dataDir), echoDb], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+      env: process.env,
+    });
+    if (child && typeof child.unref === 'function') child.unref();
+    return (child && child.pid) || null;
+  } catch { return null; }
+}
+
+/** 子进程的 JSON → 与 computeEchoIntegrityItem 逐字段同形的 item */
+function echoItemFromProbe(rec, ageMs) {
+  const age = Number.isFinite(ageMs) ? ageMs : null;
+  if (!rec || rec.ok !== true) {
+    return Object.assign(
+      na('ECHO v9 索引', '后台体检失败（UNKNOWN）：' + String((rec && rec.error) || '未知').slice(0, 150)),
+      { probeAgeMs: age, probeAt: (rec && rec.at) || null }
+    );
+  }
+  // ★ available 三态：true=表齐 / false=表不在 / undefined=旧读数没这个字段。
+  //   缺失时按 ok 判 —— 不把「旧文件少一个键」读成「表没了」。
+  if (rec.available === false || (rec.available === undefined && rec.ok !== true)) {
+    return Object.assign(
+      na('ECHO v9 索引', 'ECHO v9 表不可用（UNKNOWN）'),
+      { probeAgeMs: age, probeAt: rec.at || null }
+    );
+  }
+  const kinds = Array.isArray(rec.problemKinds) ? rec.problemKinds : [];
+  // ★ aligned 三态照旧：缺失不许被压成 false（那等于替 Store 宣布「结构歪了」）
+  const alignedKnown = rec.aligned === true ? true : (rec.aligned === false ? false : undefined);
+  // ★★ 2026-11-17 修：原来判 rec.ok_（echoStats 里的那个键）。但探针输出的 ok
+  //   是「探针自己成功了」，字段名也没有下划线 —— 于是 healthy 恒为 false，
+  //   面板永远显示 DEGRADED。**这正是「读数本身在说谎」那种形状**：
+  //   索引是好的，界面却一直报坏，而报坏的理由指向一个不存在的字段。
+  //   判据改成它真正该看的两件事：对齐（aligned）与问题数（problems）。
+  const problemN = Number.isFinite(rec.problems)
+    ? rec.problems
+    : (Array.isArray(rec.problemKinds) ? rec.problemKinds.length : null);
+  const healthy = alignedKnown === true && problemN === 0;
+  const sub = [
+    'words ' + (Number.isFinite(rec.words) ? rec.words : '?'),
+    'summaries ' + (Number.isFinite(rec.summaries) ? rec.summaries : '?'),
+    'problems ' + (Number.isFinite(rec.problems) ? rec.problems : '?') + (kinds.length ? ' [' + kinds.join(', ') + ']' : ''),
+    'search ' + (rec.searchable === true ? '可用' : '已闸住'),
+    '体检 ' + (Number.isFinite(rec.ms) ? Math.round(rec.ms / 1000) + 's' : '?'),
+  ].join(' · ');
+  const item = {
+    label: 'ECHO v9 索引',
+    value: healthy ? 'OK' : 'DEGRADED',
+    unit: '',
+    bad: !healthy,
+    sub,
+    available: true,
+    aligned: alignedKnown,
+    ok: healthy,
+    searchable: rec.searchable === true,
+    problemKinds: kinds,
+    counts: {
+      words: Number.isFinite(rec.words) ? rec.words : null,
+      summaries: Number.isFinite(rec.summaries) ? rec.summaries : null,
+      problems: Number.isFinite(rec.problems) ? rec.problems : null,
+    },
+    probeAgeMs: age,
+    probeAt: rec.at || null,
+  };
+  if (age !== null && age > ECHO_PROBE_STALE_MAX_MS) {
+    item.stale = true;
+    item.sub = '★ 读数已过期（' + Math.round(age / 60000) + ' 分钟前）· ' + sub;
+  }
+  return item;
+}
+
+function computeEchoIntegrityItem(config, opts) {
+  const o = opts || {};
+  const dataDir = config && config.dataDir;
+  const echoDb = o.echoDbPath || (config && config.memory && config.memory.libraryDir
+    ? path.join(config.memory.libraryDir, config.memory.indexFile || 'meta.sqlite')
+    : (dataDir ? path.join(dataDir, 'meta.sqlite') : null));
+  const injectedStore = o.echoStore || null;
+  if (!injectedStore && !echoDb) return na('ECHO v9 索引', '没有 meta.sqlite 路径（UNKNOWN；未检查）');
+  if (!injectedStore && !fs.existsSync(echoDb)) return na('ECHO v9 索引', 'meta.sqlite 不存在（UNKNOWN；未检查）');
+
+  let store = injectedStore;
+  let owned = false;
+  try {
+    if (!store) {
+      store = openMetaStore({ path: echoDb, mode: 'readonly' });
+      owned = true;
+    }
+    const stats = store.echoStats();
+    if (!stats || stats.available !== true) {
+      return na('ECHO v9 索引', (stats && stats.why) || 'ECHO v9 表不可用（UNKNOWN）');
+    }
+    const problems = Array.isArray(stats.problems) ? stats.problems : [];
+    const kinds = Array.from(new Set(problems.map((x) => x && x.kind).filter(Boolean))).sort();
+    // ★ 2026-11-15：aligned 是**三态**，不是布尔。缺失（undefined / Store 根本没报这一列）
+    //   不能被压成 false —— 压了就等于替 Store 宣布「结构歪了」，那是**谎报故障**，
+    //   severity 会落到 error；如实保留 undefined 才是「不知道对没对齐」，severity 落 warn。
+    const alignedKnown = stats.aligned === true ? true : (stats.aligned === false ? false : undefined);
+    const healthy = alignedKnown === true && stats.ok === true;
+    const sub = [
+      'words ' + (Number.isFinite(stats.words) ? stats.words : '?'),
+      'summaries ' + (Number.isFinite(stats.summaries) ? stats.summaries : '?'),
+      'problems ' + problems.length + (kinds.length ? ' [' + kinds.join(', ') + ']' : ''),
+      'search ' + (stats.searchable === true ? '可用' : '已闸住')
+    ].join(' · ');
+    return {
+      label: 'ECHO v9 索引', value: healthy ? 'OK' : 'DEGRADED', unit: '', bad: !healthy,
+      sub, available: true,
+      aligned: alignedKnown, ok: stats.ok === true, searchable: stats.searchable === true,
+      problemKinds: kinds,
+      counts: { words: Number.isFinite(stats.words) ? stats.words : null, summaries: Number.isFinite(stats.summaries) ? stats.summaries : null, problems: problems.length }
+    };
+  } catch (e) {
+    return na('ECHO v9 索引', '读取失败（UNKNOWN）：' + String((e && e.message) || e).slice(0, 180));
+  } finally {
+    if (owned && store && typeof store.close === 'function') {
+      try { store.close(); } catch { /* read result must survive close errors */ }
+    }
+  }
+}
+
 export function readOpsLayer(ctx) {
   const { config, core, opts } = ctx;
   const p = coreTag(opts.core);
   const items = [];
   const dataDir = (config && config.dataDir) || null;
+
+  // ECHO v9 integrity uses the sole meta.sqlite through the readonly Store facade.
+  const echoIntegrity = readEchoIntegrityItem(config, opts);
+  items.push(echoIntegrity);
+
+  // ★ 2026-11-15：严重度按「能不能用」分级。旧式 `na ? warn : aligned===false ? error : warn`
+  //   把**健康**也报成 warn（available / aligned / ok / searchable 全 true、problems 空，照样 warn），
+  //   于是 warn 同时表示「不知道」和「好的」—— 界面上再也分不出哪一种。
+  //   四档（判据只看 ECHO 那一行，不吃别的运维项）：
+  //     na / unavailable                 → warn（不知道；既不是坏了，也不是好了）
+  //     aligned === false                → error（结构不对齐 → 搜索闸已关）
+  //     aligned === true 且 ok === true  → ok（健康：**两票都要有**，缺一票不算健康）
+  //     aligned === true 但 ok !== true  → warn（非致命：元数据审计有账，搜索仍可用）
+  //     aligned 缺失（undefined）        → warn（没报过对齐＝不知道；不许被 ok===true 抬成 ok）
+  //   ★ 2026-11-15 补的边角：旧判据写成 `ok === true → ok`，于是「aligned 没报、ok 说 true」
+  //     也能算健康 —— 而契约是 aligned===true **且** ok===true。缺一票就退回 warn：
+  //     不冒充 ok（没证据说健康），也不升 error（没证据说歪了）。
+  //   ★ 只改这一层的 level；items / provenance / 脱敏 / 服务存活判据一个字没动
+  //     （HTTP 200 与 body.ok 由 server.mjs 决定，不读这个 level）。
+  const echoLevel = (echoIntegrity.na === true || echoIntegrity.available !== true) ? 'warn'
+    : (echoIntegrity.aligned === false ? 'error'
+      : (echoIntegrity.aligned === true && echoIntegrity.ok === true ? 'ok' : 'warn'));
 
   // shutdown.log
   let shut = null, shutStat = null;
@@ -962,11 +1316,11 @@ export function readOpsLayer(ctx) {
     ttlMs: (config && config.integrations && config.integrations.echoProbeTtlMs) || undefined,
   });
   if (!sen.ok) {
-    items.push(na('回声哨兵', sen.why || '没有可信结果（UNKNOWN）'));
+    items.push(na('ECHO 源域体检（外部旧 doctor）', sen.why || '没有可信结果（UNKNOWN）'));
   } else if (!sen.record || sen.record.probeOk !== true) {
     // ★ 探测本身失败：这不是「回声坏了」，也不是「回声好了」—— 是**不知道**。
     items.push({
-      label: '回声哨兵', value: null, unit: '', na: true,
+      label: 'ECHO 源域体检（外部旧 doctor）', value: null, unit: '', na: true,
       why: '探测失败：' + String((sen.record && sen.record.error) || '未知原因'),
       at: sen.at && Number.isFinite(Date.parse(sen.at)) ? hm(Date.parse(sen.at)) : '',
     });
@@ -981,7 +1335,7 @@ export function readOpsLayer(ctx) {
     if (sen.stale) bits.push('★ 结果已过期，不是「现在」');
     const bad = sen.state === 'error' || !['ok', 'warn'].includes(sen.state);
     items.push({
-      label: '回声哨兵',
+      label: 'ECHO 源域体检（外部旧 doctor）',
       value: String(sen.state || 'unknown').toUpperCase(),
       unit: '',
       bad,
@@ -1026,9 +1380,9 @@ export function readOpsLayer(ctx) {
 
   return {
     key: 'ops', name: 'Ⅴ · 运维', title: '退出 / 备份 / 哨兵',
-    level: 'warn', items,
-    note: '哨兵读的是 <dataDir>/echo-sentinel.json 里的**真实探测结果**（没跑过/失败/成功三态分开）；备份只有手工 .bak 源码副本，会话容器本身没有备份。',
-    provenance: p + ' · data/shutdown.log + ' + backupSub + ' + echo-sentinel.json + cleanup-receipts.json',
+    level: echoLevel, items,
+    note: 'ECHO v9 索引完整性以独立 ECHO v9 索引行判定；本 ops 层 level 只跟那一行走 —— ok = 已对齐且元数据审计无账，warn = 不知道（na / unavailable）或已对齐但元数据有非致命问题，error = 结构不对齐（搜索闸已关）。旧 doctor 仅报外部文件/日志体检，两者不互相覆盖。',
+    provenance: p + ' · meta.sqlite（v4 ECHO integrity） + data/shutdown.log + ' + backupSub + ' + echo-sentinel.json（外部旧 doctor） + cleanup-receipts.json',
   };
 }
 
@@ -1129,7 +1483,7 @@ export function readEventsLayer(ctx) {
 /**
  * 一次拿全。**任何一层读失败都不许让整个请求挂掉** —— 每层独立 try/catch。
  * @param {{config:object, store?:object, persona?:object, tools?:object,
- *          autonomy?:object, loop?:object, dshHome?:string, configFile?:string, statusDir?:string}} opts
+ *          autonomy?:object, loop?:object, dshHome?:string, configFile?:string, statusDir?:string, echoDbPath?:string, echoStore?:object}} opts
  *   ★ loop（2026-11-10）：把换气判定表交给读模型 —— `loop.__huanqiByRound` 是器官正在用的那一份。
  *     不给就是「无读数 + 原因」，不是 0。
  */
@@ -1150,20 +1504,48 @@ export async function gatherStatus(opts) {
     }
   };
 
-  const lead = await safe(() => readLeadWater(config, opts2),
-    { ok: false, pct: null, used: null, window: null, source: null, why: '读 lead 水位时抛错' });
-  const active = await safe(() => readActiveWater(config, opts2),
-    { ok: false, count: 0, top: null, window: null, items: [], why: '读活跃会话时抛错' });
-  const mirror = await safe(() => readMirrorWater({ config, store: o.store, persona: o.persona }),
-    { pct: null, used: null, window: null, note: '无读数（抛错）' });
+  /* ★★★ 2026-11-14（第 14 代）：**这九次读盘原来是一条串行的 await 链。**
+   *
+   * 实测：/api/status 一次 **3285ms**。而它们读的是**互不相干的东西** ——
+   *   《墨》水位 / projcache 扫描 / 书房 walk / 运行态 / 能力面 / 归档 / ops / 事件账。
+   * 没有任何一步依赖另一步的结果，串起来等于把九个 300ms 叠成三秒。
+   * 而面板每切一次页面都拉它：3.3 秒 × 频繁切换 = 界面像死了，core 一直在重 I/O。
+   *
+   * 现在：**并行**。总耗时 = 最慢那一个，不再等于九者之和。
+   * ★ 这条也是「切页就重新加载」那种卡顿的主因之一 —— 不是前端在乱请求，
+   *   是**每一次请求本身就值三秒**。
+   */
+  // ★★ 2026-11-17：每一层都记一次自己的耗时。
+  //   原来只有 tookMs（总），于是「哪一层慢」只能靠拆开跑（拆开就没有真实的并发竞争了）。
+  //   现在每层带 ms —— 面板与排障都能直接看出是谁把首屏拖慢的。
+  const timed = (fn, fallback) => async () => {
+    const t = Date.now();
+    const r = await safe(fn, fallback);
+    if (r && typeof r === 'object') r.ms = Date.now() - t;
+    return r;
+  };
+  const [lead, active, mirror, echoR, vitalR, capabilityR, archiveR, opsR, eventsR] = await Promise.all([
+    timed(() => readLeadWater(config, opts2),
+      { ok: false, pct: null, used: null, window: null, source: null, why: '读 lead 水位时抛错' })(),
+    timed(() => readActiveWater(config, opts2),
+      { ok: false, count: 0, top: null, window: null, items: [], why: '读活跃会话时抛错' })(),
+    timed(() => readMirrorWater({ config, store: o.store, persona: o.persona }),
+      { pct: null, used: null, window: null, note: '无读数（抛错）' })(),
+    timed(() => readEchoLayer({ store: o.store, config, opts: opts2 }), { key: 'echo', items: [], level: 'error' })(),
+    timed(() => readVitalLayer({ autonomy: o.autonomy, loop: o.loop, config, opts: opts2 }), { key: 'vital', items: [], level: 'error' })(),
+    timed(() => readCapabilityLayer({ tools: o.tools, config, opts: opts2 }), { key: 'capability', items: [], level: 'error' })(),
+    timed(() => readArchiveLayer({ config, persona: o.persona, opts: opts2 }), { key: 'archive', items: [], level: 'error' })(),
+    timed(() => readOpsLayer({ config, core, opts: opts2 }), { key: 'ops', items: [], level: 'error' })(),
+    timed(() => readEventsLayer({ config, opts: opts2 }), { key: 'events', items: [], level: 'error' })(),
+  ]);
 
   const layers = {
-    echo: await safe(() => readEchoLayer({ store: o.store, config, opts: opts2 }), { key: 'echo', items: [], level: 'error' }),
-    vital: await safe(() => readVitalLayer({ autonomy: o.autonomy, loop: o.loop, config, opts: opts2 }), { key: 'vital', items: [], level: 'error' }),
-    capability: await safe(() => readCapabilityLayer({ tools: o.tools, config, opts: opts2 }), { key: 'capability', items: [], level: 'error' }),
-    archive: await safe(() => readArchiveLayer({ config, persona: o.persona, opts: opts2 }), { key: 'archive', items: [], level: 'error' }),
-    ops: await safe(() => readOpsLayer({ config, core, opts: opts2 }), { key: 'ops', items: [], level: 'error' }),
-    events: await safe(() => readEventsLayer({ config, opts: opts2 }), { key: 'events', items: [], level: 'error' }),
+    echo: echoR,
+    vital: vitalR,
+    capability: capabilityR,
+    archive: archiveR,
+    ops: opsR,
+    events: eventsR,
   };
 
   return {
@@ -1176,6 +1558,10 @@ export async function gatherStatus(opts) {
         pct: lead.pct, used: lead.used, window: lead.window,
         source: lead.source || lead.why || null,
         ok: !!lead.ok, why: lead.why || null,
+        // ★★ 2026-11-13：`safe()` 把真实异常写进 `error`，而这里原来**只搬 why 不搬 error** ——
+        //   于是抛错时前端只能看到写死的兜底文案（「读 lead 水位时抛错」），真因被吃掉。
+        //   这正是「静默」的标准形状：错误存在，但没人看得见。
+        error: lead.error || null,
         title: lead.title || null, file: lead.file || null, seq: lead.seq,
         leadBy: lead.leadBy || null, leadAt: lead.leadAt || null,
         leadCount: lead.leadCount || null, leadSummary: lead.leadSummary || null,
@@ -1188,13 +1574,13 @@ export async function gatherStatus(opts) {
         windowLabel: active.windowLabel, windowMs: active.windowMs,
         items: active.items, latest: active.latest,
         scanned: active.scanned, parsed: active.parsed, unreadable: active.unreadable,
-        tookMs: active.tookMs, why: active.why || null, ok: !!active.ok,
+        tookMs: active.tookMs, why: active.why || null, ok: !!active.ok, error: active.error || null,
       },
       mirror: {
         pct: mirror.pct, used: mirror.used, window: mirror.window,
         note: mirror.note || '不是水位，是镜像帧字符估算',
         ruler: mirror.ruler || null, session: mirror.session || null,
-        frameCount: mirror.frameCount || null, ok: mirror.ok !== false,
+        frameCount: mirror.frameCount || null, ok: mirror.ok !== false, error: mirror.error || null,
       },
     },
     layers,

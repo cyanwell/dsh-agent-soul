@@ -24,7 +24,13 @@ import { execFileSync, spawn } from 'node:child_process'
 const DEV = 'D:/AI/agent-soul'
 const APP = 'C:/Users/pc/Desktop/deepseek harness/agent soul/app'
 const ROOT = 'C:/Users/pc/Desktop/deepseek harness/agent soul'
-const PARTS = ['src', 'tools', 'sql']
+// ★★★ 2026-11-18 加 'seed'：六层里的 **L1（SELF 骨架 + 热记忆空模板）** 就靠它。
+//   漏了它的症状不是报错，是「装完之后没有人格骨架」——
+//   portable.mjs 的 copyIfMissing 会安静地返回 {copied:false, reason:'seed-missing'}，
+//   然后 self.mjs 没东西可渲染，SELF.md 永远不出现。
+//   ★ 而且 seedDir() 解析的是 <programRoot>/seed，programRoot 又等于 app/<版本>
+//     （因为本模块在 app/<版本>/src/portable.mjs）—— 所以 seed 必须跟着**版本载荷**走。
+const PARTS = ['src', 'tools', 'sql', 'seed']
 const args = process.argv.slice(2)
 const DRY = args.includes('--dry')
 const RESTART = args.includes('--restart')
@@ -92,7 +98,11 @@ function countFiles (dir) {
 // ---------- ③ VERSION.txt ----------
 const ver = [
   'AgentSoul payload ' + target + ' built: ' + new Date().toISOString().replace('T', ' ').slice(0, 19),
-  'source: D:\AI\agent-soul (dev)',
+  // ★ 这里原先写 'source: D:\AI\agent-soul (dev)' —— 单引号字符串里 \A 与 \a 不是转义序列，
+  //   JS 会把反斜杠直接吞掉，于是 VERSION.txt 里一直印着「D:AIagent-soul」。
+  //   不影响功能，但那是**唯一**记着「这个载荷从哪来」的一行，印错就等于没写。
+  //   改用正斜杠：路径照样看得懂，也不再有转义歧义。
+  'source: D:/AI/agent-soul (dev)',
   'changes: （由 release.mjs 生成 —— 手写的地方在下面一行）',
   '  ' + (args.find((a) => a.startsWith('--changes=')) || '').replace('--changes=', ''),
   '',

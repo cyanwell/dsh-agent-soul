@@ -1,0 +1,28 @@
+{
+  "echoIndexVersion": "echo-index/1",
+  "sourcePath": "D:/synthetic/echo/v4/index",
+  "namespace": "v4log",
+  "generation": 1,
+  "builtAt": "2026-11-10T02:00:00.000Z",
+  "cursor": {
+    "seq": 12
+  },
+  "words": {
+    "path": "words.jsonl",
+    "sha256": "f8ed9514c6b2d56c2bdbbaecac832bab21930626480cd5ff8c567d436dfabbe8",
+    "bytes": 223,
+    "rows": 1
+  },
+  "summaries": {
+    "path": "summaries.jsonl",
+    "sha256": "7f50df75768660f489b961e8eda2e135c2a170bfe9e98a5ebdee0c5ab7076d08",
+    "bytes": 292,
+    "rows": 1
+  },
+  "counts": {
+    "words": 1,
+    "summaries": 1,
+    "srcSeqs": 1,
+    "excludedReasoning": 0
+  }
+}

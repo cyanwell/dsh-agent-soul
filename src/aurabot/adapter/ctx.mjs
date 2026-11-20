@@ -15,6 +15,8 @@
 //   ② **effect 立刻执行并收集 dispose** —— cordis 的语义，aurabot 里到处用它。
 // ============================================================================
 
+import { createBridgeEvents } from './bridge-events.mjs'
+
 const LOG_LEVELS = { debug: 10, info: 20, warn: 30, error: 40 }
 
 export function createAurabotCtx (opts = {}) {
@@ -69,8 +71,39 @@ export function createAurabotCtx (opts = {}) {
     return () => { clearInterval(t); const i = intervals.indexOf(t); if (i >= 0) intervals.splice(i, 1) }
   }
 
+  /* ★★★ 2026-11-14（第 14 代 · 协议 v2 补的第五通道）：每轮动态上下文。
+   *
+   * 真 DSH 里宿主每轮**同步**调 text() 去拼提示词；跨进程做不到同步回调。
+   * 所以这里**登记**，由投递方（bridge-session-controller 的 followup/steer）
+   * 在发包前同步算一次，作为消息的**第一个块**带过去 —— 位置和 memory 的
+   * 「你记得这些事…」一致，都是「先说背景，再说正文」。
+   *
+   * ★ 差在哪（不藏）：它不再是「提示词变量」，而是「消息前缀」。
+   *   对模型来说两者都在上下文里，但**前缀会进会话历史**，变量不会。
+   *   代价是历史里多一段重复文本；好处是时序天然正确、不用新开一条同步通道。 */
+  const promptContexts = []   // [{name, order, text}]
+
   const systemPrompt = {
     variable (n, fn) { variables.set(String(n), fn); return () => { variables.delete(String(n)) } },
+    context (spec) {
+      const s = spec || {}
+      const row = { name: String(s.name || ''), order: Number(s.order) || 500, text: s.text }
+      promptContexts.push(row)
+      return () => { const i = promptContexts.indexOf(row); if (i >= 0) promptContexts.splice(i, 1) }
+    },
+  }
+
+  /** 同步渲染所有已登记的上下文（投递前调）。任何一段抛错只丢那一段，不拖垮整条投递。 */
+  function renderPromptContexts () {
+    return promptContexts
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((r) => {
+        try { return typeof r.text === 'function' ? String(r.text() || '') : String(r.text || '') }
+        catch (e) { out('[aurabot] prompt context 抛错（' + r.name + '）：' + String((e && e.message) || e)); return '' }
+      })
+      .filter((s) => s.trim())
+      .join('\n\n')
   }
 
   const services = opts.services || {}
@@ -86,6 +119,40 @@ export function createAurabotCtx (opts = {}) {
     return rs
   }
 
+  // ★★★ 2026-11-14（第 14 代 · 协议 v2）：**回程的入口就在这三行。**
+  //
+  //   全库没有一处调 emit —— 于是 host.js 里那句
+  //       ctx.on('session/event', (session, event) => hub.onSessionEvent(session, event))
+  //   的监听器**一次都没被调过**。她跑完一轮、话生成出来了、然后就没有然后了。
+  //
+  //   现在：bridge-events 收到宿主 push 的 session/event 帧 → 调 emit → 监听器 → hub.onSessionEvent
+  //   → 发回 QQ。★ 签名必须是 (session, event) **两个参数**，不能塞成一个对象
+  //   （塞成一个对象时 onSessionEvent 的形参就错位了，而错位的失败在日志里长得像「没有事件」）。
+  let events = opts.events || null
+  let eventsOwned = false
+  if (!events && opts.control && opts.bridgeEvents !== false) {
+    try {
+      events = createBridgeEvents(opts.control, {
+        // ★ 事件层的日志**不许被 quiet 吞掉**：quiet 是「别唠叨」，而「事件层没接上」
+        //   等于「她的话回不到 QQ」—— 那件事在日志里消失，排查就只剩猜。
+        log: typeof opts.eventLog === 'function' ? opts.eventLog : (m) => out('[aurabot] ' + String(m)),
+        topics: opts.eventTopics,
+        retryMs: opts.eventRetryMs,
+      })
+      eventsOwned = true
+    } catch (e) {
+      // ★ 建不出来要说出来：事件层没了等于「她的话回不到 QQ」，而那种失败最容易被当成「今天没人说话」。
+      out('[aurabot] bridge-events 建不起来（事件层不通）：' + String((e && e.message) || e))
+      events = null
+    }
+  }
+  if (events && typeof events.bind === 'function') {
+    events.bind({
+      onEvent: (session, event) => emit('session/event', session, event),
+      onRevoked: opts.onRevoked,
+    })
+  }
+
   const ctx = {
     effect,
     webServer,
@@ -94,8 +161,15 @@ export function createAurabotCtx (opts = {}) {
     systemPrompt,
     get,
     logger,
-    llm: opts.llm || null,
+    // ★ 2026-11-14：services.llm 必须一起参与 —— 下面那圈「只补 ctx 上没有的键」
+    //   会因为 'llm' in ctx 为 true 而跳过它，于是 opts.llm || null 会把
+    //   「本地没有 llm 时退回 bridge 代理」这条路整个吃掉（表现为 ctx.llm === null）。
+    llm: opts.llm || (services && services.llm) || null,
     dispose () {
+      // ★ 事件层是异步的（要发退订帧）：这里 fire-and-forget，且**不等** —— 退出不该被网络拖住。
+      if (events && typeof events.stop === 'function') {
+        try { Promise.resolve(events.stop()).catch((e) => out('[aurabot] events 停止时出错：' + String((e && e.message) || e))) } catch (e) {}
+      }
       for (const d of disposers.splice(0)) { try { d() } catch (e) {} }
       for (const t of intervals.splice(0)) clearInterval(t)
       routes.clear()
@@ -104,18 +178,37 @@ export function createAurabotCtx (opts = {}) {
     },
   }
 
+  // ★★★ 2026-11-14（第 14 代）：把 services 也摊到 ctx 上 —— 这才是 cordis 的 ctx.svc 语义。
+  //   之前只有 ctx.get('x')，于是 aurabot 源码里 `dsh.agents.get(sid)` 这种写法
+  //   会抛 `Cannot read properties of undefined (reading 'get')`（hub.js:189），
+  //   而那个错被上层 catch 成「会话 xxx 恢复不了，换一个新的」——
+  //   表现成「莫名其妙换会话」，真因只是一行属性访问。
+  //   ★ 只补 ctx 上**没有**的键：已有能力（effect/webServer/on/…）不许被 services 覆盖。
+  for (const [k, v] of Object.entries(services)) {
+    if (!(k in ctx)) ctx[k] = v
+  }
+
   return {
     ctx,
     routes,
     variables,
+    promptContexts,
+    systemPrompt,
+    registerPromptContext: (spec) => systemPrompt.context(spec),
+    renderPromptContexts,
     emit,
+    events,
+    eventsOwned,
     view () {
       return {
         routes: routes.size,
         listeners: [...listeners.keys()].map((k) => k + ':' + listeners.get(k).size),
         variables: [...variables.keys()],
+        promptContexts: promptContexts.length,
         intervals: intervals.length,
         disposers: disposers.length,
+        // ★ 事件层有没有真的接上，面板要能看见（不然「订阅了但没有事件」永远是猜）。
+        events: events ? events.status() : null,
       }
     },
   }
