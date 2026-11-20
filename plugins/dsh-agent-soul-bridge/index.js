@@ -47,13 +47,16 @@ import { createBridgeMarker } from './bridge-proof.mjs'
 import { runTargetedCleanup } from './pruner-adapter.mjs'
 // ★ 2026-11-13：上下文手术刀 —— 不依赖 DSH 的 pruner，直接用 Session API 公开原语。
 import { makeContextSurgeon, purgeMany } from './context-surgeon.mjs'
+// ★ 2026-11-20：真实生命周期身份核验（进程本体 + 管理器证明 + 三者对齐）。
+import { makeRunPowerShell, makeCanonicalizePath, makeInspect } from './lifecycle-inspect.mjs'
+import { readManagerProof } from './manager-proof-client.mjs'
 
 export const name = 'dsh-agent-soul-bridge'
 /** 需要 webServer 才能注册管理端点（DSH 面板用） */
 export const inject = ['webServer']
 
 // ★ 发布版本：与 package.json.version 保持一致。
-const VERSION = '0.1.4'
+const VERSION = '0.1.5'
 const TAG = '[agent-soul-bridge]'
 
 export const DEFAULTS = {
@@ -147,7 +150,8 @@ export const DEFAULTS = {
    *  它不是 node 服务 —— start 要拉的是 build/AgentSoul.exe，而且 cwd 必须是这个根
    *  （dataDir 按 cwd 解析，指错会建出一个假 data 目录）。
    *  cordis.patch.yml 里没写它，所以这份 DEFAULTS 就是生效值。 */
-  agentSoulRoot: 'D:/AI/agent-soul',
+  /** ★ 2026-11-20：默认指**生产安装**（壳在根下 AgentSoul.exe）。开发树可显式覆盖。 */
+  agentSoulRoot: 'C:/Users/pc/Desktop/deepseek harness/agent soul',
   /** stop 用哪个镜像名杀进程；空 = 取 exe 的文件名（AgentSoul.exe）。仅保留兼容字段，不再用于终止。 */
   agentSoulImage: '',
   /** 管理端点独立的 local-admin bearer；缺少则管理面 fail-closed。 */
@@ -1127,12 +1131,20 @@ function shortId (id) {
 export function agentSoulPlan (cfg) {
   const raw = String((cfg && cfg.agentSoulRoot) || DEFAULTS.agentSoulRoot || '')
   const root = raw.replace(/\\/g, '/').replace(/\/+$/, '')
-  const exe = root ? path.join(root, 'build', 'AgentSoul.exe') : ''
+  /* ★ 2026-11-20：exe 位置**两种都认**。
+     开发树里是 <root>/build/AgentSoul.exe；而生产安装（make-dist 出来的 portable/Setup）
+     把壳放在 <root>/AgentSoul.exe，没有 build/ 目录 —— 只认前者的话，
+     「面板点启动」在真实安装上恒回「找不到 …\\build\\AgentSoul.exe」。
+     ★ 判据：先找 build/，没有再找根；两个都没有才算不存在（错误信息里报根路径）。 */
+  const candidates = root ? [path.join(root, 'build', 'AgentSoul.exe'), path.join(root, 'AgentSoul.exe')] : [];
+  let exe = candidates[0] || '';
+  let exists = false;
+  for (const c of candidates) {
+    try { if (fs.existsSync(c)) { exe = c; exists = true; break; } } catch { /* 下一个 */ }
+  }
   /* ★ stop 用镜像名杀进程：默认取 exe 的文件名（AgentSoul.exe），
      留 agentSoulImage 覆盖口 —— 将来改名/多实例时不必改代码。 */
   const image = String((cfg && cfg.agentSoulImage) || '').trim() || (exe ? path.basename(exe) : 'AgentSoul.exe')
-  let exists = false
-  try { exists = !!exe && fs.existsSync(exe) } catch (e) { exists = false }
   return { root, exe, exists, image }
 }
 
@@ -1379,14 +1391,40 @@ export function apply (ctx, config) {
       }
 
       const ledger = makeRequestLedger()
+      /* ★★ 2026-11-20：身份核验从「永远不可用」改成**真的去核**。
+         三条半边都接上了：PowerShell 查进程本体、core.lock 的 manager 段 + /api/manager-proof
+         查管理器证明、再用 sha256(marker) 把两边对齐。任何一条拿不到都会回明确的 reason，
+         不会被当成「验过了」写进 instanceRecord。
+         ★ 仍然 fail-closed：核不通就不许 start/stop/restart —— 那三个端点会原样把 reason 报出来。 */
+      const runPowerShell = makeRunPowerShell({ powerShellPath: cfg.powerShellPath })
+      const canonicalizePath = makeCanonicalizePath()
+      const readProof = async ({ marker, shellPid, healthCorePid }) => readManagerProof({
+        marker, shellPid, healthCorePid,
+        token: readToken(),
+        fetchImpl: fetch,
+        baseUrl: AS,
+      })
+      /* ★★ 2026-11-20 实测结论（已写入 _verify，不要重复试）：
+         ① **生产壳 AgentSoul.exe（133,632 B，2026-11-18）完全不认识 manager 协议**
+            —— 二进制里连 "AGENT_SOUL_MANAGER_MARKER" 这串都没有（Unicode 扫描 False/False），
+            带 marker 启动时它只做一个动作：把 core 之外的东西原样传下去，而 core 的
+            src/util/core-identity.mjs 看到 "有 marker 但 shellPid 缺失" 就 fail-closed 退出。
+            实测报错：`bridge 启动身份拒绝：manager-shell-pid-invalid`，core exit code 12。
+            而开发树的 build/AgentSoul.exe（152,064 B，11-18 14:54）**源码 Shell.cs 里有这段**，
+            但那份二进制里也扫不到这串 —— 也就是说它同样不是带 manager 协议的构建。
+         ② 所以「bridge 拉起 core 并证明自己是它的管理器」这条链**当前无法在生产上跑通**，
+            不是代码没写，是壳那半边缺一次带 manager 协议的重编。
+         ③ 本模块（inspect）已经把核验三条半边全接上了：壳一旦重编，start/stop/restart 立刻可验；
+            在那之前它只会回**明确的不可用原因**（进程本体可查、proof 401/409），
+            绝不回乐观值。 */
+      const inspect = makeInspect({ runPowerShell, canonicalizePath, readProof, health: healthCore })
       const lifecycle = makeAgentSoulLifecycle({
         plan,
-        identityAvailable: false,
         health: healthCore,
         spawn: async (meta) => { const sp = spawnAgentSoul(cfg, { marker: meta.marker }); io.mark(sp.ok ? ('spawn-pid:' + sp.pid) : ('spawn-failed:' + sp.error)); return sp },
         waitUp,
         waitDown,
-        inspect: async () => ({ ok: false, reason: 'identity-verification-unavailable' }),
+        inspect,
         terminate: async (pid) => {
           try {
             const { execFileSync } = await import('node:child_process')
