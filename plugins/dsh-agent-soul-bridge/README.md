@@ -112,6 +112,19 @@ v4 有两条腿：① MCP server（宿主调它）② 控制通道 WS（它主�
 
 ★ 前置：`dsh-yanqing-pruner` 必须是**带 `applyDrops` 的那一版**，且与桥装在同一个 node_modules 树里。
 
+★ **刚重启后第一次测会报 `no-pruner`，这不是故障**（2026-11-21 查证）：
+`getLivePruner(sessionId)` 的判据不是「实例存在」，而是「**这个实例见过这个会话**」——
+`__yqLive.add(this)` 在构造时就执行（实例立刻登记），但 `__yqSeenSids` 只在
+`agent/pre-step` 或一次 applyDrops 里才填（dsh-yanqing-pruner/index.js:1032 / :1495）。
+所以目标会话**必须先跑过至少一轮**，模块通道才会命中；这是 F5 那次修正的有意行为
+（不退回「最后一个活实例」——那会把 A 会话的清理打到 B 的头上）。
+排查顺序：先让那个会话走一轮（哪怕只说一句话），再发 targeted-cleanup。
+
+★ 静态前提已实测（2026-11-21）：从 `profiles/desktop/node_modules/dsh-agent-soul-bridge/`
+里 `import('dsh-yanqing-pruner')` **能解析到**，且导出 `getLivePruner` 与 `applyDropsForSession`。
+剩下一层（同一个模块实例）由「两者同处 profile 的 node_modules 树」保证。
+
+
 ## 文件
 
 | 文件 | 作用 |
