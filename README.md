@@ -378,12 +378,42 @@ data/
 
 ## 更新记录
 
-### 1.0.70（2026-11-20）
+### 1.0.70（2026-11-20）· ECHO 实装与 bridge 生命周期
+
+- **bridge 真实生命周期跑通**：重编 AgentSoul 壳。`build/Shell.cs` 早在 11-19 就改对了，缺的是编译产物 ——
+  重编前 UTF-16 逐字节扫生产壳，连 `AGENT_SOUL_MANAGER_MARKER` 都没有；带 marker 启动 core 必 exit 12
+  （`manager-shell-pid-invalid`）。重编后 `/api/manager-proof` 回 200，三项身份对齐实测 `ok:true`；
+  坏 marker → `proof-marker-mismatch`，错 pid → `process-path-mismatch`。
+- **ECHO 实时索引在生产真跑**：`config.echoLive.dbPath` 原来指向安装目录的空库（报 `no such table: echo_index_sources`），
+  改指真实 ECHO 库后 generation 209 → 300+，连续 IMPORTED。
+- **向量层跟上实时链**：此前词进了向量不进，向量检索被覆盖率闸拒绝（`ECHO_VECTOR_SOURCE_INCOMPLETE`）。
+  现在同步进新词后自动跟一轮 BGE 补写；实测 `vectorRuns=21 / vectorFailures=0`，62,093 = expected 62,093 `complete`。
+- **bridge 0.1.5 包完整**：补回 5 个被 import 却漏发布的模块（bridge-proof / client / process-inspector /
+  manager-proof-client / lifecycle-inspect）；少了它们装进 profile 就是 Cannot find module。
+- 验证边界：已做本地部署（`app/1.0.70`，current.txt 已切）与运行态复验；
+  **GitHub Release 资产尚未重新打包上传**；pruner / huanqi 仍是桩；运行中的 bridge 要重启 DSH 才加载 0.1.5。
+
+### 1.0.69（2026-11-20）· 实时链补上向量层
+
+- `src/organs/echo-live.mjs`：同步 IMPORTED 且进了新词之后，跟一轮向量补写（`vectorizeScriptPath` 可配）。
+  向量阶段仍算「在跑」，单飞判据覆盖整轮；向量失败**不改**同步结论，回执里 `vector` 单独一节。
+- `src/core-entry.mjs`：把 `tools/echo-vectorize-production.mjs` 接进器官。
+- `tools/echo-embed.mjs`：导出三候选模型目录解析（`<根>/app/<版本>/models` → `<根>/models`）。
+- `tools/echo-vectorize-production.mjs`：不再自己拼 `../models`（部署后那一层没有模型，会「开发能跑、装完说没有」）；
+  写库旗标改成白名单 —— 只写 tempdir 副本，或显式 `--yes-production`。
+
+### 1.0.68（2026-11-20）· 星系页并入极光色板
+
+- `src/web/galaxy.html`：撤掉「暖黑 + 奶油白 + 琥珀」的深空棕，改用 aurora 的 `--as-*` 同一套取值
+  （底 #04070E / 字 #EDF4FF / 强调 #6FB6FF / 次要 #8C9EB4）。88 处字面量 + 令牌块整块替换。
+- 保留星体自身色温（核心暖白 → 外缘青蓝）—— 那是天体物理，不是界面配色。
+- 正文对比度 11.9:1；发光仍只有核球与选中臂两处，光效预算不变。
+
+### 1.0.67（2026-11-20）· Galaxy 详情面板与 TEMP 回归
 
 - Galaxy：详情面板按选中臂停靠对侧；窄屏改用底部详情面板。
 - ECHO：补齐 TEMP tail cursor / open-tail 回归断言；悬空 srcSeq 保持显式统计，不推断、不改写。
 - Aurabot：启动协议 selftest 更新为受保护的 direct-main / preflight 结构。
-- 验证边界：本版源码未执行生产 ECHO 导入，也未验收 full-core/Aurabot 实机和 bridge 发布。
 
 ### 1.0.66
 
