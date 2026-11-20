@@ -1,0 +1,287 @@
+/**
+ * pruner 薄适配 · 证据测试（2026-11-11）
+ * =====================================
+ * 跑法（桥目录）：
+ *   node --import D:/AI/dsh-tools/dsh-yanqing-pruner/test/register.mjs \
+ *        --test _verify/pruner-sync/adapter.test.mjs
+ *
+ * 三层证据：
+ *   ① 适配层自己的行为（解析/找会话/找 pruner/翻译回执）
+ *   ② 用**真** dsh-yanqing-pruner 实例跑一遍，回执来自真实 surface 改写
+ *   ③ 把回执喂给 **v4 的真判官**（agent-soul/src/organs/cleanup.mjs 的
+ *      normalizeCleanupRequest + judgeCleanupReceipt），看它认不认
+ * 一切写盘指向临时目录；生产回执文件用 stat 前后不变证明没被碰。
+ */
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+import DEFAULTS_HOLDER, { prunerRefusalMessage, describePrunerRequest, DEFAULTS } from '../../index.js'
+import { resolvePruner, runTargetedCleanup } from '../../pruner-adapter.mjs'
+
+const PRUNER_SRC = 'file:///D:/AI/dsh-tools/dsh-yanqing-pruner/index.js'
+const V4_CLEANUP = 'file:///D:/AI/agent-soul/src/organs/cleanup.mjs'
+const PROD_RCPT = 'D:/AI/yanqing-soul/30-状态/上下文修复回执.jsonl'
+const SID = 'session-bridge-0001'
+
+const prunerMod = await import(PRUNER_SRC)
+const v4 = await import(V4_CLEANUP)
+const Drops = prunerMod.default
+
+function useTemp (t) {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'yq-bridge-')))
+  assert.ok(dir.startsWith(fs.realpathSync(os.tmpdir())), '必须在 os.tmpdir() 里')
+  prunerMod.__setFixPaths({ cmd: path.join(dir, 'cmd.jsonl'), rcpt: path.join(dir, 'rcpt.jsonl') })
+  t.after(() => { try { fs.rmSync(dir, { recursive: true, force: true }) } catch {} })
+  return dir
+}
+
+const prodStamp = (f) => { try { const s = fs.statSync(f); return s.size + '@' + s.mtimeMs } catch { return 'missing' } }
+
+function makePruner () {
+  const p = Object.create(Drops.prototype)
+  p.config = Object.freeze({ thresholdChars: 8192, headChars: 4096, tailChars: 1024 })
+  p.ctx = { tokenMeter: { estimateMessage: () => 1 } }
+  p.__yqQueue = null; p.__yqCursor = 0; p.__yqSid = ''; p.__yqForced = null
+  p.__yqForcedKeys = null; p.__yqPendingPlan = null; p.__yqBlocksBySeq = null
+  p.__yqAllowed = null; p.__yqSeenSids = new Set()
+  p.__yqLastTurn = new Map()
+  p.__yqAutoCfg = { minPrunableChars: 60000, cooldownTurns: 20 }
+  p.__yqStats = { calls: 0, triggered: 0, lastPrunable: 0, lastTurn: 0, lastSid: '', started: '', updated: '' }
+  p.__yqFlushStats = () => {}
+  return p
+}
+
+const BIG = (tag) => 'HEAD|' + tag + '|' + 'x'.repeat(3000) + 'MID' + 'y'.repeat(3000) + '|TAIL'
+
+function makeSession (id, items, turn = 1) {
+  const events = new Map()
+  const nodes = new Set()
+  const log = []
+  let next = 9000
+  for (const it of items) {
+    const callId = it.callId
+    if (it.kind === 'call') {
+      events.set(it.seq, { type: 'tool/call', seq: it.seq, data: { turn, step: 1, callId, name: 'bash', arguments: '{}' } })
+    } else {
+      events.set(it.seq, {
+        type: 'tool/result', seq: it.seq,
+        data: { turn, step: 1, message: { role: 'tool', source: { kind: 'tool', callId }, toolCallId: callId,
+          content: [{ type: 'tool-result', toolCallId: callId, content: [{ type: 'text', text: it.text }] }] } },
+      })
+    }
+    nodes.add(it.seq)
+  }
+  const session = {
+    id, turn, surface: { nodes },
+    eventAt: (s) => events.get(Number(s)),
+    append (type, data, opts) {
+      const seq = next; next += 1
+      log.push({ type, seq, opts: opts || null })
+      if (opts && opts.surfaceOp && opts.surfaceOp.op === 'replace') {
+        for (let s = Number(opts.surfaceOp.startSeq); s <= Number(opts.surfaceOp.endSeq); s += 1) nodes.delete(s)
+      }
+      events.set(seq, { type, seq, data })
+      if (type !== 'compaction/prune') nodes.add(seq)
+      return { seq }
+    },
+  }
+  const snap = () => JSON.stringify({ nodes: [...nodes].sort((a, b) => a - b), log: log.map((l) => [l.type, l.seq]) })
+  return { session, log, events, nodes, snap }
+}
+
+const ctxWith = (agent) => ({
+  get (n) {
+    if (n === 'agents') return { get: (id) => (id === agent.session.id ? agent : undefined) }
+    return undefined
+  },
+})
+
+const args = (extra = {}) => ({ sessionId: SID, targetSession: SID, opId: 'clean-b1', startSeq: 21, endSeq: 22, ...extra })
+
+// ───────────────── 1. 开关默认关着（与 11-10 行为一致） ─────────────────
+test('① prunerLive 默认 true 且不再是桩；请求不合法时的拒绝仍原样回显请求', () => {
+  // ★ 2026-11-21 改写：这条原来断言「默认关着、stubCaps 含 pruner、文案以『未实现（桩）』开头」——
+  //   那三样都已经作废（pruner 接真了）。现在守的是：
+  //   · prunerLive 默认 **true**，而且它是**真开关**（2026-11-21 之前它从没被读过）
+  //   · stubCaps 里**没有** pruner（不再宣称是桩）
+  //   · 拒绝文案换成「请求不合法：」，并且照样把请求原样回显
+  assert.equal(DEFAULTS.prunerLive, true, 'pruner 已接真，默认执行')
+  assert.ok(!DEFAULTS.stubCaps.includes('pruner'), 'stubCaps 里不该再有 pruner')
+  const msg = prunerRefusalMessage(args(), 'targeted-cleanup')
+  assert.match(msg, /^请求不合法：/, '拒绝文案不再是桩文案')
+  assert.ok(!/未实现/.test(msg), '不该再出现「未实现」')
+  assert.match(msg, /opId=clean-b1/, '拒绝时仍原样回显请求')
+})
+
+// ───────────────── 2. 真 pruner 走通：回执来自真实改写 ─────────────────
+test('② 适配 + 真 applyDrops：回执来自真实 surface 改写，且过 v4 真判官', async (t) => {
+  useTemp(t)
+  const fx = makeSession(SID, [
+    { seq: 20, kind: 'call', callId: 'call-20' },
+    { seq: 21, kind: 'result', callId: 'call-20', text: BIG('A') },
+    { seq: 22, kind: 'result', callId: 'call-22', text: BIG('B') },
+    { seq: 23, kind: 'result', callId: 'call-23', text: BIG('C') },
+  ])
+  const p = makePruner()
+  // ★ F5 修正后：getLivePruner 按会话**精确匹配** —— 实例必须「见过」目标会话才被认。
+  //   生产里 __yqSeenSids 由 agent/pre-step 填；测试里显式补这一行（不靠「最后一个活实例」兜底）。
+  p.__yqSeenSids.add(SID)
+  prunerMod.__yqRegisterLiveForTest(p)
+  t.after(() => prunerMod.__yqUnregisterLiveForTest(p))
+
+  const ctx = ctxWith({ session: fx.session })
+  const got = await resolvePruner(ctx, SID, { loadPrunerModule: async () => prunerMod })
+  assert.equal(got.pruner, p)
+  assert.equal(got.how, 'module-registry')
+
+  const prodBefore = prodStamp(PROD_RCPT)
+  const data = await runTargetedCleanup({
+    ctx, args: args(), describe: describePrunerRequest,
+    deps: { loadPrunerModule: async () => prunerMod },
+  })
+
+  assert.equal(data.targetSession, SID)
+  assert.equal(data.opId, 'clean-b1')
+  assert.equal(data.startSeq, 21)
+  assert.equal(data.endSeq, 22, 'endSeq 原样（不替调用方对齐）')
+  assert.equal(data.framesAffected, 2)
+  assert.equal(data.how, 'module-registry')
+  assert.ok(!('bytesAffected' in data), '量不出就不给这个键，不补 0')
+  assert.ok(!fx.nodes.has(21) && !fx.nodes.has(22), '两帧真的被替换了')
+  assert.ok(fx.nodes.has(23), '区间外的没动')
+  assert.ok(fx.log.length === 4, 'compaction/prune × 2 + tool/result × 2')
+  assert.equal(prodStamp(PROD_RCPT), prodBefore, '生产回执文件没被碰')
+
+  // ★ v4 的真判官认不认这条回执
+  const norm = v4.normalizeCleanupRequest({ sessionId: SID, targetSession: SID, opId: 'clean-b1', startSeq: 21, endSeq: 22 }, {}, Date.now())
+  assert.equal(norm.ok, true)
+  const judged = v4.judgeCleanupReceipt({ data, request: norm.request })
+  assert.equal(judged.ok, true, JSON.stringify(judged))
+  assert.equal(judged.receipt.framesAffected, 2)
+  assert.equal(judged.receipt.pointer, 'log:' + SID + '#seq=21')
+  assert.equal(judged.receipt.bytesAffected, null)
+  assert.equal(judged.receipt.atSource, 'host', 'at 来自宿主回执')
+})
+
+test('③ framesAffected=0（区间内没有可剪的）→ v4 判官**判失败**（0 帧不算清理成功）', async (t) => {
+  useTemp(t)
+  const fx = makeSession(SID, [{ seq: 40, kind: 'call', callId: 'call-40' }])
+  const p = makePruner()
+  // ★ F5 修正后：getLivePruner 按会话**精确匹配** —— 实例必须「见过」目标会话才被认。
+  //   生产里 __yqSeenSids 由 agent/pre-step 填；测试里显式补这一行（不靠「最后一个活实例」兜底）。
+  p.__yqSeenSids.add(SID)
+  prunerMod.__yqRegisterLiveForTest(p)
+  t.after(() => prunerMod.__yqUnregisterLiveForTest(p))
+  const ctx = ctxWith({ session: fx.session })
+  const before = fx.snap()
+  const data = await runTargetedCleanup({
+    ctx, args: args({ startSeq: 40, endSeq: 40, opId: 'clean-b3' }), describe: describePrunerRequest,
+    deps: { loadPrunerModule: async () => prunerMod },
+  })
+  assert.equal(data.framesAffected, 0)
+  assert.equal(data.noMatch, true)
+  assert.equal(fx.snap(), before, '什么都没动')
+  const norm = v4.normalizeCleanupRequest({ sessionId: SID, targetSession: SID, opId: 'clean-b3', startSeq: 40, endSeq: 40 }, {}, Date.now())
+  const judged = v4.judgeCleanupReceipt({ data, request: norm.request })
+  // ★★★ 2026-11-21 改写：原来断言 judged.ok===true —— 那守护的是 2026-11-11 的旧结论，
+  //   而 v4 在 **2026-11-17** 就把它推翻了（cleanup.mjs:226-233）：
+  //     「影响 0 帧不算清理成功。原来 0 能一路过闸 —— 回执里 framesAffected:0、判 ok:true、
+  //      落一条成功记录、面板写『已清 1 段』。而上下文一个字都没变。」
+  //   所以正确的守护是：**0 帧必须被判失败**，理由要能指到 nothing-cleaned。
+  assert.equal(judged.ok, false, '0 帧不许被判成功')
+  // ★ 判官的失败形状是 { ok:false, stage, reason } —— 字段叫 stage，不是 code。
+  assert.equal(judged.stage, 'nothing-cleaned', '失败理由必须是 nothing-cleaned，实际=' + JSON.stringify(judged))
+  assert.match(String(judged.reason || ''), /0 帧/, '理由要说清为什么（0 帧）：' + JSON.stringify(judged))
+})
+
+// ───────────────── 3. 失败路径：不伪成功、不动文件 ─────────────────
+test('④ 够不到 pruner → 抛 no-pruner，会话一个字节没变（不自己拼 surface 改写）', async (t) => {
+  useTemp(t)
+  const fx = makeSession(SID, [{ seq: 50, kind: 'result', callId: 'call-50', text: BIG('D') }])
+  const ctx = { get: (n) => (n === 'agents' ? { get: () => ({ session: fx.session }) } : undefined) }
+  const before = fx.snap()
+  let err = null
+  try {
+    await runTargetedCleanup({
+      ctx, args: args({ startSeq: 50, endSeq: 50, opId: 'clean-b4' }), describe: describePrunerRequest,
+      deps: { loadPrunerModule: async () => null },
+    })
+  } catch (e) { err = e }
+  assert.ok(err, '必须抛错')
+  assert.equal(err.stage, 'no-pruner')
+  assert.match(err.message, /不自己拼 surface 改写/)
+  assert.equal(fx.snap(), before)
+})
+
+test('⑤ 请求不合法 / 目标不在活的 agent 里 / session.id 不符 —— 三条 stage 分明', async (t) => {
+  useTemp(t)
+  const fx = makeSession(SID, [{ seq: 60, kind: 'result', callId: 'call-60', text: BIG('E') }])
+  const ctx = ctxWith({ session: fx.session })
+  const deps = { loadPrunerModule: async () => prunerMod }
+
+  let e1 = null
+  try { await runTargetedCleanup({ ctx, args: { sessionId: SID, startSeq: 1 }, describe: describePrunerRequest, deps }) } catch (e) { e1 = e }
+  assert.equal(e1.stage, 'bad-request')
+  assert.match(e1.message, /opId/)
+
+  let e2 = null
+  try {
+    await runTargetedCleanup({ ctx, args: args({ sessionId: 'session-other', targetSession: 'session-other', opId: 'x1' }), describe: describePrunerRequest, deps })
+  } catch (e) { e2 = e }
+  assert.equal(e2.stage, 'no-target')
+
+  const wrong = makeSession('session-different', [{ seq: 61, kind: 'result', callId: 'call-61', text: BIG('F') }])
+  const ctx2 = { get: (n) => (n === 'agents' ? { get: () => ({ session: wrong.session }) } : undefined) }
+  let e3 = null
+  try { await runTargetedCleanup({ ctx: ctx2, args: args({ startSeq: 61, endSeq: 61, opId: 'x2' }), describe: describePrunerRequest, deps }) } catch (e) { e3 = e }
+  assert.equal(e3.stage, 'target-mismatch')
+  assert.equal(fx.nodes.has(60), true, '整轮下来目标会话没被动过')
+})
+
+test('⑥ applyDrops 自己失败（如 opid-reused）→ 原样带出 code，不包装成成功', async (t) => {
+  useTemp(t)
+  const fx = makeSession(SID, [{ seq: 70, kind: 'result', callId: 'call-70', text: BIG('G') }])
+  const fake = { applyDrops: () => ({ ok: false, code: 'opid-reused', reason: '测试：这个 opId 用过了' }) }
+  const mod = { getLivePruner: () => fake, livePrunerCount: () => 1 }
+  const ctx = ctxWith({ session: fx.session })
+  let err = null
+  try {
+    await runTargetedCleanup({ ctx, args: args({ startSeq: 70, endSeq: 70, opId: 'clean-b6' }), describe: describePrunerRequest, deps: { loadPrunerModule: async () => mod } })
+  } catch (e) { err = e }
+  assert.equal(err.stage, 'opid-reused')
+  assert.match(err.message, /这个 opId 用过了/)
+  assert.equal(fx.nodes.has(70), true)
+})
+
+test('⑦ bytesAffected：宿主给了整数才带，给了 null 就整个键不出现', async (t) => {
+  useTemp(t)
+  const fx = makeSession(SID, [{ seq: 80, kind: 'result', callId: 'call-80', text: BIG('H') }])
+  const ctx = ctxWith({ session: fx.session })
+  const base = { ok: true, targetSession: SID, opId: 'clean-b7', startSeq: 80, endSeq: 80, framesAffected: 1, at: new Date().toISOString(), pointer: 'log:' + SID + '#seq=80', coverage: 'seq 80–80', charsRemoved: 10 }
+  const withBytes = { applyDrops: () => ({ ...base, bytesAffected: 1234 }) }
+  const noBytes = { applyDrops: () => ({ ...base, bytesAffected: null }) }
+  const d1 = await runTargetedCleanup({ ctx, args: args({ startSeq: 80, endSeq: 80, opId: 'clean-b7' }), describe: describePrunerRequest, deps: { loadPrunerModule: async () => ({ getLivePruner: () => withBytes }) } })
+  assert.equal(d1.bytesAffected, 1234)
+  const d2 = await runTargetedCleanup({ ctx, args: args({ startSeq: 80, endSeq: 80, opId: 'clean-b7' }), describe: describePrunerRequest, deps: { loadPrunerModule: async () => ({ getLivePruner: () => noBytes }) } })
+  assert.ok(!('bytesAffected' in d2), 'null 就不出现，不补 0')
+})
+
+test('⑧ 拒绝文案不再是桩：说「请求不合法」并逐项列出缺什么，且回显请求', () => {
+  // ★ 2026-11-21 改写：原来断言文案以「未实现（桩）：」开头、并提到 hello.meta.stubs。
+  //   那套措辞随「pruner 接真」一起作废了 —— 现在请求不合法就是请求不合法，
+  //   不该拿「未实现」去盖住一个参数错误（那会让人以为能力没做）。
+  const msg = prunerRefusalMessage({ sessionId: SID, startSeq: 5, endSeq: 9, opId: 'o9' }, 'targeted-cleanup')
+  assert.match(msg, /^请求不合法：pruner\/targeted-cleanup/, '起头要说清是请求问题：' + msg)
+  assert.ok(!/未实现/.test(msg), '不该再出现「未实现」：' + msg)
+  assert.ok(!/hello\.meta\.stubs/.test(msg), '不该再让人去看 stubs（它已经不是桩了）：' + msg)
+  assert.match(msg, /请求会话=session-bridge-0001 seq=5–9 opId=o9/, '仍要原样回显请求：' + msg)
+  // 这条请求本身缺 targetSession 之外的东西吗？不缺 —— 所以它应当被判定为**合法**。
+  // 用一个真不合法的请求，验「缺什么」被逐项列出：
+  const bad = prunerRefusalMessage({ startSeq: 5, endSeq: 9 }, 'targeted-cleanup')
+  assert.match(bad, /sessionId/, '缺 sessionId 要说出来：' + bad)
+  assert.match(bad, /opId/, '缺 opId 要说出来：' + bad)
+})
+

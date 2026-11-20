@@ -1,6 +1,6 @@
 {
   "name": "dsh-agent-soul-bridge",
-  "version": "0.1.0",
+  "version": "0.1.6",
   "description": "agent-soul v4 控制通道的宿主端：连 ws://127.0.0.1:7310/control，自报能力、接 exec、回执、每轮上报上下文水位、断线指数退避重连。零第三方依赖。",
   "type": "module",
   "main": "index.js",
@@ -13,11 +13,22 @@
   "files": [
     "index.js",
     "ws.js",
+    "client.js",
+    "bridge-proof.mjs",
+    "process-inspector.mjs",
+    "manager-proof-client.mjs",
+    "lifecycle-inspect.mjs",
     "pruner-adapter.mjs",
+    "context-surgeon.mjs",
+    "probe.mjs",
     "cordis.patch.yml",
-    "README.md",
-    "context-surgeon.mjs"
+    "README.md"
   ],
+  "scripts": {
+    "syntax": "node --check index.js && node --check ws.js && node --check probe.mjs && node --check pruner-adapter.mjs && node --check context-surgeon.mjs",
+    "selftest": "node --test _verify/pruner-eval/pruner-stub.test.mjs _verify/pruner-eval/wire-refusal.test.mjs _verify/management-security.test.mjs",
+    "packaging:smoke": "node _verify/packaging-smoke.mjs"
+  },
   "keywords": [
     "dsh",
     "deepseek-harness",

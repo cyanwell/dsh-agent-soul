@@ -24,12 +24,34 @@
         # ★ 2026-11-13：加 'context' —— 上下文手术（对 surface 动刀，不依赖 pruner）。
         #   ★ 教训：**这份 yml 才是生效的**，index.js 的 DEFAULTS.caps 会被它覆盖。
         #    改 index.js 白改 —— 今天为此又绕了一圈（第四次了）。
-        caps: ['followup', 'session', 'huanqi', 'pruner', 'context']
-        # ★ 首轮 stubCaps 里仍有 pruner：适配器装上了，但 v4 不会派活（hello.meta.stubs 会自报）。
-        #   摘掉它要等一次真实会话的手工 exec 拿到 ok:true（README「部署」一节 ②③），本轮不做。
-        stubCaps: ['huanqi', 'pruner']
-        # ★ prunerLive=true 只表示「pruner-adapter 装得上、可被手工 exec 调到」，
-        #   它不解除上面的 stub 声明 —— 两件事分开走，别混。
+        # ★★★ 2026-11-13（第 14 代）：加 'workspaces' —— 把 DSH 的工作区注册表借给 v4。
+        #   aurabot 搬进 v4 后拿不到 ctx.workspaceRegistry，每条 QQ 消息都卡在
+        #   「宿主没有 workspaceRegistry」（11-12 14:00 起）。爀曦定：写进 bridge。
+        #   ★ 这一行才是生效的 —— 上面那几条教训我又踩了第五次（先只改了 index.js 的 DEFAULTS.caps）。
+        # ★★★ 2026-11-14（第 14 代）：加 'agent' —— 把 v4 的工具挂到会话上（转发器 + 反向 invoke）。
+        #   ★ 又是这一份：这一行才是生效的，index.js 的 DEFAULTS 会被它覆盖。
+        # ★★★ 2026-11-14（第 14 代）：加 'events' 与 'service'（bridge 协议 v2）。
+        #   · events  —— 事件回流 / 句柄生死 / 宿主状态 / 补帧（契约 §2.2–§2.4）
+        #   · service —— 把 llm / attachments / workspaceRegistry / sessions 的纯数据方法借给 v4
+        #   ★★ 又是这一份：**只有这里生效**。index.js 的 DEFAULTS.caps 会被本文件覆盖 ——
+        #     这条教训已经踩过五次（先只改 index.js，然后 hello 里还是旧 caps）。
+        caps: ['followup', 'session', 'sessions', 'workspaces', 'agent', 'events', 'service', 'huanqi', 'pruner', 'context']
+        # ★★★ 2026-11-21：stubCaps **清空** —— 两个能力都不再是桩，而且各自干自己的事：
+        #   · pruner/targeted-cleanup → pruner-adapter.mjs → 活 pruner 的 applyDrops（回执带 pointer）
+        #   · huanqi/break-turn      → agent.cancel({kind:'hook'}, {keepInbox}) —— 真的打断这一轮
+        #   ★ huanqi 的动作名是 **break-turn**（README 与 probe.mjs 一直这么写）；
+        #     2026-11-20 我一度把它改成 prune/measure，那是把 pruner 的活抄了一份，已改回。
+        stubCaps: []
+        # ★ prunerLive 现在是**真的开关**（以前从没被读过）：true=执行，false=回 pruner/disabled。
         prunerLive: true
+        # ★★★ 2026-11-17（爀曦定）：**关掉守护自动拉起**。
+        #   起因：开发期一边改 v4 一边被它拉起来 —— 04:24 实测它在我手动 stop 之后
+        #   22 秒内又 spawn 一个 core（core.lock pid=1320 startedAt=20:24:22），
+        #   于是「同一时刻只有一个 core」这条纪律根本守不住：
+        #   我会杀它 → 它 30 秒内探到不在 → 连续 2 次没应答 → 再拉一个。
+        #   这不是它坏，是它按设计工作；但开发期要的是「我不叫它，它就不动」。
+        #   ★ 只关「自动拉起」，探测仍在（面板「启动」按钮照样能用，start 端点是同一条 spawn 路径）。
+        #   要恢复自动拉起：把下面这行改成 true。
+        agentSoulAutoStart: false
         pingMs: 25000
         statePerTurn: true
