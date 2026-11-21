@@ -74,11 +74,11 @@
 
 ```
 ① 装 agent-soul 本体
-    · 下载发布包：[AgentSoul v4 1.0.73](https://github.com/cyanwell/dsh-agent-soul/releases/latest)
-      - `AgentSoul-Setup-1.0.73.exe` —— 大多数人选这个，双击装（装到 %LOCALAPPDATA%\Programs\AgentSoul，
+    · 下载发布包：[AgentSoul v4 1.0.74](https://github.com/cyanwell/dsh-agent-soul/releases/latest)
+      - `AgentSoul-Setup-1.0.74.exe` —— 大多数人选这个，双击装（装到 %LOCALAPPDATA%\Programs\AgentSoul，
         建开始菜单/桌面快捷方式，卸载项进「设置→应用」，**不需要管理员**）
-      - `AgentSoul-1.0.73-portable.zip` —— 不想装的人，解压即用（下称 <SOUL>）
-      - `AgentSoul-1.0.73-htmlpatch.zip` —— 已有安装，只换界面（199 KB）
+      - `AgentSoul-1.0.74-portable.zip` —— 不想装的人，解压即用（下称 <SOUL>）
+      - `AgentSoul-1.0.74-htmlpatch.zip` —— 已有安装，只换界面（199 KB）
     · ★ 卸载**不会**删你的 `config.json`（含 API Key）与 `data\`（会话/索引/账本）—— 它们留在原位，要彻底清干净自己删这两个。
     · 双击 <SOUL>\AgentSoul.exe 启动
     · ★ 必须用**当前用户身份**启动（key 是 DPAPI 密文，SYSTEM 身份解不开）
@@ -183,6 +183,15 @@ Invoke-WebRequest http://127.0.0.1:7310/ -UseBasicParsing   # 200 且返回页�
 ★ 判据：重启后 GET http://127.0.0.1:7310/api/health 里，
   sessions 应该等于你的会话数，llmReady 应该是 true。
   GET http://127.0.0.1:7310/api/session 里应该看到 host=dsh 且 caps 含 'context'。
+
+【①b 建索引库 —— **漏了这步，检索一定 503**】
+  node tools/db-sync.mjs
+
+★ 干净的数据目录里**没有 meta.sqlite**，而它只有这个脚本会建。
+  不建 → /api/search 恒 503 → 而 README 别处写着「索引在写入时产生」，
+  于是会被误读成「索引机制坏了」。**实际是"建库的那只手"没被叫到。**
+★ 判据：`<dataDir>/meta.sqlite` 存在且大于 0 字节；
+  然后（**不重启**）`GET /api/search?q=test` 不再 503。
 
 【② 配 API key】
 打开 http://127.0.0.1:7310/settings，在「模型接入」里填 DeepSeek 的 API Key，保存。
@@ -378,6 +387,44 @@ data/
 
 ## 更新记录
 
+### 1.0.74（2026-11-21）
+
+**这一版对着 1.0.73 的点评与维护清单逐条修。** 八条里五条是「在别人机器上永远看不出来」的那一类。
+
+- **hook 从没有执行位（第四次）**：`.githooks/pre-commit` 一直是 `100644` →
+  真 key 提交能成功，只留一行 `hint: ...not set as executable`。
+  已 `git update-index --chmod=+x` → `100755`。
+  ★ 前四次没修好，是因为**每次都在改规则，而坏的是文件模式**。
+- **`make-dist` 只能在你的硬盘上跑**：`DEV`/`PROD` 写死 `D:/AI/agent-soul` 与桌面。
+  现在 `DEV = process.cwd()`、`PROD = process.env.AGENT_SOUL_PROD || process.cwd()`。
+- **`verify-setup` 只改了一半**：文件名动态了，但 `D:/AI/agent-soul/dist/` 那段路径原样留着 ——
+  换台机器照样跑不了。现在版本与 dist 路径都由 `path.resolve(__dirname, '..')` 拼。
+  ★ 判据：**「改成动态」要连路径一起想，只改一半等于没改。**
+- **七项迁移自检假红**：六处写死版本链（`'2,3,...,11'` / `length === 10` / 「恰好六个索引」）。
+  schema 到 v13 就红，而**迁移本身从来没坏过**（T23/T24 一直绿）。
+  现在用 `assertChainFrom(applied, from)` 与「某些东西必须都在」表达不变量。
+  **66/66。**
+  ★ 病根一句话：**「恰好 N 个」把"当前状态"当成了"不变量"。**
+  ★ 我第一版把 T34 两条断言合成一条，报错只显示 `got 12`，看不出是哪半挂 —— **一条断言只测一件事。**
+- **`guard-http` 被鉴权打哑（第四轮）**：1/6，全是 401。
+  现在**真读 token**：候选全列出来各发一次探针，用第一个非 401 的；一个都过不了 → `UNREACHABLE` + exit 1。
+  **6/6。**
+  ★ 为什么不能按路径读：dev 仓库的 `data/token.txt` 与正在跑的服务**不是同一个**
+  （实测：生产 token → 400，dev token → 401）。**"路径对"无法自证，只有服务认了才算数。**
+  ★ 子会话第一版写的是 `if (!process.env.GUARD_TOKEN) process.exit(0)` ——
+  **那是把门关掉，让 1/6 变成"跳过"。跳过不是通过，是把红灯涂成绿灯。**
+- **`echo` / `aurabot` / `host-scan` / `host-sessions` 的 D 盘路径**：不再用 `|| 'D:/AI/...'` 兜底。
+  未配置 → 直接回 `unconfigured`，**不 spawn、不 `path.join(null, ...)` 抛 TypeError、不把本机路径报给用户**。
+  ★ 与哨兵同一条判据：未配置就是未配置，不假装健康。
+- **启动横幅版本号**：写死 `v0.1.0`（package.json 是 1.0.73，差整条版本线）。现在顶层读一次 package.json。
+- **首启不建库**：干净目录没有 `meta.sqlite`，而它只有 `db-sync.mjs` 会建 → 检索恒 503。
+  README「第一段 · 新用户」补上【①b 建索引库】和它的判据。
+- **检索 503 不复位**：`search-http.mjs` 的 `storeErr` 一旦置位就不再重试。
+  现在加 `fs.existsSync(dbPath)` 探测 —— 库一出现就清掉错误，不必重启进程。
+- **17 个一次性脚本进仓库**：`git rm` 掉 74 个（含 `_verify` 下的探针），
+  `.gitignore` 加 `/_*.mjs`。
+  ★ **前导斜杠是关键**：报告建议写 `_*.mjs`，但那会连 `plugins/*/_verify/` 里的 33 个真测试一起忽略。
+
 ### 1.0.73（2026-11-21）
 
 **这一版几乎全是「修我自己写错的判据」。** 每一条的症状都是「看起来成功了」。
@@ -419,7 +466,7 @@ data/
 ## 装到自己机器上（本机生产）
 
 ```bash
-node tools/release.mjs --to=1.0.73 --changes="ECHO / Aurabot / Galaxy updates"
+node tools/release.mjs --to=1.0.74 --changes="维护清单 #1-#13"
 ```
 
 它会：把 `src/` `tools/` `sql/` `seed/` 复制成 `app/<版本>/` → 写 VERSION.txt → **逐文件校验**
@@ -449,9 +496,9 @@ node tools/make-dist.mjs --verify   # 构建 + 跑「安装→运行→卸载」
 ★ 要发到 GitHub：
 
 ```bash
-tools/publish-release.ps1 -Tag 1.0.73 -NotesFile dist/release-notes-1.0.73.md `
-  -Title "AgentSoul v4 1.0.73" `
-  -Files @("dist\AgentSoul-Setup-1.0.73.exe","dist\AgentSoul-1.0.73-portable.zip")
+tools/publish-release.ps1 -Tag 1.0.74 -NotesFile dist/release-notes-1.0.74.md `
+  -Title "AgentSoul v4 1.0.74" `
+  -Files @("dist\AgentSoul-Setup-1.0.74.exe","dist\AgentSoul-1.0.74-portable.zip")
 ```
 
 ★ `-Replace` 是**先删同名旧附件再传新的**。默认行为是「同名就跳过」——
