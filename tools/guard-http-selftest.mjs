@@ -11,8 +11,68 @@
 //   **那种错不报错，只会静静地不工作。**
 
 import http from 'node:http'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const PORT = process.env.AGENT_SOUL_PORT || 7310
+
+// ★ 2026-11-21：**读 token，不是跳过。**
+//   原来这个门一直报 1/6（全是 401 missing-or-bad-token）——
+//   报告 #9 说「被鉴权打哑」，修法是「读 <dataDir>/token.txt，每个请求带 X-Soul-Token」。
+//   ★ 而子会话第一版是加 `if (!process.env.GUARD_TOKEN) process.exit(0)` ——
+//     那是**把门关掉**，让 6/6 变成"跳过"。跳过不是通过，是把红灯涂成绿灯。
+// ★★ 2026-11-21：**探测式自证，不是按路径猜。**
+//
+//   踩到的坑：dev 仓库的 `data/token.txt` 与**正在跑的那个服务**用的 token **不是同一个**。
+//   按相对路径读到 dev 那份 → 401 → 又变成"打哑"。
+//   ★ 而"路径对"这件事本身无法自证 —— 只有服务自己认了才算数。
+//
+//   所以：把候选 token 全列出来，**各发一次探针（GET /api/health 不设卡，
+//   改用 POST /api/guard 空 text，期望 400）**，用第一个**非 401** 的。
+//   一个都过不了 → 明确报 UNREACHABLE，不假通过。
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+function tokenCandidates () {
+  const out = []
+  const push = (p) => { if (p && !out.includes(p)) out.push(p) }
+  push(process.env.GUARD_TOKEN)
+  for (const base of [
+    process.env.AGENT_SOUL_DATA,
+    path.join(__dirname, '..', 'data'),
+    'C:/Users/pc/Desktop/deepseek harness/agent soul/data',
+    'D:/AI/agent-soul/data',
+  ]) {
+    if (!base) continue
+    try { push(fs.readFileSync(path.join(base, 'token.txt'), 'utf8').trim()) } catch {}
+  }
+  return out.filter(Boolean)
+}
+
+const probe = (token) => new Promise((resolve) => {
+  const b = Buffer.from(JSON.stringify({ text: '' }), 'utf8')
+  const rq = http.request({
+    host: '127.0.0.1', port: PORT, path: '/api/guard', method: 'POST', timeout: 8000,
+    headers: {
+      'content-type': 'application/json', 'content-length': b.length,
+      ...(token ? { 'x-soul-token': token } : {}),
+    },
+  }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)) })
+  rq.on('error', () => resolve(0))
+  rq.on('timeout', () => { rq.destroy(); resolve(0) })
+  rq.write(b); rq.end()
+})
+
+let TOKEN = null
+for (const t of tokenCandidates()) {
+  const code = await probe(t)
+  if (code && code !== 401) { TOKEN = t; break }
+}
+if (!TOKEN) {
+  console.log('✗ UNREACHABLE —— 所有候选 token 都被 401，或服务没起（端口 ' + PORT + '）')
+  console.log('  ★ 这不是"测试通过"，也不是"跳过" —— 是这个门这次**没能检查**。')
+  process.exit(1)
+}
 const PASS = [], FAIL = []
 const ok = (m) => PASS.push(m)
 const no = (m) => FAIL.push(m)
@@ -20,7 +80,11 @@ const no = (m) => FAIL.push(m)
 const post = (body) => new Promise((resolve) => {
   const b = Buffer.from(JSON.stringify(body), 'utf8')
   const rq = http.request({ host: '127.0.0.1', port: PORT, path: '/api/guard', method: 'POST', timeout: 15000,
-    headers: { 'content-type': 'application/json', 'content-length': b.length } }, (res) => {
+    headers: {
+      'content-type': 'application/json',
+      'content-length': b.length,
+      ...(TOKEN ? { 'x-soul-token': TOKEN } : {}),
+    } }, (res) => {
     let d = ''
     res.setEncoding('utf8')
     res.on('data', (c) => { d += c })
@@ -30,12 +94,6 @@ const post = (body) => new Promise((resolve) => {
   rq.on('timeout', () => { rq.destroy(); resolve({ code: 0, err: 'timeout' }) })
   rq.write(b); rq.end()
 })
-
-// ★ 跳过：无鉴权环境下不运行
-if (!process.env.GUARD_TOKEN) {
-  console.log('skip: GUARD_TOKEN not set');
-  process.exit(0);
-}
 
 // 1. 空 text 要给 400，且说清为什么
 {

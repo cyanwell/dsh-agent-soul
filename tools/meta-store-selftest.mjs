@@ -79,6 +79,19 @@ function assert(cond, message, extra) {
   }
 }
 
+/**
+ * 断言迁移链「从 from 起一直连续到 SCHEMA_VERSION」。
+ * ★ 2026-11-21：替代了六处写死的版本链（'2,3,...,11'）——
+ *   它们每逢 schema 升版就红，而**迁移本身从来没坏过**。
+ *   ★ 判据：**用变量表达不变量，不要用字面量抄一遍当前状态。**
+ */
+function assertChainFrom (applied, from, label) {
+  const got = applied.map(function (m) { return m.version; });
+  const want = [];
+  for (let v = from; v <= SCHEMA_VERSION; v += 1) want.push(v);
+  assert(JSON.stringify(got) === JSON.stringify(want), label + ': expected ' + want.join(',') + ', got ' + got.join(','));
+}
+
 function assertCode(fn, code, label) {
   try {
     fn();
@@ -932,7 +945,9 @@ test('T27 D1: v1 db with Windows backslash paths is repaired by v3 and follows a
   const store = openStore({ path, mode: 'readwrite' });
   assert(store.state.current === 1 && store.state.ready === false, 'starts as v1');
   const res = store.migrate();
-  assert(res.applied.map(function (m) { return m.version; }).join(',') === '2,3,4,5,6,7,8,9,10,11', 'v1 -> v2 -> v3 -> v4 -> v5 -> v6 -> v7 -> v8 -> v9 -> v10, got ' + JSON.stringify(res.applied));
+  // ★ 2026-11-21：**别写死版本链。** 原来写死 '2,3,...,11'，schema 到 v13 就红 ——
+  //   而迁移本身没坏（T23/T24 一直绿）。判据：链是**连续的**，且末位 === SCHEMA_VERSION。
+  assertChainFrom(res.applied, 2, 'v1 migrates the whole chain');
   assert(store.state.current === SCHEMA_VERSION && store.state.ready === true, 'now at SCHEMA_VERSION and ready');
   const step = res.postSteps.filter(function (s) { return s.version === 3; })[0];
   assert(step && step.result.scanned === 1 && step.result.normalized === 1, 'v3 post-step recomputed the backslash row: ' + JSON.stringify(step && step.result));
@@ -989,7 +1004,7 @@ test('T28 D1: a v2 db (SQL-only backfill) is repaired by v3, including backslash
   const before = store.db.prepare('select seq, raw_rel_path from frame_index order by seq').all();
   assert(before[0].raw_rel_path === null && before[1].raw_rel_path === REL_BACKSLASH, 'v2 state reproduces the D1 defect: ' + JSON.stringify(before));
   const res = store.migrate();
-  assert(res.applied.map(function (m) { return m.version; }).join(',') === '3,4,5,6,7,8,9,10,11', 'v3 -> v4 -> v5 -> v6 -> v7 -> v8 -> v9 -> v10 apply');
+  assertChainFrom(res.applied, 3, 'v3 migrates the rest of the chain');
   assert(store.state.current === SCHEMA_VERSION && store.state.ready === true, 'a repaired v2 db ends on v9 and ready, got ' + store.state.current);
   const fixed = store.db.prepare('select seq, raw_rel_path from frame_index order by seq').all();
   assert(fixed[0].raw_rel_path === 'session-w/frames.jsonl', 'absolute backslash row repaired, got ' + JSON.stringify(fixed[0].raw_rel_path));
@@ -1164,7 +1179,18 @@ test('T34 v3 is idempotent: a second migrate is a no-op and leaves normalized re
   const store = openStore({ path, mode: 'readwrite' });
   const first = store.migrate();
   // v5..v9 都没有回填步骤，所以「两条 post-step」（v3、v4）仍然成立，applied 是 v2..v9 八条。
-  assert(first.applied.length === 10 && first.postSteps.length === 2, 'v2..v11 applied with two backfill post-steps (v5-v11 add none)');
+  // ★ 2026-11-21：原来写死 applied.length === 10。改成按 SCHEMA_VERSION 算。
+  //   ★ 拆成两条断言：合成一条时，报错只显示其中一个数字，看不出是哪半挂的
+  //     —— 我第一版就是这么写的，第一次跑只看到 "got 12"，猜了半天。
+  assert(first.applied.length === SCHEMA_VERSION - 1,
+    'v2..v' + SCHEMA_VERSION + ': expected ' + (SCHEMA_VERSION - 1) + ' steps, got ' + first.applied.length);
+  // ★★ 2026-11-21 第二版：第一版写「恰好 2 条」，实测 postSteps 是 [3,4,13] —— **v13 也加了回填**。
+  //   这正是同一个错：**「恰好 N 个」把"当前状态"当成了"不变量"。**
+  //   正确判据：v3 / v4 这两个**必须都在**；后续版本加回填是合法的。
+  //   （和 T54 的 ECHO 索引那处是同一类改法 —— 那里也是「恰好六个」→「六个必须都在」。）
+  const postVersions = first.postSteps.map(function (p) { return p.version; });
+  assert(postVersions.indexOf(3) !== -1 && postVersions.indexOf(4) !== -1,
+    'v3 and v4 backfill post-steps must both run, got ' + JSON.stringify(postVersions));
   const snapshot = JSON.stringify(store.db.prepare('select source_id, session_id, seq, raw_path, raw_rel_path from frame_index order by seq').all());
   const second = store.migrate();
   assert(second.applied.length === 0 && second.postSteps.length === 0, 'second migrate is a no-op');
@@ -1600,7 +1626,8 @@ test('T46 P1b: a v3 database migrated to v4 searches identically to a fresh v4 d
   const migrated = openStore({ path, mode: 'readwrite' });
   assert(migrated.state.current === 3 && migrated.state.ready === false, 'starts as v3, not ready for v4');
   const res = migrated.migrate();
-  assert(JSON.stringify(res.applied.map(function (a) { return a.version; })) === JSON.stringify([4, 5, 6, 7, 8, 9, 10, 11]), 'v4 -> v5 -> v6 -> v7 -> v8 -> v9 -> v10 apply: ' + JSON.stringify(res.applied.map(function (a) { return a.version; })));
+  assertChainFrom(res.applied, 4, 'v3 db migrates v4..v' + SCHEMA_VERSION); // ★ 2026-11-21：原写死 [4..11]
+  void 0; // (原报错文本保留在下一行) (ingify(res.applied.map(function (a) { return a.version; })));
   assert(migrated.state.current === SCHEMA_VERSION && migrated.state.ready === true, 'the migrated v3 db ends on v10 and ready, got ' + migrated.state.current);
   const step = res.postSteps.filter(function (s) { return s.version === 4; })[0];
   assert(step && step.result.scanned === 3 && step.result.inserted === 3, 'v4 backfilled every legacy frame: ' + JSON.stringify(step && step.result));
@@ -1911,12 +1938,10 @@ test('T54 P1c/v5: artifacts + append-only artifact_events exist, v1–v4 digests
   const v5 = MIGRATION_LIST[4];
   assert(v5.version === 5 && v5.name === 'artifacts-and-append-only-events', 'v5 identity: ' + v5.version + ':' + v5.name);
   assert(typeof v5.after !== 'function', 'v5 needs no backfill step: v1-v4 never held artifact rows to migrate');
+  // ★ 2026-11-21：原来逐个下标写死到 v11。改成「条数对得上 + 每个下标 == 下标+1」。
   assert(store.state.applied.length === SCHEMA_VERSION
-    && store.state.applied[4].version === 5 && store.state.applied[5].version === 6
-    && store.state.applied[6].version === 7 && store.state.applied[7].version === 8
-    && store.state.applied[8].version === 9 && store.state.applied[9].version === 10
-    && store.state.applied[10].version === 11,
-    'schema_migrations records v5 -> ... -> v11');
+    && store.state.applied.every(function (m, i) { return m.version === i + 1; }),
+    'schema_migrations records v1 -> ... -> v' + SCHEMA_VERSION + ', got ' + JSON.stringify(store.state.applied.map(function (m) { return m.version; })));
 
   // 历史身份逐条冻结：v1–v5 的 (version, name) 一个字都不许动。
   // v6/v7 是加法 / 触发器替换，所以「历史身份 + 当前 schema」必须同时成立。
@@ -2052,10 +2077,15 @@ test('T54 P1c/v5: artifacts + append-only artifact_events exist, v1–v4 digests
     'v9 echo_words refuses reasoning/thinking rows at the DB layer');
   assert(/UNIQUE \(echo_source_id, session, seq\)/.test(wordsSql), 'v9 keeps log:<sid>#seq single-valued inside one source');
   const echoIndexes = store.db.prepare("select name from sqlite_master where type = 'index' and name like 'idx_echo%' AND name <> 'idx_echo_word_vectors_model' order by name").all().map(function (r) { return r.name; });
-  assert(JSON.stringify(echoIndexes) === JSON.stringify([
+  // ★ 2026-11-21：原来断言**恰好**六个。v13 加了 idx_echo_words_content_class 就红。
+  //   判据改成「v9 那六个必须都在」—— 后续版本加索引是合法的，删了才该红。
+  const v9EchoIndexes = [
     'idx_echo_sources_ns', 'idx_echo_src_seqs_seq', 'idx_echo_summaries_session',
     'idx_echo_summaries_status', 'idx_echo_words_kind', 'idx_echo_words_session',
-  ]), 'v9 has exactly six named ECHO indexes, got ' + JSON.stringify(echoIndexes));
+  ];
+  const missingEchoIdx = v9EchoIndexes.filter(function (n) { return echoIndexes.indexOf(n) === -1; });
+  assert(missingEchoIdx.length === 0,
+    'v9 must keep its six named ECHO indexes (missing: ' + JSON.stringify(missingEchoIdx) + '), got ' + JSON.stringify(echoIndexes));
 
   // v10 vectors are derived metadata only: model config plus binary vectors, never a second text corpus.
   const vectorModelSql = String((echoTableRows.filter(function (r) { return r.name === 'echo_vector_models'; })[0] || {}).sql);
@@ -2470,7 +2500,9 @@ test('T63 P1c: a v4 db migrates to v5 without touching frames, a failing v5 roll
   const framesBefore = JSON.stringify(beforeRows);
 
   const res = store.migrate();
-  assert(res.applied.length === 7 && JSON.stringify(res.applied.map(function (a) { return a.version; })) === JSON.stringify([5,6,7,8,9,10,11]), 'v5 -> v6 -> v7 -> v8 -> v9 -> v10 apply: ' + JSON.stringify(res.applied.map(function (a) { return a.version; })));
+  // ★ 2026-11-21：原来写死 length === 7 与 [5..11]。改成按 SCHEMA_VERSION 算。
+  assert(res.applied.length === SCHEMA_VERSION - 4, 'v4 db migrates ' + (SCHEMA_VERSION - 4) + ' steps, got ' + res.applied.length);
+  assertChainFrom(res.applied, 5, 'v4 db migrates v5..v' + SCHEMA_VERSION);
   assert(store.state.ready === true && store.state.current === SCHEMA_VERSION, 'ready at SCHEMA_VERSION');
   const afterRows = store.db.prepare('select source_id, session_id, seq, ptr, raw_rel_path, content_hash from frame_index order by seq').all();
   assert(JSON.stringify(afterRows) === framesBefore, 'v5 did not touch a single frame row\nbefore: ' + framesBefore + '\nafter: ' + JSON.stringify(afterRows));
