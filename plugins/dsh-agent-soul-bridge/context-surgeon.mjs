@@ -145,9 +145,23 @@ export function makeContextSurgeon (agent, sessionId) {
   //   ★ 症状：候选列表里混着已经剪完的节点，看起来像"还能剪"，实际剪不动。
   //   修法与 textLengthOf 一致：统一走 blocksOf。
   function hasPruneMarkerLike (ev) {
+    // ★★ 2026-11-21（第八处）：**原来只认自家门牌（log:<sid>#seq=<n>），不认官方 marker。**
+    //   而 pruner 那边 hasPruneMarker 认**两种**（PRUNE_MARKER_NEEDLES = 官方 '[... tool result
+    //   middle pruned ...]' + 我们的 '中间被裁'）。
+    //   后果：**一条被官方 marker 剪过的帧，candidates 照旧列出来（能剪），
+    //   而 pruner 一看就判 already-pruned（不剪）** —— 两个判据打架。
+    //   2026-11-21 真机实测就是这个现场：seq 84649 长度正好 5159（= 4096+39+1024，官方裁剪长度），
+    //   candidates 当成"还能剪"，pruner 回 already-pruned。
+    //
+    //   ★ 判据：**"是不是剪过了"只能有一个判据。** 两个模块各写一份正则，迟早打架。
+    //   这里认的两种，与 pruner 的 PRUNE_MARKER_NEEDLES 逐字一致。
     try {
       for (const b of blocksOf(ev)) {
-        if (b && typeof b.text === 'string' && /log:[^#\s]+#seq=\d+/.test(b.text)) return true
+        if (b && typeof b.text === 'string') {
+          if (/log:[^#\s]+#seq=\d+/.test(b.text)) return true          // 我们的门牌
+          if (b.text.indexOf('[... tool result middle pruned ...]') >= 0) return true // 官方
+          if (b.text.indexOf('中间被裁') >= 0) return true                // 官方中文 / 我们的
+        }
       }
     } catch {}
     return false

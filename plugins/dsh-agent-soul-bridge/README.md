@@ -219,3 +219,20 @@ pruner 相关的历史评估和独立复核保留在 `_verify`，其中依赖外
 - **判据：任何"检查器"都必须先用一个已知违规的样本验它会红。**
   不做这一步，绿灯只证明它跑完了，不证明它检查过。
   ★ 一个样本不够 —— 已知坏样本要覆盖**写法变体**。
+
+### 0.1.15 · 2026-11-21
+
+真机第一次把 pruner 跑起来之后，**又暴露出两处「两个判据打架」**。
+
+- **⑦ `diagnosis.hasMarker` 恒 false。** adapter 把 **event 对象** 传给了只收 **string** 的
+  `hasPruneMarker`（它第一行就是 `if (typeof text !== 'string') return false`）。
+  实测矛盾现场：seq 84649 的 `hasMarker=false`，而同一次调用的 `skipped` 说 `already-pruned`。
+- **⑧ `candidates` 只认自家门牌，不认官方 marker。** 而 pruner 的 `hasPruneMarker` 认**两种**
+  （`PRUNE_MARKER_NEEDLES`）。于是**被官方 marker 剪过的帧**，candidates 照旧列出来（能剪），
+  pruner 一看就判 already-pruned（不剪）。
+  ★ 实测就是这个现场：seq 84649 长度正好 **5159**（= 4096 + 39 + 1024，官方裁剪长度）。
+
+★ 两处同一句判据：**「是不是剪过了」只能有一个判据。两个模块各写一份，迟早打架。**
+★ 还有一句：**同一个谓词在两个地方各写一遍，参数类型一定会有人传错。**
+
+测试 ⑬ 新增（回执的 `hasMarker` 必须与 pruner 的 `already-pruned` 一致）。全套 **92 → 93**。

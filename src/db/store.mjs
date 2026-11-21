@@ -811,26 +811,26 @@ export function openMetaStore(options) {
       if (Object.prototype.hasOwnProperty.call(e, 'import_batch_id') || Object.prototype.hasOwnProperty.call(e, 'importBatchId')) {
         fail(CODES.INVALID_INPUT, 'import_batch_id is import provenance, not a caller field: only tools/mo-ledger-import.mjs sets it, inside its own batch transaction');
       }
-      // ★★ 2026-11-17：lead 的授权绑定补上了（原来这里是无条件硬拒）。
-      //   理由：墨的权威搬到 SQLite 之后，**换届**必须也能落库；一刀切拒绝等于把
-      //   「谁是当前主导」这条主线的写入封死，旧 JSONL 那条路又已经退役。
+      // ═══════════════════════════════════════════════════════════════════
+      // ★★ 2026-11-21（爀曦定）：**「必须是当前 lead」这条代码闸门去掉了。**
       //
-      //   判据（和 JSONL 时代的 isBrain 同一件事，只是换成库内自证）：
-      //     · 库里已有 live lead（import_batch_id IS NULL）→ 只有**它就是**当前写入者时才放行；
-      //     · 库里还没有 live lead → 允许第一条（否则任何新库都无法起步，是死锁）。
-      //   ★ 注意导入行（import_batch_id 非空）永远不参与这条判定 —— 历史 lead 不是现在。
-      if (type === 'lead') {
-        const liveRow = db.prepare("SELECT by, actor_session FROM mo_ledger WHERE type='lead' AND " + liveLeadClause() + ' ORDER BY row_id DESC LIMIT 1').get();
-        if (liveRow) {
-          const current = String(liveRow.actor_session || liveRow.by || '').toLowerCase();
-          const mine = String(actorSession || '').toLowerCase();
-          const curNorm = current.length >= 8 ? current.slice(0, 8) : current;
-          const mineNorm = mine.length >= 8 ? mine.slice(0, 8) : mine;
-          if (!curNorm || curNorm !== mineNorm) {
-            fail(CODES.LEDGER_LEAD_AUTH_REQUIRED, 'lead handover requires the current live lead: current is ' + (curNorm || '(none)') + ', writer is ' + (mineNorm || '(none)'));
-          }
-        }
-      }
+      //   原来这里要求「写入者 == 当前 live lead」。它制造了一个**死锁**：
+      //     换届恰恰是**新容器**写的，而新容器**必然不是**当前 lead
+      //     → 被 LEDGER_LEAD_AUTH_REQUIRED 拒 → **交接永远做不成**。
+      //   2026-11-21 他发现这件事，原话：
+      //     「写 lead 的闸门应该交给我，而不是依靠代码硬拦，哪个会话都可以写 lead 交接，
+      //       但是应该由我决定，因为你暂时没有办法自己转移到下一个会话容器，这件事交给我就行」
+      //
+      //   ★ 判据：**代码能拦的是"格式不合格"，拦不住"谁有权授权"** ——
+      //     后者只有他能判。硬拦的结果不是安全，是**把唯一能授权的路一起堵死**。
+      //
+      //   ★ 保留的三条闸门（它们是**自证**，不是**授权**，所以仍归代码管）：
+      //     · `ref` 必填 —— 由 schema 触发器 mo_ledger_lead_requires_ref 拦；
+      //     · 世代自述「第 N 代」—— 由 mo_ledger_lead_generation 拦；
+      //     · 必须带完整 sessionId —— 上面 bySession 那段拦。
+      //   ★ 交接要**人拍板**这件事，落在 AGENTS.md 的规则里，不落在代码里。
+      // ═══════════════════════════════════════════════════════════════════
+      // （不再校验「写入者是不是当前 live lead」。）
       const body = String(e.text == null ? '' : e.text).trim();
       if (!body) fail(CODES.INVALID_INPUT, 'ledger text is required');
       const byUser = Boolean(e.byUser === true || e.by !== undefined);

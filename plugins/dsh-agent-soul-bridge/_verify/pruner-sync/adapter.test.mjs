@@ -424,3 +424,36 @@ test('⑫ 已带门牌的节点不能再被列为候选（hasPruneMarkerLike 一
   assert.ok(seqs.includes(21), '没门牌的应该列出来')
   assert.ok(!seqs.includes(22), '★ 带门牌的 22 不该被列为候选 —— 列了剪也会被 already-pruned 跳过')
 })
+
+test('⑬ diagnosis.hasMarker 不能与 pruner 的 already-pruned 打架（第七处：传错参数类型）', async (tt) => {
+  useTemp(tt)
+  // ★ 2026-11-21 实测矛盾现场：seq 84649 的 diagnosis.hasMarker=false，
+  //   而同一次调用的 skipped 说 "already-pruned"。
+  //   根因：adapter 把 **event 对象** 传给了只收 **string** 的 hasPruneMarker ——
+  //   它第一行就是 `if (typeof text !== 'string') return false` → **恒 false**。
+  //   ★ 判据：同一个谓词在两个地方各写一遍，参数类型一定会有人传错。
+  const marker = '\n\n[... 中间被裁 · 原文在 append-only 会话日志 seq 21，取回：log:s-x#seq=21 ...]\n\n'
+  const fx = makeSession(SID, [
+    { seq: 20, kind: 'call', callId: 'call-20' },
+    { seq: 21, kind: 'result', callId: 'call-20', text: BIG('A') + marker + 'TAIL' },
+  ])
+  const p = makePruner()
+  p.__yqSeenSids.add(SID)
+  prunerMod.__yqRegisterLiveForTest(p)
+  tt.after(() => prunerMod.__yqUnregisterLiveForTest(p))
+
+  const data = await runTargetedCleanup({
+    ctx: ctxWith({ session: fx.session }),
+    args: args({ startSeq: 21, endSeq: 21, opId: 'marker-1' }),
+    describe: describePrunerRequest,
+    deps: { loadPrunerModule: async () => prunerMod },
+  })
+  const n21 = data.diagnosis.nodes.find((n) => n.seq === 21)
+  assert.ok(n21, 'diagnosis 里必须列出 21')
+  assert.equal(n21.hasMarker, true,
+    '★ 带门牌的那条必须报 true —— 报 false 就是 adapter 又传错了类型')
+  // ★ 而且它必须与 pruner 自己的判定一致：那条应当被判 already-pruned，不是被剪
+  const sk = (data.skipped || []).find((s) => s.seq === 21)
+  assert.ok(sk && sk.code === 'already-pruned',
+    'pruner 必须自己说 already-pruned（got ' + JSON.stringify(data.skipped) + '）')
+})

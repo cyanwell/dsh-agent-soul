@@ -178,7 +178,16 @@ export async function runTargetedCleanup (o = {}) {
         onSurface,
         type,
         callId: (contract.callIdOf ? (contract.callIdOf(ev) || null) : null),
-        hasMarker: contract.hasPruneMarker ? contract.hasPruneMarker(ev) === true : null,
+        // ★★ 2026-11-21（第七处同形）：**这里把 event 对象传给了只收字符串的函数。**
+        //   `hasPruneMarker(text)` 的第一行是 `if (typeof text !== 'string') return false`
+        //   → 传 event 进去**恒 false** → diagnosis 永远说「这条没剪过」，
+        //   而 pruner 自己说 already-pruned —— **两个判据互相打架**。
+        //   2026-11-21 实测：seq 84649 的 diagnosis.hasMarker=false，
+        //   而同一次调用的 skipped 说 "already-pruned"。**这就是矛盾的现场。**
+        //   ★ 判据：**同一个谓词在两个地方各写一遍，参数类型一定会有人传错。**
+        hasMarker: contract.hasPruneMarker
+          ? contract.hasPruneMarker(contract.canonicalEventText ? (contract.canonicalEventText(ev).text || '') : '') === true
+          : null,
         supported: c ? c.supported === true : null,
         mixed: c ? c.mixed === true : null,
         chars: c && Number.isInteger(c.chars) ? c.chars : null,
