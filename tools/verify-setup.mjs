@@ -5,7 +5,20 @@ import path from 'node:path';
 import http from 'node:http';
 import { spawn, execFileSync, spawnSync } from 'node:child_process';
 
-const SETUP = 'D:/AI/agent-soul/dist/AgentSoul-Setup-1.0.65.exe';
+// ★★★ 2026-11-21：版本号**不再硬编码**。
+//
+//   实测事故：这一行写着 1.0.65，而 make-dist 打的是 1.0.71 ——
+//   于是 `make-dist --verify` **验的是一年前的包**，还把 1.0.65 的 current.txt 当成
+//   本次产物报了 PASS。**假绿灯比红灯更坏**：红灯你会去查，绿灯你会信。
+//
+//   现在：版本唯一真相 = package.json，安装包名与 app 目录名都从它推。
+const VER = JSON.parse(fs.readFileSync('D:/AI/agent-soul/package.json', 'utf8')).version;
+const SETUP = 'D:/AI/agent-soul/dist/AgentSoul-Setup-' + VER + '.exe';
+if (!fs.existsSync(SETUP)) {
+  console.error('✗ 找不到安装包：' + SETUP);
+  console.error('  先跑 node tools/make-dist.mjs（当前 package.json 版本 = ' + VER + '）');
+  process.exit(1);
+}
 const TARGET = path.join(os.tmpdir(), 'as-setup-verify-' + Date.now());
 
 function run(exe, args, opts) {
@@ -44,10 +57,12 @@ const probe = (port) => new Promise((resolve) => {
       ['config.json', TARGET + '/config.json'],
       ['app/current.txt', TARGET + '/app/current.txt'],
       ['runtime/node.exe', TARGET + '/runtime/node.exe'],
-      ['src/db/echo-vector-cache.mjs', TARGET + '/app/1.0.65/src/db/echo-vector-cache.mjs'],
-      ['src/db/echo-vector-snapshot.mjs', TARGET + '/app/1.0.65/src/db/echo-vector-snapshot.mjs'],
+      ['src/db/echo-vector-cache.mjs', TARGET + '/app/' + VER + '/src/db/echo-vector-cache.mjs'],
+      ['src/db/echo-vector-snapshot.mjs', TARGET + '/app/' + VER + '/src/db/echo-vector-snapshot.mjs'],
       ['workspace/README.txt', TARGET + '/workspace/README.txt'],
       ['WebView2 三件套', TARGET + '/WebView2Loader.dll'],
+      // ★ 2026-11-21：DPI 那一半必须是 exe 的邻居。缺它 = 150% 缩放下界面糊/错位。
+      ['AgentSoul.exe.config', TARGET + '/AgentSoul.exe.config'],
     ];
     let allOk = true;
     for (const c of checks) {
