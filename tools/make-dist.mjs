@@ -25,7 +25,21 @@ import { execFileSync } from 'node:child_process';
 
 const VER = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')).version;
 const DEV = process.cwd();
-const PROD = process.env.AGENT_SOUL_PROD || process.cwd();
+// ★★★ 2026-11-22：**这里我 1.0.74 改错过。**
+//
+//   1.0.74 我为了「消除 D 盘硬编码」把它写成 `process.cwd()` —— 那是错的：
+//   `DEV`（源码在哪）和 `PROD`（**部署到哪**）不是同一个东西。
+//   · DEV 可以是 cwd（源码就在你脚下）
+//   · PROD 是**目标**，它天生就是一条具体路径 —— 把它也改成 cwd，
+//     等于让打包器去 `<仓库>/app/<版本>` 找载荷，而那个目录**永远不存在**。
+//
+//   症状不是报错，是打包第一步就 die：
+//   `✗ 生产载荷不存在，先跑 tools/release.mjs --to=1.0.78：D:\AI\agent-soul\app\1.0.78`
+//   ★ 而这条错误看起来像「你忘了先 release」—— **实际是它自己指错了地方。**
+//
+//   ★ 判据：**「消除硬编码」只该针对「源码在哪里」，不该针对「产物要放到哪里」。**
+//     后者的默认值本来就是一个部署约定，允许 env 覆盖就够了。
+const PROD = process.env.AGENT_SOUL_PROD || 'C:/Users/pc/Desktop/deepseek harness/agent soul';
 const SHELL = path.join(DEV, 'dist/AgentSoul');          // 壳 + WebView2 dll + runtime
 const STAGE = path.join(DEV, 'dist/build', 'AgentSoul-' + VER);
 const ZIP = path.join(DEV, 'dist', 'AgentSoul-' + VER + '-portable.zip');
