@@ -43,7 +43,8 @@ export const DEFAULTS = {
  */
 export function listActiveHostSessions (o) {
   const cfg = { ...DEFAULTS, ...(o || {}) }
-  const root = o && o.root ? o.root : 'D:/AI/dsh/home/sessions'
+  // ★ 2026-11-21（#11 同类）：同上
+  const root = o && o.root ? o.root : (process.env.AGENT_SOUL_SESSIONS_ROOT || null)
   // ★ 分钟级优先（心跳用）；否则按天（全量巡视用）
   const cutoff = cfg.activeMinutes > 0
     ? Date.now() - cfg.activeMinutes * 60 * 1000

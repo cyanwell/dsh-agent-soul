@@ -14,7 +14,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 // ★ 路径来自实际环境（aurabot 是 DSH 插件，配置在 plugins-data 下）
-export const AURABOT_DIR = 'D:/AI/dsh/home/plugins-data/aurabot'
+// ★ 2026-11-21（#11 同类）：原来写死 D 盘。分发版上这是**一条不存在的路径**，
+//   而它会被直接报给用户（"Cannot find module '.../D:/AI/...'"）。
+//   ★ 判据与哨兵一致：**未配置就是未配置，不要假装健康，也不要报一条本机才有的路径。**
+export const AURABOT_DIR = process.env.AGENT_SOUL_AURABOT_DIR || null
 
 // 白名单：只有这些键会出现在 /api/aurabot 的返回里
 const WHITELIST = [
@@ -57,6 +60,12 @@ function pickWhitelisted (cfg) {
  */
 export function aurabotStatus (opts = {}) {
   const dir = opts.dir || AURABOT_DIR
+  // ★ 2026-11-21：**未配置就不去拼路径。** path.join(null, ...) 是 TypeError，
+  //   而"回一条不存在的 D 盘路径"同样不可接受。判据同哨兵：未配置 → UNCONFIGURED。
+  if (!dir) {
+    return { ok: false, unconfigured: true, dir: null, configExists: false, config: null,
+      counts: { stickers: 0, personas: 0 }, error: '未配置 AGENT_SOUL_AURABOT_DIR' }
+  }
   const cfgFile = path.join(dir, 'config.json')
   const out = {
     ok: true,

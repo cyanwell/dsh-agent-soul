@@ -38,7 +38,8 @@ export function handleHostScan (req, res, o) {
   try { p = new URL(req.url, 'http://x').pathname } catch { return false }
   if (p !== '/api/huanqi/host-scan' && p !== '/api/huanqi/host-list') return false
 
-  const root = (o && o.root) || 'D:/AI/dsh/home/sessions'
+  // ★ 2026-11-21（#11 同类）：写死 D 盘 → 未显式配置就 null，调用方报 unconfigured
+  const root = (o && o.root) || process.env.AGENT_SOUL_SESSIONS_ROOT || null
   const log = (o && o.log) || (() => {})
   const t0 = Date.now()
 

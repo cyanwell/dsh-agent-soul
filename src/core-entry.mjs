@@ -9,6 +9,16 @@ import { createSyncRuntime } from './sync/core.mjs';
 import { readDshSession, readDshSessionAsync, readDshSessionTail, toFrames } from './migrate/dsh.mjs';
 import { ControlHub } from './control/hub.mjs';
 import { loadConfig, loadManagedConfig, ROOT, personaFilesOf, devPathOr, devFileOr } from './config.mjs';
+
+// ★ 2026-11-21（#12）：启动横幅的版本号**必须来自 package.json**，
+//   不能手写 —— 原来这里写死 v0.1.0，而 package.json 是 1.0.73，差了整条版本线。
+//   ★ 判据：版本号只有一个真相源；抄一遍就是给未来埋一颗"报喜不报忧"的雷。
+const APP_VERSION = (() => {
+  try {
+    const u = new URL('../package.json', import.meta.url);
+    return JSON.parse(fs.readFileSync(u, 'utf8')).version;
+  } catch { return 'unknown'; }
+})();
 import { readonlyEnabled, syncDisabled } from './security/write-manifest.mjs';
 import { installParentWatchdog } from './util/parent-watchdog.mjs';
 import { acquireSingleInstance, releaseSingleInstance, installLoopStallProbe } from './util/core-guard.mjs';
@@ -1304,7 +1314,7 @@ __bt('listen 回调进入');
 server.listen(config.port, config.host, () => {
   const url = 'http://' + config.host + ':' + config.port;
   console.log('');
-  agent-soul  v1.0.73
+  console.log('  agent-soul  v' + APP_VERSION)
   console.log('  ─────────────────────────────');
   console.log('  GUI      ' + url);
   console.log('  MCP      ' + url + '/mcp   ← 别的 harness 接这个地址');

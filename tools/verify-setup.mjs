@@ -15,10 +15,13 @@ import { spawn, execFileSync, spawnSync } from 'node:child_process';
 //   本次产物报了 PASS。**假绿灯比红灯更坏**：红灯你会去查，绿灯你会信。
 //
 //   现在：版本唯一真相 = package.json，安装包名与 app 目录名都从它推。
-const VER = JSON.parse(fs.readFileSync('D:/AI/agent-soul/package.json', 'utf8')).version;
-// 从 package.json 读取版本号生成文件名
-const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf-8'));
-const SETUP = 'D:/AI/agent-soul/dist/AgentSoul-Setup-' + pkg.version + '.exe';
+// ★★ 2026-11-21：**版本唯一真相 = package.json，而且路径也得跟着仓库走。**
+//   原来两处都写死 'D:/AI/agent-soul' —— 子会话第一次只把"文件名"改成动态的，
+//   路径那一半原样留着，于是**换台机器照样跑不了**（报告 #2 说的就是这一条）。
+//   ★ 判据：**"改成动态"要连路径一起想，只改一半等于没改。**
+const PKG_ROOT = path.resolve(__dirname, '..')
+const VER = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8')).version;
+const SETUP = path.join(PKG_ROOT, 'dist', 'AgentSoul-Setup-' + VER + '.exe');
 if (!fs.existsSync(SETUP)) {
   console.error('✗ 找不到安装包：' + SETUP);
   console.error('  先跑 node tools/make-dist.mjs（当前 package.json 版本 = ' + VER + '）');

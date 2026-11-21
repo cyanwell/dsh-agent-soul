@@ -10,7 +10,9 @@
 
 import { pathToFileURL } from 'node:url'
 
-const DOCTOR = process.env.ECHO_DOCTOR_PATH || 'D:/AI/memory/hub/echo-doctor.mjs'
+// ★ 2026-11-21（#11）：原来写死 D 盘。未配置 → null，不 spawn，直接回 unconfigured。
+//   ★ 不要用 `|| 'D:/AI/...'` 兜底 —— 那个兜底在分发版上就是"报一条不存在的路径给用户"。
+const DOCTOR = process.env.ECHO_DOCTOR_PATH || null
 const TTL_MS = 5 * 60 * 1000
 
 let cache = null
@@ -18,6 +20,12 @@ let cacheAt = 0
 let inflight = null
 
 async function runOnce (log) {
+  // ★ 2026-11-21：**未配置就不 spawn。** 原来这里直接 pathToFileURL(DOCTOR) ——
+  //   DOCTOR 一旦为 null 就是 TypeError；而"报一条不存在的 D 盘路径"同样不可接受。
+  //   ★ 与哨兵同一条判据：未配置 → UNCONFIGURED，不假装健康。
+  if (!DOCTOR) {
+    return { overall: 'unconfigured', unconfigured: true, why: '未配置 ECHO_DOCTOR_PATH（或 config.integrations.echoDoctorPath）', checks: [] }
+  }
   const t0 = Date.now()
   const mod = await import(pathToFileURL(DOCTOR).href)
   if (typeof mod.runDoctor !== 'function') throw new Error('echo-doctor.mjs 没有导出 runDoctor')
