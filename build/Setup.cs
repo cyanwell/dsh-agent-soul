@@ -169,10 +169,11 @@ static class Program
         bool silent = HasFlag(args, "/S") || HasFlag(args, "/silent")
             || HasFlag(args, "/VERYSILENT") || HasFlag(args, "/verysilent")
             || HasFlag(args, "/SUPPRESSMSGBOXES");
-        string dir = ArgValue(args, "/D=");
-        if (dir == null || dir.Length == 0) dir = ArgValue(args, "/DIR=");   // Inno 写法，一并认
+        string dirArg = ArgValue(args, "/D=");
+        if (dirArg == null || dirArg.Length == 0) dirArg = ArgValue(args, "/DIR=");   // Inno 写法，一并认
         // ★ 显式说了装到哪里 = 他不想再被问一次
-        if (dir != null && dir.Length > 0) silent = true;
+        if (dirArg != null && dirArg.Length > 0) silent = true;
+        string dir = dirArg;
         if (dir == null || dir.Length == 0) dir = DefaultDir();
 
         // ★★ 从「老安装」里认回安装根与数据目录 —— 这是「升级」真正需要的那一步。
@@ -187,13 +188,27 @@ static class Program
         //     ③ 常见默认位置探测
         //   找到老安装就：装到**老根**、并把 config.json 的 dataDir 指到**老 data**。
         //   找不到就照常装新目录 —— 但会把「这是一次干净安装」说出来，不装作升级成功。
+        bool dirExplicit = dirArg != null && dirArg.Length > 0;
         string oldRoot = FindExistingInstall(dir);
         bool upgrading = oldRoot != null && Directory.Exists(oldRoot);
-        if (upgrading && !HasFlag(args, "/D=") && !HasFlag(args, "/DIR="))
+        // ★★★ 2026-11-21 修：原来这里写的是 `!HasFlag(args, "/D=")` —— 那是**整参数精确匹配**，
+        //   而实际参数是 `/D=C:\path`，永远不等于 `/D=`。于是"用户显式指定目录"被误判成"没指定"，
+        //   把 TARGET 覆盖成了默认位置 —— 实测就是它让 verify-setup 装到了 Programs 下、
+        //   而临时目录里一个文件都没有（10 项检查全 ✗）。
+        //   ★ 判据要用**取值有没有**，不是**开关名在不在**。
+        if (upgrading && !dirExplicit)
         {
             // 用户没指定目录，且机器上有老安装 → 装回老根（原地升级）。
-            // ★ 这条是「不凭空多出一份实例」的关键。
+            // ★ 这条是「不凭空多出一份实例」的关键；但**绝不能覆盖用户明确说的目标**。
             dir = oldRoot;
+        }
+        else if (upgrading && dirExplicit && !SamePath(dir, oldRoot))
+        {
+            // 用户指了别的目录，而机器上还有一份老安装 —— 这可能是"装两份"，
+            // 说清楚但不改他的决定（他要装哪就装哪）。
+            Console.WriteLine("注意：这台机器上已有 AgentSoul：" + oldRoot);
+            Console.WriteLine("      你指定了另一个目录：" + dir);
+            Console.WriteLine("      （两份会各自有 config.json 与 data，互不相干）");
         }
 
         if (!silent && ConsoleHasInput())
@@ -260,6 +275,19 @@ static class Program
     /// 有没有可交互控制台？无控制台时**绝不许**读 stdin（那会把进程挂死）。
     /// ★ 判据用 Console.IsInputRedirected 的反面：重定向了说明是管道/服务在跑，
     ///   没人能按回车。这是 .NET 里唯一可靠的「我这个进程有没有人在看」的信号。
+    /// 两个路径是不是同一个（大小写不敏感 + 归一化，用于 Windows）。
+    static bool SamePath(string a, string b)
+    {
+        if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
+        try
+        {
+            string pa = Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar);
+            string pb = Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar);
+            return string.Equals(pa, pb, StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
     static bool ConsoleHasInput()
     {
         try
