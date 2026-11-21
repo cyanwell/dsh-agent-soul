@@ -110,37 +110,45 @@ export function makeContextSurgeon (agent, sessionId) {
    * ★ 2026-11-21：与 pruner 的 contentBlocksOf 同一口径 —— 一层/两层都认。
    *   这里不 import pruner 的模块（桥不该依赖它的内部文件），但口径必须一致。
    */
-  function textLengthOf (ev) {
+  /**
+   * 取一条 tool/result 的**块数组**。一层 / 两层都认。
+   *
+   * ★ 2026-11-21：本文件里**两处**都要用它（算长度 / 判门牌），
+   *   而它们原来各写一份两层读法 —— 于是同一个错误犯两次。
+   *   ★ 判据：**一个形状只准有一个读取入口。**
+   */
+  function blocksOf (ev) {
     try {
       const d = ev.data || {}
       const flat = d.message && Array.isArray(d.message.content) ? d.message.content : null
       if (Array.isArray(flat) && flat.length > 0) {
         const first = flat[0]
-        const blocks = (first && first.type === 'tool-result' && Array.isArray(first.content))
-          ? first.content
-          : (flat.every((b) => b && typeof b === 'object' && typeof b.type === 'string') ? flat : null)
-        if (blocks) {
-          let n = 0
-          for (const b of blocks) if (b && typeof b.text === 'string') n += b.text.length
-          return n
-        }
+        if (first && first.type === 'tool-result' && Array.isArray(first.content)) return first.content
+        if (flat.every((b) => b && typeof b === 'object' && typeof b.type === 'string')) return flat
       }
-      if (Array.isArray(d.content)) {
-        let n = 0
-        for (const b of d.content) if (b && typeof b.text === 'string') n += b.text.length
-        return n
-      }
+      if (Array.isArray(d.content)) return d.content
     } catch {}
-    return 0
+    return []
+  }
+
+  function textLengthOf (ev) {
+    let n = 0
+    for (const b of blocksOf(ev)) if (b && typeof b.text === 'string') n += b.text.length
+    return n
   }
 
   /** 该节点是否已带门牌（此前剪过）。判据只看文本里有没有 log:<sid>#seq= 形态。 */
+  // ★ 2026-11-21（第六处）：原来这里也只读 content[0].content（两层）→
+  //   一层帧时 blocks 落到 d.content（undefined）→ **恒返回 false** →
+  //   已剪过的节点（正文里明明有门牌）会**被反复列为候选**，
+  //   而真拿去剪时 pruner 会以 already-pruned 跳过。
+  //   ★ 症状：候选列表里混着已经剪完的节点，看起来像"还能剪"，实际剪不动。
+  //   修法与 textLengthOf 一致：统一走 blocksOf。
   function hasPruneMarkerLike (ev) {
     try {
-      const d = ev.data || {}
-      const outer = d.message && Array.isArray(d.message.content) ? d.message.content[0] : null
-      const blocks = outer && Array.isArray(outer.content) ? outer.content : (Array.isArray(d.content) ? d.content : [])
-      for (const b of blocks) if (b && typeof b.text === 'string' && /log:[^#\s]+#seq=\d+/.test(b.text)) return true
+      for (const b of blocksOf(ev)) {
+        if (b && typeof b.text === 'string' && /log:[^#\s]+#seq=\d+/.test(b.text)) return true
+      }
     } catch {}
     return false
   }

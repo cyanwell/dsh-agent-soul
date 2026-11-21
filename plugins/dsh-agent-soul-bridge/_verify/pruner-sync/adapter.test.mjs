@@ -406,3 +406,21 @@ test('⑪ candidates 的 len 必须按真实形状算出来（不能恒 0）', a
   assert.ok(item, '在 surface 上的必须列出来')
   assert.ok(item.len > 1000, '★ len 恒 0 等于没排序，实际 ' + item.len)
 })
+
+test('⑫ 已带门牌的节点不能再被列为候选（hasPruneMarkerLike 一度恒 false）', async () => {
+  // ★ 第六处两层假设：hasPruneMarkerLike 只读 content[0].content（两层），
+  //   一层帧时 blocks 落到 d.content（undefined）→ **恒返回 false** →
+  //   已剪过的节点（正文里明明有门牌）会**被反复列为候选**，
+  //   而真拿去剪时 pruner 会以 already-pruned 跳过。
+  const { makeContextSurgeon } = await import('../../context-surgeon.mjs')
+  const gated = 'HEAD…\n[pruned] 原文可取回：log:' + SID + '#seq=99\n' + 'TAIL'
+  const fx = makeSession(SID, [
+    { seq: 21, kind: 'result', callId: 'c21', text: BIG('A') },
+    { seq: 22, kind: 'result', callId: 'c22', text: gated },
+  ])
+  const surg = makeContextSurgeon({ session: fx.session }, SID)
+  const got = surg.candidates(10)
+  const seqs = got.items.map((x) => x.seq)
+  assert.ok(seqs.includes(21), '没门牌的应该列出来')
+  assert.ok(!seqs.includes(22), '★ 带门牌的 22 不该被列为候选 —— 列了剪也会被 already-pruned 跳过')
+})

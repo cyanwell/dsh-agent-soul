@@ -193,3 +193,15 @@ pruner 相关的历史评估和独立复核保留在 `_verify`，其中依赖外
   · 修：新增 `textLengthOf(ev)`，一层/两层都认（与 pruner 的 `contentBlocksOf` 同口径）。
     ★ 桥不 import pruner 的内部文件（那是它的私产），但口径必须一致 —— 写在注释里。
 - 测试新增 ⑪：断言 candidates 的 `len` 不是 0。全套 **90 → 91**。
+
+### 0.1.14 · 2026-11-21
+
+- **`hasPruneMarkerLike` 恒 false —— 第六处两层假设（同一文件里的第二处）。**
+  它只读 `content[0].content`（两层），一层帧时 `blocks` 落到 `d.content`（undefined）→
+  **恒返回 false** → 已剪过的节点（正文里明明有门牌）**被反复列为候选**，
+  而真拿去剪时 pruner 会以 `already-pruned` 跳过。
+  症状：候选列表里混着已经剪完的节点，看起来像「还能剪」，实际剪不动。
+- 修：把「取块」收成一个 `blocksOf(ev)`，`textLengthOf` 与 `hasPruneMarkerLike` 共用。
+  ★ **一个形状只准有一个读取入口** —— 本文件原本两处各写一份两层读法，
+    于是同一个错误犯了两次。
+- 测试新增 ⑫：带门牌的节点不能被列为候选。全套 **91 → 92**。
