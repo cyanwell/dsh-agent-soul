@@ -1131,7 +1131,7 @@ const OPEN_PATHS = new Set(['/api/health', '/api/vitals', '/api/questions']);
 function outerAuthGate (req, res, p) {
   if (OPEN_PATHS.has(p)) return false;
   // 页面/静态资源/GET 只读视图照旧放行 —— 加鉴权不能把面板弄死
-  if (!needsAuth(p, req.method)) return false;
+  if (!needsAuth(p, req.method, req)) return false;
   try {
     const u = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
     if (outerAuth.ok(req, u)) return false;

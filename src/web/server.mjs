@@ -830,7 +830,7 @@ function injectPage (html) {
     //   位置很关键：在 readBody 之前 —— 否则 POST /api/turn 的帧已经 append 了，
     //   「拒绝」只是没写进响应，副作用已经发生（这个道理 readOnly 闸那一段已经写过了）。
     //   ★ 只读的 /api/health、/api/vitals、/api/questions 不设卡：界面要靠它们活着。
-    if (needsAuth(p, req.method) && !auth.ok(req, url)) {
+    if (needsAuth(p, req.method, req) && !auth.ok(req, url)) {
       return json(res, 401, {
         ok: false, error: 'missing-or-bad-token',
         hint: '页面会内联注入；脚本请读 <dataDir>/token.txt 放到 X-Soul-Token 头里',

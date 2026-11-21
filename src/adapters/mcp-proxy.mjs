@@ -44,16 +44,33 @@ export const PROBE_TTL_MS = Number(process.env.SOUL_PROBE_TTL_MS) || 2000;
 //   ★ 读不到 token 时**不猜、不静默** —— 它意味着主服务也在用空 token（那就没人需要 token），
 //     或者这台机器还没生成过。两种情况都让请求原样发出去，让主服务自己判。
 const HUB_TOKEN = (() => {
-  try {
-    const cfg = (() => { try { return loadConfig() } catch { return null } })();
-    const dirs = [cfg && cfg.dataDir, path.join(appRoot(), 'data'), path.join(ROOT, 'data')].filter(Boolean);
-    for (const d of dirs) {
-      try {
-        const t = fs.readFileSync(path.join(d, 'token.txt'), 'utf8').trim();
-        if (t) return t;
-      } catch {}
-    }
-  } catch {}
+  // ★★ 2026-11-22 第二版 —— 第一版**三个候选全指错地方**，我实测才发现：
+  //
+  //   本进程的 ROOT / appRoot() 都解析到 `<生产根>/app/<版本>`（因为 config.mjs 就在那下面），
+  //   所以我写的三个候选 `cfg.dataDir` / `appRoot()/data` / `ROOT/data` **全变成同一个路径**：
+  //       <生产根>/app/1.0.78/data/token.txt
+  //   而真正的 token 在**上一级**：`<生产根>/data/token.txt`。
+  //
+  //   更坑的是：那个错路径上**真有一个 token.txt，只是 0 字节** →
+  //   `readFileSync().trim()` 得到 ''，我的 `if (t)` 判空跳过，于是循环走完返回 ''，
+  //   **看起来"读过了"，实际什么也没读到**，然后请求不带 header → 401。
+  //
+  //   ★ 判据：**路径候选列表里不许出现"三个写法指向同一个目录"的假多样性**；
+  //     而且"文件存在但内容为空"必须当成**没读到**，不能当成读到了空 token。
+  const cands = [];
+  try { const cfg = loadConfig(); if (cfg && cfg.dataDir) cands.push(cfg.dataDir); } catch {}
+  const up2 = path.resolve(ROOT, '..', '..');   // <生产根>（app/<版本> 的上两级）
+  cands.push(path.join(up2, 'data'), path.join(appRoot(), 'data'), path.join(ROOT, 'data'));
+  const seen = new Set();
+  for (const d of cands) {
+    const f = path.join(d, 'token.txt');
+    if (seen.has(f)) continue;              // 同一个文件不重复试
+    seen.add(f);
+    try {
+      const t = fs.readFileSync(f, 'utf8').trim();
+      if (t.length >= 16) return t;          // 空/占位文件不算
+    } catch {}
+  }
   return '';
 })();
 /** 探测超时：500ms。本机回环正常是 1-3ms，500ms 已经足够宽松。 */

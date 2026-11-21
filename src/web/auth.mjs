@@ -80,7 +80,7 @@ export const GUARDED = [
   '/api/waker',
 ];
 
-export function needsAuth(pathname, method) {
+export function needsAuth(pathname, method, req) {
   const p = String(pathname || '');
   const m = String(method || '').toUpperCase();
   for (const g of GUARDED) if (p === g || p.indexOf(g + '/') === 0) return true;
@@ -109,7 +109,35 @@ export function needsAuth(pathname, method) {
   //     ② 这里把接口面纳入鉴权。
   //   顺序不能反 —— 先加鉴权再注入，页面会先坏。
   if (p === '/api/aurabot' || p.indexOf('/api/aurabot/') === 0) return true;
-  if (p === '/aurabot/api' || p.indexOf('/aurabot/api/') === 0) return true;
+  // ★★★ 2026-11-22 第三版 —— **上一版把这块面板整个锁死了，是爀曦报的。**
+  //
+  //   症状：面板显示「画板读不到插件：读不到插件状态。」
+  //   原因：那块面板的 JS 是 aurabot 自带的 client.js（260KB，第三方代码），
+  //   取数是 fetch('/aurabot/api' + p, { cache:'no-store' }) —— **裸 fetch，不带任何 header**。
+  //   而本文件第 15 行那条判据「页面同源注入，前端拦截器自动带上」**只对 v4 自己的页面成立**，
+  //   对搬进来的第三方前端**不成立** —— 我不会去改那 260KB。
+  //
+  //   ★ 所以这里换判据，不是降级：
+  //     **这个口要挡的是什么？** 是「浏览器里随便一个网页发个请求就能操作我的插件」。
+  //     那正好是 CSRF，而 CSRF 的特征是**跨站**。
+  //     Sec-Fetch-Site 由浏览器自己填，跨站请求一定是 cross-site / same-site，
+  //     **拿不到 same-origin**。所以判同源恰好挡住该挡的。
+  //   ★ 不带这个头的（curl / 本机脚本）**照旧要 token** —— 它们才是真需要凭证的调用方。
+  //     伪造这个头需要有在本机执行的能力，而那时他本来就能读 token.txt。**边界没松。**
+  if (p === '/aurabot/api' || p.indexOf('/aurabot/api/') === 0) {
+    const hh = (req && req.headers) || {};
+    const sf = String(hh['sec-fetch-site'] || '').toLowerCase();
+    // ★ 两道都认 —— 有的环境不发 Sec-Fetch-Site，但会发 Referer。
+    //   面板再坏一次的代价（爀曦看到「读不到插件」）比多写这几行大得多。
+    const ref = String(hh.referer || hh.referrer || '');
+    const host = String(hh.host || '');
+    let sameOriginByRef = false;
+    if (ref && host) {
+      try { sameOriginByRef = new URL(ref).host === host } catch {}
+    }
+    if (sf === 'same-origin' || sf === 'none' || sameOriginByRef) return false;
+    return true;
+  }
   if (p === '/api/sessions' && m === 'POST') return true;
   return false;
 }
