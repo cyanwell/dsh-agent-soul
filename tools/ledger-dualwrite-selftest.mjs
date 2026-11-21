@@ -80,9 +80,23 @@ function fresh(name) {
   t('lead：库空时允许第一条', first.ok === true && first.backend === 'sqlite+jsonl', JSON.stringify(first).slice(0, 200));
   const other = new LedgerBase(file, { store, sessionId: 'ffffffff-1111-2222-3333-444444444444' });
   const bad1 = other.write({ type: 'lead', text: GEN2, by: 'ffffffff', ref: REF });
-  t('lead：非当前主导被拒（且不落文件）', bad1.ok === false && String(bad1.code) === 'LEDGER_LEAD_AUTH_REQUIRED', JSON.stringify(bad1).slice(0, 220));
+  // ★★ 2026-11-21（爀曦定）：**这条断言测的是一个已经被移除的闸门。**
+//   原来是「非当前主导写 lead 要被 LEDGER_LEAD_AUTH_REQUIRED 拒」——
+//   而那个闸门**制造了换届死锁**（换届恰恰是新容器写的，新容器必然不是当前 lead）。
+//   他原话：「写 lead 的闸门应该交给我，而不是依靠代码硬拦」。
+//   闸门去掉之后，这条断言必须跟着改 —— **断言跟不上代码，就会把正确的改动判成回归。**
+//
+//   换成测**仍然保留**的三条（它们是自证，不是授权）：
+t('lead：无 ref 仍被拒（MO_LEAD_REQUIRES_REF）', (() => {
+  const r = other.write({ type: 'lead', text: '第2代 · 接手于 2026-11-17 · 测试', by: 'ffffffff' });
+  return r.ok === false && /ref/i.test(String(r.message || r.code || ''));
+})(), 'lead 仍必须带 --ref（schema 触发器管）');
+t('lead：非当前主导**也能写**（换届不再被代码拦）', bad1.ok === true, JSON.stringify(bad1).slice(0, 220));
   const fileRowsAfterReject = fs.readFileSync(file, 'utf8').trim().split('\n').length;
-  t('lead：被拒后文件仍然只有 1 行（没有分叉）', fileRowsAfterReject === 1, fileRowsAfterReject);
+  // ★ 同上：既然换届不再被拒，文件里当然会有这一行 —— **它应当两边都有**（没有分叉）。
+t('lead：换届后文件里也有这一行（两边一致、没有分叉）',
+  fileRowsAfterReject === 2,
+  'file=' + fileRowsAfterReject);
   const mine = L.write({ type: 'lead', text: GEN2, by: 'd0cb8ea1', ref: REF });
   t('lead：当前主导可以再写', mine.ok === true && mine.backend === 'sqlite+jsonl', JSON.stringify(mine).slice(0, 200));
   const missingRef = L.write({ type: 'lead', text: '第3代 · 接手于 2026-11-17 · 上一代做了：交班', by: 'd0cb8ea1' });

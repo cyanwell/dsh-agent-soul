@@ -102,7 +102,7 @@ h1,h2{text-shadow:var(--as-text-shadow)}
 </style></head><body>
 <nav><div class='brand'>agent<i>·</i>soul<em>CONSOLE</em></div>
 <a href='/chat'><b></b>对话</a><a href='/'><b></b>星系</a><a href='/organs'><b></b>器官</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><a href='/params' class='on'><b></b>参数</a><a href='/settings'><b></b>设置</a>
-<div class='sp'></div><div class='ver'>v0.1.0</div></nav>
+<div class='sp'></div><div class='ver' id='buildver'>—</div></nav>
 <main>
 <header><h1 class='as-title'>参数</h1><span class='t' id='meta'></span></header>
 <div class='sub' id='sub'>正在读配置……</div>
@@ -232,4 +232,4 @@ function rowEl(f){
 $('reload').onclick=load;
 document.querySelectorAll('nav a[data-wip]').forEach(function(a){a.onclick=function(e){e.preventDefault();alert(a.getAttribute('data-wip')+' —— 还没做')}});
 load();
-</script></body></html>
+</script><script>(function(){var e=document.getElementById('buildver');if(e)e.textContent='v'+(window.__SOUL_VERSION||'?')})();</script></body></html>

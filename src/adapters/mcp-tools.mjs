@@ -922,7 +922,9 @@ export async function runLedger(args, cfg, sessionId) {
       '\n  选源：' + picked.source + '\n  找过：' + (tried || '(一个候选都没有)') +
       '\n  ★ 不退回兜底账，也不新建。';
   }
-  const L = new LedgerBase(lf);
+  // ★ 2026-11-22（P14）：把 config.ledger.readonly 传进去 ——
+  //   MCP 面的 soul_ledger 本来就一律拒绝写，现在是让**类本身**也表达这个状态。
+  const L = new LedgerBase(lf, { readonly: Boolean(s.__cfg && s.__cfg.ledger && s.__cfg.ledger.readonly) });
 
   if (action === 'stats') {
     const st = L.stats();

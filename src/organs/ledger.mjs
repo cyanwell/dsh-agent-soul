@@ -82,6 +82,19 @@ export class LedgerBase {
   constructor(file, opts = {}) {
     this.file = file;
     this.now = opts.now || (() => new Date());
+    // ★★ 2026-11-22（上游反馈 P14）：**结构性的只读态。**
+    //
+    //   下游需要「账本只读」的部署形态（一手历史档案不许被机器追加）。
+    //   原来类里只有「能写」和「调用方自己保证不写」两种状态 —— **没有 readonly**，
+    //   于是下游只能**改 write() 的方法体**：侵入式、升级每次重打，而且**污染测试信号**
+    //   （自检红了分不清是上游回归还是下游改的）。
+    //
+    //   ★ 而这个方向**上游其实已经承认了**：mcp-tools 的 soul_ledger 在 action=write 上一律
+    //     拒绝，文案写着「原始 JSONL 账本已永久只读」。**语义在 MCP 边界上守住了，
+    //     缺的是让运行时的类表达这个状态的标准方式。**
+    //
+    //   ★ 默认 false —— **零破坏**：不传就全绿，想测只读态就显式传 { readonly: true }。
+    this.readonly = opts.readonly === true;
     this.mem = null;      // 读缓存：{ size, mtime, rows }
     // ★★ 2026-11-17：墨的权威改到 SQLite（mo_ledger）。
     //   store 给了就走库，没给就还是读 JSONL —— **增量，不是替换**。
@@ -92,7 +105,9 @@ export class LedgerBase {
     // 走库时必须有完整会话 id（actor_session 不接受 8 位短 id）。
     this.sessionId = opts.sessionId || '';
     // 降级记录：和墨放同一个目录，只追加。过渡期结束随文件一起退役。
-    this.degradeFile = opts.degradeFile || (file ? path.join(path.dirname(file), 'ledger-degrade.jsonl') : null);
+    // ★ 2026-11-22：**只读态下不建这个文件** —— "降级记录"本身也是一次写。
+    //   只读的语义是「一个字都不许落」，不能只拦主通道而漏掉旁路。
+    this.degradeFile = this.readonly ? null : (opts.degradeFile || (file ? path.join(path.dirname(file), 'ledger-degrade.jsonl') : null));
     // 没给 onDegrade 也要留痕 —— 不许「配置没到位 = 这次失败就此消失」。
     this.onDegrade = typeof opts.onDegrade === 'function' ? opts.onDegrade : (detail) => {
       if (!this.degradeFile) return;
@@ -212,6 +227,18 @@ export class LedgerBase {
    * @returns {{ok:true, row:object, file:string} | {ok:false, code:string, message:string}}
    */
   write({ type, text, by, ref, feel }) {
+    // ★★ 2026-11-22（P14）：**只读态的前置开关。**
+    //   放在最前面，**先于任何校验** —— 只读的语义是「一个字都不许落」，
+    //   所以连"参数不合格"都不该走到分支里去（那会让人以为"改改参数就能写"）。
+    //   ★ 返回的 code 用 LEDGER_AUTH_REQUIRED，与下游自己改方法体时用的那个一致
+    //     —— 这样他们的调用方代码不用改。
+    if (this.readonly) {
+      return {
+        ok: false,
+        code: 'LEDGER_AUTH_REQUIRED',
+        message: '账本只读（readonly: true）：原始 JSONL 是历史档案，机器写通道已关闭',
+      };
+    }
     if (!TYPES.includes(type)) {
       return { ok: false, code: 'BAD_TYPE', message: '未知类型「' + type + '」，可选：' + TYPES.join(' / ') };
     }

@@ -102,7 +102,7 @@ h1,h2{text-shadow:var(--as-text-shadow)}
 </style></head><body>
 <nav><div class='brand'>agent<i>·</i>soul<em>CONSOLE</em></div>
 <a href='/chat'><b></b>对话</a><a href='/'><b></b>星系</a><a href='/organs'><b></b>器官</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><a href='/settings' class='on'><b></b>设置</a>
-<div class='sp'></div><div class='ver'>v0.1.0</div></nav>
+<div class='sp'></div><div class='ver' id='buildver'>—</div></nav>
 <main>
 <header><h1 class='as-title'>设置</h1><span class='t' id='meta'></span></header>
 <div class='sub' id='sub'>正在读配置……</div>
@@ -417,7 +417,7 @@ function save(){
   if(!p.n)return;
   $('save').disabled=true;
   $('save').textContent='保存中…';
-  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({patch:p.patch})})
+  fetch('/api/config',{method:'POST',headers:Object.assign({'Content-Type':'application/json'}, window.__SOUL_TOKEN?{'X-Soul-Token':window.__SOUL_TOKEN}:{}),body:JSON.stringify({patch:p.patch})})
     .then(function(r){return r.json().then(function(d){return {status:r.status,d:d}})})
     .then(function(o){
       $('save').textContent='保存';
@@ -507,4 +507,4 @@ window.addEventListener('beforeunload',function(e){
 });
 
 load();
-</script></body></html>
+</script><script>(function(){var e=document.getElementById('buildver');if(e)e.textContent='v'+(window.__SOUL_VERSION||'?')})();</script></body></html>

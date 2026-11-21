@@ -856,7 +856,16 @@ export function createServer({ store, loop, tools, config, bus, sched, persona, 
         const chat = path.join(HERE, 'galaxy.html');
         // ★ 2026-11-11：把 token 内联进页面（同源）。前端用 fetch 拦截器自动带上 ——
         //   **不新增一个「取 token」的 HTTP 口**，那种口等于把锁挂在门上。
-        const injected = '<script>window.__SOUL_TOKEN=' + JSON.stringify(auth.token) + ';</script>';
+        // ★ 2026-11-22（#12 第二批）：**版本号也一起注入。**
+//   5 个页面的 nav 里都写死着 `v0.1.0`（dashboard / organs / params / settings / yantai）。
+//   而 package.json 是 1.0.74 —— 差整条版本线，且**只改启动横幅改不到这里**。
+//   ★ 判据同前：**版本号只有一个真相源**；抄一遍就是给未来埋一颗"报喜不报忧"的雷。
+// ★ 复用下面那段已经在用的读法（HERE 上两级就是仓库根），不新造一套。
+const __pkgVer = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(HERE, '..', '..', 'package.json'), 'utf8')).version || '' } catch { return '' }
+})();
+const injected = '<script>window.__SOUL_TOKEN=' + JSON.stringify(auth.token)
+  + ';window.__SOUL_VERSION=' + JSON.stringify(__pkgVer) + ';</script>';
         let html = fs.readFileSync(fs.existsSync(chat) ? chat : path.join(HERE, 'dashboard.html')).toString('utf8');
 // ★ 2026-11-13：首页也带上真实构建版本（验收要核对，用户也看得见是哪一版）。
 try {

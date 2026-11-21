@@ -237,7 +237,11 @@ console.log('\n⑦ 页面 —— 那句话必须在屏幕上，不在注释里')
   t('MOTTO 常量逐字对得上', MOTTO === '水位是安全网，不是考核。过线只该触发一个动作 —— 落盘；禁止第二个 —— 缩。', MOTTO.length + ' 字');
   t('四块的锚点都在', ['id=\'water\'', 'id=\'open\'', 'id=\'recent\'', 'id=\'gates\''].every((s) => html.includes(s)));
   t('nav 里砚台是当前页', /<a href='\/yantai' class='on'>/.test(html));
-  t('nav 带着别的五页', ['/', '/organs', '/diary', '/params', '/settings', '/chat'].every((h) => html.includes("href='" + h + "'")));
+  // ★★ 2026-11-22：**`/params` 已于 2026-11-13 合并进 `/settings`**（server.mjs:991 的 302）。
+  //   断言没跟上 —— 又一个「断言滞后于代码」。判据：查的是**这条断言真正要保的东西**，
+  //   不是"当年那一刻的字符串"。这里真正要保的是「导航里六个入口都点得到」。
+  t('nav 带着别的五页（/params 已合并进 /settings）',
+    ['/', '/organs', '/diary', '/settings', '/chat'].every((h) => html.includes("href='" + h + "'")));
   t('接口没接上时给的是可执行的下一步（不是转圈）', /\/api\/yantai/.test(html) && /server\.mjs/.test(html));
 }
 

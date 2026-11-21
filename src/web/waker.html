@@ -92,6 +92,11 @@ function toast (msg) {
   setTimeout(function () { t.className = '' }, 2200)
 }
 async function api (p, opt) {
+  // ★ 2026-11-22：**这里从来没带过 token。** 一旦接口真鉴权，这个页面立刻废。
+  //   下游的报告说得对：**"注入了 token" ≠ "页面会用"** —— 全库只有 shell.html 和
+  //   aurabot.html 读了它，而 aurabot 还把变量名拼错了。
+  opt = opt || {}
+  opt.headers = Object.assign({}, opt.headers || {}, window.__SOUL_TOKEN ? { 'X-Soul-Token': window.__SOUL_TOKEN } : {})
   var r = await fetch(p, opt)
   var d = await r.json()
   if (!d.ok) throw new Error(d.error || ('HTTP ' + r.status))

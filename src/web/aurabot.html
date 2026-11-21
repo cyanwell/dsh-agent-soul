@@ -104,7 +104,10 @@ h2:after{content:'';flex:1;height:1px;background:var(--line)}
   </div>
 </main>
 <script>
-const token = (window.__SOUL_TOKEN__ || '');
+// ★ 2026-11-22：**这里一直是双下划线。** server.mjs:859 注入的是 `__SOUL_TOKEN`（单）。
+//   所以这个页面**从来没带过 token** —— 而"面板能用"一直建立在"接口不鉴权"上。
+//   ★ 判据：**"注入了 token" ≠ "页面会用"。**
+const token = (window.__SOUL_TOKEN || '');
 function esc (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) }
 async function api (p) {
   const r = await fetch(p, { headers: token ? { 'X-Soul-Token': token } : {} });

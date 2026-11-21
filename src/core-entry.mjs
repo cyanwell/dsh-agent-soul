@@ -34,6 +34,8 @@ import { ToolRegistry } from './tools/registry.mjs';
 import { LlmClient } from './llm/client.mjs';
 import { AgentLoop } from './agent/loop.mjs';
 import { createServer } from './web/server.mjs';
+// ★ 2026-11-22：外层鉴权闸要用 createAuth + needsAuth（见 :1106 那一段的长注释）
+import { createAuth, needsAuth } from './web/auth.mjs';
 import { registerBuiltins } from './tools/builtin.mjs';
 import { registerJobTools } from './tools/jobs.mjs';
 import { registerTodoTools } from './tools/todo.mjs';
@@ -1103,10 +1105,55 @@ if (managedPreflight) {
   console.log('  aurabot 挂载失败（不影响 v4）：' + String((e && e.message) || e).slice(0, 200));
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// ★★★ 2026-11-22（#鉴权缺口）：**外层鉴权闸 —— 治根的那一处。**
+//
+//   事实：这个项目有**两层 request 处理**：
+//     内层 server.mjs（mcpHandler → 鉴权 → 只读闸 → UI 路由）
+//     外层 这个回调（shutdown / search / huanqi / echo / aurabot / context …，最后转发给内层）
+//   执行顺序是「外层 → 内层」。**外层接走的路由，内层的鉴权永远看不到。**
+//
+//   下游实测的后果（都是真机可复现的）：
+//     · POST /api/config 不带 token → 200 且**真的写盘**（能重写 apiKey / baseUrl / port）
+//       而服务端**不校验 Origin** → 浏览器里任意网页发个简单请求就能打中（CSRF）
+//     · POST /mcp 不带 token → MCP 面（soul_index 写帧 / soul_cleanup 让宿主裁剪）全敞
+//     · POST /api/huanqi/context/purge → 不可逆的上下文清理
+//
+//   ★ 修法选**在这里判一次**（不是继续往 GUARDED 里加名字）：
+//     判据只有一份（needsAuth），位置只有一处（listener 最前），
+//     **新增外层路由自动被覆盖** —— 不用记得同步。
+//   ★ auth.mjs 的 GUARDED 仍然补全了（内层兜底）—— 两层都判，漏一层还有另一层。
+// ═══════════════════════════════════════════════════════════════════════
+const outerAuth = createAuth({ dataDir: config.dataDir, log: (m) => { if (!config.quiet) console.log('  [鉴权/外层] ' + m); } });
+const OPEN_PATHS = new Set(['/api/health', '/api/vitals', '/api/questions']);
+
+/** 外层闸：命中需要鉴权却没带对 token → 401。返回 true 表示「已处理，别再往下走」。 */
+function outerAuthGate (req, res, p) {
+  if (OPEN_PATHS.has(p)) return false;
+  // 页面/静态资源/GET 只读视图照旧放行 —— 加鉴权不能把面板弄死
+  if (!needsAuth(p, req.method)) return false;
+  try {
+    const u = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
+    if (outerAuth.ok(req, u)) return false;
+  } catch { /* URL 解析失败按未通过处理 */ }
+  try {
+    res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({
+      ok: false, error: 'missing-or-bad-token',
+      hint: '页面会内联注入；脚本请读 <dataDir>/token.txt 放到 X-Soul-Token 头里',
+      layer: 'outer',
+    }));
+  } catch {}
+  return true;
+}
+
 const baseRouteListeners = server.listeners('request');
 server.removeAllListeners('request');
 server.on('request', (req, res) => {
   try {
+    let p0 = ''
+    try { p0 = new URL(req.url, 'http://x').pathname } catch { p0 = '' }
+    if (outerAuthGate(req, res, p0)) return;
     if (handleShutdownEndpoint(req, res)) return;
     // ★ 同一个形状：命中 /api/search 就由它回，不是就往下走。
     //   库路径固定为 <dataDir>/meta.sqlite —— 那个库由 tools/db-sync.mjs 建。

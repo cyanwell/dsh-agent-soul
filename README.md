@@ -74,11 +74,11 @@
 
 ```
 ① 装 agent-soul 本体
-    · 下载发布包：[AgentSoul v4 1.0.74](https://github.com/cyanwell/dsh-agent-soul/releases/latest)
-      - `AgentSoul-Setup-1.0.74.exe` —— 大多数人选这个，双击装（装到 %LOCALAPPDATA%\Programs\AgentSoul，
+    · 下载发布包：[AgentSoul v4 1.0.75](https://github.com/cyanwell/dsh-agent-soul/releases/latest)
+      - `AgentSoul-Setup-1.0.75.exe` —— 大多数人选这个，双击装（装到 %LOCALAPPDATA%\Programs\AgentSoul，
         建开始菜单/桌面快捷方式，卸载项进「设置→应用」，**不需要管理员**）
-      - `AgentSoul-1.0.74-portable.zip` —— 不想装的人，解压即用（下称 <SOUL>）
-      - `AgentSoul-1.0.74-htmlpatch.zip` —— 已有安装，只换界面（199 KB）
+      - `AgentSoul-1.0.75-portable.zip` —— 不想装的人，解压即用（下称 <SOUL>）
+      - `AgentSoul-1.0.75-htmlpatch.zip` —— 已有安装，只换界面（199 KB）
     · ★ 卸载**不会**删你的 `config.json`（含 API Key）与 `data\`（会话/索引/账本）—— 它们留在原位，要彻底清干净自己删这两个。
     · 双击 <SOUL>\AgentSoul.exe 启动
     · ★ 必须用**当前用户身份**启动（key 是 DPAPI 密文，SYSTEM 身份解不开）
@@ -387,6 +387,70 @@ data/
 
 ## 更新记录
 
+### 1.0.75（2026-11-22）
+
+**这一版对着下游的两份实装反馈修，并顺手补了两个「断言滞后于代码」。**
+
+#### 一、鉴权缺口（可致 apiKey 外流）—— 报告里最严重的一份
+
+下游实测：`POST /api/config` **不带 token 就 200，且真的写盘**（`written:true` + 新 mtime），
+能重写 `llm.apiKey` / `llm.baseUrl` / `port` / `dataDir`；
+而服务端**不校验 Origin** → **浏览器里任意网页发个 `text/plain` 简单请求就能打中**
+（不触发预检，CORS 都挡不住）。
+
+**根因：闸长在内层，路由所有权在外层。**
+这个项目有**两层 request 处理**：内层 `server.mjs`（mcpHandler → 鉴权 → 只读闸 → UI 路由），
+外层 `core-entry.mjs`（shutdown/search/huanqi/echo/aurabot/context…，最后才转发给内层）。
+**执行顺序是「外层 → 内层」—— 外层接走的路由，内层的鉴权永远看不到。**
+
+- **治根**：在 `core-entry.mjs` 的 listener **最前面**判一次 `needsAuth`（`outerAuthGate`）。
+  判据只有一份、位置只有一处、**新增外层路由自动被覆盖**。
+- **兜底**：`auth.mjs` 的 `GUARDED` 补全 —— `POST /api/config`、`/api/huanqi`（`context/purge` 不可逆）、
+  `/mcp`（`soul_index` 写帧 / `soul_cleanup`）、`/api/waker`（`decide` 是写判定）。
+  两层都判，漏一层还有另一层。
+- **★ 配套：三个页面的 token 一起补**（不然会得到「接口安全了、面板废了」）：
+  · `aurabot.html:107` 读的是 `window.__SOUL_TOKEN__`（**双下划线**），而 `:859` 注入的是 `__SOUL_TOKEN` ——
+    **上游拼写错误**，一直靠"接口不鉴权"掩盖着；**「注入 token」≠「页面会用」**。
+  · `waker.html` 的 `api()` 从来没带过 token。
+  · `settings.html` 保存配置没带 token。
+
+#### 二、账本只读态（P14）
+
+下游需要「一手历史档案不许被机器追加」的部署形态，而 `LedgerBase` **只有「能写」和「调用方自己保证不写」两种状态**。
+唯一可行做法是改 `write()` 的**方法体** —— 侵入式、升级每次重打，而且**污染测试信号**
+（自检红了分不清是上游回归还是下游改的）。
+
+- `LedgerBase` 新增 `opts.readonly`（**默认 false，零破坏**）；`write()` 在最前面短路
+  （**先于任何参数校验** —— 只读的语义是「一个字都不许落」，连"参数不合格"都不该走到分支里，
+  否则会让人以为「改改参数就能写」）。
+- 返回 `code: 'LEDGER_AUTH_REQUIRED'`，与下游改方法体时用的那个一致 —— **他们的调用方代码不用改**。
+- `readonly: true` 时**连 `degradeFile` 都不建** —— "降级记录"本身也是一次写。
+- 配置层 `config.ledger.readonly`（默认 `false`）；`mcp-tools` 与 `yantai/panel` 两处实例化都传下去。
+  （否则「config 配了 readonly、面板却还能写」是比没配更坏的一种假象。）
+
+#### 三、两个「断言滞后于代码」
+
+- `ledger-dualwrite-selftest` 有两条断言测的是「非当前主导写 lead 要被拒」——
+  **而那个闸门 2026-11-21 已按爀曦要求移除**（它会锁死换届：换届恰恰是新容器写的）。
+  断言跟不上代码，就会把正确的改动判成回归。已改成测「`ref` 仍必填」+「换届不再被代码拦」。
+- `yantai-selftest` 的 nav 断言还在找 `/params` —— **那个地址 2026-11-13 已 302 合并进 `/settings`**。
+
+#### 四、顺手
+
+- `server.mjs` 注入 `window.__SOUL_VERSION`，5 个页面（dashboard / organs / params / settings / yantai）
+  nav 里写死的 `v0.1.0` 改成读它。**只改启动横幅改不到这里。**
+
+#### 验证
+
+| 项 | 结果 |
+|---|---|
+| `ledger-dualwrite-selftest` | **29/29**（原 28 通过 / 2 失败） |
+| `yantai-selftest` | **82/82**（原 81 通过 / 1 失败） |
+| `meta-store-selftest` | **66/66** |
+| `guard-http-selftest` | **6/6** |
+| `verify-ledger-readonly.mjs`（新增） | **全通过**（默认能写 / 只读拒绝 / 连旁路都不落） |
+| `src` 全量语法扫 | 0 失败 |
+
 ### 1.0.74（2026-11-21）
 
 **这一版对着 1.0.73 的点评与维护清单逐条修。** 八条里五条是「在别人机器上永远看不出来」的那一类。
@@ -466,7 +530,7 @@ data/
 ## 装到自己机器上（本机生产）
 
 ```bash
-node tools/release.mjs --to=1.0.74 --changes="维护清单 #1-#13"
+node tools/release.mjs --to=1.0.75 --changes="鉴权缺口 + 账本只读"
 ```
 
 它会：把 `src/` `tools/` `sql/` `seed/` 复制成 `app/<版本>/` → 写 VERSION.txt → **逐文件校验**
@@ -496,9 +560,9 @@ node tools/make-dist.mjs --verify   # 构建 + 跑「安装→运行→卸载」
 ★ 要发到 GitHub：
 
 ```bash
-tools/publish-release.ps1 -Tag 1.0.74 -NotesFile dist/release-notes-1.0.74.md `
-  -Title "AgentSoul v4 1.0.74" `
-  -Files @("dist\AgentSoul-Setup-1.0.74.exe","dist\AgentSoul-1.0.74-portable.zip")
+tools/publish-release.ps1 -Tag 1.0.75 -NotesFile dist/release-notes-1.0.75.md `
+  -Title "AgentSoul v4 1.0.75" `
+  -Files @("dist\AgentSoul-Setup-1.0.75.exe","dist\AgentSoul-1.0.75-portable.zip")
 ```
 
 ★ `-Replace` 是**先删同名旧附件再传新的**。默认行为是「同名就跳过」——

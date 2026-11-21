@@ -126,7 +126,7 @@ h1,h2{text-shadow:var(--as-text-shadow)}
 </style></head><body>
 <nav><div class='brand'>agent<i>·</i>soul<em>CONSOLE</em></div>
 <a href='/chat'><b></b>对话</a><a href='/'><b></b>星系</a><a href='/organs' class='on'><b></b>器官</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><a href='/settings'><b></b>设置</a>
-<div class='sp'></div><div class='ver'>v0.1.0</div></nav>
+<div class='sp'></div><div class='ver' id='buildver'>—</div></nav>
 <main>
 <header><h1 class='as-title'>器官</h1><span class='t' id='meta'></span></header>
 <div class='sub' id='sub'>正在读……</div>
@@ -472,4 +472,4 @@ $('refresh').onclick=function(){loadOrgans();loadEvents()};
 loadOrgans();loadEvents();
 setInterval(loadOrgans,60000);
 setInterval(loadEvents,60000);
-</script></body></html>
+</script><script>(function(){var e=document.getElementById('buildver');if(e)e.textContent='v'+(window.__SOUL_VERSION||'?')})();</script></body></html>

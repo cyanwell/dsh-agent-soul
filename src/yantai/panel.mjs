@@ -130,7 +130,11 @@ export function ledgerOf(ctx, info) {
   //   而真相是「这个文件根本不在」。**空和读不到必须分得开**，这一条是这本砚台最根上的判据
   //   （老版 README 点名过这个形状，自检第 ⑨ 节也有一条单独盯它）。
   if (!info || !info.file || !info.exists) return { L: null, file: (info && info.file) || '', fromCtx: false };
-  return { L: new LedgerBase(info.file), file: info.file, fromCtx: false };
+  // ★ 2026-11-22（P14）：只读态要一路传到页面自己的实例上 ——
+  //   否则「config 配了 readonly、面板却还能写」是比没配更坏的一种假象。
+  const cfg = ctx && ctx.config;
+  const ro = Boolean(cfg && cfg.ledger && cfg.ledger.readonly);
+  return { L: new LedgerBase(info.file, { readonly: ro }), file: info.file, fromCtx: false, readonly: ro };
 }
 
 // ── ① 水位 ──────────────────────────────────────────────────

@@ -106,7 +106,7 @@ h1,h2{text-shadow:var(--as-text-shadow)}
 </style></head><body>
 <nav><div class='brand'>agent<i>·</i>soul<em>CONSOLE</em></div>
 <a href='/chat'><b></b>对话</a><a href='/'><b></b>星系</a><a href='/organs'><b></b>器官</a><a href='/yantai' class='on'><b></b>砚台</a><a href='/diary'><b></b>日记</a><a href='/settings'><b></b>设置</a>
-<div class='sp'></div><div class='ver'>v0.1.0</div></nav>
+<div class='sp'></div><div class='ver' id='buildver'>—</div></nav>
 <main>
 <header><h1 class='as-title'>砚台</h1><span class='t' id='meta'></span></header>
 <div class='sub'>把「我现在是什么状态」摊开 —— <b>水位</b> / <b>未结的活</b> / <b>最近的账本</b> / <b>几扇门</b>。<span class='mono'>只读，不写状态。</span></div>
@@ -327,4 +327,4 @@ function renderGates(g){
 $('reload').onclick=load;
 load();
 </script>
-</body></html>
+<script>(function(){var e=document.getElementById('buildver');if(e)e.textContent='v'+(window.__SOUL_VERSION||'?')})();</script></body></html>
