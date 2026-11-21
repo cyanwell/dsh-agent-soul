@@ -285,3 +285,56 @@ test('⑧ 拒绝文案不再是桩：说「请求不合法」并逐项列出缺�
   assert.match(bad, /opId/, '缺 opId 要说出来：' + bad)
 })
 
+// ─────── 2026-11-21 新增：dryRun 必须被转发，回执必须能自证「为什么是 0」 ───────
+//   起因（真实事故，两次）：
+//   ① 我发 dryRun:true 想「只解析」，适配器只传五个字段，dryRun 被吞 → **真的动了刀**。
+//   ② framesAffected=0 / noMatch=true 时，回执里没有 resolved，调用方分不出
+//      「区间里真的没有 tool/result」和「挑错了 seq」。跑去诊断三次才看清。
+//   判据：dryRun 一传到底；诊断字段原样透出。
+test('⑦ dryRun 必须转发（否则「只解析」变成真动刀）', async (t) => {
+  useTemp(t)
+  const fx = makeSession(SID, [
+    { seq: 20, kind: 'call', callId: 'call-20' },
+    { seq: 21, kind: 'result', callId: 'call-20', text: BIG('A') },
+  ])
+  const p = makePruner()
+  p.__yqSeenSids.add(SID)
+  prunerMod.__yqRegisterLiveForTest(p)
+  t.after(() => prunerMod.__yqUnregisterLiveForTest(p))
+
+  const before = fx.snap()
+  const data = await runTargetedCleanup({
+    ctx: ctxWith({ session: fx.session }),
+    args: args({ startSeq: 21, endSeq: 21, dryRun: true }),
+    describe: describePrunerRequest,
+    deps: { loadPrunerModule: async () => prunerMod },
+  })
+  assert.equal(fx.snap(), before, 'dryRun 竟然改了 surface —— 参数被适配器吞了')
+  assert.equal(data.dryRun, true, '回执必须标出这次是 dryRun')
+  assert.ok('wouldAffect' in data, 'dryRun 要给出「本会动几帧」')
+  assert.equal(data.framesAffected, 0, 'dryRun 的 framesAffected 恒 0（别拿它当回执用）')
+})
+
+test('⑧ 回执必须带诊断字段：0 帧要能自证原因', async (t) => {
+  useTemp(t)
+  // seq 9999 不在 surface 上 —— 这是「挑错了 seq」，不是「区间里没有 tool/result」
+  const fx = makeSession(SID, [
+    { seq: 20, kind: 'call', callId: 'call-20' },
+    { seq: 21, kind: 'result', callId: 'call-20', text: BIG('A') },
+  ])
+  const p = makePruner()
+  p.__yqSeenSids.add(SID)
+  prunerMod.__yqRegisterLiveForTest(p)
+  t.after(() => prunerMod.__yqUnregisterLiveForTest(p))
+
+  const data = await runTargetedCleanup({
+    ctx: ctxWith({ session: fx.session }),
+    args: args({ startSeq: 9999, endSeq: 9999 }),
+    describe: describePrunerRequest,
+    deps: { loadPrunerModule: async () => prunerMod },
+  })
+  assert.equal(data.framesAffected, 0)
+  assert.ok(data.resolved, '缺 resolved —— 调用方分不出「真的没有」和「挑错 seq」')
+  assert.ok(Number.isInteger(data.resolved.surfaceSize), '要给出 surface 有多大')
+  assert.equal(data.resolved.inRange, 0, '这个 seq 不在 surface 上')
+})

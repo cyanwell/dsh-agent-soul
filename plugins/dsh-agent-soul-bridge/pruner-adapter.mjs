@@ -140,7 +140,14 @@ export async function runTargetedCleanup (o = {}) {
       + ' —— 本桥不自己拼 surface 改写（那把 pruner 的策略抄了一份到桥里）')
   }
 
-  const out = pruner.applyDrops({ session, targetSession: sid, startSeq, endSeq, opId, reason })
+  // ★★★ 2026-11-21：**dryRun 必须转发**。
+  //   上一版这里只传了五个字段，dryRun 被吃掉 —— 调用方写 dryRun:true 以为「只解析」，
+  //   实际是**真的动了刀**。pruner 侧（applyDrops:1067）明确有 dryRun 分支，
+  //   是适配器把它拦在门外。这种「参数被静默吞掉」比报错坏得多：它看起来成功了。
+  const out = pruner.applyDrops({
+    session, targetSession: sid, startSeq, endSeq, opId, reason,
+    ...(o.args && o.args.dryRun === true ? { dryRun: true } : {}),
+  })
   if (!out || out.ok !== true) {
     const code = out && out.code ? String(out.code) : 'apply-failed'
     const why = out && out.reason ? String(out.reason) : 'applyDrops 没有返回 ok:true'
@@ -161,9 +168,26 @@ export async function runTargetedCleanup (o = {}) {
     noMatch: out.noMatch === true,
     replayed: out.replayed === true,
     how,
+    ...(out.dryRun === true ? { dryRun: true, wouldAffect: out.wouldAffect } : {}),
   }
   // ★ 量不出就不给这个键 —— 不补 0（0 与「没量」在 v4 的界面上必须能分开）
   if (Number.isInteger(out.bytesAffected) && out.bytesAffected >= 0) data.bytesAffected = out.bytesAffected
+
+  // ★★★ 2026-11-21：**把诊断字段也透出去**。
+  //   上一版只翻白名单那 11 个字段，于是 pruner 明明在回执里给了
+  //   resolved:{surfaceSize, inRange, candidates} / pairs / skipped / reason，
+  //   全被丢在这里 —— 结果 framesAffected=0 时，调用方**分不出**这三种情况：
+  //     ① 区间里真的没有 tool/result（noMatch，正常）
+  //     ② 那些 seq 根本不在 surface 上（挑错了 seq）
+  //     ③ surface 读不出来 / 配对被 strict 跳过
+  //   ★ 这和 hub.snapshot 白名单漏字段是**同一个形状**：白名单本身没问题，
+  //     问题在于「0 必须能自证原因」。所以诊断字段一律原样带上，不做裁剪。
+  if (out.reason !== undefined) data.reason = out.reason
+  if (out.resolved && typeof out.resolved === 'object') data.resolved = out.resolved
+  if (Array.isArray(out.skipped)) data.skipped = out.skipped
+  if (Array.isArray(out.pairs)) data.pairs = out.pairs
+  if (Number.isInteger(out.splitPairs)) data.splitPairs = out.splitPairs
+  if (Array.isArray(out.entries)) data.entries = out.entries
   return data
 }
 

@@ -44,3 +44,41 @@ assert.match(src,/readManagerProof\(/,'必须真的去读管理器证明');
 const life=await fs.readFile(new URL('../lifecycle-inspect.mjs',import.meta.url),'utf8'); assert.match(src,/from '\.\/lifecycle-inspect\.mjs'/,'composition 必须从 lifecycle-inspect 引入真核验'); assert.match(life,/inspectWindowsProcess\(/,'必须真的去查进程本体'); assert.match(life,/import \{ readManagerProof \} from '\.\/manager-proof-client\.mjs'/,'lifecycle 必须引入管理器证明客户端'); assert.match(life,/markerHash/,'必须真的做 marker 三者对齐');
 assert.match(src,/runWrite\('\/agent-soul\/start',[\s\S]*?lifecycle\.start\(\)/); assert.match(src,/runWrite\('\/agent-soul\/stop',[\s\S]*?lifecycle\.stop\(\)/); assert.match(src,/runWrite\('\/agent-soul\/restart',[\s\S]*?lifecycle\.restart\(\)/); const keeperAt=src.indexOf('export function startAgentSoulKeeper'); assert.ok(keeperAt>=0); const keeper=src.slice(keeperAt); assert.match(keeper,/shared\.keeperProbe\(auto, gap\)/); assert.match(keeper,/sp\.keeperProbe\(auto, gap\)/); assert.doesNotMatch(keeper,/spawnAgentSoul\(c\)/) })
 test('M-31 disposer contract remains route-owned; M-32 no image-wide kill source', async()=>{ const fs=await import('node:fs/promises'); const src=await fs.readFile(new URL('../index.js',import.meta.url),'utf8'); assert.equal(src.includes("taskkill', ['/IM'"),false); assert.equal(src.includes("taskkill', ['/PID'"),true) })
+
+// ★★★ 2026-11-21 新增：**同源请求不带 Origin** 这件事，必须在测试里钉死。
+//   起因（真实事故）：线上 panel 调 /agent-soul/status 恒 403 code=origin-denied。
+//   根因是判据写成「Origin 必须逐字等于本实例」，而浏览器**同源 GET 不发 Origin**。
+//   于是这条判据把 panel 自己的请求也挡了 —— 而且看起来像「端点没挂」。
+//   判据：能放行同源 GET（无 Origin）、仍拒绝一切坏 Origin、仍要求 loopback。
+test('M-34 同源 GET 不带 Origin 必须放行（浏览器就是这么发的）', () => {
+  // ★ 用**没配 token**的 sec —— 浏览器里的 panel 拿不到 token，这正是线上的默认配置。
+  //   第一版我用了 sec()（带 token），于是它正确地卡在 401 —— 那是测试写错，不是代码错。
+  const s = makeManagementSecurity({ origin, csrfNonce: 'n0' })
+  const req = { method: 'GET', socket: { remoteAddress: '127.0.0.1' }, headers: {} }
+  const v = validateManagementRequest(req, 'GET', s)
+  assert.equal(v.ok, true, '缺 Origin 被当成跨源 —— 面板会恒 403（线上真实事故）')
+})
+test('M-35 坏 Origin 仍然一律拒绝（缺省放行不等于放宽）', () => {
+  const s = sec()
+  for (const bad of ['http://127.0.0.1:1', 'http://evil.example', 'null', 'file:///x', 'https://127.0.0.1:50656']) {
+    const v = validateManagementRequest(base('GET', { origin: bad }), 'GET', s)
+    assert.equal(v.ok, false, '坏 Origin 被放行了：' + bad)
+    assert.equal(v.code, 'origin-denied')
+  }
+})
+test('M-36 未配 token 时「loopback + 同源」仍要能通，且不因此放松 origin', () => {
+  const s = makeManagementSecurity({ origin, csrfNonce: 'n2' })     // 不传 token
+  assert.equal(s.hasToken, false)
+  assert.equal(s.configured, true, 'configured 不该因为没 token 就 false —— 那会让端点等于不存在')
+  assert.equal(validateManagementRequest({ method: 'GET', socket: { remoteAddress: '127.0.0.1' }, headers: {} }, 'GET', s).ok, true)
+  assert.equal(validateManagementRequest(base('GET', { origin: 'http://evil.example' }), 'GET', s).ok, false)
+  // 配了 token 才校验
+  const st = sec()
+  assert.equal(st.hasToken, true)
+  assert.equal(validateManagementRequest({ method: 'GET', socket: { remoteAddress: '127.0.0.1' }, headers: {} }, 'GET', st).code, 'local-admin-required')
+})
+test('M-37 非 loopback 一律拒绝（这条不能被 origin 规则替代）', () => {
+  const s = sec()
+  const v = validateManagementRequest({ method: 'GET', socket: { remoteAddress: '192.168.1.9' }, headers: {} }, 'GET', s)
+  assert.equal(v.ok, false); assert.equal(v.code, 'loopback-required')
+})

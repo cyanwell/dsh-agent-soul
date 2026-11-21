@@ -56,7 +56,7 @@ export const name = 'dsh-agent-soul-bridge'
 export const inject = ['webServer']
 
 // ★ 发布版本：与 package.json.version 保持一致。
-const VERSION = '0.1.8'
+const VERSION = '0.1.10'
 const TAG = '[agent-soul-bridge]'
 
 export const DEFAULTS = {
@@ -1247,7 +1247,25 @@ export function makeManagementSecurity(o = {}) {
     },
   }
 }
-export function validateManagementRequest(req, expectedMethod, sec) { const method = String(req && req.method || '').toUpperCase(); if (method !== expectedMethod) return { ok:false, status:405, headers:{ Allow:expectedMethod }, code:'method-not-allowed' }; const remote = String(req && req.socket && req.socket.remoteAddress || req && req.connection && req.connection.remoteAddress || ''); if (!isLoopbackAddress(remote)) return { ok:false, status:403, code:'loopback-required' }; const origin = originOf(req && req.headers && req.headers.origin); if (!sec || !sec.configured || origin !== sec.expectedOrigin) return { ok:false, status:403, code:'origin-denied' }; const ref = req && req.headers && req.headers.referer; if (ref !== undefined && refererOriginOf(ref) !== sec.expectedOrigin) return { ok:false, status:403, code:'referer-denied' }; // ★ 2026-11-21：token **配了才校验**。没配时「loopback + 严格同源」就是完整判据 ——
+export function validateManagementRequest(req, expectedMethod, sec) { const method = String(req && req.method || '').toUpperCase(); if (method !== expectedMethod) return { ok:false, status:405, headers:{ Allow:expectedMethod }, code:'method-not-allowed' }; const remote = String(req && req.socket && req.socket.remoteAddress || req && req.connection && req.connection.remoteAddress || ''); if (!isLoopbackAddress(remote)) return { ok:false, status:403, code:'loopback-required' }; // ★★★ 2026-11-21（第二版）：同源 GET **不带 Origin 头**。
+  //
+  //   浏览器规则：同源 fetch 默认**不发送** Origin（只有跨源请求、以及 POST/PUT 等
+  //   非简单方法才带）。于是「Origin 必须逐字等于本实例」这条判据把
+  //   **浏览器里那个 panel 自己的同源请求**也一起挡了 —— 实测 status 不带 Origin 就 403
+  //   （带 Origin 才 200）。这正是截图里那个「失败：HTTP 403」。
+  //
+  //   正确的判据（三条，缺一不可）：
+  //     ① Origin **缺省** → 视为同源，放行（浏览器同源 GET 就是这种）
+  //     ② Origin **存在** → 必须逐字等于本实例 origin，否则 403
+  //     ③ Referer 存在 → 它的 origin 也必须等于本实例（防「带 Referer 的跨源构造」）
+  //   ★ 为什么不担心「缺省 Origin 被伪造」：伪造者得先能发 HTTP 请求到 loopback，
+  //     而 loopback 这一层已经过了；浏览器里能发请求的攻击页面**一定会被自动加上**
+  //     Origin（跨源），走的是 ② 的分支被拒。
+  //     所以「缺省 = 同源」在浏览器语义下是成立的，不是放宽。
+  if (!sec || !sec.configured) return { ok:false, status:403, code:'origin-denied' };
+  const origin = originOf(req && req.headers && req.headers.origin);
+  const hasOrigin = req && req.headers && req.headers.origin !== undefined;
+  if (hasOrigin && origin !== sec.expectedOrigin) return { ok:false, status:403, code:'origin-denied' }; const ref = req && req.headers && req.headers.referer; if (ref !== undefined && refererOriginOf(ref) !== sec.expectedOrigin) return { ok:false, status:403, code:'referer-denied' }; // ★ 2026-11-21：token **配了才校验**。没配时「loopback + 严格同源」就是完整判据 ——
   //   否则默认配置下所有调用恒 401/403，端点等于不存在（这就是截图里那个 403）。
   if (sec.hasToken) {
     const m = /^Bearer[ \t]+(.+)$/.exec(String(req && req.headers && req.headers.authorization || ''))
