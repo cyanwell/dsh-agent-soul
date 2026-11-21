@@ -74,11 +74,11 @@
 
 ```
 ① 装 agent-soul 本体
-    · 下载发布包：[AgentSoul v4 1.0.75](https://github.com/cyanwell/dsh-agent-soul/releases/latest)
-      - `AgentSoul-Setup-1.0.75.exe` —— 大多数人选这个，双击装（装到 %LOCALAPPDATA%\Programs\AgentSoul，
+    · 下载发布包：[AgentSoul v4 1.0.78](https://github.com/cyanwell/dsh-agent-soul/releases/latest)
+      - `AgentSoul-Setup-1.0.78.exe` —— 大多数人选这个，双击装（装到 %LOCALAPPDATA%\Programs\AgentSoul，
         建开始菜单/桌面快捷方式，卸载项进「设置→应用」，**不需要管理员**）
-      - `AgentSoul-1.0.75-portable.zip` —— 不想装的人，解压即用（下称 <SOUL>）
-      - `AgentSoul-1.0.75-htmlpatch.zip` —— 已有安装，只换界面（199 KB）
+      - `AgentSoul-1.0.78-portable.zip` —— 不想装的人，解压即用（下称 <SOUL>）
+      - `AgentSoul-1.0.78-htmlpatch.zip` —— 已有安装，只换界面（199 KB）
     · ★ 卸载**不会**删你的 `config.json`（含 API Key）与 `data\`（会话/索引/账本）—— 它们留在原位，要彻底清干净自己删这两个。
     · 双击 <SOUL>\AgentSoul.exe 启动
     · ★ 必须用**当前用户身份**启动（key 是 DPAPI 密文，SYSTEM 身份解不开）
@@ -571,7 +571,7 @@ token 注入原来**只写在首页那个分支里**（`p === '/'`），
 ## 装到自己机器上（本机生产）
 
 ```bash
-node tools/release.mjs --to=1.0.75 --changes="鉴权缺口 + 账本只读"
+node tools/release.mjs --to=1.0.78 --changes="鉴权缺口 + 账本只读 + aurabot 补洞"
 ```
 
 它会：把 `src/` `tools/` `sql/` `seed/` 复制成 `app/<版本>/` → 写 VERSION.txt → **逐文件校验**
@@ -601,9 +601,9 @@ node tools/make-dist.mjs --verify   # 构建 + 跑「安装→运行→卸载」
 ★ 要发到 GitHub：
 
 ```bash
-tools/publish-release.ps1 -Tag 1.0.75 -NotesFile dist/release-notes-1.0.75.md `
-  -Title "AgentSoul v4 1.0.75" `
-  -Files @("dist\AgentSoul-Setup-1.0.75.exe","dist\AgentSoul-1.0.75-portable.zip")
+tools/publish-release.ps1 -Tag 1.0.78 -NotesFile dist/release-notes-1.0.78.md `
+  -Title "AgentSoul v4 1.0.78" `
+  -Files @("dist\AgentSoul-Setup-1.0.78.exe","dist\AgentSoul-1.0.78-portable.zip")
 ```
 
 ★ `-Replace` 是**先删同名旧附件再传新的**。默认行为是「同名就跳过」——
