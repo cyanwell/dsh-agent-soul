@@ -387,6 +387,47 @@ data/
 
 ## 更新记录
 
+### 1.0.78（2026-11-22）
+
+**补一个被"另一个洞"掩护了很久的洞：`/aurabot` 的 token。**
+
+#### 洞的形状
+
+`/aurabot` 页面的 `window.__SOUL_TOKEN` **永远是 undefined**：
+token 注入原来**只写在首页那个分支里**（`p === '/'`），
+而 `PAGE_OF` 那条通用分支（`/aurabot`、`/organs`、`/yantai`、`/diary`、`/params` …）
+**全是裸 readFileSync 就发出去**。
+
+于是这个洞一直被**另一个洞**掩护着：
+- 页面不带 token（因为没注入）
+- 接口不要 token（因为 `/api/aurabot` 与 `/aurabot/api/*` 都不在 GUARDED 里）
+
+**两边看起来都正常，合起来就什么都看不出来。**
+
+#### 修法（两处必须一起，顺序不能反）
+
+1. **先让页面真拿到 token**：把注入收成一个 `injectPage()` + `PAGE_INJECT`，
+   在**所有 HTML 出口**用上（首页 + PAGE_OF 全部）。
+   ★ 判据：**注入不是某个页面的特权，是所有 HTML 出口的共同义务。**
+   写成每一处各贴一遍，就一定会漏 —— 而漏掉的那处不报错，只静默地不带 token。
+2. **再把接口纳入鉴权**：`/api/aurabot`（状态聚合）与 `/aurabot/api/*`（模块动态路由：
+   stickers / voice/* / memory/* …）**两套都加**。
+
+★ **一个洞不能用另一个洞来兜。**
+★ 顺序：**先注入再鉴权** —— 反了页面会先坏。
+
+#### 实测（1.0.78）
+
+| 接口 | 无 token | 有 token |
+|---|---|---|
+| /api/aurabot | **401** | 200 |
+| /aurabot/api/status | **401** | 200 |
+| /aurabot/api/state | **401** | 200 |
+| /aurabot/api/config | **401** | 200 |
+
+页面注入：`/aurabot` `/waker` `/settings` `/organs` `/yantai` `/diary` **全部拿到 token**
+（在此之前，除了首页和 settings/yantai/organs 之外都是裸的）。
+
 ### 1.0.75（2026-11-22）
 
 **这一版对着下游的两份实装反馈修，并顺手补了两个「断言滞后于代码」。**

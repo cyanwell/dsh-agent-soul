@@ -793,6 +793,31 @@ export function createServer({ store, loop, tools, config, bus, sched, persona, 
   //   只读不设卡，写/执行要 token。token 只在 <dataDir>/token.txt，不进 config。
   const auth = createAuth({ dataDir: config.dataDir, log: (m) => { if (!config.quiet) console.log('  [鉴权] ' + m); } });
 
+// ★★★ 2026-11-22（补 /aurabot 的 token 洞，顺带把注入收成一处）：
+//
+//   事实：token 注入原来**只写在首页那个分支里**（`if (p === '/' || p === '/index.html')`）。
+//   其它 HTML 出口 —— PAGE_OF 那条通用分支（1005 行）、`/sphere`、`/aurabot` 兜底 ——
+//   **全是裸 readFileSync 就发出去**。
+//
+//   症状：/aurabot 页的 `window.__SOUL_TOKEN` 永远是 undefined →
+//   `api()` 永远不带 X-Soul-Token → 它的接口只要一加鉴权，页面当场废。
+//   更坏的是：**这个洞一直被"接口不鉴权"掩盖着**，看起来一切正常。
+//
+//   ★ 判据：**注入不是某个页面的特权，是所有 HTML 出口的共同义务。**
+//     写成每一处各贴一遍，就一定会漏 —— 而漏掉的那处不会报错，只会静默地不带 token。
+const PAGE_INJECT = (() => {
+  let ver = '';
+  try { ver = JSON.parse(fs.readFileSync(path.join(HERE, '..', '..', 'package.json'), 'utf8')).version || '' } catch {}
+  return '<script>window.__SOUL_TOKEN=' + JSON.stringify(auth.token)
+    + ';window.__SOUL_VERSION=' + JSON.stringify(ver) + ';</script>';
+})();
+
+/** 给一段 HTML 注入 token/版本。已经是注入过的就原样返回（幂等）。 */
+function injectPage (html) {
+  if (typeof html !== 'string' || html.indexOf('window.__SOUL_TOKEN') >= 0) return html;
+  return html.indexOf('</head>') >= 0 ? html.replace('</head>', PAGE_INJECT + '</head>') : PAGE_INJECT + html;
+}
+
   const server = http.createServer(async (req, res) => {
     // MCP over HTTP 先试（它认 /mcp，其余交回下面）
     if (mcpHandler) {
@@ -860,12 +885,9 @@ export function createServer({ store, loop, tools, config, bus, sched, persona, 
 //   5 个页面的 nav 里都写死着 `v0.1.0`（dashboard / organs / params / settings / yantai）。
 //   而 package.json 是 1.0.74 —— 差整条版本线，且**只改启动横幅改不到这里**。
 //   ★ 判据同前：**版本号只有一个真相源**；抄一遍就是给未来埋一颗"报喜不报忧"的雷。
-// ★ 复用下面那段已经在用的读法（HERE 上两级就是仓库根），不新造一套。
-const __pkgVer = (() => {
-  try { return JSON.parse(fs.readFileSync(path.join(HERE, '..', '..', 'package.json'), 'utf8')).version || '' } catch { return '' }
-})();
-const injected = '<script>window.__SOUL_TOKEN=' + JSON.stringify(auth.token)
-  + ';window.__SOUL_VERSION=' + JSON.stringify(__pkgVer) + ';</script>';
+// ★ 2026-11-22：**改用统一的 PAGE_INJECT / injectPage()**（见 createAuth 后面那段）。
+//   原来这里自带一份 `injected` 与 `__pkgVer` —— 而其它 HTML 出口一份都没有。
+//   **同一件事写两遍，第二处一定会漏。** 现在只有一处。
         let html = fs.readFileSync(fs.existsSync(chat) ? chat : path.join(HERE, 'dashboard.html')).toString('utf8');
 // ★ 2026-11-13：首页也带上真实构建版本（验收要核对，用户也看得见是哪一版）。
 try {
@@ -878,7 +900,7 @@ try {
     html = html.replace('</title>', '</title>' + "<meta name='agentsoul-build' content='" + pkgVer + "'>")
   }
 } catch { /* 换不动就原样发 */ }
-        html = html.indexOf('</head>') >= 0 ? html.replace('</head>', injected + '</head>') : injected + html;
+        html = injectPage(html);
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': Buffer.byteLength(html) });
         return res.end(html);
       }
@@ -1006,7 +1028,8 @@ const PAGE_OF = {
         const name = PAGE_OF[p];
         const f = path.join(HERE, name);
         if (!fs.existsSync(f)) return json(res, 404, { error: '页面文件缺失：src/web/' + name });
-        const html = fs.readFileSync(f, 'utf8');
+        // ★ 2026-11-22：**这里原来没有注入** —— 所有走 PAGE_OF 的页面都拿不到 token。
+        const html = injectPage(fs.readFileSync(f, 'utf8'));
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': Buffer.byteLength(html) });
         return res.end(html);
       }

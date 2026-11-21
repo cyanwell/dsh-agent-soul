@@ -75,7 +75,7 @@ export function createAuth({ dataDir, log = () => {} } = {}) {
 export const GUARDED = [
   '/api/turn', '/api/shutdown', '/api/answer', '/api/guard',
   '/api/restart', '/api/compact', '/api/session', '/api/manager-proof',
-  '/api/huanqi', '/mcp',
+  '/mcp',
   // ★ 2026-11-22：`/api/waker/decide` 是**写判定**（记「要你执行 / 已执行 / 要审计」），在 `/api/waker` 下
   '/api/waker',
 ];
@@ -87,6 +87,29 @@ export function needsAuth(pathname, method) {
   // ★ 2026-11-22：`POST /api/config` 会重写整份 config.json（含 apiKey / baseUrl / port / dataDir）。
   //   ★ 只卡 POST —— `GET /api/config` 是 safeDisplayOf 脱敏后的只读视图，settings 首屏要用。
   if (p === '/api/config' && m === 'POST') return true;
+  // ★★ 2026-11-22（第二版）：`/api/huanqi` **不能整个前缀挡**。
+  //   我第一版写成 `'/api/huanqi'` 放进 GUARDED，实测把
+  //   `panel` / `host-list` / `scan` 这些**只读**接口也 401 了 —— 而面板要用它们。
+  //   ★ 判据：**鉴权该跟"会不会产生副作用"走，不跟路径前缀走。**
+  //   报告原文点名的是四条写面：context/purge（不可逆）/ intervene / auto / analyze。
+  const HUANQI_WRITES = ['/api/huanqi/context/purge', '/api/huanqi/intervene', '/api/huanqi/auto', '/api/huanqi/analyze'];
+  for (const g2 of HUANQI_WRITES) if (p === g2 || p.indexOf(g2 + '/') === 0) return true;
+  // ★★★ 2026-11-22（爀曦：顺带补）—— **aurabot 的两个接口面。**
+  //
+  //   洞在哪：`/api/aurabot`（状态聚合，走 adapters/aurabot-http.mjs）与
+  //   `/aurabot/api/*`（模块动态路由：stickers / voice/* / memory/* …，走 aurabot/adapter/http.mjs）
+  //   **两套都完全不鉴权** —— 实测无 token 全部 200。
+  //
+  //   为什么这个洞一直没人发现：`/aurabot` 页面的 `window.__SOUL_TOKEN` **永远是 undefined**
+  //   （token 注入原来只写在首页那个分支里，PAGE_OF 那条路全是裸 readFileSync）。
+  //   于是"页面不带 token"与"接口不要 token"**互相掩护**，两边看起来都正常。
+  //
+  //   ★ 判据：**一个洞不能用另一个洞来兜。** 两处必须一起补：
+  //     ① server.mjs 的 injectPage() 让页面真拿到 token；
+  //     ② 这里把接口面纳入鉴权。
+  //   顺序不能反 —— 先加鉴权再注入，页面会先坏。
+  if (p === '/api/aurabot' || p.indexOf('/api/aurabot/') === 0) return true;
+  if (p === '/aurabot/api' || p.indexOf('/aurabot/api/') === 0) return true;
   if (p === '/api/sessions' && m === 'POST') return true;
   return false;
 }

@@ -17,6 +17,7 @@
 //   所以只要把那几个方法挡死，读就是安全的。**挡死这件事必须由结构保证，不能靠自觉。**
 
 import http from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, appRoot } from '../config.mjs';
@@ -27,6 +28,34 @@ const ROOT = path.resolve(HERE, '../..');
 
 /** 探测缓存窗口。主服务起/停都在 2 秒内被看见，又不至于每个 call 都探一次。 */
 export const PROBE_TTL_MS = Number(process.env.SOUL_PROBE_TTL_MS) || 2000;
+
+// ★★★ 2026-11-22（鉴权接上之后的**连带修复**）：
+//   主服务现在要求 token（POST /api/config、/mcp、/api/huanqi 都在 GUARDED 里）。
+//   而本进程是**另一个调用方** —— 它转发 /mcp 时不带 token，
+//   于是主服务回 401 → 这里把它当成「主服务不可达」→ 抛 SOUL_HUB_DOWN
+//   → **整个 MCP 面变成"离线"，写工具全拒**。
+//
+//   ★ 这不是"多加个 header"的小事，它是**下面那条铁律的直接后果**：
+//     第 ① 条说「主服务在线 → 本进程不开 store、不写任何文件」。
+//     那条前提建立在「我能证明主服务在线」上 —— 而 401 让我**证明不了**，
+//     于是进程退到只读打开，**双写又回来了**（虽然是被动回来的）。
+//
+//   所以：自己读 token，和页面一样带上去。
+//   ★ 读不到 token 时**不猜、不静默** —— 它意味着主服务也在用空 token（那就没人需要 token），
+//     或者这台机器还没生成过。两种情况都让请求原样发出去，让主服务自己判。
+const HUB_TOKEN = (() => {
+  try {
+    const cfg = (() => { try { return loadConfig() } catch { return null } })();
+    const dirs = [cfg && cfg.dataDir, path.join(appRoot(), 'data'), path.join(ROOT, 'data')].filter(Boolean);
+    for (const d of dirs) {
+      try {
+        const t = fs.readFileSync(path.join(d, 'token.txt'), 'utf8').trim();
+        if (t) return t;
+      } catch {}
+    }
+  } catch {}
+  return '';
+})();
 /** 探测超时：500ms。本机回环正常是 1-3ms，500ms 已经足够宽松。 */
 export const PROBE_TIMEOUT_MS = Number(process.env.SOUL_PROBE_TIMEOUT_MS) || 500;
 /** 转发超时：soul_ask_host 可能要等宿主 15s，所以默认给 20s。 */
@@ -94,7 +123,12 @@ export function forwardRpc(msg, { base = hubBase(), timeoutMs = FORWARD_TIMEOUT_
       port: u.port || 80,
       path: u.pathname,
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        // ★ 不带它 → 主服务 401 → 本进程误判"主服务挂了" → 整个 MCP 面离线
+        ...(HUB_TOKEN ? { 'x-soul-token': HUB_TOKEN } : {}),
+      },
     }, (res) => {
       let out = '';
       res.setEncoding('utf8');
