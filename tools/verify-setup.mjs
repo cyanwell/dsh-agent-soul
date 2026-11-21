@@ -1,5 +1,8 @@
 // 端到端验证安装包：静默安装 → 检查文件 → 启动 → HTTP → 卸载 → 检查清理
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
@@ -13,7 +16,9 @@ import { spawn, execFileSync, spawnSync } from 'node:child_process';
 //
 //   现在：版本唯一真相 = package.json，安装包名与 app 目录名都从它推。
 const VER = JSON.parse(fs.readFileSync('D:/AI/agent-soul/package.json', 'utf8')).version;
-const SETUP = 'D:/AI/agent-soul/dist/AgentSoul-Setup-' + VER + '.exe';
+// 从 package.json 读取版本号生成文件名
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf-8'));
+const SETUP = 'D:/AI/agent-soul/dist/AgentSoul-Setup-' + pkg.version + '.exe';
 if (!fs.existsSync(SETUP)) {
   console.error('✗ 找不到安装包：' + SETUP);
   console.error('  先跑 node tools/make-dist.mjs（当前 package.json 版本 = ' + VER + '）');

@@ -18,7 +18,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const ROOT = 'D:/AI/agent-soul';
+const ROOT = process.cwd()
 const TOOLS = path.join(ROOT, 'tools');
 const OUT = path.join(ROOT, '_selftest_logs');
 fs.mkdirSync(OUT, { recursive: true });

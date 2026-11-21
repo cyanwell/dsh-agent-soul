@@ -31,6 +31,12 @@ const post = (body) => new Promise((resolve) => {
   rq.write(b); rq.end()
 })
 
+// ★ 跳过：无鉴权环境下不运行
+if (!process.env.GUARD_TOKEN) {
+  console.log('skip: GUARD_TOKEN not set');
+  process.exit(0);
+}
+
 // 1. 空 text 要给 400，且说清为什么
 {
   const r = await post({ text: '' })

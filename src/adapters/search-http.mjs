@@ -58,6 +58,10 @@ function cachePut (k, payload) {
 
 function ensureStore (dbPath) {
   if (store) return store
+  // ★ 文件出现就清空 storeErr —— 避免因第一次启动时库不存在导致整个进程生命期内该路径永远打不开
+  if (storeErr && fs.existsSync(dbPath)) {
+    storeErr = null
+  }
   if (storeErr) return null
   try {
     store = openMetaStore({ path: dbPath, mode: 'readonly' })

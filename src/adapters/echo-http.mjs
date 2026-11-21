@@ -10,7 +10,7 @@
 
 import { pathToFileURL } from 'node:url'
 
-const DOCTOR = 'D:/AI/memory/hub/echo-doctor.mjs'
+const DOCTOR = process.env.ECHO_DOCTOR_PATH || 'D:/AI/memory/hub/echo-doctor.mjs'
 const TTL_MS = 5 * 60 * 1000
 
 let cache = null

@@ -52,7 +52,7 @@
 ★★ **只看 `llmReady` 会被骗**：它只证明 key 在，不证明账户有钱。
   `llmUsable: false` + `llmLastError` 带 `402 Insufficient Balance` = 余额不足。
 
-### 2. Node.js（>= 20，内置 `node:sqlite` 需要 22+）
+### 2. Node.js（>= 22.23.4 或 24.x，`node:sqlite` 的 FTS5 是 22.23.4 才进的）
 
 本机实测用的是 v24。**没有任何第三方 npm 依赖** —— 只用 node 内置模块。
 

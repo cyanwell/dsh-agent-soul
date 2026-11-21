@@ -739,7 +739,8 @@ test('T22 v1 database migrates to v2: old rows survive, backfill works, records 
   assert(store.state.current === 1 && store.state.ready === false, 'starts as a v1 db');
   assert(store.state.tooNew === false, 'v1 is not too new');
   const res = store.migrate();
-  assert(res.applied.map(function (m) { return m.version; }).join(',') === '2,3,4,5,6,7,8,9,10,11', 'v2 -> v3 -> v4 -> v5 -> v6 -> v7 -> v8 -> v9 -> v10 are applied, got ' + JSON.stringify(res.applied));
+  const expected = Array.from({length: SCHEMA_VERSION - 1}, (_, i) => i + 2).join(',');
+  assert(res.applied.map(function (m) { return m.version; }).join(',') === expected, 'migrations applied: expected ' + expected + ', got ' + JSON.stringify(res.applied.map(m => m.version)));
   assert(store.state.current === SCHEMA_VERSION && store.state.ready === true, 'now at SCHEMA_VERSION and ready');
 
   const rows = store.db.prepare('select version, name, checksum, node_version, sqlite_version from schema_migrations order by version').all();

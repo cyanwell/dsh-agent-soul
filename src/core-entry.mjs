@@ -1304,7 +1304,7 @@ __bt('listen 回调进入');
 server.listen(config.port, config.host, () => {
   const url = 'http://' + config.host + ':' + config.port;
   console.log('');
-  console.log('  agent-soul  v0.1.0');
+  agent-soul  v1.0.73
   console.log('  ─────────────────────────────');
   console.log('  GUI      ' + url);
   console.log('  MCP      ' + url + '/mcp   ← 别的 harness 接这个地址');

@@ -21,23 +21,23 @@ export const ROOT = path.resolve(HERE, '..');
  *   于是开发机行为一字不变，分发版永远拿到自己的路径。
  */
 export const DEV_PATHS = {
-  soulRoot: 'D:/AI/yanqing-soul',
-  statusDir: 'D:/AI/yanqing-soul/30-状态',
-  dshHome: 'D:/AI/dsh/home',
-  sessionRoot: 'D:/AI/dsh/home/sessions',
-  backupDir: 'D:/AI/_backup',
-  workspace: 'D:/AI/agent-soul',
+  soulRoot: process.env.AGENT_SOUL_SOUL_ROOT || 'D:/AI/yanqing-soul',
+  statusDir: process.env.AGENT_SOUL_STATUS_DIR || 'D:/AI/yanqing-soul/30-状态',
+  dshHome: process.env.AGENT_SOUL_DSH_HOME || 'D:/AI/dsh/home',
+  sessionRoot: process.env.AGENT_SOUL_SESSION_ROOT || 'D:/AI/dsh/home/sessions',
+  backupDir: process.env.AGENT_SOUL_BACKUP_DIR || 'D:/AI/_backup',
+  workspace: process.env.AGENT_SOUL_WORKSPACE || 'D:/AI/agent-soul',
   // pruner 的 context-contract.mjs（帧读取的唯一 hash 实现）。外部可选依赖，开发机才有。
-  prunerContract: 'D:/AI/dsh-tools/dsh-yanqing-pruner/context-contract.mjs',
+  prunerContract: process.env.AGENT_SOUL_PRUNER_CONTRACT || 'D:/AI/dsh-tools/dsh-yanqing-pruner/context-contract.mjs',
   // 心跳插件启动时写下的「我自己的 origin」。★ 单文件依赖，开发机才有；
   // 分发版没有它 → dshOriginFileOf() 回 null。
   // ★★ 2026-11-16（架构收敛第 3 批）：**这两条路径已不在运行时路径上**。
   //   runtime-status 的自动发现退役了（心跳地址只认显式配置），这里只剩配置面板的
   //   默认值与 test/dsh-origin-shared.test.mjs 的契约测试在用它；原文文件保留不动。
   //   helper 现在的家：src/organs/dsh-origin-shared.mjs（本注释点名的那个函数还在）。
-  dshOriginFile: 'D:/AI/dsh-tools/dsh-yanqing-heartbeat/dsh-origin.txt',
+  dshOriginFile: process.env.AGENT_SOUL_DSH_ORIGIN_FILE || 'D:/AI/dsh-tools/dsh-yanqing-heartbeat/dsh-origin.txt',
   // 定长自我层（SELF.md）。★ 2026-11-11：这是「我是谁」那一份，分发版没有 → personaFilesOf 回空。
-  selfMd: 'D:/AI/memory/hub/SELF.md',
+  selfMd: process.env.AGENT_SOUL_SELF_MD || 'D:/AI/memory/hub/SELF.md',
 };
 
 /** 目录存在吗（不问为什么不存在 —— 那是调用方的事）。 */

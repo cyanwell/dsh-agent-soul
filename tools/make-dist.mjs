@@ -24,8 +24,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const VER = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')).version;
-const DEV = 'D:/AI/agent-soul';
-const PROD = 'C:/Users/pc/Desktop/deepseek harness/agent soul';
+const DEV = process.cwd();
+const PROD = process.env.AGENT_SOUL_PROD || process.cwd();
 const SHELL = path.join(DEV, 'dist/AgentSoul');          // 壳 + WebView2 dll + runtime
 const STAGE = path.join(DEV, 'dist/build', 'AgentSoul-' + VER);
 const ZIP = path.join(DEV, 'dist', 'AgentSoul-' + VER + '-portable.zip');
