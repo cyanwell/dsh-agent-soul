@@ -74,11 +74,11 @@
 
 ```
 ① 装 agent-soul 本体
-    · 下载发布包：[AgentSoul v4 1.0.70](https://github.com/cyanwell/dsh-agent-soul/releases/latest)
-      - `AgentSoul-Setup-1.0.70.exe` —— 大多数人选这个，双击装（装到 %LOCALAPPDATA%\Programs\AgentSoul，
+    · 下载发布包：[AgentSoul v4 1.0.73](https://github.com/cyanwell/dsh-agent-soul/releases/latest)
+      - `AgentSoul-Setup-1.0.73.exe` —— 大多数人选这个，双击装（装到 %LOCALAPPDATA%\Programs\AgentSoul，
         建开始菜单/桌面快捷方式，卸载项进「设置→应用」，**不需要管理员**）
-      - `AgentSoul-1.0.70-portable.zip` —— 不想装的人，解压即用（下称 <SOUL>）
-      - `AgentSoul-1.0.70-htmlpatch.zip` —— 已有安装，只换界面（199 KB）
+      - `AgentSoul-1.0.73-portable.zip` —— 不想装的人，解压即用（下称 <SOUL>）
+      - `AgentSoul-1.0.73-htmlpatch.zip` —— 已有安装，只换界面（199 KB）
     · ★ 卸载**不会**删你的 `config.json`（含 API Key）与 `data\`（会话/索引/账本）—— 它们留在原位，要彻底清干净自己删这两个。
     · 双击 <SOUL>\AgentSoul.exe 启动
     · ★ 必须用**当前用户身份**启动（key 是 DPAPI 密文，SYSTEM 身份解不开）
@@ -378,6 +378,33 @@ data/
 
 ## 更新记录
 
+### 1.0.73（2026-11-21）
+
+**这一版几乎全是「修我自己写错的判据」。** 每一条的症状都是「看起来成功了」。
+
+- **面板 403**：`configured: !!(token && origin)` 而 `localAdminToken` 默认空串 →
+  端点从设计上就调不通；写操作还要一个只活在内存里的 CSRF nonce，panel 拿不到。
+  附带 client.js 那句「所有端点只接 GET」本身是错的（status/probe 是 GET，另三个是 POST）。
+- **同源 GET 不带 Origin**：浏览器同源 GET 不发 Origin 头，而判据要求「Origin 必须逐字等于本实例」
+  → panel 自己的请求也被挡。现在缺省视为同源，存在则严格匹配。
+- **`health.control.hostCount` 恒 0**：`hub.snapshot()` 返回**数组**，我按 `snap.hosts` 读。
+  字段名猜错不报错，只会永远给 0。
+- **state 白名单漏字段**：`stateVia`/`fallback` 发出去又被 `snapshot` 的白名单丢掉 ——
+  而 hub.mjs 的注释早就写着「新字段不加进来，等于发出去又被丢掉」。
+- **pruner 三处**：`context/candidates` 在事件库里挑而 pruner 在 surface 里剪（两套判据）；
+  回执丢诊断字段（`framesAffected=0` 分不出「真没东西」和「挑错 seq」）；
+  适配器**静默吞掉 `dryRun`**（写 `dryRun:true` 以为只解析，实际真动刀）。
+- **窗口模糊**：DPI 声明进 PE 的 `RT_MANIFEST`（`true/PM` + `PerMonitorV2` + `longPathAware`），
+  实测 `GetProcessDpiAwareness` = 2。
+- **安装器三 bug**：`HasFlag("/D=")` 恒假（显式目录被当成没指定、原地升级覆盖）；
+  卸载按镜像名全杀（**把生产在跑的 AgentSoul 杀了**，改成按 `MainModule.FileName` 过滤）；
+  `verify-setup.mjs` 硬编码 1.0.65（`--verify` 验的是一年前的包还报 PASS + 假绿灯）。
+- **桥**：`agent/pre-step` 钩子按会话上报（真机读 `stateVia=agent/pre-step`、`fallback=false`）；
+  补 `dsh.client` 声明（client.js 装了三个月从未加载）。
+- 验证：桥全套 **90/90**、packaging smoke PASS、`index.js --selftest` 11/11、v4 selftest 9/0。
+- **已知限制**：pruner 的「真剪掉 ≥1 帧」尚未在真机复现；
+  lead SQL store schema v5 vs 代码要 v13（`MIGRATION_REQUIRED`）未处理。
+
 ### 1.0.70（2026-11-20）
 
 - Galaxy：详情面板按选中臂停靠对侧；窄屏改用底部详情面板。
@@ -392,7 +419,7 @@ data/
 ## 装到自己机器上（本机生产）
 
 ```bash
-node tools/release.mjs --to=1.0.70 --changes="ECHO / Aurabot / Galaxy updates"
+node tools/release.mjs --to=1.0.73 --changes="ECHO / Aurabot / Galaxy updates"
 ```
 
 它会：把 `src/` `tools/` `sql/` `seed/` 复制成 `app/<版本>/` → 写 VERSION.txt → **逐文件校验**
@@ -422,9 +449,9 @@ node tools/make-dist.mjs --verify   # 构建 + 跑「安装→运行→卸载」
 ★ 要发到 GitHub：
 
 ```bash
-tools/publish-release.ps1 -Tag 1.0.70 -NotesFile dist/release-notes-1.0.70.md `
-  -Title "AgentSoul v4 1.0.70" `
-  -Files @("dist\AgentSoul-Setup-1.0.70.exe","dist\AgentSoul-1.0.70-portable.zip")
+tools/publish-release.ps1 -Tag 1.0.73 -NotesFile dist/release-notes-1.0.73.md `
+  -Title "AgentSoul v4 1.0.73" `
+  -Files @("dist\AgentSoul-Setup-1.0.73.exe","dist\AgentSoul-1.0.73-portable.zip")
 ```
 
 ★ `-Replace` 是**先删同名旧附件再传新的**。默认行为是「同名就跳过」——
