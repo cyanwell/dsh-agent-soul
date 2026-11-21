@@ -1,4 +1,4 @@
-# 编译 AgentSoul.exe —— M0 壳
+﻿﻿# 编译 AgentSoul.exe —— M0 壳
 #
 # 为什么用 csc 而不是 dotnet build：本机没有 dotnet SDK（也没有 npm），
 # 而 .NET Framework 4.x 自带 csc.exe —— 系统自带的东西最不容易坏。
@@ -19,10 +19,18 @@ $csc = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 $assets = Join-Path $build "assets"
 $ico = Join-Path $assets "agentsoul.ico"
 
+# ★ 2026-11-21：DPI 两份配套文件（治「整窗被拉伸 1.5 倍所以字糊」）
+#   · AgentSoul.manifest —— 进程感知级别（/win32manifest 编译进 PE）
+#   · AgentSoul.exe.config —— WinForms 自己按 PerMonitorV2 布局（放 exe 旁边）
+#   ★ 缺哪个都不完整：只给 manifest → 字不糊但控件按 96 DPI 排、偏小错位；
+#     只给 config → WinForms 想缩放，可进程还是 DPI Unaware，白搭。
+$manifest = Join-Path $build "AgentSoul.manifest"
+$appConfig = Join-Path $build "AgentSoul.exe.config"
+
 $core = Join-Path $wv "Microsoft.Web.WebView2.Core.dll"
 $winf = Join-Path $wv "Microsoft.Web.WebView2.WinForms.dll"
 $loader = Join-Path $wv "WebView2Loader.dll"
-foreach ($f in @($csc, $src, $core, $winf, $loader, $ico)) {
+foreach ($f in @($csc, $src, $core, $winf, $loader, $ico, $manifest, $appConfig)) {
     if (-not (Test-Path $f)) { throw ("缺文件：" + $f) }
 }
 
@@ -38,7 +46,15 @@ if (Test-Path $out) {
     $bakExe = Join-Path $bakDir "AgentSoul.exe"
     Copy-Item $out $bakExe -Force
     Write-Output ("backup-old-exe = " + $bakExe)
-    Write-Output ("backup-old-sha256 = " + (Get-FileHash $bakExe -Algorithm SHA256).Hash)
+    # ★ 2026-11-21：哈希**不许挡住编译**。刚 Copy 完的 exe 常被杀软/索引器占住几秒，
+    #   Get-FileHash 会抛 "being used by another process" —— 那只是备份的指纹读不到，
+    #   旧 exe 本身已经复制成功。重试三次，还读不到就记一行 warning 继续。
+    $bakHash = "(读不到)"
+    for ($t = 0; $t -lt 3; $t++) {
+        try { $bakHash = (Get-FileHash $bakExe -Algorithm SHA256).Hash; break }
+        catch { Start-Sleep -Milliseconds 400 }
+    }
+    Write-Output ("backup-old-sha256 = " + $bakHash)
     Remove-Item $out -Force
 }
 
@@ -48,6 +64,8 @@ $cscArgs = @(
     ("/r:" + $core),
     ("/r:" + $winf),
     ("/win32icon:" + $ico),
+    # ★ 2026-11-21：把 DPI 声明编进 PE。没有它，进程默认 DPI Unaware，整窗被位图拉伸。
+    ("/win32manifest:" + $manifest),
     ("/resource:" + $ico + ",AgentSoul.app.ico"),
     "/r:System.dll", "/r:System.Core.dll", "/r:System.Drawing.dll", "/r:System.Windows.Forms.dll", "/r:System.Management.dll",
     $src
@@ -64,6 +82,15 @@ if ($code -ne 0) { throw ("csc 失败 exit=" + $code) }
 foreach ($d in @($loader, $core, $winf)) {
     Copy-Item $d (Join-Path $build (Split-Path $d -Leaf)) -Force
 }
+
+# ★ 2026-11-21：exe.config 必须与 exe 同名同目录（CLR 按 <exe>.config 找）。
+#   ★ 这里**不需要复制** —— config 源本身就叫 build\AgentSoul.exe.config，
+#     与 $out + ".config" 是同一个文件。
+#     （第一版写了 Copy-Item，PowerShell 报 "Cannot overwrite the item with itself"。）
+#   ★ 改成断言：它在不在 exe 旁边。不在就停下 —— 少了它 WinForms 会按 96 DPI 排版。
+$cfgOut = $out + ".config"
+if (-not (Test-Path $cfgOut)) { throw ("缺 exe.config：" + $cfgOut + " —— 界面会偏小错位") }
+Write-Output ("exe-config = " + $cfgOut)
 
 $fi = Get-Item $out
 Write-Output ("compile-ms = " + $sw.ElapsedMilliseconds)

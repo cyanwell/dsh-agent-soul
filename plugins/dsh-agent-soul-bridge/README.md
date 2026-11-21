@@ -243,6 +243,27 @@ followup 真的调到 agent、**huanqi/break-turn 真的调 agent.cancel**（cau
 
 （只追加，不改旧条目 —— 旧条目是对当时事实的记录，改它等于伪造历史。）
 
+### 0.1.7 · 2026-11-21
+
+- **修「只上报一个会话」**（用户报告 bridge-session-report-issue.md：/api/autonomy 恒 UNKNOWN）。
+  根因是**钩子拿不到主角**：原来借 `systemPrompt.context` 的 render 当钩子并读 `context.agent`，
+  而 `AssembleContext`（dsh-system-prompt/lib/types/index.d.ts:37-45）只有 `scope` 与 `signal` 两个字段
+  —— **没有 agent，也没有 session**。于是既能解释「重启后第一轮 sessionId 为 null」，
+  也能解释「退回 pickLiveAgent 后整台机器只有一条 state」。
+  · 主路换成 `agent/pre-step`：payload 里**明确有 agent**
+    （dsh-agent/lib/types/runtime-types.d.ts:313-319），且按 agent 作用域派发、每轮每 agent 各触发一次。
+  · 节流从「全局一个 lastStateAt」改成「按会话 lastStateAtBySession」——
+    否则不同会话互相把对方的 state 挤掉。
+  · state 帧新增 `stateVia` 与 `fallback`：拿不到 agent 时的兜底上报**明确标记**，
+    不让 v4 把它当成「这个会话活跃过」的证据。
+  · `systemPrompt.context` 保留为退路，只在 pre-step 装不上时用。
+- **补上 client half 声明**（`client.js` 装了三个月但从未加载）：
+  `exports["./client"]` + `dsh.client = { platform: "web", inject: [] }`。
+  判据来自 `dsh-client-modules/lib/index.js:67-68`：它只扫**声明了 `dsh.client`** 的包。
+  `packaging-smoke` 加了一条断言：`dsh.client` / `exports["./client"]` / `files 含 client.js`
+  三者必须**成对**出现 —— 少一个都是坏包。
+- README 里那段「client.js 缺口」从推测升级为已查实 + 完整补法（含 `platform` 值的来历说明）。
+
 ### 0.1.6 · 2026-11-21
 
 - **huanqi 接真**：动作名回到协议一直写的 `break-turn`，实现为 `agent.cancel({kind:'hook',reason},{keepInbox})`。

@@ -58,7 +58,21 @@ for (const key of ['stubCaps', 'prunerLive']) {
   if (a !== b) fail(key + ' 两边不一致：index.js=' + a + ' patch=' + b)
 }
 
-// ⑤ caps 十项，一项不许少
+// ⑤ client half 与 host half 必须**成对**声明 —— 少一个就整包静默失效
+//
+//   ★ 2026-11-21 加这条。判据来自 dsh-client-modules/lib/index.js:67-68：
+//     "scans the host Loader's entries for packages declaring dsh.client"
+//   所以声明了 dsh.client 却没有 exports["./client"]（或反过来）都是坏包：
+//   前者服务器扫到了但取不到入口文件，后者有文件但根本不在扫描范围。
+//   历史上桥就吃过「有 client.js 但没声明」的亏 —— 装了三个月，侧栏一个字都没出现。
+const hasClientDecl = !!(pkg.dsh && pkg.dsh.client)
+const hasClientExport = !!((pkg.exports || {})['./client'])
+const clientInFiles = files.includes('client.js')
+if (hasClientDecl !== hasClientExport) fail('client half 声明不成对：dsh.client=' + hasClientDecl + ' exports["./client"]=' + hasClientExport)
+if (hasClientDecl !== clientInFiles) fail('client half 与 files 清单不一致：dsh.client=' + hasClientDecl + ' files含client.js=' + clientInFiles)
+if (hasClientDecl && typeof pkg.dsh.client.platform !== 'string') fail('dsh.client.platform 必须是 string')
+
+// ⑥ caps 十项，一项不许少
 const CAPS = ['followup', 'session', 'sessions', 'workspaces', 'agent', 'events', 'service', 'huanqi', 'pruner', 'context']
 const capsLine = /caps:\s*\[([^\]]+)\]/.exec(patch)
 if (!capsLine) fail('patch 里找不到 caps')
@@ -68,4 +82,5 @@ if (lost.length) fail('patch caps 少了：' + lost.join(', ') + '（不许用�
 
 console.log('packaging smoke: PASS')
 console.log('version=' + pkg.version + ' files=' + files.length + ' caps=' + caps.length
-  + ' imports-verified=' + imports.size + ' stubCaps=' + pick(source, 'stubCaps') + ' prunerLive=' + pick(source, 'prunerLive'))
+  + ' imports-verified=' + imports.size + ' stubCaps=' + pick(source, 'stubCaps') + ' prunerLive=' + pick(source, 'prunerLive')
+  + ' clientHalf=' + (hasClientDecl ? ('dsh.client(platform=' + pkg.dsh.client.platform + ')') : 'none'))

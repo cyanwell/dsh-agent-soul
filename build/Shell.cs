@@ -76,15 +76,71 @@ static class SLog
 
     public static string ShellPath { get { return _shellPath; } }
     public static string CorePath { get { return _corePath; } }
+    // ★ 2026-11-18：本次启动「日志落在哪、为什么」—— 错误页要把它显示出来。
+    public static string InitNote = "";
+    // ★ 2026-11-18：有多少行没写进去。异常路径不留痕是最坏的故障形态。
+    public static int WriteFailures = 0;
+    static string _lastWriteError = "";
+
+    // ★ 2026-11-18（E_UNEXPECTED 根因）：目录「存在」不等于「可写」。
+    //   Directory.CreateDirectory 对已存在的目录是**空操作** —— 于是一个不可写的旧目录
+    //   会一路静默通过：日志三次写失败被 catch 吞掉（文件名不见了），
+    //   CreateAsync 又是惰性的（不写盘所以不炸），一直到 EnsureCoreWebView2Async
+    //   真要写盘时才炸成 0x8000FFFF「灾难性故障」。现场于是什么都不剩。
+    //   判据只认「真写一个探针文件、再删掉」，不认 Exists。
+    public static bool CanWriteDir(string dir, out string reason)
+    {
+        reason = "";
+        if (string.IsNullOrEmpty(dir)) { reason = "路径为空"; return false; }
+        try { if (!Directory.Exists(dir)) Directory.CreateDirectory(dir); }
+        catch (Exception ex) { reason = "建目录失败 " + ex.GetType().Name + ": " + ex.Message; return false; }
+        string probe = Path.Combine(dir, ".wprobe-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+        try { File.WriteAllText(probe, "p", new UTF8Encoding(false)); }
+        catch (Exception ex) { reason = "写探针失败 " + ex.GetType().Name + ": " + ex.Message; return false; }
+        try { File.Delete(probe); } catch { }
+        return true;
+    }
 
     public static void Init(string dir)
     {
-        try { if (!Directory.Exists(dir)) Directory.CreateDirectory(dir); } catch { }
-        _shellPath = Path.Combine(dir, "shell.log");
-        _corePath = Path.Combine(dir, "core.log");
+        // ★ 2026-11-18：不可写就换地方，不许让整条时间线静默消失。
+        //   回落顺序：给的目录 → %TEMP%\AgentSoul → exe 旁的 logs\。
+        string reason;
+        string chosen = dir;
+        if (!CanWriteDir(dir, out reason))
+        {
+            string t = Path.Combine(Path.GetTempPath(), "AgentSoul");
+            string r2;
+            if (CanWriteDir(t, out r2))
+            {
+                chosen = t;
+                InitNote = "shell-home 不可写（" + reason + "）→ 日志改用 " + t;
+            }
+            else
+            {
+                string e = "";
+                try { e = Path.Combine(Path.GetDirectoryName(System.Windows.Forms.Application.ExecutablePath), "logs"); }
+                catch { }
+                string r3;
+                if (!string.IsNullOrEmpty(e) && CanWriteDir(e, out r3))
+                {
+                    chosen = e;
+                    InitNote = "shell-home 与 TEMP 都不可写（" + reason + "）→ 日志改用 " + e;
+                }
+                else
+                {
+                    InitNote = "shell-home 不可写（" + reason + "），TEMP 与 exe 目录也不可写";
+                }
+            }
+        }
+        _shellPath = Path.Combine(chosen, "shell.log");
+        _corePath = Path.Combine(chosen, "core.log");
         // 每次启动写一行分隔，不然上上次的尾巴会把这次的开头吃掉
         W("");
         W("══════════════════════════════════════════════════════════════");
+        W("=== AgentSoul 壳启动 M0 ===");
+        W("shell-home=" + dir + (chosen == dir ? "" : " → 实际日志目录=" + chosen));
+        if (InitNote.Length > 0) W("log: " + InitNote);
         // 自证：这一行用来在日志里直接看出串行化到底有没有装上（测试与排查都读它）
         W("log: 跨进程写串行化 = " + (LogMutex() == null
             ? "不可用（互斥量创建失败，退化为无锁追加）"
@@ -130,6 +186,7 @@ static class SLog
                     catch (AbandonedMutexException) { held = true; }   // 上一个持有者崩了，锁已归我
                     catch { held = false; }
                 }
+                string lastErr = "";
                 for (int attempt = 0; attempt < 3; attempt++)
                 {
                     try
@@ -137,11 +194,28 @@ static class SLog
                         File.AppendAllText(_shellPath, line + "\r\n", new UTF8Encoding(false));
                         return;
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        lastErr = ex.GetType().Name + ": " + ex.Message;
                         try { Thread.Sleep(5); } catch { }
                     }
                 }
+                // ★ 2026-11-18：三次都没写进去**不许静默**。
+                //   旧行为是 catch {} 之后什么都不留 —— 于是 shell.log 整个文件凭空消失，
+                //   排查的人只能看到一个「没有日志」的空目录，而真因（目录不可写）就此丢掉。
+                //   现在：计数留着给错误页显示，并且把这一行尽最后努力落到 %TEMP%，
+                //   哪怕主日志目录已经废了，现场也还剩一份。（fallback 自身失败就放弃，不递归。）
+                WriteFailures++;
+                _lastWriteError = lastErr;
+                try
+                {
+                    string fb = Path.Combine(Path.GetTempPath(), "AgentSoul");
+                    Directory.CreateDirectory(fb);
+                    File.AppendAllText(Path.Combine(fb, "shell-fallback.log"),
+                        line + "   [未写进 " + _shellPath + "：" + lastErr + "]\r\n",
+                        new UTF8Encoding(false));
+                }
+                catch { }
             }
             finally
             {
@@ -365,6 +439,14 @@ class ShellSettings
     //   只给隔离测试用；**不改变正常双击的默认行为**（正常双击照旧显示窗口）。
     public bool StartHidden = false;
 
+    // ── 检测更新（2026-11-18）──────────────────────────────────────────────
+    //   ★ CurrentVersion 必须由 Resolve 填：壳自己**不知道**版本号，
+    //     版本只活在 app\current.txt / 版本目录名里。两处各判一次必然分叉，所以只在这里判。
+    public string CurrentVersion = "";
+    //   ★ UpdateCheck 默认开。关掉的方式：环境变量 AGENT_SOUL_NO_UPDATE_CHECK=1
+    //     （企业内网/离线机器用；不做成配置文件，因为壳不读 config.json）
+    public bool UpdateCheck = true;
+
     static int IntEnv(string name, int dflt)
     {
         string v = Environment.GetEnvironmentVariable(name);
@@ -378,6 +460,12 @@ class ShellSettings
         ShellSettings s = new ShellSettings();
         s.BaseDir = baseDir;
         s.UdfDir = Path.Combine(baseDir, "WebView2");
+        // ★ 2026-11-18：恢复 1.0.63 读这个变量的行为。
+        //   1.0.65 把它丢掉了，而老用户正是靠它把 WebView2 目录挪到一个能写的地方 ——
+        //   丢了之后设置**静默失效**：用户以为「设了也没用」，实际是根本没读。
+        //   本次 E_UNEXPECTED 里那两位用户，就是被这个丢掉的读取挡在了门外。
+        string envUdf = Environment.GetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER");
+        if (!string.IsNullOrEmpty(envUdf)) s.UdfDir = envUdf;
 
         string envPort = Environment.GetEnvironmentVariable("AGENT_SOUL_HUB_PORT");
         int p;
@@ -437,6 +525,39 @@ class ShellSettings
                 s.CoreScript = probe;
                 s.CoreDir = Path.GetDirectoryName(Path.GetDirectoryName(probe));
             }
+        }
+
+        // ── 当前版本号（检测更新要用）────────────────────────────────────────
+        //   分发版：CoreScript = <exe>\app\<版本>\src\index.mjs，CoreDir 已剥到 <版本> 那一层
+        //   开发版：CoreDir 就是仓库根，版本在 package.json 里
+        if (s.DistLayout && !string.IsNullOrEmpty(s.CoreDir))
+        {
+            s.CurrentVersion = Path.GetFileName(s.CoreDir.TrimEnd(Path.DirectorySeparatorChar));
+        }
+        if (string.IsNullOrEmpty(s.CurrentVersion) && !string.IsNullOrEmpty(s.CoreDir))
+        {
+            try
+            {
+                string pkg = Path.Combine(s.CoreDir, "package.json");
+                if (File.Exists(pkg))
+                {
+                    string txt = File.ReadAllText(pkg);
+                    string v = HIdent.JsonRaw(txt, "version");
+                    if (!string.IsNullOrEmpty(v)) s.CurrentVersion = v.Trim();
+                }
+            }
+            catch { }
+        }
+        // ★ 测试钩子：把当前版本假装成更老的，用来验证「发现新版」这条路真的会弹窗。
+        //   没有它就只能等真的发了新版才能测 —— 那种「只能等线上触发」的功能，等发现坏了已经晚了。
+        string forceVer = Environment.GetEnvironmentVariable("AGENT_SOUL_FORCE_VERSION");
+        if (!string.IsNullOrEmpty(forceVer)) s.CurrentVersion = forceVer.Trim();
+
+        string noUpd = Environment.GetEnvironmentVariable("AGENT_SOUL_NO_UPDATE_CHECK");
+        if (!string.IsNullOrEmpty(noUpd))
+        {
+            string nu = noUpd.Trim().ToLowerInvariant();
+            s.UpdateCheck = !(nu == "1" || nu == "true" || nu == "yes");
         }
 
         // ── node：环境变量 → 自己目录下的 runtime\node.exe → PATH → 本机已知路径 ──
@@ -517,7 +638,9 @@ class ShellSettings
     }
 
     // 版本号比较：按 . - _ 切段；两段都是数字时比数值，否则按忽略大小写的字符串
-    static int CompareVersion(string a, string b)
+    // ★ 2026-11-18 改 public：检测更新要复用它。**绝不另写一份** —— 两份比较器必然分叉，
+    //   而分叉的症状是「明明有新版却不提示 / 明明最新却一直提示」，两种都很难查。
+    public static int CompareVersion(string a, string b)
     {
         if (a == null) a = "";
         if (b == null) b = "";
@@ -552,8 +675,8 @@ class ShellSettings
 class ShellForm : Form
 {
     const string TITLE_BASE = "AgentSoul";
-    const string MUTEX_NAME = @"Local\AgentSoul.SingleInstance";
-    const string EVENT_NAME = @"Local\AgentSoul.Activate";
+    static string MUTEX_NAME { get { return Program.MutexName(); } }
+    static string EVENT_NAME { get { return Program.EventName(); } }
 
     ShellSettings S;
     WebView2 web;
@@ -816,6 +939,12 @@ class ShellForm : Form
     // ── 启动 ───────────────────────────────────────────────────────────────
     async void OnShown(object sender, EventArgs e)
     {
+        // ★ 2026-11-18：窗口一显示就查更新。
+        //   为什么不挂在 OnNav（界面就绪）上：那条路要求 core 成功起来。
+        //   而「core 起不来」恰恰是最需要知道自己有新版的时刻 —— 挂在 OnNav 上等于
+        //   在最该提示的时候沉默。查更新与 core 状态无关，所以起点放在这里。
+        //   StartHidden（隔离测试/静默启动）时不打扰。
+        if (!S.StartHidden) Updater.Schedule(this, S);
         try
         {
             // ★ AGENT_SOUL_START_HIDDEN=1：窗口一显示就收回去（不给「闪一下」的时间）。
@@ -1317,6 +1446,24 @@ class ShellForm : Form
             psi.EnvironmentVariables["AGENT_SOUL_PORT"] = S.Port.ToString();
             // ★ 父进程看门狗：壳被强杀时，core 自己会跟着退（见 src/util/parent-watchdog.mjs）
             psi.EnvironmentVariables["AGENT_SOUL_PARENT"] = Process.GetCurrentProcess().Id.ToString();
+            // ★ Bridge-only identity handoff: strip inherited manager values first; ordinary desktop launches stay unmanaged.
+            psi.EnvironmentVariables.Remove("AGENT_SOUL_MANAGER_MARKER");
+            psi.EnvironmentVariables.Remove("AGENT_SOUL_MANAGER_SHELL_PID");
+            string managerMarker = Environment.GetEnvironmentVariable("AGENT_SOUL_MANAGER_MARKER");
+            bool validManagerMarker = !string.IsNullOrEmpty(managerMarker) && managerMarker.Length >= 32 && managerMarker.Length <= 128;
+            if (validManagerMarker)
+            {
+                for (int i = 0; i < managerMarker.Length; i++)
+                {
+                    char c = managerMarker[i];
+                    if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-')) { validManagerMarker = false; break; }
+                }
+            }
+            if (validManagerMarker)
+            {
+                psi.EnvironmentVariables["AGENT_SOUL_MANAGER_MARKER"] = managerMarker;
+                psi.EnvironmentVariables["AGENT_SOUL_MANAGER_SHELL_PID"] = Process.GetCurrentProcess().Id.ToString();
+            }
             // ★ 分发版：把「应用根」钉在安装根，而不是 app\<版本>。
             //   否则 config.json / data / workspace 会跟着版本走 —— 换个版本就等于换一台机器（设置没了、数据另起一份）。
             //   开发布局不设这一条：那时 appRoot() 就是仓库根，行为和以前完全一样。
@@ -1377,8 +1524,36 @@ class ShellForm : Form
                 + "\r\n\r\n日志：" + SLog.ShellPath + "（前一行写着「本机 WebView2 Runtime 版本=」，便于核对）");
             return false;
         }
+        string udfNote = "";
         try
         {
+            // ★ 2026-11-18（E_UNEXPECTED 根因）：**先验可写，再交给 WebView2**。
+            //   目录不可写时 CreateDirectory 是空操作、CreateAsync 也惰性成功，
+            //   一路静默到 EnsureCoreWebView2Async 才炸成「灾难性故障」—— 报错点指向
+            //   调用链上游，真正的原因（目录写不进去）一个字都不出现。
+            //   这里提前判一次；不可写就先换 TEMP，让壳至少能起来。
+            string wr;
+            if (!SLog.CanWriteDir(S.UdfDir, out wr))
+            {
+                string alt = Path.Combine(Path.GetTempPath(), "AgentSoul", "WebView2");
+                string wr2;
+                if (SLog.CanWriteDir(alt, out wr2))
+                {
+                    SLog.W("webview2: UDF 不可写（" + wr + "）→ 本次改用 " + alt);
+                    udfNote = "配置的 WebView2 目录不可写（" + wr + "），本次已改用 " + alt;
+                    S.UdfDir = alt;
+                }
+                else
+                {
+                    SLog.W("webview2: UDF 与 TEMP 都不可写 / UDF=" + wr + " / TEMP=" + wr2);
+                    udfNote = "WebView2 目录与 TEMP 都不可写（" + wr + "）";
+                }
+            }
+            else
+            {
+                SLog.W("webview2: UDF 可写性检查通过 " + S.UdfDir);
+            }
+
             Directory.CreateDirectory(S.UdfDir);
             CoreWebView2EnvironmentOptions opt = new CoreWebView2EnvironmentOptions();
             CoreWebView2Environment env = await CoreWebView2Environment.CreateAsync(null, S.UdfDir, opt);
@@ -1396,9 +1571,26 @@ class ShellForm : Form
         {
             string detail = ex.GetType().Name + ": " + ex.Message;
             if (ex.InnerException != null) detail += "\r\n" + ex.InnerException.GetType().Name + ": " + ex.InnerException.Message;
+            // ★ 2026-11-18：把**真实路径**和**可写性结论**一起摆出来。
+            //   这次排查最贵的两件事：①日志整个文件消失 ②错误码只说是「灾难性故障」。
+            //   下面这几行让下一份反馈一条就能定位，不用再猜是哪一层坏的。
+            string ctx = "";
+            ctx += "\r\n\r\n【环境】WebView2 目录：" + S.UdfDir;
+            string wrr;
+            ctx += SLog.CanWriteDir(S.UdfDir, out wrr) ? "（可写）" : ("（**不可写**：" + wrr + "）");
+            ctx += "\r\n【环境】日志文件：" + SLog.ShellPath;
+            if (SLog.WriteFailures > 0) ctx += "（有 " + SLog.WriteFailures + " 行没写进去）";
+            if (SLog.InitNote.Length > 0) ctx += "\r\n【注意】" + SLog.InitNote;
+            if (udfNote.Length > 0) ctx += "\r\n【注意】" + udfNote;
             ShowError("WebView2 起不来", "浏览器组件没能初始化（页面没法显示）。"
-                + "\r\n\r\n" + detail
-                + "\r\n\r\n本机需要 WebView2 Runtime（Edge 自带的那份）。如果刚重装过系统，装一次 Evergreen Runtime 即可。");
+                + "\r\n\r\n" + detail + ctx
+                + "\r\n\r\n★ 0x8000FFFF / 灾难性故障、0x80080005 / 服务器执行失败，"
+                + "这两个码最常见的原因**都不是缺运行时**，而是上面那个 WebView2 目录写不进去"
+                + "（权限、杀软、或目录被别的程序占住）。"
+                + "\r\n先把这个目录整个删掉再启动；还不行就换一个能写的目录："
+                + "\r\n    set WEBVIEW2_USER_DATA_FOLDER=D:\\某个能写的目录"
+                + "\r\n   （1.0.66 起这个变量才重新被读取；1.0.65 及以前设了等于没设。）"
+                + "\r\n\r\n如果确实缺 WebView2 Runtime，装一次 Evergreen Runtime 即可。");
             return false;
         }
     }
@@ -1924,8 +2116,8 @@ static class Program
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AgentSoul");
         }
         try { SLog.Init(baseDir); } catch { }
-        SLog.W("=== AgentSoul 壳启动 M0 ===");
-        SLog.W("shell-home=" + baseDir);
+        // ★ 2026-11-18：M0 / shell-home 两行已由 SLog.Init 自己写（它在回落之后写，
+        //   能写出「实际日志目录」）。这里不再重复，只补 args / os。
         SLog.W("args=" + string.Join(" ", args));
         SLog.W("os=" + Environment.OSVersion.VersionString + " clr=" + Environment.Version.ToString() + " 64bit=" + Environment.Is64BitProcess);
 
@@ -1951,7 +2143,7 @@ static class Program
             {
                 try
                 {
-                    EventWaitHandle ev = EventWaitHandle.OpenExisting(@"Local\AgentSoul.Activate");
+                    EventWaitHandle ev = EventWaitHandle.OpenExisting(EventName());
                     ev.Set();
                     ev.Close();
                     SLog.W("instance-2: 已发出 activate 事件（第 " + (tries + 1) + " 次尝试）");
@@ -1980,9 +2172,680 @@ static class Program
         return 0;
     }
 
-    // ★ 互斥量名只写一次，避免「判据两处各写一遍」那类错
+    // ★ 2026-11-18：隔离测试开关（AGENT_SOUL_INSTANCE_SUFFIX）。
+    //   不加它的代价是实测出来的：单实例互斥量硬编码 → 想测壳就**必须先把生产停掉**。
+    //   那种门槛的必然结果是不测 —— 于是新功能只能等发出去、由用户来发现坏。
+    //   ★ 默认空串，生产行为一个字都不变。
+    public static string InstanceSuffix()
+    {
+        string v = Environment.GetEnvironmentVariable("AGENT_SOUL_INSTANCE_SUFFIX");
+        if (string.IsNullOrEmpty(v)) return "";
+        return "." + v.Trim();
+    }
+
+    // ★ 互斥量名/激活事件名只写一次，避免「判据两处各写一遍」那类错。
+    //   ★ 2026-11-18：三个类（Program / ShellForm / ShellSettings）都要这两个名字，
+    //     所以**只有这里**构造它们，别处一律调这两个方法。
+    public static string MutexName()
+    {
+        return @"Local\AgentSoul.SingleInstance" + InstanceSuffix();
+    }
+    public static string EventName()
+    {
+        return @"Local\AgentSoul.Activate" + InstanceSuffix();
+    }
     static string ShellSettings_ResolveMutexName()
     {
-        return @"Local\AgentSoul.SingleInstance";
+        return MutexName();
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 检测更新（2026-11-18）
+//
+// 用户的要求，一字不改地落成四条：
+//   ① **只提示，绝不自动安装** —— 下载与安装永远是用户自己点。这里连「下载」按钮都没有，
+//      只有「去下载」（打开浏览器到 release 页）。
+//   ② **可关闭的窗口** —— 右上角 X 就是关，「以后再说」也是关。关掉之后**同一版本不再弹**。
+//   ③ **展示新版本更新了什么** —— release notes 渲染进窗口，不是干巴巴一句「有新版本」。
+//   ④ **绝不打扰** —— 网络不通/被墙/限流一律静默只记日志；每 24 小时最多查一次；
+//      起点是「界面已就绪之后」，启动链上不挂任何网络请求。
+//
+// ★ 为什么写在壳里而不是 core 里：
+//   检测更新与「壳能不能起来」「弹窗归谁」是同一层的事。放进 core 就要多一条 IPC 通道，
+//   而那条通道平时不用、只在有事时用 —— 那种通道最容易坏，且坏了没人发现。
+// ★ 为什么不引 JSON 库：C#5 编译、不许加 NuGet（和 HIdent 同样的理由）。
+//   但 **不能复用 HIdent.JsonRaw**：它的转义处理是「跳过反斜杠」，\n 会变成字面的 n，
+//   而 release notes 的换行正是 \n —— 复用它等于把所有说明压成一行。见 JsonStr。
+// ═══════════════════════════════════════════════════════════════════════════
+static class Updater
+{
+    const string DEFAULT_API = "https://api.github.com/repos/cyanwell/dsh-agent-soul/releases/latest";
+    const string STATE_FILE = "update-state.json";
+    const int CHECK_INTERVAL_SEC = 86400;   // 每 24 小时最多查一次
+    const int NET_TIMEOUT_MS = 9000;        // 连不通就 9 秒放弃，绝不久等
+
+    static string _stateDir = null;
+
+    // 状态文件放哪：优先 %LOCALAPPDATA%\AgentSoul，**不可写就退到 TEMP**。
+    // ★ 判据用 SLog.CanWriteDir（真写探针），不用 Directory.Exists ——
+    //   这正是 1.0.65 那个 E_UNEXPECTED 的形状：目录存在 ≠ 能写。
+    static string StateDir()
+    {
+        if (_stateDir != null) return _stateDir;
+        string baseDir = Environment.GetEnvironmentVariable("AGENT_SOUL_SHELL_HOME");
+        if (string.IsNullOrEmpty(baseDir))
+        {
+            baseDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AgentSoul");
+        }
+        string dir = baseDir;
+        string why;
+        if (!SLog.CanWriteDir(baseDir, out why))
+        {
+            dir = Path.Combine(Path.GetTempPath(), "AgentSoul");
+            try { Directory.CreateDirectory(dir); } catch { }
+            SLog.W("update: 状态目录不可写（" + why + "）→ 改用 " + dir);
+        }
+        _stateDir = dir;
+        return _stateDir;
+    }
+
+    static long NowSec()
+    {
+        DateTime epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        return (long)(DateTime.UtcNow - epoch).TotalSeconds;
+    }
+
+    static string StatePath() { return Path.Combine(StateDir(), STATE_FILE); }
+
+    static string ReadState(string key)
+    {
+        try
+        {
+            string p = StatePath();
+            if (!File.Exists(p)) return null;
+            return JsonStr(File.ReadAllText(p, Encoding.UTF8), key);
+        }
+        catch { return null; }
+    }
+
+    static string JsonQuote(string s)
+    {
+        if (s == null) s = "";
+        StringBuilder sb = new StringBuilder();
+        sb.Append('"');
+        int i;
+        for (i = 0; i < s.Length; i++)
+        {
+            char c = s[i];
+            if (c == '"' || c == '\\') { sb.Append('\\'); sb.Append(c); }
+            else if (c == '\n') sb.Append("\\n");
+            else if (c == '\r') sb.Append("\\r");
+            else sb.Append(c);
+        }
+        sb.Append('"');
+        return sb.ToString();
+    }
+
+    static void WriteState(string skipVersion, long lastCheck)
+    {
+        try
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("{\"lastCheck\":").Append(lastCheck);
+            sb.Append(",\"skipVersion\":").Append(JsonQuote(skipVersion));
+            sb.Append("}");
+            File.WriteAllText(StatePath(), sb.ToString(), new UTF8Encoding(false));
+        }
+        catch (Exception ex)
+        {
+            // 记不住不是致命错：最坏结果是下次启动再弹一次。但**要留痕**，不然又是一条静默失败的路径。
+            SLog.W("update: 状态没写进去（" + ex.GetType().Name + ": " + ex.Message + "）");
+        }
+    }
+
+    /// 用户选了「以后再说」/ 直接关窗 → 记住这个版本，别再来烦他。
+    public static void WriteSkip(string version)
+    {
+        long last = 0;
+        string ls = ReadState("lastCheck");
+        if (ls != null) { long t; if (long.TryParse(ls, out t)) last = t; }
+        WriteState(version, last);
+        SLog.W("update: 已记住「以后再说」-> " + version);
+    }
+
+    /// 正确的 JSON 字符串取值（支持 \n \r \t \b \f \" \\ \/ \uXXXX）。
+    /// ★ 这是 HIdent.JsonRaw 的**专用替代品**，只给 release notes 用。
+    static string JsonStr(string body, string name)
+    {
+        if (body == null) return null;
+        string needle = "\"" + name + "\"";
+        int i = body.IndexOf(needle, StringComparison.Ordinal);
+        if (i < 0) return null;
+        int j = i + needle.Length;
+        while (j < body.Length && char.IsWhiteSpace(body[j])) j++;
+        if (j >= body.Length || body[j] != ':') return null;
+        j++;
+        while (j < body.Length && char.IsWhiteSpace(body[j])) j++;
+        if (j >= body.Length || body[j] != '"') return null;
+        j++;
+        StringBuilder sb = new StringBuilder();
+        while (j < body.Length)
+        {
+            char c = body[j];
+            if (c == '"') break;
+            if (c == '\\' && j + 1 < body.Length)
+            {
+                j++;
+                char e = body[j];
+                if (e == 'n') sb.Append('\n');
+                else if (e == 'r') sb.Append('\r');
+                else if (e == 't') sb.Append('\t');
+                else if (e == 'b') sb.Append('\b');
+                else if (e == 'f') sb.Append('\f');
+                else if (e == 'u' && j + 4 < body.Length)
+                {
+                    int code;
+                    string hex = body.Substring(j + 1, 4);
+                    if (int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, null, out code))
+                    {
+                        sb.Append((char)code);
+                        j += 4;
+                    }
+                }
+                else sb.Append(e);   // \"  \\  \/ 都落这里
+                j++;
+                continue;
+            }
+            sb.Append(c);
+            j++;
+        }
+        return sb.ToString();
+    }
+
+    /// GitHub API 专用 GET：要 User-Agent（不带就 403），且允许重定向（仓库改名时 301）。
+    /// ★ 不复用 ShellForm.HttpGet 是有意的：那个为了健康检查刻意的 AllowAutoRedirect=false，
+    ///   为本次需求去改它，等于拿启动链的行为给一个新功能让路。
+    static bool HttpGetGitHub(string url, out int status, out string body)
+    {
+        status = 0;
+        body = "";
+        try
+        {
+            HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
+            req.Method = "GET";
+            req.Timeout = NET_TIMEOUT_MS;
+            req.ReadWriteTimeout = NET_TIMEOUT_MS;
+            req.KeepAlive = false;
+            req.Proxy = null;
+            req.AllowAutoRedirect = true;
+            req.UserAgent = "AgentSoul-Shell-UpdateCheck";
+            req.Accept = "application/vnd.github+json";
+            using (HttpWebResponse res = (HttpWebResponse)req.GetResponse())
+            {
+                status = (int)res.StatusCode;
+                using (StreamReader sr = new StreamReader(res.GetResponseStream(), Encoding.UTF8))
+                    body = sr.ReadToEnd();
+            }
+            return status == 200;
+        }
+        catch (WebException we)
+        {
+            HttpWebResponse r = we.Response as HttpWebResponse;
+            if (r != null) { status = (int)r.StatusCode; try { r.Close(); } catch { } }
+            return false;
+        }
+        catch { return false; }
+    }
+
+    /// 从界面就绪那一刻被调用。**立刻返回**，全部工作在后台线程。
+    public static void Schedule(ShellForm owner, ShellSettings s)
+    {
+        if (!s.UpdateCheck)
+        {
+            SLog.W("update: 已关闭（AGENT_SOUL_NO_UPDATE_CHECK）");
+            return;
+        }
+        if (string.IsNullOrEmpty(s.CurrentVersion))
+        {
+            SLog.W("update: 当前版本号读不出来，跳过检测（不是错误，只是没法比较）");
+            return;
+        }
+        try
+        {
+            Thread t = new Thread(new ThreadStart(delegate { Run(owner, s); }));
+            t.IsBackground = true;
+            t.Name = "update-check";
+            t.Start();
+            SLog.W("update: 后台线程已起（当前版本 " + s.CurrentVersion + "）");
+        }
+        catch (Exception ex)
+        {
+            SLog.W("update: 线程起不来 " + ex.GetType().Name + ": " + ex.Message);
+        }
+    }
+
+    static void Run(ShellForm owner, ShellSettings s)
+    {
+        try
+        {
+            // ── 频率控制：24 小时内查过就不再查 ──
+            long last = 0;
+            string ls = ReadState("lastCheck");
+            if (ls != null) { long t; if (long.TryParse(ls, out t)) last = t; }
+            string skip = ReadState("skipVersion");
+            long now = NowSec();
+            if (last > 0 && (now - last) < CHECK_INTERVAL_SEC)
+            {
+                SLog.W("update: 上次检查在 " + ((now - last) / 3600) + " 小时内，跳过");
+                return;
+            }
+
+            // 起来之后再查 —— 别和 WebView2 初始化、core 启动抢资源
+            Thread.Sleep(2500);
+
+            string api = Environment.GetEnvironmentVariable("AGENT_SOUL_UPDATE_API");
+            if (string.IsNullOrEmpty(api)) api = DEFAULT_API;
+
+            int st = 0;
+            string body = "";
+            bool ok = HttpGetGitHub(api, out st, out body);
+            SLog.W("update: GET " + api + " -> ok=" + ok + " status=" + st
+                + " bytes=" + (body == null ? 0 : body.Length));
+            if (!ok)
+            {
+                // ★ 断网 / 被墙 / 限流：**静默**。只记一次 lastCheck，别每次启动都去撞墙。
+                WriteState(skip, now);
+                return;
+            }
+
+            string tag = JsonStr(body, "tag_name");
+            string notes = JsonStr(body, "body");
+            string page = JsonStr(body, "html_url");
+            if (tag == null || tag.Trim().Length == 0)
+            {
+                SLog.W("update: 响应里没有 tag_name，跳过");
+                WriteState(skip, now);
+                return;
+            }
+            string latest = tag.Trim();
+            if (latest.Length > 1 && (latest[0] == 'v' || latest[0] == 'V')) latest = latest.Substring(1);
+
+            WriteState(skip, now);
+
+            int cmp = ShellSettings.CompareVersion(latest, s.CurrentVersion);
+            if (cmp <= 0)
+            {
+                SLog.W("update: 已是最新（当前 " + s.CurrentVersion + "，远端 " + latest + "）");
+                return;
+            }
+            if (skip != null && skip == latest)
+            {
+                SLog.W("update: 用户选过「以后再说」跳过 " + latest + "，本次不打扰");
+                return;
+            }
+
+            SLog.W("update: 发现新版本 " + latest + "（当前 " + s.CurrentVersion + "）→ 弹窗"
+                + " notes=" + (notes == null ? 0 : notes.Length) + " chars");
+            try
+            {
+                owner.BeginInvoke((MethodInvoker)delegate
+                {
+                    try { UpdateForm.Present(owner, s.CurrentVersion, latest, notes, page); }
+                    catch (Exception ex2)
+                    {
+                        SLog.W("update: 弹窗失败 " + ex2.GetType().Name + ": " + ex2.Message);
+                    }
+                });
+            }
+            catch (Exception ex3)
+            {
+                SLog.W("update: BeginInvoke 失败 " + ex3.GetType().Name + ": " + ex3.Message);
+            }
+        }
+        catch (Exception ex)
+        {
+            SLog.W("update: 检测异常 " + ex.GetType().Name + ": " + ex.Message);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 「发现新版本」窗口
+//   ★ 只读信息 + 两个出口：去下载（开浏览器）/ 以后再说（关掉，并记住别再提）。
+//   ★ 没有「下载」也没有「安装」 —— 那是用户自己的事，壳不代劳。
+// ═══════════════════════════════════════════════════════════════════════════
+class UpdateForm : Form
+{
+    string pageUrl;
+    string latestVersion;
+
+    public static void Present(Form owner, string cur, string latest, string notes, string pageUrl)
+    {
+        UpdateForm f = new UpdateForm();
+        f.pageUrl = pageUrl;
+        f.latestVersion = latest;
+        f.Text = "发现新版本 " + latest;
+        f.Width = 680;
+        f.Height = 600;
+        f.MinimumSize = new Size(520, 400);
+        f.StartPosition = FormStartPosition.CenterParent;
+        f.BackColor = Color.FromArgb(22, 24, 28);
+        f.ForeColor = Color.FromArgb(220, 228, 238);
+        f.ShowIcon = false;
+        f.MaximizeBox = false;
+        f.MinimizeBox = false;
+        f.ShowInTaskbar = false;
+
+        TableLayoutPanel t = new TableLayoutPanel();
+        t.Dock = DockStyle.Fill;
+        t.ColumnCount = 1;
+        t.RowCount = 4;
+        t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        t.RowStyles.Add(new RowStyle(SizeType.Absolute, 64F));
+        t.RowStyles.Add(new RowStyle(SizeType.Absolute, 34F));
+        t.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        t.RowStyles.Add(new RowStyle(SizeType.Absolute, 66F));
+
+        Label title = new Label();
+        title.Dock = DockStyle.Fill;
+        title.AutoSize = false;
+        title.TextAlign = ContentAlignment.MiddleLeft;
+        title.Padding = new Padding(26, 0, 26, 0);
+        title.Font = new Font("Microsoft YaHei", 17F, FontStyle.Bold);
+        title.ForeColor = Color.FromArgb(140, 205, 255);
+        title.Text = "有新版本 " + latest;
+        t.Controls.Add(title, 0, 0);
+
+        Label sub = new Label();
+        sub.Dock = DockStyle.Fill;
+        sub.AutoSize = false;
+        sub.TextAlign = ContentAlignment.MiddleLeft;
+        sub.Padding = new Padding(26, 0, 26, 0);
+        sub.Font = new Font("Microsoft YaHei", 9.5F);
+        sub.ForeColor = Color.FromArgb(150, 162, 176);
+        sub.Text = "你正在用 " + cur + " · 最新是 " + latest
+            + "。这里只做提示，不会替你下载或安装。";
+        t.Controls.Add(sub, 0, 1);
+
+        Panel mid = new Panel();
+        mid.Dock = DockStyle.Fill;
+        mid.Padding = new Padding(26, 6, 26, 6);
+        mid.BackColor = Color.FromArgb(16, 18, 22);
+
+        RichTextBox rtb = new RichTextBox();
+        rtb.Dock = DockStyle.Fill;
+        rtb.ReadOnly = true;
+        rtb.BorderStyle = BorderStyle.None;
+        rtb.BackColor = Color.FromArgb(16, 18, 22);
+        rtb.ForeColor = Color.FromArgb(206, 214, 224);
+        rtb.Font = new Font("Microsoft YaHei", 10F);
+        rtb.WordWrap = true;
+        rtb.ScrollBars = RichTextBoxScrollBars.Vertical;
+        rtb.DetectUrls = true;
+        rtb.Text = "";
+        RenderNotes(rtb, notes);
+        rtb.SelectionStart = 0;
+        rtb.SelectionLength = 0;
+        mid.Controls.Add(rtb);
+        t.Controls.Add(mid, 0, 2);
+
+        Panel bottom = new Panel();
+        bottom.Dock = DockStyle.Fill;
+        bottom.Padding = new Padding(26, 15, 26, 15);
+
+        Button later = new Button();
+        later.Text = "以后再说";
+        later.Width = 116;
+        later.Height = 34;
+        later.Dock = DockStyle.Right;
+        later.FlatStyle = FlatStyle.Flat;
+        later.FlatAppearance.BorderSize = 1;
+        later.FlatAppearance.BorderColor = Color.FromArgb(70, 78, 90);
+        later.BackColor = Color.FromArgb(34, 38, 44);
+        later.ForeColor = Color.FromArgb(206, 214, 224);
+        later.Font = new Font("Microsoft YaHei", 9.5F);
+        later.Click += delegate { f.Close(); };
+        bottom.Controls.Add(later);
+
+        Button go = new Button();
+        go.Text = "去下载";
+        go.Width = 116;
+        go.Height = 34;
+        go.Dock = DockStyle.Right;
+        go.FlatStyle = FlatStyle.Flat;
+        go.FlatAppearance.BorderSize = 0;
+        go.BackColor = Color.FromArgb(56, 132, 212);
+        go.ForeColor = Color.White;
+        go.Font = new Font("Microsoft YaHei", 9.5F, FontStyle.Bold);
+        go.Click += delegate { f.OpenPage(); f.Close(); };
+        bottom.Controls.Add(go);
+
+        Label hint = new Label();
+        hint.Dock = DockStyle.Fill;
+        hint.TextAlign = ContentAlignment.MiddleLeft;
+        hint.Font = new Font("Microsoft YaHei", 8.5F);
+        hint.ForeColor = Color.FromArgb(120, 130, 142);
+        hint.Text = "关闭这个窗口不会改变任何东西";
+        bottom.Controls.Add(hint);
+
+        t.Controls.Add(bottom, 0, 3);
+        f.Controls.Add(t);
+
+        // ★ 关窗（X 或「以后再说」或「去下载」）都记住这个版本 ——
+        //   不记住的话，用户每启动一次就被问一次，那就不叫提示，叫骚扰。
+        f.FormClosed += delegate
+        {
+            try { Updater.WriteSkip(f.latestVersion); } catch { }
+        };
+
+        // ★ 诊断（2026-11-18）：ShowDialog 失败时是**没有异常也没有窗口**的形态，
+        //   光看「弹窗」那行日志会以为成功了。所以前后各留一处，且强制先建句柄。
+        try { SLog.W("update: 准备弹窗 handle=" + f.Handle.ToInt64() + " visible=" + f.Visible); }
+        catch (Exception hex) { SLog.W("update: 建句柄失败 " + hex.GetType().FullName + ": " + hex.Message); }
+        try
+        {
+            System.Windows.Forms.DialogResult dr = f.ShowDialog(owner);
+            SLog.W("update: ShowDialog 已返回 result=" + dr.ToString());
+        }
+        catch (Exception sex)
+        {
+            SLog.W("update: ShowDialog 抛异常 " + sex.GetType().FullName + ": " + sex.Message);
+        }
+    }
+
+    void OpenPage()
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(pageUrl))
+            {
+                MessageBox.Show("这个版本没有可打开的页面地址。\n\n可以自己到 GitHub 仓库的 Releases 页看。",
+                    "AgentSoul", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            SLog.W("update: 打开 " + pageUrl);
+            Process.Start(pageUrl);
+        }
+        catch (Exception ex)
+        {
+            SLog.W("update: 打开页面失败 " + ex.GetType().Name + ": " + ex.Message);
+            MessageBox.Show("没能打开浏览器。\n\n可以手动访问：\n" + pageUrl,
+                "AgentSoul", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    // ── 极简 markdown → RichTextBox ──────────────────────────────────────
+    //   支持：##/###/#### 标题、- / * 列表、> 引用、**加粗**、`行内代码`、
+    //        ``` 围栏、|---| 表格分隔线、--- 分隔。
+    //   ★★ 关键（2026-11-18 用真实 release notes 测出来的）：
+    //      **行内标记必须能跨行配对**。真实说明里这种粗体天然跨行：
+    //        **句子级语义检索 10.2-12.1 s → 291-353 ms；长文本语义检索 10.4 s →
+    //         189-247 ms。**
+    //      按行独立解析会找不到闭合，于是把 ** 原样显示出来 —— 第一版就是这么错的。
+    //      现在用「跨行保持的 bold/code 状态」扫，空行才重置。
+    //   ★ 不追求符合 markdown 规范，只求「读得下去、不出现裸标记」。
+    static void RenderNotes(RichTextBox rtb, string md)
+    {
+        rtb.Clear();
+        if (string.IsNullOrEmpty(md))
+        {
+            rtb.AppendText("（这个版本没有写更新说明。）");
+            return;
+        }
+
+        string norm = md.Replace("\r\n", "\n").Replace("\r", "\n");
+        string[] lines = norm.Split('\n');
+
+        Font fBody = new Font("Microsoft YaHei", 10F);
+        Font fH2 = new Font("Microsoft YaHei", 12.5F, FontStyle.Bold);
+        Font fH3 = new Font("Microsoft YaHei", 11F, FontStyle.Bold);
+        Font fCode = new Font("Consolas", 9.5F);
+
+        bool inFence = false;
+        bool bold = false;
+        bool code = false;
+
+        int li;
+        for (li = 0; li < lines.Length; li++)
+        {
+            string line = lines[li];
+            string t = line.Trim();
+
+            if (t.StartsWith("```"))
+            {
+                inFence = !inFence;
+                bold = false;
+                code = false;
+                continue;
+            }
+            if (inFence)
+            {
+                AppendStyled(rtb, line, fCode, Color.FromArgb(150, 170, 190));
+                rtb.AppendText("\n");
+                continue;
+            }
+            if (t.Length == 0)
+            {
+                bold = false;
+                code = false;
+                rtb.AppendText("\n");
+                continue;
+            }
+            if (t.StartsWith("|") && t.IndexOf("---") >= 0) continue;
+
+            if (t.StartsWith("#### "))
+            {
+                EmitInline(rtb, t.Substring(5), fH3, Color.FromArgb(190, 214, 236), ref bold, ref code);
+                rtb.AppendText("\n");
+                continue;
+            }
+            if (t.StartsWith("### "))
+            {
+                EmitInline(rtb, t.Substring(4), fH3, Color.FromArgb(190, 214, 236), ref bold, ref code);
+                rtb.AppendText("\n");
+                continue;
+            }
+            if (t.StartsWith("## "))
+            {
+                rtb.AppendText("\n");
+                EmitInline(rtb, t.Substring(3), fH2, Color.FromArgb(140, 205, 255), ref bold, ref code);
+                rtb.AppendText("\n");
+                continue;
+            }
+            if (t.StartsWith("# "))
+            {
+                rtb.AppendText("\n");
+                EmitInline(rtb, t.Substring(2), fH2, Color.FromArgb(140, 205, 255), ref bold, ref code);
+                rtb.AppendText("\n");
+                continue;
+            }
+            if (t == "---" || t == "***" || t == "___")
+            {
+                rtb.AppendText("\n");
+                continue;
+            }
+            if (t.StartsWith("> "))
+            {
+                rtb.AppendText("  ");
+                EmitInline(rtb, t.Substring(2), fBody, Color.FromArgb(176, 190, 206), ref bold, ref code);
+                rtb.AppendText("\n");
+                continue;
+            }
+            if (t.StartsWith("- ") || t.StartsWith("* ") || t.StartsWith("+ "))
+            {
+                rtb.AppendText("  · ");
+                EmitInline(rtb, t.Substring(2), fBody, Color.FromArgb(206, 214, 224), ref bold, ref code);
+                rtb.AppendText("\n");
+                continue;
+            }
+            EmitInline(rtb, t, fBody, Color.FromArgb(206, 214, 224), ref bold, ref code);
+            rtb.AppendText("\n");
+        }
+    }
+
+    static void AppendStyled(RichTextBox rtb, string text, Font font, Color color)
+    {
+        int start = rtb.TextLength;
+        rtb.AppendText(text);
+        rtb.Select(start, text.Length);
+        rtb.SelectionFont = font;
+        rtb.SelectionColor = color;
+        rtb.Select(rtb.TextLength, 0);
+    }
+
+    // 单趟扫描一行，bold/code 状态跨行保持（ref 传入）。
+    static void EmitInline(RichTextBox rtb, string text, Font baseFont, Color baseColor, ref bool bold, ref bool code)
+    {
+        StringBuilder buf = new StringBuilder();
+        int i = 0;
+        int n = text.Length;
+        while (i < n)
+        {
+            if (i + 1 < n && text[i] == '*' && text[i + 1] == '*')
+            {
+                FlushRun(rtb, buf, baseFont, baseColor, bold, code);
+                bold = !bold;
+                i += 2;
+                continue;
+            }
+            if (text[i] == '`')
+            {
+                FlushRun(rtb, buf, baseFont, baseColor, bold, code);
+                code = !code;
+                i += 1;
+                continue;
+            }
+            buf.Append(text[i]);
+            i++;
+        }
+        FlushRun(rtb, buf, baseFont, baseColor, bold, code);
+    }
+
+    static void FlushRun(RichTextBox rtb, StringBuilder buf, Font baseFont, Color baseColor, bool bold, bool code)
+    {
+        if (buf.Length == 0) return;
+        string seg = buf.ToString();
+        buf.Length = 0;
+        int start = rtb.TextLength;
+        rtb.AppendText(seg);
+        rtb.Select(start, seg.Length);
+        if (code)
+        {
+            rtb.SelectionFont = new Font("Consolas", 9.5F);
+            rtb.SelectionColor = Color.FromArgb(150, 200, 240);
+        }
+        else if (bold)
+        {
+            rtb.SelectionFont = new Font(baseFont, FontStyle.Bold);
+            rtb.SelectionColor = Color.FromArgb(234, 242, 250);
+        }
+        else
+        {
+            rtb.SelectionFont = baseFont;
+            rtb.SelectionColor = baseColor;
+        }
+        rtb.Select(rtb.TextLength, 0);
     }
 }

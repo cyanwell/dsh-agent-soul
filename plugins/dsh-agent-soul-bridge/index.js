@@ -56,7 +56,7 @@ export const name = 'dsh-agent-soul-bridge'
 export const inject = ['webServer']
 
 // ★ 发布版本：与 package.json.version 保持一致。
-const VERSION = '0.1.6'
+const VERSION = '0.1.7'
 const TAG = '[agent-soul-bridge]'
 
 export const DEFAULTS = {
@@ -2417,15 +2417,43 @@ export function apply (ctx, config) {
   }
 
   // ── 每轮上报 state ──────────────────────────────────────────
-  function reportState (agent) {
+  //
+  // ★★★ 2026-11-21：从「全局一条」改成「按会话一条」。
+  //
+  //   旧版只有 st.lastStateAt 一个节流时间戳，所以**不管哪个 agent 触发，一分钟内只报一次**。
+  //   配合「钩子拿不到 agent」那个缺陷，最终效果是：整台机器只有一个会话有 state，
+  //   v4 的按会话自主永远 UNKNOWN（用户报告 /api/autonomy 恒 UNKNOWN 就是这个）。
+  //
+  //   现在：节流按会话分开（st.lastStateAtBySession）；reportState 也必须拿到 agent 才按会话报。
+  //   拿不到 agent 时走 fallback —— 那时明确标 fallback:true，不混进按会话的账。
+  function reportState (agent, opts = {}) {
     if (!st.connected || !st.ws) return
     const now = Date.now()
-    if (now - st.lastStateAt < Number(cfg.stateMinGapMs || 0)) return
+    const fallback = opts.fallback === true || !(agent && agent.session)
+
+    // ★ 拿不到 agent 才退回「当前活着的那个」—— 并且**照样标 fallback**，不伪装成按会话。
+    let target = agent
+    if (!target) {
+      try {
+        const a = pickLiveAgent('').agent
+        if (a) target = a
+      } catch { /* 拿不到就报 null 会话 */ }
+    }
+
+    const sidRaw = target && target.session ? String(target.session.id || '') : ''
+    if (fallback) st.fallbackReports = (st.fallbackReports || 0) + 1
+
+    // 节流按会话：不同会话各报各的，不再互相把对方挤掉
+    const key = sidRaw || '__no_session__'
+    if (!st.lastStateAtBySession) st.lastStateAtBySession = Object.create(null)
+    const prev = st.lastStateAtBySession[key] || 0
+    if (now - prev < Number(cfg.stateMinGapMs || 0)) return
+    st.lastStateAtBySession[key] = now
     st.lastStateAt = now
 
-    const w = readWatermark(agent)
+    const w = readWatermark(target)
     st.lastWatermarkSource = w.source
-    const sid = agent && agent.session ? String(agent.session.id || '') : ''
+    const sid = sidRaw
 
     // ★ 2026-11-07：outputTokens 接上了，turnId 也换成真的
     const u = readUsage(agent)
@@ -2456,6 +2484,11 @@ export function apply (ctx, config) {
       //   null = 这一路拿不到（不编造）。
       sessionTitle: w.title === undefined ? null : w.title,
       isSub: w.isSub === undefined ? null : w.isSub,
+      // ★ 2026-11-21：这条 state 从哪条钩子出来的、是不是按会话的。
+      //   v4 拿它区分「按会话的真实上报」与「拿不到 agent 时的兜底上报」——
+      //   后者不该被当成「这个会话活跃过」的证据。
+      stateVia: opts.via || null,
+      fallback,
       at: new Date(now).toISOString(),
     }
     if (w.tokens == null) msg.note = w.reason
@@ -3291,23 +3324,62 @@ export function apply (ctx, config) {
 
   // ── 每轮一次的钩子 ───────────────────────────────────────────
   //
-  // ★ 借 systemPrompt.context 的 render 当「每轮触发一次」的钩子：它在每次组装提示时被调用。
-  //   **返回空串** —— 一个字都不往提示里塞。dsh-yanqing-memory 已经用同一条路做过「按轮注入」，
-  //   所以这条路在本机是验证过的（那条路失败也不会伤到对话：整个 render 包在 try 里）。
+  // ★★★ 2026-11-21 换钩子：systemPrompt.context → agent/pre-step。
+  //
+  //   病因（用户报告 + 源码核实，两边对得上）：
+  //     原来借用 `systemPrompt.context` 的 render 当钩子，并读 `context.agent`。
+  //     但 `AssembleContext`（dsh-system-prompt/lib/types/index.d.ts:37-45）**只有两个字段**：
+  //         scope?: ScopeKey
+  //         signal?: AbortSignal
+  //     —— **没有 agent，也没有 session**。于是：
+  //        报告实测「重启后第一轮 sessionId 为 null（agent 根本没拿到）」；
+  //        退回 pickLiveAgent()/roots[0] 又只能给「当前活着的某一个」，
+  //        结果是**整台机器只上报一条会话**，v4 按会话判定的自主永远 UNKNOWN。
+  //     这不是节流问题、不是兜底顺序问题 —— 是**这个钩子根本拿不到主角**。
+  //
+  //   正解：`agent/pre-step` 的 payload 里**明确有 agent**
+  //   （dsh-agent/lib/types/runtime-types.d.ts:313-319：
+  //     { agent: Agent; messages; turn; step; signal }）。
+  //   而且它按 agent 作用域派发（ScopeFiltered），每轮每个 agent 各触发一次 ——
+  //   正好就是「按会话上报」需要的东西。
+  //
+  //   ★ 两条通道都留着：
+  //     · agent/pre-step —— 主路，带 agent，能按会话上报
+  //     · systemPrompt.context —— 退路，只在 pre-step 装不上时用（拿不到 agent 时退回 pickLiveAgent，
+  //       至少让「有宿主在跑」这件事可见；那时回执里 sessionId 会带 source 标记，不假装是按会话的）
   if (cfg.statePerTurn !== false) {
+    let preStepOk = false
     try {
-      ctx.inject(['systemPrompt'], (scope) => {
-        scope.systemPrompt.context({
-          name: 'agent-soul:state-probe',
-          order: 900,
-          text: (context) => {
-            try { reportState(context && context.agent) } catch { /* 报不出去也不许影响这一轮 */ }
-            return ''
-          },
+      if (typeof ctx.on === 'function') {
+        ctx.on('agent/pre-step', async (payload, next) => {
+          try { reportState(payload && payload.agent, { via: 'agent/pre-step' }) } catch { /* 报不出去也不许影响这一轮 */ }
+          return next()
         })
-      })
+        preStepOk = true
+        st.stateHook = 'agent/pre-step'
+        log('每轮上报走 agent/pre-step（带 agent，可按会话上报）')
+      }
     } catch (e) {
-      warn('装不上每轮钩子（state 不会上报，其余照常）：' + String((e && e.message) || e))
+      warn('装不上 agent/pre-step（回退 systemPrompt.context，那时只能报一个会话）：' + String((e && e.message) || e))
+    }
+    if (!preStepOk) {
+      try {
+        ctx.inject(['systemPrompt'], (scope) => {
+          scope.systemPrompt.context({
+            name: 'agent-soul:state-probe',
+            order: 900,
+            text: () => {
+              // ★ 这条路拿不到 agent（AssembleContext 没有该字段）—— 退回「当前活着的那个」，
+              //   并在 state 里标 fallback:true，让 v4 知道这条不是按会话的。
+              try { reportState(null, { via: 'systemPrompt.context', fallback: true }) } catch { /* 同上 */ }
+              return ''
+            },
+          })
+        })
+        st.stateHook = 'systemPrompt.context(fallback)'
+      } catch (e) {
+        warn('装不上每轮钩子（state 不会上报，其余照常）：' + String((e && e.message) || e))
+      }
     }
   }
 
