@@ -390,3 +390,19 @@ test('⑩ context/candidates 与 pruner 必须用同一套判据（surface.nodes
   const item = got.items.find((x) => x.seq === 21)
   assert.ok(item.len > 1000, 'len 恒 0 等于没排序，实际 ' + item.len)
 })
+
+test('⑪ candidates 的 len 必须按真实形状算出来（不能恒 0）', async () => {
+  // ★ 第五处两层假设：context-surgeon 算长度时读 content[0].content（两层），
+  //   真实帧是一层 → len 恒 0 → "沙袋优先"排序等于没排，而且看不出错。
+  const { makeContextSurgeon } = await import('../../context-surgeon.mjs')
+  const fx = makeSession(SID, [
+    { seq: 20, kind: 'call', callId: 'call-20' },
+    { seq: 21, kind: 'result', callId: 'call-20', text: BIG('A') },
+  ])
+  const surg = makeContextSurgeon({ session: fx.session }, SID)
+  const got = surg.candidates(10)
+  assert.equal(got.ok, true)
+  const item = got.items.find((x) => x.seq === 21)
+  assert.ok(item, '在 surface 上的必须列出来')
+  assert.ok(item.len > 1000, '★ len 恒 0 等于没排序，实际 ' + item.len)
+})

@@ -92,19 +92,46 @@ export function makeContextSurgeon (agent, sessionId) {
       if (!ev) continue
       if (String(ev.type) !== 'tool/result') continue
       if (hasPruneMarkerLike(ev)) continue
-      let len = 0
-      try {
-        const d = ev.data || {}
-        const outer = d.message && Array.isArray(d.message.content) ? d.message.content[0] : null
-        const blocks = outer && Array.isArray(outer.content) ? outer.content : null
-        if (blocks) { for (const b of blocks) { if (b && typeof b.text === 'string') len += b.text.length } } else if (Array.isArray(d.content)) {
-          for (const b of d.content) { if (b && typeof b.text === 'string') len += b.text.length }
-        }
-      } catch {}
+      // ★★★ 2026-11-21（第五处）：**这里也踩了同一个两层假设。**
+      //   上一版读 `data.message.content[0].content`（两层），真实帧是一层 →
+      //   blocks 为 null → 落到 `d.content`（也 undefined）→ **len 恒 0**。
+      //   症状：candidates 列得出 seq（onSurface 对），但每条 len 都是 0 ——
+      //   "沙袋优先"排序等于没排，而且看不出哪里错。
+      //   ★ 判据与 pruner 那边统一：**一层/两层都认，且只有这一处取块。**
+      const len = textLengthOf(ev)
       out.push({ seq, len, onSurface: true })
     }
     out.sort((a, b) => b.len - a.len)
     return { ok: true, surfaceSize: nodes.length, items: out.slice(0, max).sort((a, b) => a.seq - b.seq) }
+  }
+
+  /**
+   * 取一条 tool/result 的正文长度（Unicode 码点约等于 length，够用于排序）。
+   * ★ 2026-11-21：与 pruner 的 contentBlocksOf 同一口径 —— 一层/两层都认。
+   *   这里不 import pruner 的模块（桥不该依赖它的内部文件），但口径必须一致。
+   */
+  function textLengthOf (ev) {
+    try {
+      const d = ev.data || {}
+      const flat = d.message && Array.isArray(d.message.content) ? d.message.content : null
+      if (Array.isArray(flat) && flat.length > 0) {
+        const first = flat[0]
+        const blocks = (first && first.type === 'tool-result' && Array.isArray(first.content))
+          ? first.content
+          : (flat.every((b) => b && typeof b === 'object' && typeof b.type === 'string') ? flat : null)
+        if (blocks) {
+          let n = 0
+          for (const b of blocks) if (b && typeof b.text === 'string') n += b.text.length
+          return n
+        }
+      }
+      if (Array.isArray(d.content)) {
+        let n = 0
+        for (const b of d.content) if (b && typeof b.text === 'string') n += b.text.length
+        return n
+      }
+    } catch {}
+    return 0
   }
 
   /** 该节点是否已带门牌（此前剪过）。判据只看文本里有没有 log:<sid>#seq= 形态。 */

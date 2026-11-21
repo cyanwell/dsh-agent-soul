@@ -181,3 +181,15 @@ pruner 相关的历史评估和独立复核保留在 `_verify`，其中依赖外
   · 回执加 `surfaceSize`，让「候选 0 个」能对得上「surface 里确实没有 tool/result」。
 - 测试新增 ⑩：把一个 seq 从 surface 摘掉但事件留着，
   断言 candidates **不会**列出它、且 `len` 不是 0。全套 **90/90**。
+
+
+### 0.1.13 · 2026-11-21
+
+- **`context/candidates` 的 `len` 恒 0 —— 第五处两层假设。**
+  算长度时读 `data.message.content[0].content`（两层），真实帧是一层 →
+  `blocks` 为 null → 落到 `d.content`（也 undefined）→ **`len` 恒 0**。
+  症状：候选列得出来、`onSurface` 也对，但**每条 `len` 都是 0** ——
+  「沙袋优先」排序等于没排，而且看不出哪里错。
+  · 修：新增 `textLengthOf(ev)`，一层/两层都认（与 pruner 的 `contentBlocksOf` 同口径）。
+    ★ 桥不 import pruner 的内部文件（那是它的私产），但口径必须一致 —— 写在注释里。
+- 测试新增 ⑪：断言 candidates 的 `len` 不是 0。全套 **90 → 91**。

@@ -56,7 +56,7 @@ export const name = 'dsh-agent-soul-bridge'
 export const inject = ['webServer']
 
 // ★ 发布版本：与 package.json.version 保持一致。
-const VERSION = '0.1.12'
+const VERSION = '0.1.13'
 const TAG = '[agent-soul-bridge]'
 
 export const DEFAULTS = {
