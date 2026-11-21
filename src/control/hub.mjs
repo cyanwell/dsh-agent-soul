@@ -317,6 +317,14 @@ export class ControlHub {
         atMs: h.state.at,
         turn: h.state.turn ?? null,
         step: h.state.step ?? null,
+        // ★★★ 2026-11-21：桥 0.1.7 起会带这两个 —— **必须加进白名单**，否则发出去又被丢掉。
+        //   rec.state 是 `...m` 全量存的，但 snapshot 只挑白名单里的往外给；
+        //   这条注释上方 311-313 行早就写着「新字段不加进来，等于发出去又被丢掉」，
+        //   我这次就是又踩了一遍：stateVia 一直是 null，看上去像"桥没报"。
+        //   判据：stateVia=走哪条钩子（agent/pre-step | systemPrompt.context），
+        //        fallback=是不是拿不到 agent 时的兜底上报（那种不该当成"这个会话活跃过"的证据）。
+        stateVia: h.state.stateVia ?? null,
+        fallback: typeof h.state.fallback === 'boolean' ? h.state.fallback : null,
         at: new Date(h.state.at).toISOString(),
       } : null,
     }));

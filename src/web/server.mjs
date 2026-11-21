@@ -1753,9 +1753,20 @@ const payload = await statusCached({ config, store, persona, tools, autonomy, lo
       control: (() => {
         try {
           const snap = typeof control?.snapshot === 'function' ? control.snapshot() : null;
-          if (!snap || typeof snap !== 'object') return { ok: false, reason: '控制通道快照不可用' };
-          const hosts = Array.isArray(snap.hosts) ? snap.hosts : [];
-          const st = snap.state && typeof snap.state === 'object' ? snap.state : null;
+          // ★★★ 2026-11-21 修（我自己写错的第一版）：`hub.snapshot()` 返回的是**数组**
+          //   （hub.mjs:278 → `[...this.hosts.values()].map(...)`），**不是** { hosts, state }。
+          //   第一版按 `snap.hosts` 读 → 恒 undefined → hostCount 恒 0，
+          //   而实际上 DSH 的 ws 连接明明 Established。
+          //   ★ 教训与「派生表证明不了为什么没写」同族：**字段名猜错不会报错，只会永远给 0**。
+          const hosts = Array.isArray(snap) ? snap : (snap && Array.isArray(snap.hosts) ? snap.hosts : []);
+          if (!Array.isArray(hosts)) return { ok: false, reason: '控制通道快照形状不认识（不是数组）' };
+          // 每个 host 自带 state（hub 把 rec.state 挂在 host 上），不在顶层。
+          const withState = hosts.filter((h) => h && h.state && typeof h.state === 'object');
+          const latest = withState.sort((a, b) => {
+            const ta = Number(a.state.atMs) || 0;
+            const tb = Number(b.state.atMs) || 0;
+            return tb - ta;
+          })[0] || null;
           return {
             ok: true,
             hostCount: hosts.length,
@@ -1763,17 +1774,23 @@ const payload = await statusCached({ config, store, persona, tools, autonomy, lo
               id: h.id || null,
               host: h.host || null,
               caps: Array.isArray(h.caps) ? h.caps.slice() : [],
-              stubs: h.meta && Array.isArray(h.meta.stubs) ? h.meta.stubs.slice() : [],
+              stubs: Array.isArray(h.stubs) ? h.stubs.slice() : [],
               version: (h.meta && h.meta.version) || null,
+              calls: Number.isFinite(h.calls) ? h.calls : null,
+              failures: Number.isFinite(h.failures) ? h.failures : null,
+              lastError: h.lastError || null,
+              connectedAt: h.connectedAt || null,
+              // 每个宿主自己最近一条 state 的会话（多宿主时各有各的）
+              lastSessionId: (h.state && h.state.sessionId) || null,
             })),
-            // 最后一条按会话上报的 state —— 报告里「只上报一个会话」正是靠这个字段看出来的
-            lastState: st ? {
-              sessionId: st.sessionId || null,
-              at: st.at || null,
-              turnId: st.turnId || null,
+            // 全机器**最近**的一条按会话上报的 state —— 报告里「只上报一个会话」正是靠这个看出来的
+            lastState: latest ? {
+              hostId: latest.id || null,
+              sessionId: latest.state.sessionId || null,
+              turnId: latest.state.turnId || null,
               // ★ 0.1.7 起桥会带这两个：stateVia=走哪条钩子，fallback=是不是拿不到 agent 时的兜底
-              via: st.stateVia || null,
-              fallback: st.fallback === true,
+              via: latest.state.stateVia || null,
+              fallback: latest.state.fallback === true,
             } : null,
           };
         } catch (e) { return { ok: false, reason: String((e && e.message) || e).slice(0, 160) }; }
