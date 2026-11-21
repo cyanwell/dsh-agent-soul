@@ -537,14 +537,46 @@ static class Program
         string dir = Path.GetDirectoryName(self);
         Console.WriteLine("卸载 AgentSoul（目录 " + dir + "）…");
 
-        // 先停掉进程
+        // ★★★ 2026-11-21：**只杀自己安装目录下的进程**。
+        //
+        //   原来的写法是 Process.GetProcessesByName("AgentSoul") —— 按**镜像名**全杀，
+        //   不看路径。后果是实测出来的：
+        //     我在这台机器上跑"安装到临时目录 → 启动 → 卸载"的端到端验证，
+        //     卸载那一步把**生产环境正在跑的 AgentSoul 一并杀掉**了
+        //     （生产 data/shutdown.log 里多出一条 reason=exit:0）。
+        //   而卸载是用户天天会做的事 —— 于是"我在 A 目录试装一个，B 目录的实例被干掉了"。
+        //
+        //   ★ 判据只能用可执行文件路径：进程名全机器一样，路径才分得开。
+        //   ★ core 是 node.exe 起的子进程，会被壳自己的优雅退出带走；壳死后 core 也跟着退
+        //     （Shell.cs 里那个"父进程退出时我跟着退"的看门狗）。
+        //   所以这里只处理壳，按路径过滤；杀不到的**如实说**，不静默。
+        int stopped = 0;
+        int skipped = 0;
         try
         {
+            string selfDir = "";
+            try { selfDir = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar); } catch { }
             Process[] ps = Process.GetProcessesByName("AgentSoul");
-            for (int i = 0; i < ps.Length; i++) { try { ps[i].Kill(); } catch { } }
-            Console.WriteLine("  已停止 " + ps.Length + " 个进程");
+            for (int i = 0; i < ps.Length; i++)
+            {
+                bool mine = false;
+                try
+                {
+                    string exePath = ps[i].MainModule.FileName;
+                    if (!string.IsNullOrEmpty(exePath))
+                    {
+                        string exeDir = Path.GetFullPath(Path.GetDirectoryName(exePath)).TrimEnd(Path.DirectorySeparatorChar);
+                        mine = string.Equals(exeDir, selfDir, StringComparison.OrdinalIgnoreCase);
+                    }
+                }
+                catch { mine = false; }   // 读不到路径 = 不敢断定是自己的 → 不杀
+                if (!mine) { skipped++; continue; }
+                try { ps[i].Kill(); stopped++; } catch { }
+            }
+            Console.WriteLine("  已停止 " + stopped + " 个进程"
+                + (skipped > 0 ? "（另有 " + skipped + " 个 AgentSoul 不在本目录下，没动它）" : ""));
         }
-        catch { }
+        catch (Exception e) { Console.WriteLine("  停进程时出错（不影响删文件）：" + e.Message); }
 
         // ★★★ 卸载只删**程序文件**，用户的 config.json 与 data 留在原地。
         //
