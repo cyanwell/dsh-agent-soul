@@ -147,3 +147,20 @@ pruner 相关的历史评估和独立复核保留在 `_verify`，其中依赖外
   ★ 与 `hub.snapshot` 白名单漏字段**同一个形状**：白名单本身没错，错在「0 必须能自证原因」。
 - 测试新增 6 条：`M-34``M-35``M-36``M-37`（同源无 Origin 放行 / 坏 Origin 仍拒 / 未配 token 可通 / 非 loopback 拒）
   与 pruner 的 `⑦ dryRun 必须转发`、`⑧ 回执必须带诊断字段`。全套 **88/88**。
+
+### 0.1.11 · 2026-11-21
+
+- **pruner 回执加 `diagnosis`：每个 seq 为什么不合格，要写清。**
+  起因：线上连续三次 `framesAffected=0` / `noMatch=true`，而回执不说每个 seq 怎么不合格 ——
+  我换了三次 seq 才发现真正的原因是**挑的 seq 早就不在 surface 上了**。
+  · 判据必须两边都查：pruner 是看 `session.surface.nodes` 判「在不在区间」的，
+    而 `eventAt(seq)` 对**已移出 surface** 的 seq 照样返回事件（事件还在库里）。
+    只看 eventAt 会把「不在 surface 上」误报成「形状合格」—— 我第一次诊断就是这么被误导的。
+  · 回执新增：`diagnosis.surfaceSize` + 每个 seq 的
+    `onSurface` / `type` / `callId` / `hasMarker` / `supported` / `mixed` / `chars` / `why`。
+  · `why` 的取值分开且不合并：`no-event`（挑错 seq）/ `not-on-surface`（早剪过或不是 surface 节点）/
+    `not-tool-result` / `mixed-frame` / `unsupported-shape` / `ok`。
+    ★ 混成一个码就又要靠猜，而这次的成本是三轮。
+  · 适配器**不替 pruner 决策**：diagnosis 只翻译它看到的事实，剪不剪仍由 pruner 定。
+- 测试新增 ⑨：断言 `diagnosis` 存在、`surfaceSize` 正确、`onSurface` 能区分
+  「不在 surface 上」与「连事件都没有」。全套 **89/89**。

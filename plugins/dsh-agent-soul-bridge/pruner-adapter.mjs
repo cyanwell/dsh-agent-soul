@@ -144,6 +144,50 @@ export async function runTargetedCleanup (o = {}) {
   //   上一版这里只传了五个字段，dryRun 被吃掉 —— 调用方写 dryRun:true 以为「只解析」，
   //   实际是**真的动了刀**。pruner 侧（applyDrops:1067）明确有 dryRun 分支，
   //   是适配器把它拦在门外。这种「参数被静默吞掉」比报错坏得多：它看起来成功了。
+  // ★★★ 2026-11-21：**先自己量一遍区间，再交给 pruner**。
+  //   起因：线上连续三次 framesAffected=0 / noMatch=true，pruner 的 resolved 又说
+  //   inRange>0 —— 于是「有节点在区间里，但一个都不合格」。而回执**不说每个 seq 为什么不合格**，
+  //   我跑了三轮才看清。这一层用**同一份 contract**（pruner 的 context-contract.mjs）
+  //   给每个 seq 标一个原因码，写进回执的 diagnosis —— 不替 pruner 决策，只把它看到的翻译出来。
+  let diagnosis = null
+  try {
+    const contract = await import('file:///D:/AI/dsh-tools/dsh-yanqing-pruner/context-contract.mjs')
+    // ★★ 关键：pruner 是从 `session.surface.nodes` 判「在不在区间」，**不是**从 eventAt。
+    //   而 eventAt(seq) 对**已被移出 surface** 的 seq 照样能返回事件（事件还在库里）。
+    //   所以只看 eventAt 会把「这个 seq 早就不在 surface 上了」误报成「形状合格」——
+    //   那正是我第一次诊断时被误导的地方。这里必须两边都查。
+    let surfaceNodes = null
+    try { surfaceNodes = new Set([...session.surface.nodes].map(Number)) } catch { surfaceNodes = null }
+    const seen = []
+    for (let s = startSeq; s <= endSeq; s += 1) {
+      const onSurface = surfaceNodes ? surfaceNodes.has(s) : null
+      let ev
+      try { ev = session.eventAt(s) } catch { ev = undefined }
+      if (ev === undefined || ev === null) { seen.push({ seq: s, onSurface, why: 'no-event' }); continue }
+      if (onSurface === false) {
+        // 有事件、但不在 surface 上 —— pruner 根本看不见它，不会剪
+        seen.push({ seq: s, onSurface, type: typeof ev.type === 'string' ? ev.type : null, why: 'not-on-surface' })
+        continue
+      }
+      const type = typeof ev.type === 'string' ? ev.type : null
+      if (type !== 'tool/result') { seen.push({ seq: s, onSurface, type, why: 'not-tool-result' }); continue }
+      let c = null
+      try { c = contract.canonicalEventText(ev) } catch { c = null }
+      seen.push({
+        seq: s,
+        onSurface,
+        type,
+        callId: (contract.callIdOf ? (contract.callIdOf(ev) || null) : null),
+        hasMarker: contract.hasPruneMarker ? contract.hasPruneMarker(ev) === true : null,
+        supported: c ? c.supported === true : null,
+        mixed: c ? c.mixed === true : null,
+        chars: c && Number.isInteger(c.chars) ? c.chars : null,
+        why: c ? (c.supported ? (c.mixed ? 'mixed-frame' : 'ok') : 'unsupported-shape') : 'canonical-threw',
+      })
+    }
+    diagnosis = { range: [startSeq, endSeq], surfaceSize: surfaceNodes ? surfaceNodes.size : null, nodes: seen }
+  } catch { diagnosis = null }
+
   const out = pruner.applyDrops({
     session, targetSession: sid, startSeq, endSeq, opId, reason,
     ...(o.args && o.args.dryRun === true ? { dryRun: true } : {}),
@@ -188,6 +232,7 @@ export async function runTargetedCleanup (o = {}) {
   if (Array.isArray(out.pairs)) data.pairs = out.pairs
   if (Number.isInteger(out.splitPairs)) data.splitPairs = out.splitPairs
   if (Array.isArray(out.entries)) data.entries = out.entries
+  if (diagnosis) data.diagnosis = diagnosis
   return data
 }
 

@@ -338,3 +338,32 @@ test('⑧ 回执必须带诊断字段：0 帧要能自证原因', async (t) => {
   assert.ok(Number.isInteger(data.resolved.surfaceSize), '要给出 surface 有多大')
   assert.equal(data.resolved.inRange, 0, '这个 seq 不在 surface 上')
 })
+
+test('⑨ 回执必须带 diagnosis：每个 seq 为什么不合格要写清', async (tt) => {
+  useTemp(tt)
+  const fx = makeSession(SID, [
+    { seq: 20, kind: 'call', callId: 'call-20' },
+    { seq: 21, kind: 'result', callId: 'call-20', text: BIG('A') },
+  ])
+  const p = makePruner()
+  p.__yqSeenSids.add(SID)
+  prunerMod.__yqRegisterLiveForTest(p)
+  tt.after(() => prunerMod.__yqUnregisterLiveForTest(p))
+
+  // 9998 不在 surface 上；21 在且合格
+  const data = await runTargetedCleanup({
+    ctx: ctxWith({ session: fx.session }),
+    args: args({ startSeq: 21, endSeq: 9998, opId: 'diag-1' }),
+    describe: describePrunerRequest,
+    deps: { loadPrunerModule: async () => prunerMod },
+  })
+  assert.ok(data.diagnosis, '缺 diagnosis —— 0 帧时调用方只能靠猜')
+  assert.equal(data.diagnosis.surfaceSize, 2, '要给出 surface 有多大')
+  const bySeq = new Map(data.diagnosis.nodes.map((n) => [n.seq, n]))
+  assert.equal(bySeq.get(21).onSurface, true)
+  assert.equal(bySeq.get(21).why, 'ok')
+  assert.equal(bySeq.get(9998).onSurface, false, '不在 surface 上必须标出来')
+  // ★ 9998 这个 fixture 里连事件都没有 → no-event；若「有事件但不在 surface 上」→ not-on-surface。
+  //   两者必须**分得开**：前者是挑错了 seq，后者是挑了一条已剪过的。混成一个码就又要靠猜。
+  assert.ok(['no-event', 'not-on-surface'].includes(bySeq.get(9998).why), '实际 ' + bySeq.get(9998).why)
+})
