@@ -367,3 +367,26 @@ test('⑨ 回执必须带 diagnosis：每个 seq 为什么不合格要写清', a
   //   两者必须**分得开**：前者是挑错了 seq，后者是挑了一条已剪过的。混成一个码就又要靠猜。
   assert.ok(['no-event', 'not-on-surface'].includes(bySeq.get(9998).why), '实际 ' + bySeq.get(9998).why)
 })
+
+test('⑩ context/candidates 与 pruner 必须用同一套判据（surface.nodes）', async () => {
+  const { makeContextSurgeon } = await import('../../context-surgeon.mjs')
+  const fx = makeSession(SID, [
+    { seq: 20, kind: 'call', callId: 'call-20' },
+    { seq: 21, kind: 'result', callId: 'call-20', text: BIG('A') },
+    { seq: 22, kind: 'result', callId: 'call-22', text: BIG('B') },
+  ])
+  // ★ 把 22 从 surface 上摘掉，但**事件仍留在 events 里** —— 这正是线上的真实情形
+  fx.nodes.delete(22)
+  const agent = { session: fx.session }
+  const surg = makeContextSurgeon(agent, SID)
+  assert.equal(surg.ok, true)
+  const got = surg.candidates(10)
+  assert.equal(got.ok, true)
+  const seqs = got.items.map((x) => x.seq)
+  assert.ok(!seqs.includes(22), '★ 22 不在 surface 上，不该被列为候选 —— 列了 pruner 也剪不动（线上 14 个全 0 帧就是这么来的）')
+  assert.ok(seqs.includes(21), '在 surface 上的要列出来')
+  assert.ok(got.items.every((x) => x.onSurface === true), '候选必须全是在 surface 上的')
+  // 长度要按两层形状算出来，不是恒 0（旧实现只读一层）
+  const item = got.items.find((x) => x.seq === 21)
+  assert.ok(item.len > 1000, 'len 恒 0 等于没排序，实际 ' + item.len)
+})

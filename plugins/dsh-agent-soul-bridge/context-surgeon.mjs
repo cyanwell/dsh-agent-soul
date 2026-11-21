@@ -61,32 +61,61 @@ export function makeContextSurgeon (agent, sessionId) {
     }
   }
 
-  /** 列「可以清」的候选：最近 N 条 tool/result，按内容长度排序（沙袋优先） */
+  /**
+   * 列「可以清」的候选。
+   *
+   * ★★★ 2026-11-21：**判据换成 surface.nodes，与 pruner 对齐。**
+   *
+   *   旧实现是「从 lastSeq 往前扫 200 个 eventAt，挑 type=tool/result 的」。
+   *   线上实测的后果：`context/candidates` 列出来的 seq，拿去 `pruner/targeted-cleanup`
+   *   **14 个全是 0 帧**，而回执里 pruner 自己的 `resolved.inRange` 又说 0 ——
+   *   也就是说那些 seq **根本不在 surface 上**。事件还在库里（eventAt 读得到），
+   *   但已不在模型可见的那条链上，pruner 永远不会剪它。
+   *
+   *   ★ 一句话：**两个能力用了两套判据**，candidates 在「事件库」里挑，
+   *     pruner 在「surface」里剪 —— 中间隔着的一层没人说。
+   *
+   *   现在：候选只从 `sess.surface.nodes` 取（拿不到就明说 unsupported，不猜）。
+   *   长度按真实形状算：`data.message.content[0].content[]`（**两层**，
+   *   旧实现只读一层，于是 len 恒 0，排序等于没排）。
+   */
   function candidates (limit) {
     const max = Number(limit) > 0 ? Number(limit) : 12
-    const out = []
-    // ★ 从尾部往前找：先拿 seq 范围（sess 可能有 lastSeq / eventCount，拿不到就靠 eventAt 探）
-    const hi = Number(typeof sess.lastSeq === 'number' ? sess.lastSeq : (sess.seq !== undefined ? sess.seq : NaN))
-    let from = Number.isFinite(hi) ? hi : null
-    if (from === null) {
-      // 没有 lastSeq 就只能扫一个合理窗口（v3 也是这么做的）
-      from = Number(sess.eventCount && typeof sess.eventCount === 'number' ? sess.eventCount : 400)
+    let nodes
+    try { nodes = [...sess.surface.nodes].map(Number) } catch {
+      return { ok: false, why: 'sess.surface.nodes 读不出来 —— 不猜候选' }
     }
-    const step = 200
-    for (let s = from; s > Math.max(0, from - step) && out.length < max * 3; s--) {
+    const out = []
+    for (const seq of nodes) {
       let ev
-      try { ev = sess.eventAt(s) } catch { continue }
+      try { ev = sess.eventAt(seq) } catch { continue }
       if (!ev) continue
       if (String(ev.type) !== 'tool/result') continue
+      if (hasPruneMarkerLike(ev)) continue
       let len = 0
       try {
-        const c = (ev.data && ev.data.message && ev.data.message.content) || []
-        for (const b of c) { if (b && typeof b.text === 'string') len += b.text.length }
+        const d = ev.data || {}
+        const outer = d.message && Array.isArray(d.message.content) ? d.message.content[0] : null
+        const blocks = outer && Array.isArray(outer.content) ? outer.content : null
+        if (blocks) { for (const b of blocks) { if (b && typeof b.text === 'string') len += b.text.length } } else if (Array.isArray(d.content)) {
+          for (const b of d.content) { if (b && typeof b.text === 'string') len += b.text.length }
+        }
       } catch {}
-      out.push({ seq: s, len })
+      out.push({ seq, len, onSurface: true })
     }
     out.sort((a, b) => b.len - a.len)
-    return out.slice(0, max).sort((a, b) => a.seq - b.seq)
+    return { ok: true, surfaceSize: nodes.length, items: out.slice(0, max).sort((a, b) => a.seq - b.seq) }
+  }
+
+  /** 该节点是否已带门牌（此前剪过）。判据只看文本里有没有 log:<sid>#seq= 形态。 */
+  function hasPruneMarkerLike (ev) {
+    try {
+      const d = ev.data || {}
+      const outer = d.message && Array.isArray(d.message.content) ? d.message.content[0] : null
+      const blocks = outer && Array.isArray(outer.content) ? outer.content : (Array.isArray(d.content) ? d.content : [])
+      for (const b of blocks) if (b && typeof b.text === 'string' && /log:[^#\s]+#seq=\d+/.test(b.text)) return true
+    } catch {}
+    return false
   }
 
   return { ok: true, sessionId: sid, purge, candidates }

@@ -164,3 +164,20 @@ pruner 相关的历史评估和独立复核保留在 `_verify`，其中依赖外
   · 适配器**不替 pruner 决策**：diagnosis 只翻译它看到的事实，剪不剪仍由 pruner 定。
 - 测试新增 ⑨：断言 `diagnosis` 存在、`surfaceSize` 正确、`onSurface` 能区分
   「不在 surface 上」与「连事件都没有」。全套 **89/89**。
+
+### 0.1.12 · 2026-11-21
+
+- **`context/candidates` 与 `pruner` 用了两套判据 —— 现在对齐。**
+  线上实测：`context/candidates` 列出的 14 个 seq，拿去 `pruner/targeted-cleanup`
+  **全部 0 帧**；而 pruner 自己的 `resolved.inRange` 也说 0。
+  原因是 candidates 在**事件库**里挑（`eventAt` 从 lastSeq 往前扫），
+  而 pruner 在 **surface** 里剪 —— 中间隔着一层，没人说。
+  `eventAt` 对已移出 surface 的 seq 照样返回事件，所以候选看起来「合格」。
+  ★ 一句话：**两个能力用了两套判据**，而 0 帧的回执长得像「真的没东西可剪」。
+  · 现在 candidates 只从 `sess.surface.nodes` 取；拿不到就返回 unsupported 并说明，不猜。
+  · 长度按真实形状算：`data.message.content[0].content[]` 是**两层**，
+    旧实现只读一层 → `len` 恒 0 → `sort((a,b)=>b.len-a.len)` 等于没排（「沙袋优先」从未生效）。
+  · 已带门牌（`log:<sid>#seq=<n>`）的节点不再列为候选。
+  · 回执加 `surfaceSize`，让「候选 0 个」能对得上「surface 里确实没有 tool/result」。
+- 测试新增 ⑩：把一个 seq 从 surface 摘掉但事件留着，
+  断言 candidates **不会**列出它、且 `len` 不是 0。全套 **90/90**。

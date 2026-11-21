@@ -56,7 +56,7 @@ export const name = 'dsh-agent-soul-bridge'
 export const inject = ['webServer']
 
 // ★ 发布版本：与 package.json.version 保持一致。
-const VERSION = '0.1.11'
+const VERSION = '0.1.12'
 const TAG = '[agent-soul-bridge]'
 
 export const DEFAULTS = {
@@ -2720,8 +2720,9 @@ export function apply (ctx, config) {
       if (action === 'candidates') {
         const s = makeContextSurgeon(picked.agent, sid)
         if (!s.ok) throw execError('unsupported', s.why)
-        const list = s.candidates(args.limit)
-        return { sessionId: sid, action: 'candidates', count: list.length, items: list }
+        const got = s.candidates(args.limit)
+        if (!got || got.ok !== true) throw execError('unsupported', (got && got.why) || '这个会话拿不到 surface，不猜候选')
+        return { sessionId: sid, action: 'candidates', count: got.items.length, surfaceSize: got.surfaceSize, items: got.items }
       }
 
       if (action === 'purge') {
