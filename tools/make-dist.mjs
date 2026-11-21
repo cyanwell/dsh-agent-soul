@@ -181,14 +181,13 @@ const needBuild = !fs.existsSync(STUB)
   || fs.statSync(csPath).mtimeMs > fs.statSync(STUB).mtimeMs
   || lastVer !== wantVer;
 if (needBuild) {
-  log('  源码比 stub 新 —— 重编译');
-  execFileSync('C:/Windows/Microsoft.NET/Framework64/v4.0.30319/csc.exe', [
-    '/nologo', '/target:exe', '/platform:x64', '/langversion:5', '/utf8output',
-    '/out:' + STUB,
-    '/r:System.dll', '/r:System.Drawing.dll', '/r:System.Windows.Forms.dll',
-    '/r:System.IO.Compression.dll', '/r:System.IO.Compression.FileSystem.dll',
-    csPath,
-  ], { stdio: 'inherit', windowsHide: true });
+  // ★ 2026-11-21：不再在这里手写 csc 参数 —— 走 build/build-aux.ps1。
+  //   理由：csc 的参数清单（引用哪一个 dll、langversion、target）
+  //   原来分散在 build.ps1 / make-dist.mjs / 手工命令三处，改一处另两处就漂。
+  //   现在只有一处真源：build-aux.ps1。
+  log('  版本变了或源码更新 —— 走 build-aux.ps1 重编译');
+  execFileSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(DEV, 'build/build-aux.ps1')],
+    { stdio: 'inherit', windowsHide: true });
 } else log('  stub 是最新的（跳过编译）');
 if (!fs.existsSync(STUB)) die('stub 不存在');
 // 记下这次编的是哪个版本（下次据此判断要不要重编）

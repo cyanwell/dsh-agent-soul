@@ -39,6 +39,11 @@ build/*
 #     「能编」和「编对了」的差别，就在这两个文件上。
 !build/AgentSoul.manifest
 !build/AgentSoul.exe.config
+# ★ 2026-11-21：辅助 exe 的源码 + 它唯一的构建入口。
+#   SecretStore.exe 部署在 runtime/ 里却被 build/* 挡在仓库外 —— 于是"能跑但不可重建"。
+#   现在它和编它的脚本一起进来，任何人都能重编出同一个东西。
+!build/SecretStore.cs
+!build/build-aux.ps1
 
 # 产物仍然忽略
 build/*.exe
