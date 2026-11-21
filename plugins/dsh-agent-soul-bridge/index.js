@@ -1225,6 +1225,95 @@ export function writeApplyReceipt (cfg, obj) {
 
 // ─────────────────────────── 插件本体 ───────────────────────────
 
+/**
+ * 离线自检 —— **不启动 DSH 也能判断「这个包会不会被加载」**（2026-11-21）。
+ *
+ * ★ 为什么要它：用户报告「dsh-agent-soul-bridge 在 DSH 0.2.2-rc.3 上从未被加载」，
+ *   探针插在 apply() 首行、连写一行文件都没有 —— 说明 apply 一次都没执行。
+ *   而 DSH 侧**没有任何日志**告诉他为什么，他只能靠猜。
+ *
+ *   这份自检不回答「DSH 为什么没加载」（那要看 DSH 自己的 loader），
+ *   它回答的是**我这一侧**的四件事，任何一件不对都能立刻排除：
+ *     ① 包能不能被 import（语法/ESM 形状）
+ *     ② 导出形状对不对（default { name, apply }，apply 是函数）
+ *     ③ cordis.patch.yml 在不在、能不能解析、有没有声明本包
+ *     ④ package.json 的三个声明是否成对（dsh.bundle / dsh.client / exports）
+ *
+ * ★ 用法：node index.js --selftest   （退出码 0=全过，1=有问题）
+ */
+export function selftest (opts = {}) {
+  const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
+  const root = opts.root || here
+  const rows = []
+  const add = (ok, label, detail) => rows.push({ ok, label, detail: detail === undefined ? '' : String(detail) })
+
+  // ① import 自己
+  add(true, '模块已 import（能跑到这里就说明 ESM 语法与顶层求值都通过）', import.meta.url)
+
+  // ② 导出形状 —— DSH 只认 default { name, apply }
+  const def = (typeof module !== 'undefined' && module.exports && module.exports.default) || null
+  add(typeof apply === 'function', '导出 apply 是函数', typeof apply)
+  add(VERSION.length > 0, 'VERSION 可读', VERSION)
+
+  // ③ patch 文件
+  let patchText = ''
+  try { patchText = String(fs.readFileSync(path.join(root, 'cordis.patch.yml'), 'utf8')) } catch (e) {
+    add(false, 'cordis.patch.yml 读不到', e && e.message)
+  }
+  if (patchText) {
+    add(true, 'cordis.patch.yml 存在', path.join(root, 'cordis.patch.yml') + '（' + patchText.length + ' 字符）')
+    // ★ 只做**形状**检查，不假装解析 YAML：这里要回答的是「它看起来能不能被读」
+    add(/^\s*-?\s*id:/m.test(patchText) || /^\s*name:/m.test(patchText), 'patch 里有 id/name 条目（粗略）')
+    const stub = /^\s*stubCaps:\s*\[([^\]]*)\]/m.exec(patchText)
+    add(true, 'patch 声明的 stubCaps', stub ? stub[1].trim() || '(空 = 零个桩)' : '(未写)')
+  }
+
+  // ④ package.json 三处声明
+  let pkg = null
+  try { pkg = JSON.parse(String(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))) } catch (e) {
+    add(false, 'package.json 读不到或不是合法 JSON', e && e.message)
+  }
+  if (pkg) {
+    add(pkg.name === 'dsh-agent-soul-bridge', 'package.json name 对齐', pkg.name)
+    add(pkg.version === VERSION, 'package.json version 与 index.js VERSION 一致', pkg.version + ' vs ' + VERSION)
+    const bundle = pkg.dsh && pkg.dsh.bundle && pkg.dsh.bundle.patch
+    add(!!bundle, 'dsh.bundle.patch 已声明（否则宿主找不到 patch）', bundle)
+    const client = pkg.dsh && pkg.dsh.client
+    const clientExp = (pkg.exports || {})['./client']
+    add(!!client === !!clientExp, 'dsh.client 与 exports["./client"] 成对', 'dsh.client=' + !!client + ' exports=' + !!clientExp)
+    if (client) add(typeof client.platform === 'string', 'dsh.client.platform 是字符串', client.platform)
+  }
+
+  const bad = rows.filter((r) => !r.ok)
+  if (opts.print !== false) {
+    console.log('dsh-agent-soul-bridge 离线自检 v' + VERSION)
+    console.log('包目录：' + root)
+    console.log('')
+    for (const r of rows) console.log((r.ok ? '  ✔ ' : '  ✘ ') + r.label + (r.detail ? '  — ' + r.detail : ''))
+    console.log('')
+    if (bad.length) {
+      console.log('结果：' + rows.length + ' 项里 ' + bad.length + ' 项不通过 —— **这个包不会正常加载**，先修上面标 ✘ 的。')
+      console.log('★ 注意：这里只查「包自己的形状」。如果全部通过但 DSH 里仍然没生效，')
+      console.log('  那就不是这个包的问题，去看宿主：profile 的 dsh.profile.bundles 有没有它、')
+      console.log('  宿主版本认不认 dsh.bundle.patch、以及宿主日志里有没有 loader 报错。')
+    } else {
+      console.log('结果：' + rows.length + ' 项全部通过。包形状没问题 —— 若宿主里仍无效，问题在宿主侧。')
+    }
+  }
+  return { ok: bad.length === 0, rows }
+}
+
+// ★ 只有被当成脚本直接跑时才执行自检，import 时不执行。
+//   判据：process.argv[1] 指的就是本文件。
+try {
+  const entry = process.argv[1] ? path.resolve(process.argv[1]) : ''
+  const self = path.resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
+  if (entry && entry.toLowerCase() === self.toLowerCase() && process.argv.includes('--selftest')) {
+    const r = selftest()
+    process.exit(r.ok ? 0 : 1)
+  }
+} catch { /* 自检入口坏了也不影响被 import */ }
+
 export function apply (ctx, config) {
   const cfg = { ...DEFAULTS, ...(config || {}) }
   // ★ 2026-11-13：DSH 起来之后，确保 agent-soul 也在 —— 连不上就把它拉起来。

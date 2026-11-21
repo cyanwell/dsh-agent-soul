@@ -169,6 +169,11 @@ followup 真的调到 agent、**huanqi/break-turn 真的调 agent.cancel**（cau
 **pruner 拿不到活实例时明确失败 no-pruner**（不伪造 framesAffected）、每轮钩子、
 掉线自动重连（服务端停了再起，它会自己回来并重发 hello）。
 
+**`node index.js --selftest`**（2026-11-21 新增）：不启动 DSH 也能判断「这个包会不会被加载」。
+检查 11 项 —— 模块能否 import、`apply` 是不是函数、`cordis.patch.yml` 在不在、
+`package.json` 的 `dsh.bundle` / `dsh.client` / `exports["./client"]` 是否成对、`stubCaps` 声明了什么。
+★ 它**只查包自己的形状**：全部通过而宿主里仍无效，问题在宿主侧（bundles 列表 / 版本兼容 / loader 报错）。
+
 `backoff` 2 项（**PASS 2 / FAIL 0**）：15.5 秒里只出 1 条 warn —— 退避不刷屏。
 
 ★ 2026-11-21 又修了两条**过时的断言**：桩没了（`stubCaps: []`），

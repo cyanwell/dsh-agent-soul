@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AgentSoul 壳的装配清单（2026-11-21）—— 治「整个窗口被系统拉伸 1.5 倍所以字全糊」。
+
+  ★ 根因（用户实测报告 dpi-blur-report-20261114.md）：
+    exe 里没有 DPI 声明 → 进程是 DPI Unaware →
+    程序按 1707×960 @96 DPI 画完整个界面，Windows 再把这块位图画布拉伸到 2560×1440。
+    文字没有矢量重绘的机会，所以**糊的比例恒定**（拉大拉小都一样糊）。
+
+  ★ 判据（报告给的自查口诀）：
+    同一块屏，DPI 不感知的进程看到 1707×960@96，感知的看到 2560×1440@144。
+    前者就是被拉伸的那个，字必糊。
+
+  ★ 为什么同时写 dpiAware 与 dpiAwareness：
+    · dpiAware (2005 schema) —— Windows 8.1 及更早只认它，写 true/PM = PerMonitor
+    · dpiAwareness (2016 schema) —— Windows 10+ 优先认它，PerMonitorV2 额外支持
+      WM_DPICHANGED 的非客户区自动缩放与更好的子窗口行为
+    两个都写，旧系统降级到 PerMonitor，新系统拿到 PerMonitorV2。
+
+  ★ 配套（缺了会从「糊」变成「错位」）：
+    这个清单只解决**进程感知级别**。WinForms 自己的布局缩放还要
+    AgentSoul.exe.config 里的 System.Windows.Forms.ApplicationConfigurationSection
+    把 DpiAwareness 设成 PerMonitorV2 —— 见同目录那份 .config，build.ps1 会把它放到 exe 旁边。
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity version="1.0.0.0" name="AgentSoul.Desktop"/>
+
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+    <security>
+      <requestedPrivileges>
+        <!-- 装到 HKCU、不需要管理员：这条必须写 asInvoker，否则会出现 UAC 盾牌 -->
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <!-- Windows 10 / 11 -->
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
+      <!-- Windows 8.1 -->
+      <supportedOS Id="{1f676c76-80e1-4239-95bb-83d0f6d0da78}"/>
+      <!-- Windows 8 -->
+      <supportedOS Id="{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}"/>
+    </application>
+  </compatibility>
+
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/PM</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <!-- 长路径 + UTF-8 代码页：本程序要读中文路径下的 data/，两者都省事 -->
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </windowsSettings>
+  </application>
+</assembly>

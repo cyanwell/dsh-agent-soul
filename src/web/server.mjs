@@ -49,6 +49,7 @@ import { wakerCard, readWakerLedger } from '../organs/waker-read.mjs';
 // ★ 2026-11-10（E/F 切片）：回执与哨兵结果的**只读**出口 —— 读法与状态台同一实现。
 import { readCleanupState } from '../organs/cleanup.mjs';
 import { readEchoSentinel } from '../organs/echo-sentinel.mjs';
+import { echoAuthorityView } from '../adapters/echo-authority-view.mjs';
 // ★★ 2026-11-12：session 能力的出口。上一轮宿主已经举手（caps 里有 session、notWired 为空），
 //   而这边 createSessionDispatch 写好了却**一处调用都没有** —— 门开了、门外没路。
 //   这里给它一条具体的路，判据分两半：
@@ -57,10 +58,49 @@ import { readEchoSentinel } from '../organs/echo-sentinel.mjs';
 //   ★ create 在这个口上开着，但宿主侧本来就回 unsupported —— 不在这一层假装能造会话。
 import { createSessionDispatch } from '../organs/session-dispatch.mjs';
 
-function json(res, code, obj) {
+function json(res, code, obj, extraHeaders = null) {
   const body = JSON.stringify(obj);
-  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) });
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body), ...(extraHeaders || {}) };
+  res.writeHead(code, headers);
   res.end(body);
+}
+
+/**
+ * 三态布尔：true / false / 其它（缺失、非布尔）→ null。
+ * ★ 2026-11-15：aligned 曾经写成 `stats.aligned === true` —— 缺失被压成 false。
+ *   false 在契约里是「查过了、没对齐」，缺失是「不知道」；把不知道说成没对齐就是死读数。
+ */
+function triStateFlag(value) {
+  if (value === true) return true;
+  if (value === false) return false;
+  return null;
+}
+
+/** Additive, redacted ECHO status for the unauthenticated liveness endpoint. */
+export function echoHealthSummary(store) {
+  const unknown = { available: false, aligned: null, ok: null, searchable: null, counts: null, problemKinds: [], reason: 'Store unavailable' };
+  try {
+    if (!store || typeof store.echoStats !== 'function') return unknown;
+    const stats = store.echoStats();
+    if (!stats || stats.available !== true) {
+      return Object.assign({}, unknown, { reason: 'ECHO index unavailable' });
+    }
+    const problems = Array.isArray(stats.problems) ? stats.problems : [];
+    return {
+      available: true,
+      aligned: triStateFlag(stats.aligned),
+      ok: stats.ok === true,
+      searchable: stats.searchable === true,
+      counts: {
+        words: Number.isFinite(stats.words) ? stats.words : null,
+        summaries: Number.isFinite(stats.summaries) ? stats.summaries : null,
+        problems: problems.length
+      },
+      problemKinds: Array.from(new Set(problems.map((p) => p && p.kind).filter(Boolean))).sort()
+    };
+  } catch (_) {
+    return Object.assign({}, unknown, { reason: 'ECHO stats read failed' });
+  }
 }
 
 function readBody(req) {
@@ -692,7 +732,7 @@ async function writeFileAtomic(file, text) {
 //   不挂在 control 底下：hub 认识「谁连上来了、谁会什么」，器官认识「这意味着什么」。
 // ★ 2026-11-10：多收一个 llm —— /api/guard 的模糊层要用**同一个** LlmClient 实例。
 //   不新建第二套宿主：配置、协议、key 来源、运行统计都跟对话主链路共用一份。
-export function createServer({ store, loop, tools, config, bus, sched, persona, autonomy, ledger, control, degradation, eventsIngress = null, sessionDispatch: sessionDispatchIn = null, llm = null, cleanup = null, echoSentinel = null }) {
+export function createServer({ store, loop, tools, config, bus, sched, persona, autonomy, ledger, control, degradation, eventsIngress = null, sessionDispatch: sessionDispatchIn = null, llm = null, cleanup = null, echoSentinel = null, echoLive = null, managerProofHandler = null }) {
   // ★ overview 缓存：首次采集要 3.2 秒（1006 个会话建索引），开页面等这么久不可接受。
   //   30 秒内的重复请求直接回缓存；?fresh=1 强制重算。
   let ovCache = null, ovAt = 0;
@@ -792,6 +832,12 @@ export function createServer({ store, loop, tools, config, bus, sched, persona, 
       if (v.verdict !== 'read' && v.verdict !== 'control' && v.verdict !== 'delegate') {
         return json(res, 403, rejection('http', v, { method: req.method, path: p }));
       }
+    }
+
+    if (p === '/api/manager-proof' && managerProofHandler) {
+      if (!req.headers || !req.headers['x-soul-token']) return json(res, 401, { ok: false, error: 'missing-token-header' });
+      try { if (await managerProofHandler(req, res, { auth })) return; }
+      catch { return json(res, 500, { ok: false, error: 'manager-proof-unavailable' }); }
     }
 
     try {
@@ -902,6 +948,8 @@ const PAGE_OF = {
   //   两页可以合成一页。params 独有的四个统计数（总数/改动/环境变量/重启）已搬进 settings 顶部。
         '/settings': 'settings.html',
         '/organs': 'organs.html',
+  // ★ 2026-11-18：上下文成分视图（爀曦：「要展示上下文具体的内容才行」）
+  '/context': 'context.html',
         '/diary': 'diary.html',
         '/yantai': 'yantai.html',
         // ★ 2026-11-12：换成 aurabot **自己的面板**（整个插件搬进 v4 之后）。
@@ -911,7 +959,16 @@ const PAGE_OF = {
   //   **aurabot-client.js 在磁盘上不存在**（实测），所以那一页的脚本永远是 404。
   //   aurabot.html 是自包含的新版（只依赖 aurora.css/js + 内联脚本），指向它。
   //   ★ 旧的 aurabot-panel.html 保留在仓库里（可能有人手敲过那个路径），但不再挂路由。
-  '/aurabot': 'aurabot.html',
+  // ★★★ 2026-11-13 23:32（第 14 代）：改回 **aurabot 自带的面板**。
+  //   13 代 22:19 把这里从 aurabot-panel.html 换成 aurabot.html，理由是
+  //   「aurabot-client.js 在磁盘上不存在（实测）」—— **那条实测是错的**：
+  //     ① src/aurabot/client/client.js 在，260931 字节；
+  //     ② GET /aurabot-client.js → 200；
+  //     ③ /vendor/react.min.js 10751B、/vendor/react-dom.min.js 131835B、/aurora.css、/aurora.js 全部 200。
+  //   所以那一版不是「脚本永远 404」，是能跑的。爀曦 23:30 报「自带界面丢了」指的就是这一行。
+  //   ★ 教训：写「实测不存在」时把命令和输出一起留下 —— 否则后来的人没法复核那句话。
+  //   旧的 aurabot.html（自包含只读仪表盘）仍在磁盘上，手敲 /aurabot.html 还能看。
+  '/aurabot': 'aurabot-panel.html',
         // ★ 2026-11-13：echo 体检页（v3 的 dsh-yanqing-echo 在 v4 的对应物）
         '/echo': 'echo.html',
         // ★ 2026-11-13：台账面板（v3 的 lead-waker 面板在 v4 的对应物）
@@ -1079,7 +1136,17 @@ const PAGE_OF = {
         const metas = fresh ? store.list({ fresh: true }) : store.list();
         mark('list', _t1);
         const _t2 = Date.now();
-        try { store.buildIndex(); } catch { /* 索引没建好也不挡这一页 */ }
+        // ★★★ 2026-11-17（阶段 2）：**这里原来同步建索引，已改掉。**
+        //   与 /api/status 同一个病，实测（fs-watch 抓的调用栈）：
+        //     readFileSync _index.cache 124.8MB  **1,458 ms**
+        //       ← store.mjs:469(buildIndex) ← server.mjs:1129(/api/overview)
+        //   面板轮询 /api/overview 就等于每轮同步整读 124.8MB。
+        //   现在的口径：**没建就报 0 行 + 踢一次后台构建**，请求路径不做重活。
+        if (!store.ixBuilt) {
+          try {
+            if (typeof store.buildIndexAsync === 'function') store.buildIndexAsync({ yieldMs: 8 }).catch(() => {});
+          } catch { /* 拉不起来也不挡这一页 */ }
+        }
         mark('buildIndex', _t2);
 
         const _t3 = Date.now();
@@ -1199,7 +1266,21 @@ const PAGE_OF = {
         try {
           // ★ 水位那一块必须说清一句：**它是安全网，不是考核。**
           //   过线只该触发一个动作 —— 落盘；禁止第二个 —— 缩。
-          const r = await gather({ store, config, persona, ledger: null, loop: null });
+          // ★★ 2026-11-17：墨的权威已搬到 SQLite（过渡期双写）。
+          //   这里原来固定传 ledger: null —— 面板于是退回「自己 new 一个 LedgerBase 读文件」。
+          //   现在改成：**能拿到库就给库那一本**，拿不到再退回文件（退回时面板自己会造）。
+          //   ★ 为什么不直接把 index 的 ledger 传进来：那个是**唤醒台账**（organs/waker.mjs），
+          //     不是《墨》。传错的形状会让页面一片空白而不报错（panel.mjs:120 记过这个坑）。
+          let ledgerForYantai = null;
+          try {
+            const { LedgerBase: LedgerCls } = await import('../organs/ledger.mjs');
+            if (store && typeof store.listLedger === 'function') {
+              const ledgerInfo = config && config.integrations && config.integrations.ledgerFile
+                ? config.integrations.ledgerFile : '';
+              ledgerForYantai = new LedgerCls(ledgerInfo, { store });
+            }
+          } catch { ledgerForYantai = null; }
+          const r = await gather({ store, config, persona, ledger: ledgerForYantai, loop: null });
           // ★ motto 是个对象（{ text, src }）—— 直接展开成 JSON 顶层会变成 [object Object]。
           //   摊平成两个字段，界面才好用。
           const { motto, ...rest } = r;
@@ -1223,11 +1304,36 @@ const PAGE_OF = {
       // ★ 读不到一律 null，界面画「无读数」；绝不拿 0 顶 —— 0 和「文件不在」长得一样。
       // ★ 每层都带 provenance：pid / 启动时刻 / 配置快照。本机踩过「进程跑着旧配置」的坑，
       //   图上没有出处，就看不出一个「好」是好几天前的代码说的。
-      if (p === '/api/status' && req.method === 'GET') {
+      /* ★★★ 2026-11-14（第 14 代）：/api/status 的 2 秒缓存 + 单飞行。
+     *
+     * 面板每切一次页面就拉一次它，而它每次要读九个地方（《墨》/projcache/书房/
+     * 运行态/能力面/归档/ops/事件账）。gatherStatus 已经改成并行（3.3s → 1s 级），
+     * 但**它仍然是一次完整的磁盘扫描**。
+     *
+     * 两个东西在这里挡：
+     *   ① TTL 2s —— 连点刷新、快速切页全部命中缓存，不再重复读盘；
+     *   ② 单飞行（inflight 复用）—— 同时来三个请求只跑一次。
+     *      这一条更重要：**三个并发 = 三次全量扫描 = 瞬时 I/O 峰值**，
+     *      而那正是「切太频繁把 core 搞崩」的形态。
+     * ★ 为什么 2 秒够：状态台不是秒表，2 秒内的读数差异对操作者没有意义。
+     */
+    if (!globalThis.__statusCache) globalThis.__statusCache = { at: 0, payload: null, inflight: null }
+    const statusCached = async (args) => {
+      const c = globalThis.__statusCache
+      const now = Date.now()
+      if (c.payload && now - c.at < 2000) return c.payload
+      if (c.inflight) return c.inflight
+      c.inflight = gatherStatus(args)
+        .then((r) => { globalThis.__statusCache = { at: Date.now(), payload: r, inflight: null }; return r })
+        .catch((e) => { c.inflight = null; throw e })
+      return c.inflight
+    }
+
+    if (p === '/api/status' && req.method === 'GET') {
         try {
           // ★★ 2026-11-13（第二批）：把 control 传进去 —— 状态台要能读 bridge 推来的 state，
 //   从而不必再自己去开 DSH 的 projcache 文件。
-const payload = await gatherStatus({ config, store, persona, tools, autonomy, loop, control });
+const payload = await statusCached({ config, store, persona, tools, autonomy, loop, control });
           return json(res, 200, payload);
         } catch (e) {
           return json(res, 500, {
@@ -1250,6 +1356,17 @@ const payload = await gatherStatus({ config, store, persona, tools, autonomy, lo
         const r = d.read(u.searchParams.get('name'));
         if (!r.ok) return json(res, r.code === 'NOT_FOUND' ? 404 : 400, r);
         return json(res, 200, r);
+      }
+
+      // —— ECHO 实时增量（阶段 3）：只看状态，不触发 ——
+      //   ★ 读数来自回执文件（子进程写的几百字节 JSON），不是同步查库。
+      //     查库是 1.6~7.6 秒的同步 SQL —— 那正是阶段 2 花力气挪走的东西。
+      if (p === '/api/echo/authority-view' && req.method === 'GET') {
+        return json(res, 200, echoAuthorityView({ store, echoLive }), { 'Cache-Control': 'no-store' });
+      }
+      if (p === '/api/echo-live' && req.method === 'GET') {
+        if (!echoLive) return json(res, 200, { ok: false, enabled: false, reason: '本进程没有接 echoLive 器官' });
+        return json(res, 200, Object.assign({ ok: true }, echoLive.view()));
       }
 
       // —— 器官状态（六张卡，看不见的东西要看得见） ——
@@ -1318,10 +1435,28 @@ const payload = await gatherStatus({ config, store, persona, tools, autonomy, lo
           if (!root) return { name: '书房', key: 'soul', value: '—', note: '未配置（config.soul.root，且本机没有默认书房）', level: 'ok' };
           // 自动发现要在卡上说出来 —— 不声不响读开发机路径，正是 R1 要消灭的那件事。
           const via = own ? '' : ('自动发现' + ' · ');
-          if (!soulIdx) soulIdx = new SoulIndex(root, { ttl: (config.soul && config.soul.ttl) || 5000 });
-          const read = soulIdx.refresh();
+          if (!soulIdx) {
+            soulIdx = new SoulIndex(root, {
+              ttl: (config.soul && config.soul.ttl) || 5000,
+              cacheDir: config.dataDir,
+            });
+            if (typeof soulIdx.loadManifestFromCache === 'function') soulIdx.loadManifestFromCache();
+          }
+          // ★★ 2026-11-17（阶段 1）：这里原来是**每次请求都同步 refresh()** ——
+          //   那是 1.6~4 秒的目录树遍历，挂在 /api/organs 上等于「面板每刷一次就按住事件循环几秒」。
+          //   现在：清单已经有人（warmup / 后台核对）负责，本卡只报**已知的读数**。
+          //   ★ 不拿 0 顶：没有清单就说「还没核对」，不写「0 个文件」。
           const st = soulIdx.stats();
-          return { name: '书房', key: 'soul', value: st.files + ' 文件', note: via + st.mb + 'MB · 本次读 ' + read + ' 份 · 上次 walk ' + st.lastWalkMs + 'ms', level: 'ok' };
+          if (!st.files) {
+            return { name: '书房', key: 'soul', value: '—', note: via + '清单还没建立（等预热或后台核对）', level: 'warn' };
+          }
+          return {
+            name: '书房', key: 'soul', value: st.files + ' 文件',
+            note: via + st.mb + 'MB'
+              + (st.manifestFromCache ? ' · 清单来自缓存（后台核对中）' : ' · 清单已核对')
+              + (st.contentLoaded ? ' · 内容已就位 ' + st.contentLoadedMs + 'ms' : ' · 内容按需加载'),
+            level: 'ok',
+          };
         }));
 
         // ⑥ 思考退化 —— 宿主上报 state 的判据结果（器官在 organs/degradation.mjs）
@@ -1604,6 +1739,47 @@ const payload = await gatherStatus({ config, store, persona, tools, autonomy, lo
           apiKeyRefValid: refDesc.valid,
           tools: [...tools.tools.keys()],
           sessions: store.list().length,
+      // ★★★ 2026-11-21：把「无宿主」与「有宿主但无会话」分开（用户报告 #1 的建议 2）。
+      //
+      //   报告的痛点原话：sessions=0 无法区分三种情况 ——
+      //     a) 插件没装/没被加载；b) 插件加载了但没连上；c) 连上了但没有会话清单来源。
+      //   而 sessions 的聚合与 hosts 表**本来就是分离的两处**（hub.attach 时 hosts.set，
+      //   sessions 来自会话清单），所以只看 sessions 永远是两种世界的同一个读数。
+      //
+      //   这里只加**只读**的两个字段，不改任何既有语义：
+      //     hosts          —— 此刻有几个宿主连在控制通道上（0 就是「根本没有宿主」）
+      //     hostDetail     —— 每个宿主的 id / 自称 / caps / 桩 / 最后上报的会话与时刻
+      //   ★ 失败一律 null，不许编。拿不到就说明拿不到。
+      control: (() => {
+        try {
+          const snap = typeof control?.snapshot === 'function' ? control.snapshot() : null;
+          if (!snap || typeof snap !== 'object') return { ok: false, reason: '控制通道快照不可用' };
+          const hosts = Array.isArray(snap.hosts) ? snap.hosts : [];
+          const st = snap.state && typeof snap.state === 'object' ? snap.state : null;
+          return {
+            ok: true,
+            hostCount: hosts.length,
+            hosts: hosts.map((h) => ({
+              id: h.id || null,
+              host: h.host || null,
+              caps: Array.isArray(h.caps) ? h.caps.slice() : [],
+              stubs: h.meta && Array.isArray(h.meta.stubs) ? h.meta.stubs.slice() : [],
+              version: (h.meta && h.meta.version) || null,
+            })),
+            // 最后一条按会话上报的 state —— 报告里「只上报一个会话」正是靠这个字段看出来的
+            lastState: st ? {
+              sessionId: st.sessionId || null,
+              at: st.at || null,
+              turnId: st.turnId || null,
+              // ★ 0.1.7 起桥会带这两个：stateVia=走哪条钩子，fallback=是不是拿不到 agent 时的兜底
+              via: st.stateVia || null,
+              fallback: st.fallback === true,
+            } : null,
+          };
+        } catch (e) { return { ok: false, reason: String((e && e.message) || e).slice(0, 160) }; }
+      })(),
+          // Additive subsystem health: ECHO never changes the core liveness `ok` contract.
+          echoIndex: echoHealthSummary(store),
           // ★ 2026-11-12：加 dataDir —— 但要**只给尾部两段**。
           //
           //   为什么要它：打包新版本时如果 cwd 错了，dataDir 会指到 app/<版本>/data（空目录），
@@ -2123,9 +2299,42 @@ const payload = await gatherStatus({ config, store, persona, tools, autonomy, lo
       const root = config.soul && config.soul.root;
       if (!root) { steps.push('书房 未配置'); }
       else {
-        soulIdx = new SoulIndex(root, { ttl: (config.soul && config.soul.ttl) || 5000 });
-        soulIdx.refresh();
-        steps.push('书房 ' + soulIdx.size + ' 文件');
+        soulIdx = new SoulIndex(root, {
+          ttl: (config.soul && config.soul.ttl) || 5000,
+          // ★ 2026-11-17（阶段 1）：缓存落在 dataDir 下，跟 _index.cache 做邻居。
+          cacheDir: config.dataDir,
+        });
+        // ★★ 2026-11-17（阶段 1 · 启动 IO）：**启动只读清单缓存，不遍历目录树**。
+        //
+        //   实测（本机 D: 盘，书房 2,023 个目录 / 3,756 个合格文件）：
+        //     遍历目录树 + 逐文件 stat          1,600 ~ 4,300ms（跑几次能差 3 倍，全看磁盘缓存命中率）
+        //     读清单缓存（447KB / 3,756 条）      27ms
+        //   所以启动这一步从「2~4 秒」变成「27 毫秒」，而且是**真数字**（不是 0、不是占位）。
+        //   磁盘有没有变，交给 warmup 之后的后台核对 —— 它不挡任何人。
+        const soulT0 = Date.now();
+        const manifestHit = (typeof soulIdx.loadManifestFromCache === 'function')
+          ? soulIdx.loadManifestFromCache()
+          : false;
+        if (!manifestHit) {
+          // 第一次跑（没有缓存）才真的遍历一次；之后就都是缓存了。
+          if (typeof soulIdx.refreshAsync === 'function') {
+            await soulIdx.refreshAsync({ force: true, yieldMs: 32 });
+          } else {
+            soulIdx.refresh(true);
+          }
+        }
+        steps.push('书房 ' + soulIdx.size + ' 文件 ' + (Date.now() - soulT0) + 'ms'
+          + (manifestHit ? '(清单缓存)' : '(首次全量遍历，已落缓存)'));
+        // 后台核对：磁盘新增/删除/改动会在这里被纠正，并重写清单缓存。
+        if (manifestHit && typeof soulIdx.verifyManifestAsync === 'function') {
+          soulIdx.verifyManifestAsync({ yieldMs: 32 })
+            .then((v) => {
+              if (v && v.changed > 0) {
+                console.log('  [书房] 后台核对：' + v.before + ' → ' + v.after + '（变了 ' + v.changed + '）');
+              }
+            })
+            .catch(() => { /* 核对失败不影响使用，下次启动再对 */ });
+        }
       }
     } catch { steps.push('书房 ✗'); }
     return { ms: Date.now() - t0, steps };

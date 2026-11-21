@@ -27,10 +27,18 @@ build/*
 # ...但源码要进来
 !build/Launcher.cs
 !build/Shell.cs
+!build/Setup.cs
 !build/build.ps1
 !build/make-icon.py
 !build/pack/
 !build/assets/
+# ★ 2026-11-21：DPI 两份配套文件也必须进仓库 —— 它们是**源码**，不是产物。
+#   AgentSoul.manifest 由 build.ps1 用 /win32manifest 编进 PE；
+#   AgentSoul.exe.config 必须与 exe 同名同目录，make-dist 会把它打进包。
+#   ★ 缺了它们，clone 下来的人能编出 exe，但那个 exe 在 150% 缩放的机器上界面是糊的 ——
+#     「能编」和「编对了」的差别，就在这两个文件上。
+!build/AgentSoul.manifest
+!build/AgentSoul.exe.config
 
 # 产物仍然忽略
 build/*.exe
