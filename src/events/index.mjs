@@ -34,6 +34,8 @@ import { createMemberResolver } from './members.mjs'
 import { createEngage } from './engage.mjs'
 import { createStickerLib } from './stickers.mjs'
 import { createTts } from '../voice/tts.mjs'
+// ★ 2026-11-17：可移植性 —— 开发机路径只在它真的存在时才生效。
+import { devPathOr } from '../config.mjs'
 // ★ 2026-11-12：**先判该不该回，再拼**。这一步才是「事件层」的意义所在。
 import { createEventDecider } from './decide.mjs'
 import { createOneBotIngress } from './ingress-onebot.mjs'
@@ -112,11 +114,33 @@ export function createEventsIngress (opts = {}) {
   const beatMs = Number(opts.beatMs) || 30_000
   // ★ 2026-11-13：控制通道。回复读取走 bridge 时要用它。
   const control = opts.control || null
+  // ★★★ 2026-11-13（第 14 代）：宪章闸门（可选注入）。
+  //   缺省 null = 直通 —— 这条 ingress 每分钟都在跑，行为必须能原样退回。
+  const charter = typeof opts.charter === 'function' ? opts.charter : null
+  const onBlocked = typeof opts.onBlocked === 'function' ? opts.onBlocked : null
 
   const resolved = normalizeIngressConfig(config)
   const dir = eventsDirOf(config)
   const readonly = isReadonlyFlag(env)
-  const enabled = resolved.mode !== MODES.off && !resolved.error
+  /* ★★★ 2026-11-14（第 14 代）：leadRelay 是一条**独立的只读通路**（读文件，不占 WS），
+     它自己的开关注释就写着「只有显式 leadRelay.enabled 才开」——
+     但它的创建代码在 start() 内部（约 :488），而 start() 第一道闸按 mode 判断（:227）。
+     于是 mode=off（默认）时**那行代码永远轮不到**：
+     配置写着 enabled:true、队列里明明有记录、却没有任何人在读。
+
+     实测（2026-11-14 03:05）：她在群里调 report_to_lead，回执说「已经交上去了」，
+     事件队列.jsonl 里确实多了一条（19:05:09Z），而 lead 这边毫无反应 ——
+     就是这一行造成的。她自己也说「这个回执我不当证据」，她说得对。
+
+     ★ 判定放宽到「leadRelay 自己要得起」，但仍然**不因配置错误而启动**（resolved.error 照样拦）。
+     ★ mode 为 off 且只有 leadRelay 时，status() 里报 'lead-relay-only'，
+       不冒充 direct-ws / bridge-events（那两个没启动，别让人以为占了 WS）。 */
+  const leadRelayOn = Boolean(
+    resolved.leadRelay &&
+    resolved.leadRelay.enabled &&
+    String(resolved.leadRelay.queuePath || '').trim()
+  )
+  const enabled = (resolved.mode !== MODES.off && !resolved.error) || (leadRelayOn && !resolved.error)
   const bootId = opts.bootId || randomBytes(4).toString('hex')
 
   // token 只从环境变量取（名字由配置给），只进内存，不进任何产物。
@@ -175,7 +199,7 @@ export function createEventsIngress (opts = {}) {
       store,
       sources: snapshots(),
       config,
-      mode: enabled ? resolved.mode : MODES.off,
+      mode: enabled ? (resolved.mode === MODES.off ? 'lead-relay-only' : resolved.mode) : MODES.off,
       authority: authority(),
       extra: {
         bootId,
@@ -326,7 +350,8 @@ export function createEventsIngress (opts = {}) {
         //   禁用插件不会删数据，所以 v4 直接读它，不复制（复制会两边不同步）。
         let stickerLib = null
         try {
-          const root = String(_replyCfg.stickerRoot || 'D:/AI/dsh/home/plugins-data/aurabot/stickers').trim()
+          // ★ 2026-11-17：硬编码 → 开发路径存在才用（分发版回空 = 没有贴纸，不是乱读别人机器）。
+  const root = String(_replyCfg.stickerRoot || devPathOr('aurabotStickers', '') || '').trim()
           stickerLib = createStickerLib({ root, ttlMs: _replyCfg.stickerTtlMs, log: (m) => log('[sticker] ' + m) })
         } catch (e) {
           log('[reply] 表情库建不起来：' + String((e && e.message) || e))
@@ -335,7 +360,8 @@ export function createEventsIngress (opts = {}) {
         //   aurabot 自己也在走这个兜底）。产出放 data/voice-cache。
         let tts = null
         try {
-          tts = createTts({ outDir: _replyCfg.voiceCacheDir || 'D:/AI/agent-soul/data/voice-cache', log: (m) => log('[tts] ' + m) })
+          // ★ 语音缓存落在**本程序自己的** data 目录下（相对 appRoot），不带开发机路径。
+          tts = createTts({ outDir: _replyCfg.voiceCacheDir || path.join(appRoot(), 'data', 'voice-cache'), log: (m) => log('[tts] ' + m) })
         } catch (e) {
           log('[reply] 语音建不起来：' + String((e && e.message) || e))
         }
@@ -490,6 +516,8 @@ export function createEventsIngress (opts = {}) {
         log,
         now,
         onFlush,
+        charter,
+        onBlocked,
       })
     }
 

@@ -1,0 +1,28 @@
+{
+  "echoIndexVersion": "echo-index/1",
+  "sourcePath": "D:/synthetic/echo/log-mirror/index",
+  "namespace": "log",
+  "generation": 1,
+  "builtAt": "2026-11-10T03:00:00.000Z",
+  "cursor": {
+    "seq": 12
+  },
+  "words": {
+    "path": "words.jsonl",
+    "sha256": "5a87d67e9ab04c90d3323fbd6b0c9f35e39e019475672382435a8960197568e6",
+    "bytes": 233,
+    "rows": 1
+  },
+  "summaries": {
+    "path": "summaries.jsonl",
+    "sha256": "241bcc7552ae4d342a83c0e3dc3aade6f7dbe6b07868dd1c465c4abe0c271bd2",
+    "bytes": 593,
+    "rows": 2
+  },
+  "counts": {
+    "words": 1,
+    "summaries": 2,
+    "srcSeqs": 2,
+    "excludedReasoning": 0
+  }
+}

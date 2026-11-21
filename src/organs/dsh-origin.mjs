@@ -33,6 +33,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { devPathOr, devFileOr, isDirPath, resolvePath } from '../config.mjs';
 import { heartbeatUrlOf, joinUrl } from '../web/runtime-status.mjs';
+// ★ 2026-11-16（架构收敛第 3 批）：两个「本机默认路径」helper 搬到 dsh-origin-shared.mjs。
+//   理由：本文件（整份心跳地址自动发现）是第 3 批要收掉的东西，而 config.mjs 的注释
+//   点名承诺 `dshOriginFileOf()` —— 先把它安顿好，删本文件时那个承诺才不会跟着消失。
+//   ★ 这里 re-export，旧 import 路径（`from .../dsh-origin.mjs`）一行都不用改。
+import { dshLogDirOf, dshOriginFileOf } from './dsh-origin-shared.mjs';
+export { dshLogDirOf, dshOriginFileOf };
 
 /** 地址从哪来。★ 写进状态/日志，事后才分得清「人配的」还是「自己发现的」。 */
 export const ENDPOINT_SOURCE = Object.freeze({
@@ -175,31 +181,8 @@ export function readOriginFileRecord(file) {
   return { present: true, ok: true, file: path.basename(f), atMs: st.mtimeMs, origin: 'http://127.0.0.1:' + port, why: null };
 }
 
-/** 日志目录：显式配置 > 环境变量 DSH_HOME > 开发机默认（**目录存在才用**）。 */
-export function dshLogDirOf(cfg) {
-  const it = (cfg && cfg.integrations) || {};
-  const own = String(it.dshLogDir == null ? '' : it.dshLogDir).trim();
-  if (own) return resolvePath(own);
-  const envHome = String(process.env.DSH_HOME || '').trim();
-  if (envHome) {
-    const d = path.join(envHome, 'guard', 'logs');
-    if (isDirPath(d)) return d;
-  }
-  const devHome = devPathOr('dshHome', null);
-  if (devHome) {
-    const d = path.join(devHome, 'guard', 'logs');
-    if (isDirPath(d)) return d;
-  }
-  return null;
-}
-
-/** 心跳插件的 origin 文件：显式配置 > 开发机默认（**文件存在才用**）。 */
-export function dshOriginFileOf(cfg) {
-  const it = (cfg && cfg.integrations) || {};
-  const own = String(it.dshOriginFile == null ? '' : it.dshOriginFile).trim();
-  if (own) return resolvePath(own);
-  return devFileOr('dshOriginFile', null);
-}
+// ★ 2026-11-16：dshLogDirOf / dshOriginFileOf 的实现已搬到 ./dsh-origin-shared.mjs，
+//   见文件头的 import —— 这里曾经是它们的家，现在只在顶部 re-export，行为一字未改。
 
 /**
  * 发现当前 DSH 的 origin。**没有网络**，只读元数据与文本。

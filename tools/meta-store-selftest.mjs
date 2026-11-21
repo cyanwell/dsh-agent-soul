@@ -224,7 +224,8 @@ test('T3 migrate: v1+v2 applied, checksum + node/sqlite version recorded per mig
   const res = store.migrate();
   assert(res.applied.length === MIGRATION_LIST.length, 'all migrations applied, got ' + res.applied.length);
   assert(res.current === SCHEMA_VERSION, 'current == SCHEMA_VERSION, got ' + res.current);
-  assert(SCHEMA_VERSION === 5, 'P1c bumps the schema to v5 (artifacts), got ' + SCHEMA_VERSION);
+  // ★ 2026-11-17：断言跟着 SCHEMA_VERSION 走，别再写死版本号（v11 一加就全红）。
+  assert(SCHEMA_VERSION >= 10, 'the ECHO vector layer (v10) is part of the current schema, got ' + SCHEMA_VERSION);
   assert(store.state.ready === true, 'ready after migrate');
   assert(store.state.applied.length === MIGRATION_LIST.length, 'one schema_migrations row per migration');
   for (let i = 0; i < MIGRATION_LIST.length; i += 1) {
@@ -232,7 +233,8 @@ test('T3 migrate: v1+v2 applied, checksum + node/sqlite version recorded per mig
   }
 
   const tables = store.db.prepare("select name from sqlite_master where type='table' order by name").all().map(function (r) { return r.name; });
-  ['frame_index', 'schema_migrations', 'sessions', 'sources', 'sync_cursors', 'frame_fts', 'source_relocations', 'artifacts', 'artifact_events'].forEach(function (t) {
+  ['frame_index', 'schema_migrations', 'sessions', 'sources', 'sync_cursors', 'frame_fts', 'source_relocations', 'artifacts', 'artifact_events', 'mo_ledger',
+    'echo_index_sources', 'echo_words', 'echo_summaries', 'echo_summary_src_seqs', 'echo_source_builds', 'echo_words_fts', 'echo_summaries_fts'].forEach(function (t) {
     assert(tables.indexOf(t) !== -1, 'missing table ' + t + ' (have: ' + tables.join(',') + ')');
   });
   const rows = store.db.prepare('select version, node_version, sqlite_version from schema_migrations order by version').all();
@@ -737,7 +739,7 @@ test('T22 v1 database migrates to v2: old rows survive, backfill works, records 
   assert(store.state.current === 1 && store.state.ready === false, 'starts as a v1 db');
   assert(store.state.tooNew === false, 'v1 is not too new');
   const res = store.migrate();
-  assert(res.applied.map(function (m) { return m.version; }).join(',') === '2,3,4,5', 'v2 -> v3 -> v4 -> v5 are applied, got ' + JSON.stringify(res.applied));
+  assert(res.applied.map(function (m) { return m.version; }).join(',') === '2,3,4,5,6,7,8,9,10,11', 'v2 -> v3 -> v4 -> v5 -> v6 -> v7 -> v8 -> v9 -> v10 are applied, got ' + JSON.stringify(res.applied));
   assert(store.state.current === SCHEMA_VERSION && store.state.ready === true, 'now at SCHEMA_VERSION and ready');
 
   const rows = store.db.prepare('select version, name, checksum, node_version, sqlite_version from schema_migrations order by version').all();
@@ -804,9 +806,11 @@ test('T23 fresh v2 db and migrated v1 db behave identically', () => {
   const a = schemaOf(fresh);
   const b = schemaOf(migrated);
   assert(JSON.stringify(a.frameCols) === JSON.stringify(b.frameCols), 'same frame_index columns');
-  // P1c：5 条既有护栏 + 2 条「产物事件只追加」= 7。数字写在这里是有意的：
-  // 迁移再向前走时，这一行必须被显式改成新数字，而不是悄悄跟着变。
-  assert(a.triggers.length === b.triggers.length && a.triggers.length === 7, 'same seven triggers (v2 guards + v4 relocation audit + 2 append-only guards), got ' + a.triggers.length);
+  // T23 compares current v9 schemas; update this explicit count when adding triggers.
+  // v7 replaces the v6 promise gate in place (DROP + CREATE) so it stays 12; v8 rebuilds
+  // mo_ledger (5 ledger triggers recreated) and adds 2 batch + 3 import-row triggers = 17;
+  // v9 adds 2 build append-only triggers + 2 frame_index idx: guards = 21.
+  assert(a.triggers.length === b.triggers.length && a.triggers.length === 21, 'same twenty-one v9 triggers, got ' + a.triggers.length);
   assert(JSON.stringify(a.triggers) === JSON.stringify(b.triggers), 'same trigger definitions');
   assert(JSON.stringify(a.indexes) === JSON.stringify(b.indexes), 'same indexes');
   assert(JSON.stringify(a.tables) === JSON.stringify(b.tables), 'same tables (incl. frame_fts + its shadow tables)');
@@ -927,7 +931,7 @@ test('T27 D1: v1 db with Windows backslash paths is repaired by v3 and follows a
   const store = openStore({ path, mode: 'readwrite' });
   assert(store.state.current === 1 && store.state.ready === false, 'starts as v1');
   const res = store.migrate();
-  assert(res.applied.map(function (m) { return m.version; }).join(',') === '2,3,4,5', 'v1 -> v2 -> v3 -> v4 -> v5, got ' + JSON.stringify(res.applied));
+  assert(res.applied.map(function (m) { return m.version; }).join(',') === '2,3,4,5,6,7,8,9,10,11', 'v1 -> v2 -> v3 -> v4 -> v5 -> v6 -> v7 -> v8 -> v9 -> v10, got ' + JSON.stringify(res.applied));
   assert(store.state.current === SCHEMA_VERSION && store.state.ready === true, 'now at SCHEMA_VERSION and ready');
   const step = res.postSteps.filter(function (s) { return s.version === 3; })[0];
   assert(step && step.result.scanned === 1 && step.result.normalized === 1, 'v3 post-step recomputed the backslash row: ' + JSON.stringify(step && step.result));
@@ -984,7 +988,8 @@ test('T28 D1: a v2 db (SQL-only backfill) is repaired by v3, including backslash
   const before = store.db.prepare('select seq, raw_rel_path from frame_index order by seq').all();
   assert(before[0].raw_rel_path === null && before[1].raw_rel_path === REL_BACKSLASH, 'v2 state reproduces the D1 defect: ' + JSON.stringify(before));
   const res = store.migrate();
-  assert(res.applied.map(function (m) { return m.version; }).join(',') === '3,4,5', 'v3 -> v4 -> v5 apply');
+  assert(res.applied.map(function (m) { return m.version; }).join(',') === '3,4,5,6,7,8,9,10,11', 'v3 -> v4 -> v5 -> v6 -> v7 -> v8 -> v9 -> v10 apply');
+  assert(store.state.current === SCHEMA_VERSION && store.state.ready === true, 'a repaired v2 db ends on v9 and ready, got ' + store.state.current);
   const fixed = store.db.prepare('select seq, raw_rel_path from frame_index order by seq').all();
   assert(fixed[0].raw_rel_path === 'session-w/frames.jsonl', 'absolute backslash row repaired, got ' + JSON.stringify(fixed[0].raw_rel_path));
   assert(fixed[1].raw_rel_path === 'session-x/frames.jsonl', 'relative backslash row normalized to posix, got ' + JSON.stringify(fixed[1].raw_rel_path));
@@ -1157,8 +1162,8 @@ test('T34 v3 is idempotent: a second migrate is a no-op and leaves normalized re
   }
   const store = openStore({ path, mode: 'readwrite' });
   const first = store.migrate();
-  // v5 没有回填步骤，所以「两条 post-step」仍然成立，只是 applied 多了一条 v5。
-  assert(first.applied.length === 4 && first.postSteps.length === 2, 'v2/v3/v4/v5 with two post-steps (rel-path normalize + fts backfill; v5 adds none)');
+  // v5..v9 都没有回填步骤，所以「两条 post-step」（v3、v4）仍然成立，applied 是 v2..v9 八条。
+  assert(first.applied.length === 10 && first.postSteps.length === 2, 'v2..v11 applied with two backfill post-steps (v5-v11 add none)');
   const snapshot = JSON.stringify(store.db.prepare('select source_id, session_id, seq, raw_path, raw_rel_path from frame_index order by seq').all());
   const second = store.migrate();
   assert(second.applied.length === 0 && second.postSteps.length === 0, 'second migrate is a no-op');
@@ -1594,7 +1599,8 @@ test('T46 P1b: a v3 database migrated to v4 searches identically to a fresh v4 d
   const migrated = openStore({ path, mode: 'readwrite' });
   assert(migrated.state.current === 3 && migrated.state.ready === false, 'starts as v3, not ready for v4');
   const res = migrated.migrate();
-  assert(JSON.stringify(res.applied.map(function (a) { return a.version; })) === JSON.stringify([4, 5]), 'v4 then v5 apply (and nothing else): ' + JSON.stringify(res.applied.map(function (a) { return a.version; })));
+  assert(JSON.stringify(res.applied.map(function (a) { return a.version; })) === JSON.stringify([4, 5, 6, 7, 8, 9, 10, 11]), 'v4 -> v5 -> v6 -> v7 -> v8 -> v9 -> v10 apply: ' + JSON.stringify(res.applied.map(function (a) { return a.version; })));
+  assert(migrated.state.current === SCHEMA_VERSION && migrated.state.ready === true, 'the migrated v3 db ends on v10 and ready, got ' + migrated.state.current);
   const step = res.postSteps.filter(function (s) { return s.version === 4; })[0];
   assert(step && step.result.scanned === 3 && step.result.inserted === 3, 'v4 backfilled every legacy frame: ' + JSON.stringify(step && step.result));
   assert(migrated.searchIndexInfo().aligned === true, 'migrated index is aligned');
@@ -1888,15 +1894,40 @@ function eventActions(store, ref) {
   return store.listArtifactEvents(ref).items.map(function (e) { return e.action; });
 }
 
-// ── T54 v5 结构 + v1–v4 的 SQL 逐位未改 ───────────────────────────────────
-test('T54 P1c/v5: artifacts + append-only artifact_events exist, and v1–v4 digests are literally unchanged', () => {
-  const store = freshStore('t54');
-  assert(SCHEMA_VERSION === 5, 'P1c bumps the schema to v5, got ' + SCHEMA_VERSION);
-  assert(MIGRATION_LIST.length === 5, 'five migrations applied in history order, got ' + MIGRATION_LIST.length);
+// ── T54 v5 structures + frozen v1-v9 identities + current v10 coexistence ─────
+test('T54 P1c/v5: artifacts + append-only artifact_events exist, v1–v4 digests stay literally unchanged, and the historical v1–v5 identities coexist with the current v10 schema', () => {
+  const path = dbPath('t54');
+  const store = openStore({ path, mode: 'readwrite' });
+  store.migrate();
+  assert(SCHEMA_VERSION >= 10, 'the ECHO vector layer (v10) is part of the current schema, got ' + SCHEMA_VERSION);
+  assert(MIGRATION_LIST.length === SCHEMA_VERSION, 'one migration per version in history order, got ' + MIGRATION_LIST.length);
+  assert(MIGRATION_LIST[5].version === 6 && MIGRATION_LIST[5].name === 'mo-append-only-ledger', 'v6 ledger migration is additive');
+  assert(MIGRATION_LIST[6].version === 7 && MIGRATION_LIST[6].name === 'mo-promise-full-actor-session', 'v7 promise-gate migration is a trigger replacement: ' + MIGRATION_LIST[6].version + ':' + MIGRATION_LIST[6].name);
+  assert(MIGRATION_LIST[7].version === 8 && MIGRATION_LIST[7].name === 'mo-import-provenance', 'v8 import-provenance migration rebuilds mo_ledger: ' + MIGRATION_LIST[7].version + ':' + MIGRATION_LIST[7].name);
+  assert(MIGRATION_LIST[8].version === 9 && MIGRATION_LIST[8].name === 'echo-derived-index', 'v9 ECHO derived-index migration is additive: ' + MIGRATION_LIST[8].version + ':' + MIGRATION_LIST[8].name);
+  assert(store.state.current === SCHEMA_VERSION && store.state.ready, 'T54 facade uses the current schema');
+  assert(store.db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='mo_ledger'").get().ok === 1, 'v6 adds ledger table');
   const v5 = MIGRATION_LIST[4];
   assert(v5.version === 5 && v5.name === 'artifacts-and-append-only-events', 'v5 identity: ' + v5.version + ':' + v5.name);
   assert(typeof v5.after !== 'function', 'v5 needs no backfill step: v1-v4 never held artifact rows to migrate');
-  assert(store.state.applied.length === 5 && store.state.applied[4].version === 5, 'schema_migrations records v5 last');
+  assert(store.state.applied.length === SCHEMA_VERSION
+    && store.state.applied[4].version === 5 && store.state.applied[5].version === 6
+    && store.state.applied[6].version === 7 && store.state.applied[7].version === 8
+    && store.state.applied[8].version === 9 && store.state.applied[9].version === 10
+    && store.state.applied[10].version === 11,
+    'schema_migrations records v5 -> ... -> v11');
+
+  // 历史身份逐条冻结：v1–v5 的 (version, name) 一个字都不许动。
+  // v6/v7 是加法 / 触发器替换，所以「历史身份 + 当前 schema」必须同时成立。
+  [
+    [1, 'core-metadata'], [2, 'relocatable-ptr-and-db-guards'], [3, 'normalize-frame-rel-paths'],
+    [4, 'frame-fts-and-relocation-audit'], [5, 'artifacts-and-append-only-events'],
+    [6, 'mo-append-only-ledger'], [7, 'mo-promise-full-actor-session'],
+    [8, 'mo-import-provenance'], [9, 'echo-derived-index'], [10, 'echo-word-vectors'],
+  ].forEach(function (pair) {
+    const m = MIGRATION_LIST[pair[0] - 1];
+    assert(m.version === pair[0] && m.name === pair[1], 'migration v' + pair[0] + ' identity is frozen: ' + m.version + ':' + m.name);
+  });
 
   // v1–v4 的 migrationDigest 与 P1b 实现报告 §7 记的四行逐位相同。
   // 这是「本轮没有碰历史 SQL」的客观证据，不是一句声明。
@@ -1909,6 +1940,39 @@ test('T54 P1c/v5: artifacts + append-only artifact_events exist, and v1–v4 dig
   MIGRATION_LIST.slice(0, 4).forEach(function (m, i) {
     assert(migrationDigest(m) === known[i], 'v' + m.version + ' digest changed in P1c (history is read-only): ' + migrationDigest(m));
   });
+
+  // v5 / v6 也已冻结：v7 只 DROP + CREATE 触发器，绝不重写 v5/v6 的 SQL 文本。
+  const known56 = [
+    '3ce177c0b86a07f8443a98ac7ef917601856cf1d936383b2b3dc5919656a6cdd',
+    '9e03c4710221eef001533bdab4896280a27f789ae0ec40b1b207bb8731c7e725',
+  ];
+  MIGRATION_LIST.slice(4, 6).forEach(function (m, i) {
+    assert(migrationDigest(m) === known56[i], 'v' + m.version + ' digest changed after v5/v6 (history is read-only): ' + migrationDigest(m));
+  });
+
+  // 当前 schema 的 promise gate 必须是 v7 那一个（看 actor_session，而不是显示前缀）。
+  const gate = store.db.prepare("select sql from sqlite_master where type = 'trigger' and name = 'mo_ledger_promise_gate'").get();
+  assert(gate && String(gate.sql).indexOf('MO_ACTOR_REQUIRED') !== -1 && String(gate.sql).indexOf('NEW.actor_session <>') !== -1,
+    'v7 owns mo_ledger_promise_gate: it compares the full actor_session: ' + (gate && gate.sql));
+
+  // ── v8：导入溯源结构 + 「当前权威只认本机写入」的库层口径 ──────────────
+  const ledgerCols = store.db.prepare('PRAGMA table_info(mo_ledger)').all().map(function (c) { return c.name; });
+  assert(ledgerCols.indexOf('import_batch_id') !== -1, 'v8 adds mo_ledger.import_batch_id (have: ' + ledgerCols.join(',') + ')');
+  ['batch_id', 'source_path', 'source_sha256', 'source_bytes', 'physical_lines', 'blank_lines', 'rows_imported', 'imported_at', 'importer'].forEach(function (c) {
+    const bcols = store.db.prepare('PRAGMA table_info(mo_import_batches)').all().map(function (x) { return x.name; });
+    assert(bcols.indexOf(c) !== -1, 'mo_import_batches column ' + c + ' (have ' + bcols.join(',') + ')');
+  });
+  // legacy_line 的列级全局 UNIQUE 必须已消失，换成 (import_batch_id, legacy_line)。
+  const ledgerIndexes = store.db.prepare("PRAGMA index_list('mo_ledger')").all().filter(function (i) { return i.unique === 1; });
+  const uniqueColSets = ledgerIndexes.map(function (i) {
+    return store.db.prepare("PRAGMA index_info('" + String(i.name).replace(/'/g, "''") + "')").all().map(function (c) { return c.name; }).join(',');
+  });
+  assert(uniqueColSets.indexOf('import_batch_id,legacy_line') !== -1, 'v8 UNIQUE(import_batch_id, legacy_line): ' + JSON.stringify(uniqueColSets));
+  assert(uniqueColSets.indexOf('legacy_line') === -1, 'v8 removed the v6 global UNIQUE(legacy_line): ' + JSON.stringify(uniqueColSets));
+  // promise 闸门必须把「当前主导」限定在本机写入的 lead 上。
+  const gateSql = String((store.db.prepare("select sql from sqlite_master where type='trigger' and name='mo_ledger_promise_gate'").get() || {}).sql);
+  assert(/import_batch_id IS NULL/.test(gateSql), 'v8 promise gate only compares live leads: ' + gateSql);
+  assert(store.latestLead() === null && store.ledgerStats().latestLead === null, 'v8: empty ledger has no live lead');
 
   const cols = store.db.prepare('PRAGMA table_info(artifacts)').all().map(function (c) { return c.name; });
   ['artifact_id', 'source_id', 'rel_path', 'kind', 'title', 'producer_session', 'producer_task',
@@ -1930,10 +1994,113 @@ test('T54 P1c/v5: artifacts + append-only artifact_events exist, and v1–v4 dig
   const triggers = store.db.prepare("select name from sqlite_master where type = 'trigger' order by name").all().map(function (r) { return r.name; });
   assert(triggers.indexOf('trg_artifact_events_no_update') !== -1 && triggers.indexOf('trg_artifact_events_no_delete') !== -1,
     'append-only triggers exist: ' + triggers.join(','));
+  // 触发器总数按当前 schema 显式写死：v7 是「替换」不是「追加」（12 条），
+  // v8 重建 mo_ledger（5 条重放）+ 2 条批次 + 3 条导入行 = 17 条，
+  // v9 再加 2 条构建审计 + 2 条 frame_index 的 idx: 护栏 = 21 条。
+  assert(triggers.length === 21, 'v9 trigger total is 21 (v1:4 + v2:1 + v5:2 + ledger:5 + v8 batch:2 + v8 import:3 + v9:4): ' + triggers.join(','));
+  ['mo_ledger_no_update', 'mo_ledger_no_delete', 'mo_ledger_lead_requires_ref', 'mo_ledger_lead_generation', 'mo_ledger_promise_gate'].forEach(function (t) {
+    assert(triggers.indexOf(t) !== -1, 'v6/v7/v8 ledger trigger ' + t + ' (have ' + triggers.join(',') + ')');
+  });
+  // v8 的导入护栏：批次只追加；导入行自证完整；带 legacy_line 的写入必须挂批次。
+  ['mo_import_batches_no_update', 'mo_import_batches_no_delete', 'mo_ledger_import_no_actor', 'mo_ledger_import_rows_complete', 'mo_ledger_import_batch_required'].forEach(function (t) {
+    assert(triggers.indexOf(t) !== -1, 'v8 import guard ' + t + ' (have ' + triggers.join(',') + ')');
+  });
 
-  // 库层护栏：状态枚举、rel_path 形状、事件动作枚举、外键。
+  // v9：(a) 构建审计只追加，正好两条、挂在 echo_source_builds 上；
+  //     (b) idx: 是摘要命名空间，frame_index 上的两条护栏（INSERT 与 UPDATE OF ptr）都断言它被占用。
+  const triggersOn = function (table) {
+    return store.db.prepare("select name from sqlite_master where type = 'trigger' and tbl_name = ? order by name").all(table).map(function (r) { return r.name; });
+  };
+  assert(JSON.stringify(triggersOn('echo_source_builds')) === JSON.stringify(['echo_source_builds_no_delete', 'echo_source_builds_no_update']),
+    'v9 echo_source_builds carries exactly two append-only triggers, got ' + JSON.stringify(triggersOn('echo_source_builds')));
+  assert(JSON.stringify(triggersOn('frame_index')) === JSON.stringify([
+    'trg_frame_authority_insert', 'trg_frame_authority_update',
+    'trg_frame_index_reject_echo_ptr_insert', 'trg_frame_index_reject_echo_ptr_update',
+  ]), 'v9 frame_index carries exactly four triggers (2 authority + 2 idx: guards), got ' + JSON.stringify(triggersOn('frame_index')));
+  for (const name of ['trg_frame_index_reject_echo_ptr_insert', 'trg_frame_index_reject_echo_ptr_update']) {
+    const sql = String((store.db.prepare("select sql from sqlite_master where type = 'trigger' and name = ?").get(name) || {}).sql);
+    assert(/NEW\.ptr LIKE 'idx:%'/.test(sql) && /META_ECHO_PTR_RESERVED/.test(sql), name + ' spells out the reserved namespace: ' + sql);
+  }
+  for (const name of ['echo_source_builds_no_update', 'echo_source_builds_no_delete']) {
+    const sql = String((store.db.prepare("select sql from sqlite_master where type = 'trigger' and name = ?").get(name) || {}).sql);
+    assert(/ECHO_BUILD_APPEND_ONLY/.test(sql), name + ' aborts with ECHO_BUILD_APPEND_ONLY: ' + sql);
+  }
+
+  // ── v9 对象清单：5 张基表 + 2 张 FTS 虚拟表 + 6 indexes；v10 separately tests vectors. ──
+  const echoTableRows = store.db.prepare("select name, sql from sqlite_master where type = 'table' and name like 'echo%' order by name").all();
+  const echoTableNames = echoTableRows.map(function (r) { return r.name; });
+  ['echo_index_sources', 'echo_words', 'echo_summaries', 'echo_summary_src_seqs', 'echo_source_builds',
+    'echo_words_fts', 'echo_summaries_fts'].forEach(function (t) {
+    assert(echoTableNames.indexOf(t) !== -1, 'v9 table ' + t + ' (have: ' + echoTableNames.join(',') + ')');
+  });
+  // 两张 FTS 是 fts5 虚拟表：连接列显式 UNINDEXED（派生索引整体替换时 rowid 会变）。
+  [['echo_words_fts', ['echo_source_id', 'word_ord', 'session', 'seq']],
+    ['echo_summaries_fts', ['echo_source_id', 'cmp_id']]].forEach(function (pair) {
+    const row = echoTableRows.filter(function (r) { return r.name === pair[0]; })[0];
+    assert(row && /CREATE VIRTUAL TABLE/.test(row.sql) && /USING fts5/.test(row.sql), pair[0] + ' is an fts5 virtual table: ' + (row && row.sql));
+    assert(/remove_diacritics 0/.test(row.sql), pair[0] + ' keeps diacritics (tokens must round-trip exactly)');
+    const cols = store.db.prepare('PRAGMA table_info(' + pair[0] + ')').all().map(function (c) { return c.name; });
+    assert(cols[0] === 'search_text' && cols[1] === 'raw_text', pair[0] + ' columns start with search_text/raw_text: ' + cols.join(','));
+    pair[1].forEach(function (c) {
+      assert(cols.indexOf(c) !== -1 && new RegExp(c + ' UNINDEXED').test(row.sql), pair[0] + ' joins on ' + c + ' UNINDEXED');
+    });
+  });
+  // echo_words 的库层口径：推理/思考不进索引；同一来源内 (session, seq) 必须唯一。
+  const wordsSql = String((echoTableRows.filter(function (r) { return r.name === 'echo_words'; })[0] || {}).sql);
+  assert(/kind NOT IN \('reasoning', 'thinking'\)/.test(wordsSql) && /role NOT IN \('reasoning', 'thinking'\)/.test(wordsSql),
+    'v9 echo_words refuses reasoning/thinking rows at the DB layer');
+  assert(/UNIQUE \(echo_source_id, session, seq\)/.test(wordsSql), 'v9 keeps log:<sid>#seq single-valued inside one source');
+  const echoIndexes = store.db.prepare("select name from sqlite_master where type = 'index' and name like 'idx_echo%' AND name <> 'idx_echo_word_vectors_model' order by name").all().map(function (r) { return r.name; });
+  assert(JSON.stringify(echoIndexes) === JSON.stringify([
+    'idx_echo_sources_ns', 'idx_echo_src_seqs_seq', 'idx_echo_summaries_session',
+    'idx_echo_summaries_status', 'idx_echo_words_kind', 'idx_echo_words_session',
+  ]), 'v9 has exactly six named ECHO indexes, got ' + JSON.stringify(echoIndexes));
+
+  // v10 vectors are derived metadata only: model config plus binary vectors, never a second text corpus.
+  const vectorModelSql = String((echoTableRows.filter(function (r) { return r.name === 'echo_vector_models'; })[0] || {}).sql);
+  const vectorTableSql = String((echoTableRows.filter(function (r) { return r.name === 'echo_word_vectors'; })[0] || {}).sql);
+  assert(/CREATE TABLE echo_vector_models/.test(vectorModelSql), 'v10 creates echo_vector_models');
+  assert(/CREATE TABLE echo_word_vectors/.test(vectorTableSql), 'v10 creates echo_word_vectors');
+  const vectorColumns = store.db.prepare('PRAGMA table_info(echo_word_vectors)').all().map(function (c) { return c.name; });
+  assert(vectorColumns.indexOf('vector_blob') !== -1 && vectorColumns.indexOf('source_content_hash') !== -1, 'v10 vectors carry BLOB and source-word hash metadata');
+  assert(vectorColumns.indexOf('text') === -1 && vectorColumns.indexOf('summary') === -1, 'v10 vector table has no duplicate text/chunk corpus');
+  const vectorIndexes = store.db.prepare("select name from sqlite_master where type='index' and name='idx_echo_word_vectors_model'").all().map(function (r) { return r.name; });
+  assert(JSON.stringify(vectorIndexes) === JSON.stringify(['idx_echo_word_vectors_model']), 'v10 adds the expected model/source vector index');
+
+  // 库层护栏：状态枚举、rel_path 形状、事件动作枚举、外键.
   const root = p1cRoot('t54');
   seedSource(store, root);
+
+  // v9 行为：构建审计只追加；idx: 保留给摘要，帧表不许占用（INSERT 与 UPDATE OF ptr 两路都拦）。
+  const echoGuardErr = function (fn) { try { fn(); return null; } catch (err) { return String(err.message); } };
+  store.db.prepare([
+    'insert into echo_index_sources (echo_source_id, source_path, source_version, namespace, generation, state,',
+    'cursor_seq, cursor_json, words_count, summaries_count, src_seq_count, source_sha256, source_bytes,',
+    'built_at, imported_at, importer) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ].join(' ')).run('echo-probe', '/tmp/echo-probe.jsonl', 'v1', 'log', 1, 'committed', 0, '{}', 0, 0, 0,
+    'a'.repeat(64), 0, '2026-11-14T00:00:00.000Z', '2026-11-14T00:00:00.000Z', 'meta-store-selftest');
+  store.db.prepare([
+    'insert into echo_source_builds (echo_source_id, generation, source_sha256, source_bytes, words_count,',
+    'summaries_count, src_seq_count, cursor_seq, cursor_json, built_at, imported_at, importer)',
+    'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ].join(' ')).run('echo-probe', 1, 'a'.repeat(64), 0, 0, 0, 0, 0, '{}',
+    '2026-11-14T00:00:00.000Z', '2026-11-14T00:00:00.000Z', 'meta-store-selftest');
+  const buildId = Number(store.db.prepare("select build_id from echo_source_builds where echo_source_id = 'echo-probe'").get().build_id);
+  assert(/ECHO_BUILD_APPEND_ONLY/.test(String(echoGuardErr(function () {
+    store.db.prepare('update echo_source_builds set importer = ? where build_id = ?').run('x', buildId);
+  }))), 'v9 echo_source_builds refuses UPDATE');
+  assert(/ECHO_BUILD_APPEND_ONLY/.test(String(echoGuardErr(function () {
+    store.db.prepare('delete from echo_source_builds where build_id = ?').run(buildId);
+  }))), 'v9 echo_source_builds refuses DELETE');
+  assert(/META_ECHO_PTR_RESERVED/.test(String(echoGuardErr(function () {
+    store.db.prepare('insert into frame_index (source_id, session_id, seq, raw_path, frame_ordinal, authority, ptr, snippet, content_hash, indexed_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run('dsh-home', 'session-aaa', 91, join(root, 'session-aaa', 'frames.jsonl'), 0, 'primary', 'idx:probe', 'idx ptr', hashFrame('idx ptr'), '2026-11-14T00:00:00.000Z');
+  }))), 'v9 refuses a frame whose ptr claims the idx: namespace (INSERT)');
+  const livePtrRow = store.db.prepare('select ptr from frame_index limit 1').get();
+  assert(/META_ECHO_PTR_RESERVED/.test(String(echoGuardErr(function () {
+    store.db.prepare('update frame_index set ptr = ? where ptr = ?').run('idx:probe', livePtrRow.ptr);
+  }))), 'v9 refuses moving a frame onto idx: (UPDATE OF ptr)');
+
   const insArtifact = store.db.prepare([
     'insert into artifacts (artifact_id, source_id, rel_path, kind, created_at, updated_at, status, bytes, sha256, last_seen_at)',
     'values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -2293,16 +2460,17 @@ test('T63 P1c: a v4 db migrates to v5 without touching frames, a failing v5 roll
   const path = dbPath('t63-v4');
   buildV4(path);
   const store = openStore({ path, mode: 'readwrite' });
-  assert(store.state.current === 4 && store.state.ready === false, 'a v4 db is not ready for v5 code, got ' + store.state.current);
+  assert(store.state.current === 4 && store.state.ready === false, 'a v4 db is not ready for v10 code, got ' + store.state.current);
   assertCode(function () { store.registerArtifact({ sourceId: 'dsh-home', path: 'docs/mig.md', kind: 'doc' }); }, CODES.MIGRATION_REQUIRED, 'artifacts require v5');
+  assertCode(function () { store.appendLedger({ type: 'fact', text: 'pre-migration' }, { sessionId: 'session-12345678-test' }); }, CODES.MIGRATION_REQUIRED, 'ledger requires v6');
   // ★ 注意：v4 库在 v5 代码下不是 ready，store.listFrames 会先抛 MIGRATION_REQUIRED。
   //   所以「迁移前」的快照只能走裸 SQL —— 这不是绕过护栏，而是护栏在正常工作。
   const beforeRows = store.db.prepare('select source_id, session_id, seq, ptr, raw_rel_path, content_hash from frame_index order by seq').all();
   const framesBefore = JSON.stringify(beforeRows);
 
   const res = store.migrate();
-  assert(res.applied.length === 1 && res.applied[0].version === 5, 'only v5 applies: ' + JSON.stringify(res.applied.map(function (a) { return a.version; })));
-  assert(store.state.ready === true && store.state.current === 5, 'ready at v5');
+  assert(res.applied.length === 7 && JSON.stringify(res.applied.map(function (a) { return a.version; })) === JSON.stringify([5,6,7,8,9,10,11]), 'v5 -> v6 -> v7 -> v8 -> v9 -> v10 apply: ' + JSON.stringify(res.applied.map(function (a) { return a.version; })));
+  assert(store.state.ready === true && store.state.current === SCHEMA_VERSION, 'ready at SCHEMA_VERSION');
   const afterRows = store.db.prepare('select source_id, session_id, seq, ptr, raw_rel_path, content_hash from frame_index order by seq').all();
   assert(JSON.stringify(afterRows) === framesBefore, 'v5 did not touch a single frame row\nbefore: ' + framesBefore + '\nafter: ' + JSON.stringify(afterRows));
   assert(store.searchIndexInfo().aligned === true, 'v5 did not disturb the FTS index');

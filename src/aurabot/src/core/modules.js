@@ -14,6 +14,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url'
 import { dataDir } from './store.js'
 import { registerSecretField } from './config.js'
 import { defineTool } from '../tools/tools.js'
+import { resolveLoadLibImpl } from './clone-seam.js'
 
 /** 扩展接口版本：只加不改。哪天不得不改已有的东西才升到 2，并在更新说明里写清楚怎么迁移。 */
 export const API_VERSION = 1
@@ -157,7 +158,10 @@ export function rewriteImports(code, fromKey, keep = new Set()) {
  * @param {string} o.version     插件版本
  * @param {object[]} o.builtins  内置模块定义（按启动顺序）
  */
-export function createModules({ ctx, core, getConfig, setConfig, logger, version, builtins }) {
+export { createAllowlistLoader, createHostModules, resolveAurabotApplyOptions } from './clone-seam.js'
+
+export function createModules({ ctx, core, getConfig, setConfig, logger, version, builtins, loadLibImpl }) {
+  const loadModulesLib = resolveLoadLibImpl(loadLibImpl, loadLib)
   const log = logger.child('modules')
   const builtinDefs = new Map(builtins.map((d) => [d.id, d]))
   const live = new Map() // id → 运行中的模块（见 start）
@@ -415,7 +419,7 @@ export function createModules({ ctx, core, getConfig, setConfig, logger, version
     const users = isUserOn() ? scanUser() : []
     for (const def of builtins) if (wanted(def.id, users) === 'builtin') startSync(def)
     return (async () => {
-      await loadLib()
+      await loadModulesLib()
       globalThis.aurabot = { lib, src: pathToFileURL(SRC).href, version, apiVersion: API_VERSION, modules: publicHandle }
       installDocs()
       await sync()

@@ -5,14 +5,14 @@ import { SessionStore } from '../src/session/store.mjs';
 import { ToolRegistry } from '../src/tools/registry.mjs';
 import { LlmClient } from '../src/llm/client.mjs';
 import { AgentLoop } from '../src/agent/loop.mjs';
-import { createServer } from '../src/web/server.mjs';
+import { createServer, echoHealthSummary } from '../src/web/server.mjs';
 import { registerBuiltins } from '../src/tools/builtin.mjs';
 import { loadConfig, ROOT } from '../src/config.mjs';
 
 const ok = []; const bad = [];
 async function check(name, fn) {
   try { const v = await fn(); ok.push('✓ ' + name + (v !== undefined ? '  → ' + v : '')); }
-  catch (e) { bad.push('✗ ' + name + '  → ' + (e && e.message)); }
+  catch (e) { bad.push('✗ ' + name + '  → ' + ((e && e.stack) || (e && e.message) || String(e))); }
 }
 
 const cfg = loadConfig();
@@ -24,6 +24,15 @@ cfg.dataDir = path.join(ROOT, 'data', 'selftest-' + Date.now());
 //   ★ 这不是「让测试变绿」：断言一个字没改，改的是**输入**。
 cfg.llm = Object.assign({}, cfg.llm, { apiKey: '', apiKeyRef: null });
 const store = new SessionStore(cfg.dataDir);
+// /api/health ECHO summary is additive; the HTTP self-test uses a deterministic stub, never a shared meta.sqlite.
+store.echoStats = () => ({ available: true, aligned: true, ok: true, searchable: true, words: 1, summaries: 0, problems: [] });
+
+const missingEchoHealth = echoHealthSummary(null);
+if (missingEchoHealth.available !== false || missingEchoHealth.aligned !== null || missingEchoHealth.counts !== null) throw new Error('ECHO missing-store fallback invalid');
+const unavailableEchoHealth = echoHealthSummary({ echoStats: () => ({ available: false, why: 'secret path D:/private' }) });
+if (unavailableEchoHealth.reason !== 'ECHO index unavailable' || JSON.stringify(unavailableEchoHealth).includes('secret')) throw new Error('ECHO unavailable fallback leaked detail');
+const thrownEchoHealth = echoHealthSummary({ echoStats: () => { throw new Error('secret path D:/private'); } });
+if (thrownEchoHealth.reason !== 'ECHO stats read failed' || JSON.stringify(thrownEchoHealth).includes('secret')) throw new Error('ECHO exception fallback leaked detail');
 const tools = new ToolRegistry();
 const llm = new LlmClient(cfg.llm);
 const loop = new AgentLoop({ store, llm, tools, config: cfg });
@@ -89,26 +98,54 @@ await check('HTTP 服务 + 接口 + 五槽位', async () => {
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
   const base = 'http://127.0.0.1:' + port;
+  const token = fs.readFileSync(path.join(cfg.dataDir, 'token.txt'), 'utf8').trim();
   try {
     const h = await (await fetch(base + '/api/health')).json();
     if (!h.ok) throw new Error('health 不对');
+    if (!h.echoIndex || h.echoIndex.available !== true || h.echoIndex.aligned !== true || h.echoIndex.searchable !== true) throw new Error('ECHO health summary missing/invalid');
+    if (JSON.stringify(h.echoIndex).match(/source|pointer|session-|path|token/i)) throw new Error('ECHO health summary leaked detail');
+    const echoStatsBefore = store.echoStats;
+    store.echoStats = () => ({ available: true, aligned: false, ok: false, searchable: false, words: 2, summaries: 1, problems: [{ kind: 'source-declared-counts' }] });
+    const badEchoHealth = await (await fetch(base + '/api/health')).json();
+    store.echoStats = echoStatsBefore;
+    if (!badEchoHealth.ok || badEchoHealth.echoIndex.aligned !== false || badEchoHealth.echoIndex.problemKinds[0] !== 'source-declared-counts') throw new Error('ECHO health must report index degradation without changing service liveness');
+    const echoFallbacks = [
+      [undefined, 'Store unavailable'],
+      [() => ({ available: false, why: 'secret path D:/private' }), 'ECHO index unavailable'],
+      [() => { throw new Error('secret path D:/private'); }, 'ECHO stats read failed']
+    ];
+    for (const [statsFn, reason] of echoFallbacks) {
+      try {
+        if (statsFn === undefined) delete store.echoStats;
+        else store.echoStats = statsFn;
+        const response = await fetch(base + '/api/health');
+        const body = await response.json();
+        const encoded = JSON.stringify(body.echoIndex);
+        if (response.status !== 200 || body.ok !== true || body.echoIndex.available !== false || body.echoIndex.reason !== reason) throw new Error('ECHO fallback mismatch for ' + reason);
+        if (encoded.includes('secret') || encoded.includes('D:/private')) throw new Error('ECHO fallback leaked error detail');
+      } finally {
+        store.echoStats = echoStatsBefore;
+      }
+    }
     const list = await (await fetch(base + '/api/sessions')).json();
     if (!list.sessions.length) throw new Error('会话列表空');
-    const fr = await (await fetch(base + '/api/session/' + sid + '/frames')).json();
+    const frResponse = await fetch(base + '/api/session/' + sid + '/frames', { headers: { 'X-Soul-Token': token } });
+    const fr = await frResponse.json();
+    if (!frResponse.ok || !Array.isArray(fr.frames)) throw new Error('frames HTTP ' + frResponse.status + ': ' + JSON.stringify(fr));
     if (fr.frames.length !== 4) throw new Error('帧数不对 ' + fr.frames.length);
-    const se = await (await fetch(base + '/api/search?q=' + encodeURIComponent('索引'))).json();
+    const se = await (await fetch(base + '/api/search?q=' + encodeURIComponent('索引') + '&session=' + encodeURIComponent(sid), { headers: { 'X-Soul-Token': token } })).json();
     if (!se.hits.length) throw new Error('检索没命中');
     // ★ 2026-11-07 改：/ 现在是仪表盘（数据 + 器官 + 环境），五槽位搬到 /chat 去了。
     //   这不是放宽，是判据跟着设计走：**每一条检查它该检查的那个页**。
     // ★ 2026-11-11：dashboard 已挪到 /dashboard（server.mjs:780 写着「/ 给对话，dashboard 挪到 /dashboard」）。
     //   旧断言还在查 /，而 / 现在是 shell.html —— 于是它永远找不到 cards。
-    const dash = await (await fetch(base + '/dashboard')).text();
-    // ★ 2026-11-11：dashboard.html 用的是**单引号** id（<div class='grid g6' id='cards'>）。
-    //   之前这条红，不是引号问题，是它查的 / 已经变成 shell.html（对话页）—— 页面根本不对。
-    for (const need of ["id='cards'", "id='organs'", '/api/overview']) {
-      if (!dash.includes(need)) throw new Error('仪表盘缺: ' + need);
+    const dashResponse = await fetch(base + '/dashboard', { redirect: 'manual' });
+    if (dashResponse.status !== 302 || dashResponse.headers.get('location') !== '/') throw new Error('/dashboard 应重定向到星系首页');
+    const dash = await (await fetch(base + '/', { headers: { 'X-Soul-Token': token } })).text();
+    for (const need of ['<canvas id="c"></canvas>', '/api/status', '/api/overview']) {
+      if (!dash.includes(need)) throw new Error('星系首页缺: ' + need);
     }
-    if (dash.length < 3000) throw new Error('仪表盘太小: ' + dash.length + ' 字节');
+    if (dash.length < 3000) throw new Error('星系首页太小: ' + dash.length + ' 字节');
     const chat = await (await fetch(base + '/chat')).text();
     const slots = ['id="main"', 'id="sidebar"', 'id="msgs"', 'id="overlay"', 'settings.section'];
     const miss = slots.filter(s => !chat.includes(s));

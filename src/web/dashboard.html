@@ -341,7 +341,10 @@ function renderHb(_b){
       ['阶段', '<b>'+esc(v)+'</b>'],
       ['说明', esc(a.note||'—')],
       ['谁在判', 'v4 autonomy（organs/autonomy.mjs）'],
-      ['lead 从哪来', 'DSH /heartbeat/auto（只借它解析目标，不用它倒计时）']
+      // ★ 2026-11-16（第 3 批）：lead 早已本地化 —— 只认《墨》最后一条 lead。
+      //   这两行原来写的是 DSH /heartbeat/auto（v3 时代的来源），那是过期口径。
+      ['lead 从哪来', '《墨》最后一条 lead（v4 本地判定，不问 DSH）'],
+      ['DSH 心跳', '<span style="color:var(--dim2)">已退役（2026-11-13 起不参与任何判定）</span>']
     ]);
   }).catch(function(e){ rtCard('hb-main','bad',k,'读不到','',esc(String((e&&e.message)||e))); });
 }

@@ -1,0 +1,2 @@
+{"t":"2026-11-01T00:00:00.000Z","session":"session-shared-0001","ws":"ws-v3","seq":12,"turn":4,"log":"D:/synthetic/logs/v3.jsonl","role":"user","kind":"message","len":15,"truncated":false,"text":"V3 流里的第十二帧（第二代）"}
+{"t":"2026-11-11T00:30:00.000Z","session":"session-shared-0001","ws":"ws-v3","seq":30,"turn":11,"log":"D:/synthetic/logs/v3.jsonl","role":"user","kind":"message","len":10,"truncated":false,"text":"V3 流里的第三十帧"}

@@ -30,7 +30,11 @@ export const DEV_PATHS = {
   // pruner 的 context-contract.mjs（帧读取的唯一 hash 实现）。外部可选依赖，开发机才有。
   prunerContract: 'D:/AI/dsh-tools/dsh-yanqing-pruner/context-contract.mjs',
   // 心跳插件启动时写下的「我自己的 origin」。★ 单文件依赖，开发机才有；
-  // 分发版没有它 → dshOriginFileOf() 回 null，只走启动日志那条路（那才是验收要求的主路径）。
+  // 分发版没有它 → dshOriginFileOf() 回 null。
+  // ★★ 2026-11-16（架构收敛第 3 批）：**这两条路径已不在运行时路径上**。
+  //   runtime-status 的自动发现退役了（心跳地址只认显式配置），这里只剩配置面板的
+  //   默认值与 test/dsh-origin-shared.test.mjs 的契约测试在用它；原文文件保留不动。
+  //   helper 现在的家：src/organs/dsh-origin-shared.mjs（本注释点名的那个函数还在）。
   dshOriginFile: 'D:/AI/dsh-tools/dsh-yanqing-heartbeat/dsh-origin.txt',
   // 定长自我层（SELF.md）。★ 2026-11-11：这是「我是谁」那一份，分发版没有 → personaFilesOf 回空。
   selfMd: 'D:/AI/memory/hub/SELF.md',
@@ -213,6 +217,18 @@ export const DEFAULTS = {
     runtimeDir: null,
   },
 
+  // 定长自我层（SELF.md）—— ★ 2026-11-17 新增这一块。
+  //
+  // ★ 为什么要它：`soul_self` 工具原来只认 `cfg.self.file`，而配置里**没有这个段**，
+  //   于是它第一次被调用就回 `UNCONFIGURED`（三项判据一条都没跑）。
+  //   实测：调用返回「读不到这一页，三条判据一条都验不了」——
+  //   那不是「自我层没问题」，是**什么都没检查**。两件事必须分开。
+  // ★ 默认 null：路径只能由调用方或发现逻辑给（老版踩过「默认路径在仓库布局下不存在」）。
+  self: {
+    file: null,
+    maxBytes: 12288,
+  },
+
   // 日记
   // ★ 默认 null —— 和书房同一条判据：**没配就是不配**。
   //   老版踩过的坑：默认 join(cwd,'diary')，而进程 cwd 是安装目录，
@@ -221,6 +237,25 @@ export const DEFAULTS = {
   diary: {
     dir: null,
     maxSnippet: 200,
+  },
+
+  // ECHO L4 索引刷新。默认关闭；运行时 config.json 保持不动，由部署者显式配置启用。
+  echoIndex: { enabled: false, intervalSec: 300, sourceSessions: null, indexDir: null },
+
+  // ★★ ECHO 实时增量（阶段 3 · 2026-11-17）。
+  //
+  //   它和上面那个 echoIndex **不是一回事**，别混：
+  //     echoIndex      —— L4 摘要索引的**刷新**（读 memory/hub/index 里已经建好的东西）
+  //     echoLive       —— 从**原始会话日志**增量派生 v10 的 echo_words / echo_summaries
+  //
+  //   默认全关，理由和 events.ingress 一样：它会写一个 2.5GB 的库，什么时候开、
+  //   开在哪个库上，必须由部署者点名，不能由默认值替他决定。
+  //   ★ 三个必填项缺一个就**不启动**（并打印为什么），不猜路径。
+  echoLive: {
+    enabled: false,
+    intervalSec: 120,        // 两分钟一轮。★ 比 soul-sync（60s）慢一档：它是写库，不是读文件。
+    sourceRoot: null,        // DSH 会话日志根（只读）。例：D:/AI/dsh/home/sessions
+    dbPath: null,            // v10 meta.sqlite。留空 = 用 <dataDir>/meta.sqlite
   },
 
   // 书房
@@ -273,6 +308,8 @@ export const DEFAULTS = {
     // ★ 留空不等于「不发现」：留空 = 走上面两条默认位置。想关掉自动发现就把心跳地址配死。
     dshLogDir: '',            // 例：D:/AI/dsh/home/guard/logs
     dshOriginFile: '',        // 例：D:/AI/dsh-tools/dsh-yanqing-heartbeat/dsh-origin.txt
+  // ★ 2026-11-16（第 3 批）：这一组的**自动发现那条路已退役**（runtime-status 不再读
+  //   启动日志 / dsh-origin.txt）。字段留着只为显式配置；没配就是 UNCONFIGURED。
 
     echoDoctorPath: '',       // 例：D:/AI/memory/hub/echo-doctor.mjs
     echoProbeTimeoutMs: 15000,// 子进程超时（实测 fast 层 ~2.2s；给足余量，超时就杀掉并如实记失败）
@@ -409,6 +446,39 @@ export function resolveApiKeyRef(ref, root = appRoot()) {
   }
 }
 
+const MANAGED_PATH_FIELDS = ['dataDir','workspace','statusDir','memory.libraryDir','self.file','soul.root','diary.dir','echoIndex.indexDir','echoIndex.sourceSessions','echoLive.sourceRoot','echoLive.dbPath','integrations.echoDoctorPath'];
+function nested(cfg,key){return key.split('.').reduce((v,k)=>v==null?undefined:v[k],cfg)}
+function resolveManagedConfigPath(value,key,home,pathImpl){if(!value)return null;if(typeof value!=='string'||!pathImpl.isAbsolute(value)&&value.trim()==='')throw new Error('managed config '+key+' must be a non-empty path');const resolved=pathImpl.isAbsolute(value)?pathImpl.resolve(value):pathImpl.resolve(home,value);const rel=pathImpl.relative(home,resolved);if(pathImpl.isAbsolute(rel)||rel==='..'||rel.startsWith('..'+pathImpl.sep))throw new Error('managed config '+key+' escapes clone home');return resolved}
+export function loadManagedConfig(file,{home,fsImpl=fs,pathImpl=path}={}){
+  if(typeof home!=='string'||!pathImpl.isAbsolute(home)||pathImpl.resolve(home)!==home)throw new Error('managed config home must be canonical and absolute');
+  if(typeof file!=='string'||!pathImpl.isAbsolute(file)||pathImpl.resolve(file)!==file)throw new Error('managed config file must be canonical and absolute');
+  const homeRel=pathImpl.relative(home,file);if(homeRel==='..'||homeRel.startsWith('..'+pathImpl.sep)||pathImpl.isAbsolute(homeRel))throw new Error('managed config file escapes clone home');
+  const stat=fsImpl.statSync(file);if(!stat.isFile())throw new Error('managed config file is not a regular file');
+  const cfg=deepMerge(structuredClone(DEFAULTS),JSON.parse(fsImpl.readFileSync(file,'utf8')));
+  if(cfg.llm?.apiKey||cfg.llm?.apiKeyRef||cfg.llm?.baseUrl)throw new Error('managed config forbids LLM key, reference, and endpoint');
+  const ext=cfg.integrations||{};
+  if(ext.dshBaseUrl||ext.mcpHubUrl||ext.heartbeatUrl||ext.echoDoctorPath||ext.dshLogDir||ext.dshOriginFile)throw new Error('managed config forbids external integration paths');
+  if(cfg.events?.ingress?.mode&&cfg.events.ingress.mode!=='off')throw new Error('managed config requires event ingress off');
+  if(cfg.events?.egress?.mode&&cfg.events.egress.mode!=='off')throw new Error('managed config requires event egress off');
+  if(cfg.events?.ingress?.bridge?.eventsPath||cfg.events?.ingress?.leadRelay?.enabled||cfg.events?.ingress?.leadRelay?.queuePath)throw new Error('managed config forbids external event paths');
+  if(cfg.echoLive?.enabled||cfg.echoLive?.sourceRoot||cfg.echoLive?.dbPath||cfg.echoIndex?.enabled||cfg.echoIndex?.sourceSessions||cfg.echoIndex?.indexDir)throw new Error('managed config forbids ECHO external sources');
+  if(cfg.chat?.enabled)throw new Error('managed config requires mobile chat disabled');
+  if((cfg.self?.file||cfg.self?.path)||(cfg.persona?.files||[]).length)throw new Error('managed config forbids external SELF/persona files');
+  if((cfg.skills?.dirs||[]).some(d=>typeof d!=='string'||!pathImpl.isAbsolute(pathImpl.resolve(home,d))||!pathImpl.resolve(home,d).startsWith(home+pathImpl.sep)))throw new Error('managed config skills path escapes clone home');
+  cfg.llm={...cfg.llm,apiKey:'',apiKeyRef:'',baseUrl:'',enabled:false,apiKeySource:'none'};
+  cfg.host='127.0.0.1';cfg.port=0;cfg.quiet=true;cfg.integrations={...cfg.integrations,dshBaseUrl:'',mcpHubUrl:'',heartbeatUrl:'',echoDoctorPath:''};
+  cfg.events={...cfg.events,ingress:{...cfg.events?.ingress,mode:'off'},egress:{...cfg.events?.egress,mode:'off'},wake:{...cfg.events?.wake,deliver:false}};
+  cfg.echoIndex={...cfg.echoIndex,enabled:false};cfg.echoLive={...cfg.echoLive,enabled:false,sourceRoot:null,dbPath:null};cfg.autonomy={...cfg.autonomy,enabled:false};cfg.chat={enabled:false};cfg.memory={...cfg.memory,libraryDir:null,indexFile:'meta.sqlite'};cfg.self={...cfg.self,file:null,path:null};cfg.persona={...cfg.persona,files:[]};cfg.skills={...cfg.skills,dirs:(cfg.skills?.dirs||[]).map((d)=>resolveManagedConfigPath(d,'skills.dirs',home,pathImpl))};cfg.integrations.echoDoctorPath='';cfg.statusDir=cfg.statusDir?resolveManagedConfigPath(cfg.statusDir,'statusDir',home,pathImpl):pathImpl.join(home,'status');cfg.soul={...cfg.soul,root:home};cfg.__managedTemp=true;
+  cfg.dataDir=resolveManagedConfigPath(cfg.dataDir,'dataDir',home,pathImpl);
+  if(!cfg.workspace)cfg.workspace=home;else cfg.workspace=resolveManagedConfigPath(cfg.workspace,'workspace',home,pathImpl);
+  if(cfg.statusDir)cfg.statusDir=resolveManagedConfigPath(cfg.statusDir,'statusDir',home,pathImpl);
+  if(cfg.soul?.root)cfg.soul={...cfg.soul,root:resolveManagedConfigPath(cfg.soul.root,'soul.root',home,pathImpl)};
+  if(cfg.diary?.dir)cfg.diary={...cfg.diary,dir:resolveManagedConfigPath(cfg.diary.dir,'diary.dir',home,pathImpl)};
+  if(cfg.echoIndex?.indexDir)cfg.echoIndex={...cfg.echoIndex,indexDir:resolveManagedConfigPath(cfg.echoIndex.indexDir,'echoIndex.indexDir',home,pathImpl)};
+  if(cfg.memory?.libraryDir)cfg.memory={...cfg.memory,libraryDir:resolveManagedConfigPath(cfg.memory.libraryDir,'memory.libraryDir',home,pathImpl)};
+  cfg.dataDir=resolveManagedConfigPath(cfg.dataDir,'dataDir',home,pathImpl);
+  return cfg;
+}
 export function loadConfig(file = path.join(appRoot(), 'config.json')) {
   let cfg = structuredClone(DEFAULTS);
   if (fs.existsSync(file)) {
@@ -511,9 +581,42 @@ export function wakerLedgerFileOf(cfg) {
  * ★ tier 怎么分：定长自我层是 CORE（永不裁），两份 AGENTS.md 是 WORK（超预算时可压）。
  *   三者合计约 67KB < 默认 80KB，正好放得下；超了也是先裁 WORK，不会把 SELF 裁掉。
  */
+// ★★★ 2026-11-17：SELF.md 的路径解析 —— **只写这一处**。
+//
+// ★ 为什么必须抽出来：mcp-tools.mjs 自己 `loadConfig()` 起了一个**独立实例**
+//   （它不 是 index.mjs 里那个 config）。所以在 index.mjs 里给 `config.self.file` 赋值，
+//   `soul_self` 工具根本看不到 —— 实测它每次都回 UNCONFIGURED（三项判据一条都没跑）。
+//   同一份路径判据写在两个地方，迟早各说各话；所以由这个函数统一决定。
+//
+// ★ 候选顺序（先到先用，判据是「它真的是个文件」）：
+//   ① 配置里显式写的 self.file / 老写法 self.path
+//   ② 环境变量 AGENT_SOUL_SELF
+//   ③ 开发机默认 D:/AI/memory/hub/SELF.md（**存在才用**，见 DEV_PATHS 的纪律）
+//   ④ <soul.root>/SELF.md（分发版把自己的 SELF 放在书房下）
+// 都没有 → null。调用方要报「文件不在」，不是「没有自我」。
+export function resolveSelfFile(cfg) {
+  const c = cfg || {};
+  if (c.__managedTemp === true) {
+    const only = (c.self && (c.self.file || c.self.path)) || null;
+    if (!only || typeof only !== 'string') return null;
+    try { return fs.statSync(only).isFile() ? only : null; } catch { return null; }
+  }
+  const cands = [
+    (c.self && c.self.file) || (c.self && c.self.path) || null,
+    process.env.AGENT_SOUL_SELF || null,
+    devFileOr('selfMd', null),
+    c.soul && c.soul.root ? path.join(c.soul.root, 'SELF.md') : null,
+  ];
+  for (const x of cands) {
+    if (!x || typeof x !== 'string') continue;
+    try { if (fs.statSync(x).isFile()) return x; } catch { /* 下一个 */ }
+  }
+  return null;
+}
+
 export function personaFilesOf(cfg) {
   const own = cfg && cfg.persona && Array.isArray(cfg.persona.files) ? cfg.persona.files : [];
-  if (own.length) return own;
+  if (own.length || cfg?.__managedTemp) return own;
   const out = [];
   const self = devFileOr('selfMd', null);
   if (self) out.push({ path: self, tier: 'core', name: 'SELF.md' });
@@ -548,7 +651,8 @@ export function skillsDirsOf(cfg) {
   const own = cfg && cfg.skills && Array.isArray(cfg.skills.dirs) ? cfg.skills.dirs : [];
   const out = [];
   const push = (d) => { const p = resolvePath(d); if (p && !out.includes(p)) out.push(p); };
-  for (const d of own) { const v = String(d == null ? '' : d).trim(); if (v) push(v); }
+  for (const d of own) { const v = String(d == null ? '' : d).trim(); if (v) push(d && typeof d==='string'&&cfg?.__managedTemp?path.join(appRoot(),d):v); }
+  if (cfg?.__managedTemp) return out;
   const home = devPathOr('dshHome', null);
   if (home) { const d = path.join(home, 'skills'); if (isDirPath(d)) push(d); }
   return out;

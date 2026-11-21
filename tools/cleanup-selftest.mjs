@@ -208,6 +208,28 @@ console.log('=== 定点清理自检（E）===');
   h.close(); close();
 }
 
+// ── ★ ②.5 「影响了 0 帧」不算清理成功（task-9 缺陷③的同族）────
+//   ★ 这一条是**新加的真回归**：原来 framesAffected:0 能一路过闸，
+//     回执 ok:true、落一条成功记录、面板写「已清」—— 而上下文一个字都没变。
+{
+  const { hub, url, close } = await openHub();
+  const h = await fakeHost({
+    url, host: 'fake-zero-frame', caps: [CLEANUP_CAP],
+    onExec: (m) => ({ ok: true, data: {
+      targetSession: m.args.targetSession, opId: m.args.opId,
+      startSeq: m.args.startSeq, endSeq: m.args.endSeq,
+      framesAffected: 0, at: new Date().toISOString(),
+    } }),
+  });
+  await sleep(120);
+  const r = await mkOrgan(hub, {}).run({ sessionId: 'sess-target', startSeq: START, endSeq: END });
+  ok('★ ②d framesAffected=0 → 失败（nothing-cleaned），不许记成清过',
+    r.ok === false && r.stage === 'nothing-cleaned', r.stage + '：' + String(r.reason).slice(0, 60));
+  const st = readCleanupState({ dataDir: DATA });
+  ok('★ ②e 0 帧回执照样落盘，last.ok=false', st.ok && st.last && st.last.ok === false && st.last.stage === 'nothing-cleaned', st.ok ? st.last.stage : st.why);
+  h.close(); close();
+}
+
 // ── ③ 没有 pruner 能力 ────────────────────────────────────
 {
   const { hub, url, close } = await openHub();

@@ -10,10 +10,12 @@
 //   store.relocateSource('dsh-home', 'E:/mirror/sessions', 'D:/AI/dsh/home/sessions');  // P1b
 //   store.registerArtifact({ sourceId:'dsh-home', path:'30-状态/x.md', kind:'report' });  // P1c
 //   store.verifyArtifact({ sourceId:'dsh-home', relPath:'30-状态/x.md' });                // P1c：present|stale|missing
+//   store.appendLedger({type:'fact',text:'...'}, {sessionId: trustedSessionId});
 //
 // 引擎约束：node:sqlite 只经 src/db/engine.mjs 引入，别的模块不直接 require 它。
 
 export { openMetaStore } from './store.mjs';
+export { registerEchoVectorModel, putEchoSourceVectors, deleteEchoSourceVectors, searchEchoSourceVectors } from './echo-vectors.mjs';
 export { migrate, readSchemaState } from './migrate.mjs';
 export { SCHEMA_VERSION, MIGRATIONS, checksum, migrationDigest, backfillFrameFts, rebuildFrameFts } from './schema.mjs';
 export { engineInfo, assertEngine, ENGINE_NAME, MIN_NODE_MAJOR, MIN_SQLITE_VERSION } from './engine.mjs';
@@ -63,3 +65,5 @@ export { relocateSource, listSourceRelocations } from './relocate.mjs';
 export { verifyPtrSample } from './accept.mjs';
 export { isStreamFingerprint, assertStreamFingerprint, STREAM_FINGERPRINT_SCHEME } from './validate.mjs';
 export { MetaStoreError, CODES, isMetaStoreError, translateSqliteError } from './errors.mjs';
+export const LEDGER_TYPES = Object.freeze(['lead','promise','fact','shelved','gain','loss','persona','container']);
+export { classifyEchoWordContent, ECHO_CONTENT_CLASSES, ECHO_INJECTION_PREFIXES } from './echo-content-class.mjs';

@@ -1,6 +1,8 @@
 // huanqi-llm-selftest —— 换气语义层的自检（用假 LLM，不烧真 token）
 import { analyzeContext, parseVerdict, framesToPromptText } from '../src/organs/huanqi-llm.mjs'
+import { LlmClient } from '../src/llm/client.mjs'
 
+export async function run() {
 let pass = 0, fail = 0
 const ok = (n, c, d) => { if (c) { pass++; console.log('  ✓ ' + n + (d ? '  ' + d : '')) } else { fail++; console.log('  ✗ ' + n + (d ? '  ' + d : '')) } }
 
@@ -94,5 +96,17 @@ console.log('=== ③ analyzeContext（假 LLM）===')
 }
 
 console.log('')
+console.log('=== ④ disabled LlmClient must not reach fetch ===')
+{
+  const oldFetch = globalThis.fetch; let fetchCalls = 0; globalThis.fetch = async () => { fetchCalls++; throw new Error('fetch must not be reached'); };
+  try { const offline = new LlmClient({ baseUrl: '', apiKey: '' }); let error = ''; try { await offline.chat([], []); } catch (e) { error = String(e.message || e); }
+    ok('empty credentials rejected before fetch', error.includes('LLM 未配置') && fetchCalls === 0, 'fetchCalls=' + fetchCalls); }
+  finally { globalThis.fetch = oldFetch; }
+}
+console.log('')
 console.log((fail === 0 ? 'ALL PASS' : 'FAILED') + ' · ' + pass + ' 通过 / ' + fail + ' 失败')
-process.exit(fail === 0 ? 0 : 1)
+return { pass, fail }
+}
+if (process.argv[1] && new URL(import.meta.url).pathname.toLowerCase().endsWith(process.argv[1].replaceAll('\\','/').toLowerCase().split('/').pop())) {
+  const result = await run(); if (result.fail) process.exitCode = 1;
+}

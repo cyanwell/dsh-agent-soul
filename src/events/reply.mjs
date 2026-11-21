@@ -217,6 +217,21 @@ export function createReplyReaderViaBridge(opts = {}) {
     counters.reads += 1
     counters.lastAt = new Date().toISOString()
     let got = null
+    // ★★ 2026-11-16（第 1 批补闸）：**只给 tailFrames 就会静默截断**。
+    //   实测 readAllSessionViaBridge 里 tailFrames>0 走的是「一次调用读最后 N 帧」的捷径
+    //   —— 它**不看 maxFrames，也不翻页**。于是一条 5000 帧的会话给 tailFrames=4000，
+    //   返回的 4000 帧里未必有 turn/end，判据回 REPLY_NO_TURN_END ——
+    //   而那是「读不到」被装扮成了「她这一轮没说」。设计纪律写的是「不静默截断」，
+    //   这里把它落成结构上的：尾读 + 有上限 → 直接拒绝，让调用方显式选择。
+    //   ★ 单测见 test/reply-bridge-tail.test.mjs（不连任何真实宿主）。
+    const tailOpt = Number(callOpts && callOpts.tailFrames)
+    if (Number.isFinite(tailOpt) && tailOpt > 0) {
+      counters.failed += 1
+      counters.lastError = 'REPLY_TAIL_TRUNCATION_REJECTED'
+      return fail('REPLY_TAIL_TRUNCATION_REJECTED',
+        'bridge 回复读取不支持只读尾部（tailFrames=' + tailOpt + '）—— 尾读会静默截断并且不看 maxFrames；'
+        + '要么去掉 tailFrames 走分页全读，要么把这个上限显式提高', { sessionId, tailFrames: tailOpt, maxFrames })
+    }
     try {
       got = await readAllSessionViaBridge(control, sessionId, { maxFrames, pageSize })
     } catch (e) {

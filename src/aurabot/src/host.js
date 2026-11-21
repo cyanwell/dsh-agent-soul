@@ -27,63 +27,87 @@ import { dataDir, ensureDir } from './core/store.js'
 import { createUpdateChecker, changelogSection } from './core/update.js'
 import { parseCommand, runCommand, createMutes, commandList } from './chat/commands.js'
 import { listPersonas, readPersona, savePersona, deletePersona, currentPersonaText, rulesText, seedPersonas } from './persona/personas.js'
-import { createModules, API_VERSION } from './core/modules.js'
+import { createModules, createHostModules, API_VERSION } from './core/modules.js'
 import { createBridge } from './core/bridge.js'
 import { createDangerGuard } from './security/danger.js'
 import { BUILTINS } from './modules/index.js'
+import { resolveHostBootstrapDeps } from './core/clone-seam.js'
+import { createPackageMetadataGetter } from './core/package-metadata.js'
 
 export const name = 'aurabot'
 export const inject = ['agents', 'sessions', 'webServer', 'timer', 'workspaceRegistry', 'attachments', 'systemPrompt', 'llm']
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const PKG = (() => {
-  try { return JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) } catch (error) { return { version: '?' } }
-})()
-const VERSION = PKG.version
+const getPackageMetadata = createPackageMetadataGetter({ path: join(ROOT, 'package.json'), readFile: readFileSync })
 const PREFIX = '/aurabot/api'
 
-export function apply(ctx) {
+export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata) {
+  const cloneMode = options !== undefined
+  const deps = cloneMode ? resolveHostBootstrapDeps(options, null) : null
+  const onebotFactory = cloneMode ? deps.gateway.onebot : createOneBotClient
+  const snowlumaFactory = cloneMode ? deps.gateway.snowluma : createSnowLumaManager
+  const groupRolesFactory = cloneMode ? deps.chat.groupRoles : createGroupRoles
+  const localFactory = cloneMode ? deps.chat.local : createLocal
+  const mutesFactory = cloneMode ? deps.chat.mutes : createMutes
+  const hubFactory = cloneMode ? deps.chat.hub : createHub
+  const configDeps = cloneMode ? deps.config : { load: loadConfig, save: saveConfig, public: publicConfig, mergeFromPanel }
+  const personaDeps = cloneMode ? deps.persona : { seed: seedPersonas, list: listPersonas, read: readPersona, save: savePersona, delete: deletePersona, current: currentPersonaText, rules: rulesText }
+  const phaseTrace = cloneMode ? [] : null
+  if (cloneMode) phaseTrace.push('cloneConfig')
+  options = {}
   const logger = createLogger({ dsh: ctx })
   const log = logger.child('core')
-  let cfg = loadConfig()
+  let cfg = configDeps.load()
   let mods = null
   let bridge = null
   const getConfig = () => cfg
   const secrets = () => { for (const k of ['webuiPassword', 'httpToken', 'wsToken']) registerSecret(cfg.snowluma[k]); registerSecret(cfg.imageGen.apiKey); registerSecret(cfg.bridge.token) }
   const setConfig = (next) => {
     const before = cfg
-    cfg = saveConfig(next)
+    cfg = configDeps.save(next)
     // 改机器人号后旧连接的核对结果立刻失效，必须重新核对才能处理消息或完成向导。
     if (before.botQQ !== cfg.botQQ) {
       wrongAccount = ''
       if (onebotState === 'connected') onebot.restart()
     }
-    secrets()
+    if (!cloneMode) secrets()
     if (bridge && before.bridge.dshTools !== cfg.bridge.dshTools) bridge.refresh()
     if (mods && (JSON.stringify(before.modules) !== JSON.stringify(cfg.modules) || before.safeMode !== cfg.safeMode)) mods.sync().catch(() => {})
     mods?.emit('config', cfg, before)
     return cfg
   }
-  secrets()
-  seedPersonas()
+  if (!cloneMode) secrets()
+  personaDeps.seed()
+  if (cloneMode) phaseTrace.push('clonePersona')
 
   // ---------- 人格与规则：通过提示词变量注入到 Aurabot 的两个 preset ----------
-  const variable = (n, fn) => ctx.effect(() => ctx.systemPrompt.variable(n, fn), `aurabot: 变量 ${n}`)
+  const variable = (n, fn) => cloneMode ? ctx.systemPrompt.variable(n, fn) : ctx.effect(() => ctx.systemPrompt.variable(n, fn), `aurabot: 变量 ${n}`)
   const rulesOpts = (kind) => (mods ? { off: mods.builtinOff(), extra: mods.rules(kind) } : {})
   // 扩展模块能整段改写人格和规则（同步：提示词变量不能等）
   const rewrite = (event, text, ...args) => { const r = mods ? mods.filterSync(event, text, ...args) : text; return typeof r === 'string' ? r : r === null ? '' : text }
-  variable('aurabot_persona', () => rewrite('persona', currentPersonaText(cfg.persona.current)))
+  variable('aurabot_persona', () => rewrite('persona', personaDeps.current(cfg.persona.current)))
   variable('aurabot_rules_private', () => {
-    const base = rewrite('rules', rulesText('private', cfg, rulesOpts('private')), 'private')
+    const base = rewrite('rules', personaDeps.rules('private', cfg, rulesOpts('private')), 'private')
     // 危险命令确认开着时补一句：被拦下要如实告诉主人，别绕着写
     return base + (cfg.security && cfg.security.dangerConfirm
       ? '\n【危险命令】终端命令如果被安全策略拦下（删根目录/格式化/关机/下载后直接执行等），把命令原文和原因如实告诉主人，等主人回复「确认」后再重试；不要换一种写法绕过。'
       : '')
   })
-  variable('aurabot_rules_social', () => rewrite('rules', rulesText('social', cfg, rulesOpts('social')), 'social'))
+  variable('aurabot_rules_social', () => rewrite('rules', personaDeps.rules('social', cfg, rulesOpts('social')), 'social'))
+  if (cloneMode) {
+    phaseTrace.push('systemPrompt', 'stop-before-gateway')
+    const error = new Error('CLONE_SCOPE_UNISOLATED: gateway and later host dependencies remain production-bound')
+    error.code = 'CLONE_SCOPE_UNISOLATED'
+    error.phase = 'stop-before-gateway'
+    error.phaseTrace = phaseTrace.slice()
+    throw error
+  }
+
+  const PKG = getPackageMetadataImpl()
+  const VERSION = PKG.version
 
   // ---------- QQ 网关 ----------
-  const snowluma = createSnowLumaManager({
+  const snowluma = snowlumaFactory({
     getConfig,
     log: logger.child('snowluma'),
     // 控制台密码由插件自动生成并保存，用户不用管
@@ -163,7 +187,7 @@ export function apply(ctx) {
       hub.onPoke(ev).catch((error) => log.error('处理戳一戳出错：', error.message))
     }
   }
-  const onebot = createOneBotClient({
+  const onebot = onebotFactory({
     endpoint,
     log: logger.child('onebot'),
     onState: (s, d) => {
@@ -185,9 +209,9 @@ export function apply(ctx) {
       handleEvent(ev)
     },
   })
-  const groupRoles = createGroupRoles({ onebot, getConfig, log: logger.child('chat') })
-  const local = createLocal({ getConfig, log: logger })
-  const mutes = createMutes()
+  const groupRoles = groupRolesFactory({ onebot, getConfig, log: logger.child('chat') })
+  const local = localFactory({ getConfig, log: logger })
+  const mutes = mutesFactory()
 
   /**
    * DSH 里能用的所有模型：[{provider, model, name, reasoning}]。
@@ -231,7 +255,7 @@ export function apply(ctx) {
     },
   }
 
-  hub = createHub({
+  hub = hubFactory({
     localApi: local,
     dsh: ctx,
     getConfig,
@@ -327,10 +351,14 @@ export function apply(ctx) {
     listModels,
     defaultModel: () => defaultModel(ctx, { model: {} }),
     http: { body: readBody, raw: readRaw, query, send },
-    personas: { list: listPersonas, read: readPersona, current: () => currentPersonaText(cfg.persona.current) },
+    personas: { list: personaDeps.list, read: personaDeps.read, current: () => personaDeps.current(cfg.persona.current) },
     getConfig, setConfig,
   }
-  mods = createModules({ ctx, core, getConfig, setConfig, logger, version: VERSION, builtins: BUILTINS })
+  mods = createHostModules({
+    createModulesImpl: createModules,
+    base: { ctx, core, getConfig, setConfig, logger, version: VERSION, builtins: BUILTINS },
+    options,
+  })
   bridge = createBridge({ ctx, getConfig, setConfig, hub, mods, log: logger.child('bridge'), version: VERSION, apiVersion: API_VERSION, overview: () => overview() })
   core.bridge = bridge
   core.modules = mods
@@ -429,7 +457,7 @@ export function apply(ctx) {
       ok: true,
       version: VERSION,
       apiVersion: API_VERSION,
-      config: publicConfig(cfg),
+      config: configDeps.public(cfg),
       onebot: { state: onebotState, login, endpoint: { httpUrl: endpoint().httpUrl, wsUrl: endpoint().wsUrl }, problem: onebotState === 'connected' && loginOk ? '' : await connectionProblem() },
       snowluma: { ...inst, running, consented: await consented(running), owns: snowluma.ownsProcess, lastAttach: snowluma.lastAttach, downloadPage: DOWNLOAD_PAGE, webui: snowluma.webuiUrl() },
       stats: hub.stats(),
@@ -445,7 +473,7 @@ export function apply(ctx) {
       song: use('song')?.status?.() ?? null,
       sessions: hub.sessions(),
       workspaceDir: workspaceDirOf(cfg),
-      personas: listPersonas(),
+      personas: personaDeps.list(),
       modules: mods.status(),
       bridge: { dshTools: cfg.bridge.dshTools, http: cfg.bridge.http, hasToken: Boolean(cfg.bridge.token), tools: bridge.deniedTools(), toolsService: Boolean(ctx.get?.('tools')) },
     }
@@ -459,7 +487,7 @@ export function apply(ctx) {
     // 控制台密码不能只改配置（SnowLuma 那边还是旧的）：拿出来单独去 SnowLuma 改
     const newPw = typeof body?.snowluma?.webuiPassword === 'string' ? body.snowluma.webuiPassword : ''
     if (body?.snowluma) delete body.snowluma.webuiPassword
-    setConfig(mergeFromPanel(cfg, body))
+    setConfig(configDeps.mergeFromPanel(cfg, body))
     let pw = null
     if (newPw && newPw !== before.snowluma.webuiPassword) pw = await snowluma.setPassword(newPw)
     const changedConn = before.gateway !== cfg.gateway || ['httpUrl', 'wsUrl', 'httpToken', 'wsToken', 'dir'].some((k) => before.snowluma[k] !== cfg.snowluma[k])
@@ -577,25 +605,25 @@ export function apply(ctx) {
   })
 
   // 人格
-  route('/personas', async () => ({ ok: true, list: listPersonas(), current: cfg.persona.current }))
+  route('/personas', async () => ({ ok: true, list: personaDeps.list(), current: cfg.persona.current }))
   route('/persona/get', async (req) => {
-    const p = readPersona(query(req).id)
+    const p = personaDeps.read(query(req).id)
     return p ? { ok: true, persona: p } : { ok: false, message: '没有这个人格' }
   })
   route('/persona/save', async (req) => {
     const b = await readBody(req)
-    const p = savePersona(b.id, b)
+    const p = personaDeps.save(b.id, b)
     return { ok: true, persona: p, message: '人格已保存，下一轮起生效' }
   })
   route('/persona/delete', async (req) => {
     const b = await readBody(req)
     if (b.id === cfg.persona.current) return { ok: false, message: '正在用的人格不能删' }
-    deletePersona(b.id)
-    return { ok: true, list: listPersonas() }
+    personaDeps.delete(b.id)
+    return { ok: true, list: personaDeps.list() }
   })
   route('/persona/use', async (req) => {
     const b = await readBody(req)
-    if (!readPersona(b.id)) return { ok: false, message: '没有这个人格' }
+    if (!personaDeps.read(b.id)) return { ok: false, message: '没有这个人格' }
     setConfig({ ...cfg, persona: { current: b.id } })
     log.info(`切换人格 → ${b.id}`)
     return { ok: true, current: b.id, message: '切换好了，下一轮回复起生效' }

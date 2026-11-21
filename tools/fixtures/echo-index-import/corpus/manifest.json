@@ -1,0 +1,30 @@
+{
+  "echoIndexVersion": "echo-index/1",
+  "sourcePath": "D:/synthetic/echo/corpus/index",
+  "namespace": "log",
+  "generation": 1,
+  "builtAt": "2026-11-10T00:00:00.000Z",
+  "cursor": {
+    "seq": 42,
+    "turn": 9,
+    "t": "2026-11-09T23:59:00.000Z"
+  },
+  "words": {
+    "path": "words.jsonl",
+    "sha256": "7b9caa65c917f9fbefd27090eb528e985b49f91a6e25b1ac8e1afa4d7decc9d8",
+    "bytes": 1685,
+    "rows": 7
+  },
+  "summaries": {
+    "path": "summaries.jsonl",
+    "sha256": "3c79603f4d611c6f401ef83bd124cca56b92d32797fb0c3eec21c3801a54c092",
+    "bytes": 649,
+    "rows": 2
+  },
+  "counts": {
+    "words": 6,
+    "summaries": 2,
+    "srcSeqs": 5,
+    "excludedReasoning": 1
+  }
+}

@@ -1,14 +1,7 @@
 // 动态目标 —— 「留空 = 跟随《墨》当前 lead」
 //
-// ★★ 这个文件**不读《墨》**。
-//   lead 的判据只有一个真源：DSH 的 dsh-yanqing-heartbeat 插件 —— 它读《墨》里最后一条 lead、
-//   在**活的会话根**里匹配，再把 primarySessionId 经 GET /heartbeat/auto 报出来。
-//   v4 只做一件事：**把那个 id 取回来用**。
-//
-//   ★ 为什么不在 v4 里写「读 02-墨.jsonl 找最后一条 lead」：那是**第二套主脑规则**。
-//     两份实现迟早给出两个答案，而「投给谁」这件事没有第二个答案可以容忍 ——
-//     一旦两边不一致，面板说一套、投递做一套，而错的从来不会被发现（投错没人看得见）。
-//   ★ 也不读 /heartbeat/state（那是面板用的聚合），只读 /heartbeat/auto —— 它回的才是活值。
+// lead target uses the MetaStore's authoritative latest live lead. JSONL remains
+// an explicitly degraded compatibility path when SQL is unavailable.
 //
 // 三条语义（2026-11-11 爀曦定）：
 //   ① targetSession **留空** → 动态跟随当前 lead；交接后**下一次 tick 就用新 id**（不缓存旧 id 当目标）；
@@ -27,6 +20,7 @@
 //   ★ 每一次 refresh 都重新解析地址：端口变了，**下一个 tick** 就用新 origin，旧端口不留任何缓存。
 
 import fs from 'node:fs';
+import path from 'node:path';
 import { readJsonWith } from '../web/runtime-status.mjs';
 import { resolveHeartbeatEndpoint } from './dsh-origin.mjs';
 
@@ -190,6 +184,8 @@ export function createLeadTargetResolver(opts) {
   // ★ 2026-11-11：账本兜底要能列会话（把账本里的 8 位署名对到完整 id）。不注入就不兜底。
   const sessionsProvider = typeof o.sessionsProvider === 'function' ? o.sessionsProvider : null;
   const ledgerFile = String(o.ledgerFile || it.ledgerFile || '');
+  const metaStore = o.metaStore || null;
+  const fallbackLogFile = String(o.fallbackLogFile || (ledgerFile ? path.join(path.dirname(ledgerFile), 'lead-target-degrade.jsonl') : ''));
   const ledgerFallback = it.ledgerFallback === true;
 
   const stats = { refreshes: 0, fetches: 0 };
@@ -203,45 +199,37 @@ export function createLeadTargetResolver(opts) {
 
   async function refresh() {
     const t = now();
-    // ★★★ 2026-11-13（爀曦定，架构收敛）：**v4 不再向 DSH 要任何东西。**
-    //
-    //   最后留在 DSH 上的只有两个接口：MCP hub 和 bridge。别的都收进 v4 自己——
-    //   理由不是洁癖，是**维护难度**：每多一条跨进程的隐式约定，就多一处「端口变了/
-    //   插件没装/时序不对」的静默故障。今天在这条链上已经绕了整整一下午。
-    //
-    //   「谁是 lead」本来就不该问 DSH —— 《墨》的最后一条 lead 就是唯一权威，
-    //   那是只追加账本，v4 读得到，不需要任何人告诉它。
-    //   「他活不活跃」则由 autonomy 用 bridge 推上来的 state 判（那条已在工作）。
-    //
-    //   ★ 旧路径（/heartbeat/auto + dsh-origin.txt + server-*.out.log 三级自动发现）
-    //     全部退役：它依赖 DSH 的心跳插件，而那个插件不该存在——它正是要被收掉的那类东西。
     let sess = [];
     try { sess = sessionsProvider() || []; } catch { sess = []; }
-    if (!ledgerFile) {
-      last = failAt(t, '没有配置账本路径（integrations.ledgerFile / 开发默认 02-墨.jsonl 都不存在）—— v4 已不请求 DSH 心跳');
-      return last;
-    }
-    const led = leadFromLedger(ledgerFile, sess);
-    if (!led.ok) {
-      last = failAt(t, '账本读不到 lead：' + led.why + '（v4 已不请求 DSH 心跳，不会退回网络）');
-      return last;
-    }
-    last = {
-      ok: true,
-      source: TARGET_SOURCE.LEAD,
-      sessionId: led.sessionId,
-      candidates: 1,
-      leadSource: led.source || 'ledger:last-lead',
-      atMs: t,
-      by: led.by,
-      at: led.at,
-      why: '本地判定：《墨》最后一条 lead' + (led.why ? '（' + led.why + '）' : ''),
+    const useJsonl = (reason) => {
+      const degradedReason = String(reason || 'MetaStore 未注入').slice(0, WHY_SLICE);
+      const led = ledgerFile ? leadFromLedger(ledgerFile, sess) : { ok: false, why: '没有配置 JSONL 账本路径' };
+      try {
+        if (fallbackLogFile) {
+          fs.mkdirSync(path.dirname(fallbackLogFile), { recursive: true });
+          fs.appendFileSync(fallbackLogFile, JSON.stringify({ at: new Date(t).toISOString(), backend: 'jsonl', reason: degradedReason, ok: Boolean(led.ok) }) + '\n', 'utf8');
+        }
+      } catch (e) { log('JSONL fallback 留痕失败：' + String((e && e.message) || e).slice(0, 120)); }
+      log('lead SQL 不可用，明确降级到 JSONL：' + degradedReason);
+      if (!led.ok) return { ...failAt(t, 'SQL 不可用，JSONL fallback 也未解析到 lead：' + led.why), leadSource: 'jsonl', backend: 'jsonl', degraded: true, degradedReason };
+      return { ok: true, source: TARGET_SOURCE.LEAD, sessionId: led.sessionId, candidates: 1, leadSource: 'jsonl:last-lead', backend: 'jsonl', degraded: true, degradedReason, atMs: t, by: led.by, at: led.at, why: '降级读取 JSONL 最后一条 lead（' + led.why + '）' };
     };
-    if (lastSessionKey !== led.sessionId) {
-      lastSessionKey = led.sessionId;
-      log('当前 lead = ' + led.sessionId + '（《墨》账本，不再请求 DSH）');
+
+    if (!ledgerFile && !metaStore) return last = { ...failAt(t, '没有 MetaStore 或 JSONL 账本路径'), leadSource: 'none', backend: 'none', degraded: true, degradedReason: '配置缺失' };
+    if (!metaStore) return last = useJsonl('MetaStore 未注入');
+    try {
+      const row = metaStore.latestLead();
+      if (!row) return last = { ...failAt(t, 'SQL mo_ledger 没有 live lead'), leadSource: 'mo_ledger:live', backend: 'sqlite', degraded: false };
+      const by = String(row.by || '').trim();
+      const hits = sess.filter((s) => by && String((s && s.id) || '').includes(by));
+      if (!by) return last = { ...failAt(t, 'SQL live lead 的 by 为空'), leadSource: 'mo_ledger:live', backend: 'sqlite', degraded: false };
+      if (hits.length !== 1) return last = { ...failAt(t, hits.length ? 'SQL live lead 署名匹配多个会话（fail-closed）' : 'SQL live lead 署名在会话目录中找不到'), leadSource: 'mo_ledger:live', backend: 'sqlite', degraded: false, by };
+      last = { ok: true, source: TARGET_SOURCE.LEAD, sessionId: String(hits[0].id), candidates: 1, leadSource: 'mo_ledger:live', backend: 'sqlite', degraded: false, atMs: t, by, at: row.t || null, why: 'SQL mo_ledger 最新 live lead' };
+      if (lastSessionKey !== last.sessionId) { lastSessionKey = last.sessionId; log('当前 lead = ' + last.sessionId + '（SQL mo_ledger live lead）'); }
+      return last;
+    } catch (e) {
+      return last = useJsonl((e && e.code ? e.code + ': ' : '') + String((e && e.message) || e));
     }
-    return last;
   }
 
   /**

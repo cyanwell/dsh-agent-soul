@@ -1,0 +1,7 @@
+{"t":"2026-11-01T00:00:00.000Z","session":"session-aaaa1111","ws":"ws-a","seq":1,"turn":1,"log":"D:/synthetic/logs/s1.jsonl","role":"user","kind":"message","len":12,"truncated":false,"text":"解耦机制记在六层解码之后"}
+{"t":"2026-11-01T00:00:00.000Z","session":"session-aaaa1111","ws":"ws-a","seq":2,"turn":2,"log":"D:/synthetic/logs/s1.jsonl","role":"user","kind":"message","len":11,"truncated":false,"text":"六层解码后缓冲解耦机制"}
+{"t":"2026-11-01T00:00:00.000Z","session":"session-aaaa1111","ws":"ws-a","seq":3,"turn":3,"log":"D:/synthetic/logs/s1.jsonl","role":"user","kind":"message","len":74,"truncated":false,"text":"makeStreamFingerprint builds a fingerprint for session-7eff99a7 and 8f3a2c"}
+{"t":"2026-11-01T00:00:00.000Z","session":"session-bbbb2222","ws":"ws-b","seq":1,"turn":1,"log":"D:/synthetic/logs/s2.jsonl","role":"user","kind":"message","len":26,"truncated":false,"text":"纯子串查询 8f3a 应当命中 8f3a2c 这一行"}
+{"t":"2026-11-01T00:00:00.000Z","session":"session-bbbb2222","ws":"ws-b","seq":2,"turn":2,"log":"D:/synthetic/logs/s2.jsonl","role":"assistant","kind":"message","len":4096,"truncated":true,"text":"TRUNCATED-CANARY 后面被截断的正文"}
+{"t":"2026-11-01T00:00:00.000Z","session":"session-bbbb2222","ws":"ws-b","seq":3,"turn":3,"log":"D:/synthetic/logs/s2.jsonl","role":"assistant","kind":"reasoning","len":24,"truncated":false,"text":"REASONING-CANARY 推理不该进索引"}
+{"t":"2026-11-01T00:00:00.000Z","session":"session-cccc3333","ws":null,"seq":1,"turn":null,"log":null,"role":"user","kind":"message","len":35,"truncated":false,"text":"混合 mixed 查询：解耦 与 makeStream 同时出现在一行"}

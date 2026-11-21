@@ -17,6 +17,18 @@
 const MAX_FRAMES_PER_CALL = 60
 const MAX_CHARS_PER_FRAME = 1200
 
+/**
+ * 宿主**能动刀**的帧类型 —— 与 plugins/dsh-agent-soul-bridge/context-surgeon.mjs:46
+ * 的硬检查 `String(ev.type) !== 'tool/result'` 逐字对齐。
+ *
+ * ★★★ 2026-11-17（task-9 缺陷②）：这条常量补的是一个**两边不匹配**的洞：
+ *   诊断那边提示词没限定类型，LLM 于是会指向 assistant 推理帧；
+ *   而执行那边硬拒一切非 tool/result —— 结果「分析得很准，一条也清不成」。
+ *   ★ 判据一句话：**给 LLM 看的集合必须恰好等于能动刀的集合。**
+ *     多给一类，它就会指一类我们办不到的活。
+ */
+export const PURGEABLE_TYPES = Object.freeze(['tool_result'])
+
 /** 把帧压成 LLM 可读的文本（带 seq，方便它给出区间） */
 export function framesToPromptText (frames) {
   const out = []
@@ -32,7 +44,7 @@ export function framesToPromptText (frames) {
   return out.join('\n\n')
 }
 
-const SYSTEM_PROMPT = [
+const SYSTEM_PROMPT_BASE = [
   '你是一个上下文污染诊断器。你的唯一任务是找出**应该被清理掉**的对话片段。',
   '',
   '「污染」只有三种，别的都不算：',
@@ -51,7 +63,26 @@ const SYSTEM_PROMPT = [
   '}',
   '',
   '★ ranges 为空就返回 polluted:false。**宁可漏报，不要误报** —— 删错了比留着更坏。',
-].join('\n')
+]
+
+/**
+ * 拼系统提示词。
+ * ★ 限定类型时**必须写在提示词里**：只在代码里过滤而不告诉模型，
+ *   它仍会按自己的理解给区间，然后那些区间被静默丢弃 —— 看起来像「模型瞎了」。
+ */
+function systemPromptOf (allowed) {
+  const list = Array.isArray(allowed) ? allowed : null
+  if (!list || !list.length) return SYSTEM_PROMPT_BASE.join('\n')
+  const types = list.map((t) => '(' + t + ')').join(' / ')
+  return [
+    SYSTEM_PROMPT_BASE.join('\n'),
+    '',
+    '★★ **只有 ' + types + ' 类型的帧可以被清理。**',
+    '其它类型（user / assistant / tool_call / event …）**一律不许出现在 ranges 里** ——',
+    '它们在执行侧是硬拒的（宿主只能替换 tool/result 的正文）。',
+    '如果一段绕圈里同时有工具输出和推理文本，**只标工具输出那几帧**。',
+  ].join('\n')
+}
 
 /** 去掉可能存在的 markdown 围栏 */
 function stripFence (s) {
@@ -109,12 +140,16 @@ export function parseVerdict (raw) {
  * @param {object} o
  * @param {{chat:Function, ready?:Function}} o.llm   LlmClient 实例
  * @param {Array} o.frames                            帧数组（要有 seq / type / text）
+ * @param {string[]|null} [o.onlyTypes]               只分析这些类型（null/省略 = 不筛）
+ *   ★ 换气干预**必须**传 PURGEABLE_TYPES：否则模型会指向 assistant 推理帧，
+ *     而执行侧硬拒 —— 那是缺陷②的原样。
  * @param {(m:string)=>void} [o.log]
  */
 export async function analyzeContext (o) {
   const llm = o && o.llm
   const frames = Array.isArray(o && o.frames) ? o.frames : []
   const log = (o && o.log) || (() => {})
+  const only = Array.isArray(o && o.onlyTypes) && o.onlyTypes.length ? o.onlyTypes.map(String) : null
   if (!llm || typeof llm.chat !== 'function') {
     return { ok: false, error: '没有可用的内嵌 LLM（llm.chat 不存在）' }
   }
@@ -123,7 +158,18 @@ export async function analyzeContext (o) {
   }
   if (!frames.length) return { ok: false, error: '没有帧可分析' }
 
-  let use = frames
+  // ★ 先按类型筛，再截断 —— 顺序反了就成了「取最近 60 帧里恰好有 2 条能清」。
+  const eligible = only ? frames.filter((f) => only.includes(String((f && f.type) || ''))) : frames
+  const filteredOut = frames.length - eligible.length
+  if (!eligible.length) {
+    return {
+      ok: false,
+      error: '这一窗口里没有「可清理类型」的帧（要求 ' + only.join('/') + '，共 ' + frames.length + ' 帧）—— 不拿别的类型凑数',
+      filteredOut,
+    }
+  }
+
+  let use = eligible
   let truncated = 0
   if (use.length > MAX_FRAMES_PER_CALL) {
     truncated = use.length - MAX_FRAMES_PER_CALL
@@ -133,7 +179,7 @@ export async function analyzeContext (o) {
 
   const body = framesToPromptText(use)
   const messages = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: systemPromptOf(only) },
     { role: 'user', content: '下面是一段对话，每行前的 [数字] 是帧的 seq。\n\n' + body },
   ]
   let raw = ''
@@ -146,5 +192,5 @@ export async function analyzeContext (o) {
   }
   const v = parseVerdict(raw)
   if (!v.ok) return { ok: false, error: v.error, raw: String(raw).slice(0, 300) }
-  return { ok: true, ...v, analyzed: use.length, dropped: truncated }
+  return { ok: true, ...v, analyzed: use.length, dropped: truncated, filteredOut, onlyTypes: only }
 }

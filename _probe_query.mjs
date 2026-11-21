@@ -1,0 +1,18 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { SessionStore } from 'file:///D:/AI/agent-soul/src/session/store.mjs';
+import { Query } from 'file:///D:/AI/agent-soul/src/tools/query.mjs';
+const ROOT = 'D:/AI/agent-soul/data/.probe-query';
+fs.rmSync(ROOT, { recursive: true, force: true });
+fs.mkdirSync(ROOT, { recursive: true });
+const LEDGER = path.join(ROOT, 'mo.jsonl');
+fs.writeFileSync(LEDGER, JSON.stringify({t:'2026-11-01T10:00:00+08:00',type:'fact',by:'t',text:'测试文本 门牌'}) + String.fromCharCode(10), 'utf8');
+const store = new SessionStore(path.join(ROOT,'storedata'));
+const sid = store.create('D:/tmp', null).id;
+store.append(sid, 'user', { text: '索引应该已经出现了：写入即索引。' });
+store.append(sid, 'assistant', { text: '回应：检索命中的那条要带门牌。' });
+const q = new Query(store, LEDGER);
+const r = q.search('门牌');
+console.log('search ok=' + r.ok + ' total=' + r.total);
+console.log('hits=' + JSON.stringify(r.hits||[]).slice(0,900));
+console.log('storeProto=' + Object.getOwnPropertyNames(Object.getPrototypeOf(store)).join(','));

@@ -223,6 +223,14 @@ export function judgeCleanupReceipt({ data, request, nowMs }) {
   if (!Number.isInteger(frames) || frames < 0) {
     return bad('bad-receipt', '回执缺影响帧数（framesAffected=' + JSON.stringify(data.framesAffected) + '）');
   }
+  // ★★★ 2026-11-17（task-9 缺陷③ 的同族）：**影响 0 帧不算清理成功。**
+  //   原来 0 能一路过闸 —— 回执里 framesAffected:0、判 ok:true、落一条成功记录、
+  //   面板写「已清 1 段」。而上下文**一个字都没变**。
+  //   这与「部分成功报成功」是同一个病：把「我派了活」当成「活干了」。
+  //   ★ 判据：成功必须有一个非零的、宿主自己报出来的副作用。
+  if (frames === 0) {
+    return bad('nothing-cleaned', '宿主回执说影响了 0 帧 —— 上下文没变，不算清理成功（' + startSeq + '–' + endSeq + '）');
+  }
 
   let bytes = null;
   if (data.bytesAffected !== undefined && data.bytesAffected !== null) {

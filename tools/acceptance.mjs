@@ -637,7 +637,7 @@ async function criterion2() {
   reads.push(['静默时长', cOn.idle && cOn.idle.ok ? cOn.idle.minutes + ' 分钟（扫了 ' + cOn.idle.scanned + ' 个会话）' : '拿不到']);
 
   // —— 生产入口：只在测试里能跑的心跳，不叫「自己有」——
-  const indexSrc2 = fs.readFileSync(path.join(ROOT, 'src', 'index.mjs'), 'utf8');
+  const indexSrc2 = fs.readFileSync(path.join(ROOT, 'src', 'core-entry.mjs'), 'utf8');
   const wired = {
     bus: /new EventBus\(/.test(indexSrc2),
     sched: /new Scheduler\(/.test(indexSrc2) && /sched\.start\(/.test(indexSrc2),
@@ -647,7 +647,7 @@ async function criterion2() {
   let evCfg = {};
   try { evCfg = (JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8')).events) || {}; } catch { /* 没配置 */ }
 
-  reads.push(['生产入口接线', Object.entries(wired).filter(([, v]) => v).map(([k]) => k).join(' / ') + '  （src/index.mjs）']);
+  reads.push(['生产入口接线', Object.entries(wired).filter(([, v]) => v).map(([k]) => k).join(' / ') + '  （src/core-entry.mjs）']);
   reads.push(['生产心跳参数', 'intervalMs=' + (evCfg.intervalMs || '默认 60000') + ' / silenceMs=' + (evCfg.silenceMs || '默认 900000') + '（config.json）']);
 
   // —— 断言 ——
@@ -685,7 +685,7 @@ async function criterion2() {
       ? '有 ' + bad.length + ' 项没成立 —— 见上面的检查表。'
       : '心跳自己跑了 ' + sched.ticks + ' 拍，' + evIdx.length + ' 条事件真的写进了 index.jsonl；'
         + '唤醒台账把「没写 charter 不等于 pass」守住了；自主判据在静默够久时判 autonomous。'
-        + '生产入口（src/index.mjs）里 EventBus / Scheduler.start / Ledger 都接上了，'
+        + '生产 core entry（src/core-entry.mjs）里 EventBus / Scheduler.start / Ledger 都接上了，'
         + 'config.json 里心跳是 ' + (evCfg.intervalMs || '默认') + 'ms 一拍。',
     todo: bad.length ? ['看失败的检查项，对应去修 src/events 或 src/organs。'] : [],
   };
@@ -698,7 +698,7 @@ async function criterion2() {
  *
  * ★ 为什么必须走真实 AgentLoop 而不是直接 new HuanqiDetector：
  *   直接调算法只能证明「算法搬过来了」，证明不了「它挂在新运行时的流上」。
- *   这里复刻 src/index.mjs 的接线（beforeCall / afterCall / endTurn 三个观察点），
+ *   这里复刻 src/core-entry.mjs 的接线（beforeCall / afterCall / endTurn 三个观察点），
  *   用一个只吐 reasoning、正文永远为空的假 LLM 驱动，看回合会不会被真的中断。
  */
 async function criterion3() {
@@ -731,7 +731,7 @@ async function criterion3() {
   await new Promise((r) => srvA.listen(0, '127.0.0.1', r));
   servers.push(srvA);
 
-  /** 复刻 src/index.mjs 的 huanqi 接线 */
+  /** 复刻 src/core-entry.mjs 的 huanqi 接线 */
   function mountHuanqi(loop) {
     let det = null;
     let lastV = null;
@@ -800,12 +800,12 @@ async function criterion3() {
 
   // —— 静态读数：它真的挂在生产入口上吗 ——
   const huanqiSrc = fs.readFileSync(path.join(ROOT, 'src', 'organs', 'huanqi.mjs'), 'utf8');
-  const indexSrc = fs.readFileSync(path.join(ROOT, 'src', 'index.mjs'), 'utf8');
+  const indexSrc = fs.readFileSync(path.join(ROOT, 'src', 'core-entry.mjs'), 'utf8');
   const inIndex = /name:\s*'huanqi'/.test(indexSrc);
   const hooks = ['beforeCall', 'afterCall', 'endTurn'].filter((h) => new RegExp(h + '\\s*:').test(indexSrc));
 
   reads.push(['huanqi.mjs', huanqiSrc.split('\n').length + ' 行 / ' + fmtSize(Buffer.byteLength(huanqiSrc)) + '（原包 4513 行，只搬算法）']);
-  reads.push(['挂在生产入口', (inIndex ? 'src/index.mjs 里有 organs.push({name:\'huanqi\'})' : 'index.mjs 里找不到')]);
+  reads.push(['挂在生产入口', (inIndex ? 'src/core-entry.mjs 里有 organs.push({name:\'huanqi\'})' : 'core-entry.mjs 里找不到')]);
   reads.push(['观察点', hooks.length + ' 个：' + (hooks.join(' / ') || '无')]);
   reads.push(['假 LLM 调用次数', callsA + ' 次（阈值 3，第 3 次触发中断）']);
   reads.push(['回合结果', resA ? (resA.error ? '被中断：' + resA.error : '正常结束：' + String(resA.text).slice(0, 40)) : '抛异常']);
@@ -841,7 +841,7 @@ async function criterion3() {
       ? '有 ' + bad.length + ' 项没成立 —— huanqi 没在新运行时上拦住空转。'
       : 'huanqi 挂在 AgentLoop 的三个观察点上，用假 LLM（只吐 reasoning）跑到第 3 次调用时中断了回合，'
         + '中断写进了新运行时的 ERROR 帧；对照组（正常回复）没有被误杀。',
-    todo: bad.length ? ['对着失败的检查项查 src/organs/huanqi.mjs 与 src/index.mjs 的接线。'] : [],
+    todo: bad.length ? ['对着失败的检查项查 src/organs/huanqi.mjs 与 src/core-entry.mjs 的接线。'] : [],
   };
 }
 

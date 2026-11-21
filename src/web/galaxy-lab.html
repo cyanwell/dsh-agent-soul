@@ -993,7 +993,14 @@ function frame(){
           const a2 = -t * 0.42 + sp.userData.ph;
           sp.position.set(Math.cos(a2) * 0.88, Math.sin(a2 * 0.7) * 0.07, Math.sin(a2) * 0.88);
           sp.material.opacity += (0.85 - sp.material.opacity) * 0.10;
-          sp.material.color.setHex(o.level === "alert" ? 0xFF8A7A : (o.level === "warn" ? 0xF2C15C : 0x6FE3B4));
+          /* ★ 2026-11-18：原来只判 alert / warn，其余一律绿 —— 而 /api/organs 实际会返回
+             level='emergency'（watermark 器官）。于是**最严重的状态被画成了健康的绿**。
+             同一个病在 galaxy.html 里也有一份（LV 表缺 emergency），一并修。 */
+          sp.material.color.setHex(
+            (o.level === "alert" || o.level === "emergency" || o.level === "error") ? 0xFF8A7A
+            : o.level === "warn" ? 0xF2C15C
+            : (o.level === "ok" || o.level == null) ? 0x6FE3B4
+            : 0x9FB2C6);   /* 不认识的级别 → 灰，不冒充健康 */
         });
       }
     }

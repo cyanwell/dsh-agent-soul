@@ -167,7 +167,118 @@ export async function readDshSessionAsync(filePath, opts) {
     if (!(await pace())) return { records, badFrames, aborted: true, ...base };
   }
 
-  return { records, badFrames, aborted: false, ...base };
+  // ★ 2026-11-17：把「最后一个帧的起点」一起带回去 ——
+  //   soul-sync 拿它当下一轮的增量起点（只读新长出来的那一段）。
+  const endOffset = pos.length ? pos[pos.length - 1] : 0;
+  return { records, badFrames, aborted: false, endOffset, totalSize: buf.length, ...base };
+}
+
+/**
+ * 只读文件**新长出来的那一段**（增量）。
+ *
+ * ★★ 2026-11-17（阶段 1）：为什么需要它 —— 这是 soul-sync 那 1.3~1.4 秒阻塞的真身。
+ *   soul-sync 每 30~60 秒扫一轮，把「mtime 在最近 2 分钟内变过」的会话**整个文件重读一遍**：
+ *     · 最大的一个会话是 **294MB**（1614 个会话合计 1212MB）
+ *     · readFile 读它、逐字节扫魔数、再**逐帧解压全部** —— 而真正新的只有末尾几帧
+ *   实测一轮 5,383ms，最长单次阻塞 358ms，而它每次只写进去 2 帧。
+ *
+ *   DSH 的会话文件是**只追加的 zstd 多帧流**（这个格式在 readDshSession 的头注里写过）。
+ *   所以「文件变长了」= 末尾多了若干帧，前面一个字节都没动。
+ *   既然这样，从头再扫一遍就是纯浪费。
+ *
+ * @param {string} filePath
+ * @param {object} opts
+ * @param {number} opts.fromOffset  从哪个字节开始（必须是**帧边界**；调用方从上次记下的 lastOffset 取）
+ * @param {number} [opts.yieldMs=8]
+ * @param {function} [opts.shouldStop]
+ * @returns {Promise<{records,badFrames,frames,bytes,fromOffset,endOffset,aborted,yields,maxBlockMs}>}
+ */
+export async function readDshSessionTail(filePath, opts) {
+  const o = opts || {};
+  const yieldMs = Number(o.yieldMs) > 0 ? Number(o.yieldMs) : 8;
+  const chunkBytes = Number(o.chunkBytes) > 0 ? Number(o.chunkBytes) : 2097152;
+  const shouldStop = typeof o.shouldStop === 'function' ? o.shouldStop : null;
+  const fromOffset = Number.isFinite(o.fromOffset) && o.fromOffset > 0 ? Math.floor(o.fromOffset) : 0;
+
+  const stats = { yields: 0, maxBlockMs: 0 };
+  let last = Date.now();
+  const pace = async () => {
+    const gap = Date.now() - last;
+    if (gap > stats.maxBlockMs) stats.maxBlockMs = gap;
+    if (gap < yieldMs) return true;
+    await yieldToLoop();
+    stats.yields++;
+    last = Date.now();
+    if (shouldStop && shouldStop()) return false;
+    return true;
+  };
+
+  let buf;
+  let totalSize;
+  if (fromOffset > 0) {
+    // ★ 只读尾部：先 stat 拿总长，再用 fd 从这个偏移读到底。
+    //   294MB 的文件在「只多了几十 KB」时，这次读是几十 KB，不是 294MB。
+    const fh = await fs.promises.open(filePath, 'r');
+    try {
+      const st = await fh.stat();
+      totalSize = st.size;
+      if (fromOffset >= totalSize) {
+        return { records: [], badFrames: 0, frames: 0, bytes: 0, fromOffset, endOffset: totalSize, aborted: false, yields: 0, maxBlockMs: 0 };
+      }
+      const len = totalSize - fromOffset;
+      buf = Buffer.allocUnsafe(len);
+      let got = 0;
+      while (got < len) {
+        const r = await fh.read(buf, got, len - got, fromOffset + got);
+        if (!r || r.bytesRead <= 0) break;
+        got += r.bytesRead;
+      }
+      if (got < len) buf = buf.subarray(0, got);
+    } finally { try { await fh.close(); } catch { /* ignore */ } }
+  } else {
+    buf = await fs.promises.readFile(filePath);
+    totalSize = buf.length;
+  }
+  last = Date.now();
+
+  const scanned = await frameOffsetsPaced(buf, pace, chunkBytes);
+  if (scanned.aborted) {
+    return { records: [], badFrames: 0, frames: 0, bytes: buf.length, fromOffset, endOffset: fromOffset + buf.length, aborted: true, yields: stats.yields, maxBlockMs: stats.maxBlockMs };
+  }
+  const pos = scanned.pos;
+  // ★ 从帧边界切入时，第一个 magic 必然在 0 或之后几个字节（zstd 帧头就是 0x28 B5 2F FD）。
+  //   一个都没有 = 这个偏移不是帧边界（文件被重写过 / 记错了）→ 让调用方退回全量。
+  if (fromOffset > 0 && (pos.length === 0 || pos[0] !== 0)) {
+    return { misaligned: true, records: [], badFrames: 0, frames: 0, bytes: buf.length, fromOffset, endOffset: fromOffset + buf.length, aborted: false, yields: stats.yields, maxBlockMs: stats.maxBlockMs };
+  }
+
+  const records = [];
+  let badFrames = 0;
+  for (let k = 0; k < pos.length; k++) {
+    const start = pos[k];
+    const end = k + 1 < pos.length ? pos[k + 1] : buf.length;
+    let text;
+    try { text = zlib.zstdDecompressSync(buf.subarray(start, end)).toString('utf8'); }
+    catch { badFrames++; }
+    if (text) {
+      for (const line of text.split('\n')) {
+        const t = line.trim();
+        if (!t) continue;
+        try { records.push(JSON.parse(t)); } catch { badFrames++; }
+      }
+    }
+    if (!(await pace())) return { records, badFrames, frames: pos.length, bytes: buf.length, fromOffset, endOffset: fromOffset + buf.length, aborted: true, yields: stats.yields, maxBlockMs: stats.maxBlockMs };
+  }
+
+  const lastFrameStart = pos.length ? pos[pos.length - 1] : 0;
+  return {
+    records, badFrames, frames: pos.length, bytes: buf.length,
+    fromOffset,
+    // ★ 下一轮从这里接着读：最后一个帧的起点（它的长度还可能变长，所以要重读它）
+    endOffset: fromOffset + lastFrameStart,
+    totalSize,
+    aborted: false, yields: stats.yields, maxBlockMs: stats.maxBlockMs,
+  };
 }
 
 /** 从 content 数组里抽正文 */

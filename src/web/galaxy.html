@@ -1,106 +1,173 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>AgentSoul · 星系</title><link rel="stylesheet" href="/aurora.css"><script src="/aurora.js" defer></script><style>
+<link rel="stylesheet" href="/aurora.css">
+<title>AgentSoul · 星系</title><style>
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:transparent;color:#F6FAFF;overflow:hidden;font:13px/1.65 "Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif}
+html,body{margin:0;height:100%;background:#04070E;color:#EDF4FF;overflow:hidden;font:13px/1.6 "Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif}
 #c{position:fixed;inset:0;width:100%;height:100%;display:block;z-index:1}
+/* ★ 2026-11-17 task-10：本页关掉全站极光帘子层。
+   理由只有一条：这一屏的光效预算只有两处（核球光晕 / 选中层流光），再加 26 道帘子就是第四、第五处。
+   ★ 不改 aurora.css：那是八页共用的一份样式源，在页面里关掉是「减法」，动共享源会波及另外七页。
 
-.as-sky{opacity:.50}
-nav{position:fixed;left:0;right:0;top:0;height:38px;display:flex;align-items:center;gap:1px;padding:0 14px;z-index:9;background:rgba(6,13,24,.80);border-bottom:1px solid rgba(150,200,255,.10);font-size:12px;white-space:nowrap;overflow-x:auto}
-nav .brand{font-size:12.5px;letter-spacing:.04em;color:#F6FAFF;margin-right:16px;flex:none}
-nav .brand i{font-style:normal;color:#6FE3B4}
-nav .brand em{font-style:normal;font-size:9px;letter-spacing:.22em;color:#7B8CA3;margin-left:7px}
-nav a{display:flex;align-items:center;gap:5px;color:#A9BACC;text-decoration:none;padding:5px 10px;border-radius:6px;flex:none}
-nav a b{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.5}
-nav a:hover{color:#F6FAFF;background:rgba(111,182,255,.10)}
-nav a.on{color:#F6FAFF;background:rgba(111,182,255,.16)}
-#corner{position:fixed;left:24px;bottom:92px;z-index:6;width:198px;padding:12px 14px 11px;border-radius:14px;
-  background:linear-gradient(158deg,rgba(24,48,78,.90),rgba(7,15,27,.88));border:1px solid rgba(150,200,255,.16);
-  box-shadow:inset 0 1px 0 rgba(214,236,255,.22),0 14px 36px -18px rgba(0,0,0,.85);
-  font-size:11px;letter-spacing:.03em;pointer-events:none;transition:opacity .28s ease-out}
-#corner .row{display:flex;justify-content:space-between;gap:10px;padding:3px 0;color:#8FA3BA}
-#corner .row b{color:#F6FAFF;font-weight:400;font-variant-numeric:tabular-nums}
-#corner .meta{margin-top:8px;padding-top:8px;border-top:1px solid rgba(150,200,255,.10);color:#7B8CA3;font-size:10px;line-height:1.65}
-.vig{position:fixed;inset:0;pointer-events:none;z-index:2;background:radial-gradient(96% 74% at 50% 46%,rgba(4,7,14,.34) 0%,rgba(4,7,14,.20) 46%,rgba(4,7,14,.62) 82%,rgba(4,7,14,.94) 100%)}
-header{position:fixed;left:28px;top:62px;z-index:5;pointer-events:none}
-/* ★ 2026-11-11：标题压在极光最亮处只有 1.21:1 —— 给它一块径向暗底，可读性优先于「干净」 */
-header::before{content:'';position:absolute;inset:-26px -64px -22px -34px;z-index:-1;border-radius:26px;
-  background:radial-gradient(64% 100% at 18% 46%,rgba(4,7,14,.90),rgba(4,7,14,.55) 52%,rgba(4,7,14,0) 84%)}
-.kick{font-size:9.5px;letter-spacing:.36em;color:#7B8CA3;text-transform:uppercase}
-h1{margin:8px 0 3px;font-size:24px;font-weight:400;letter-spacing:.06em;font-family:"Lanxi-超粗黑","Microsoft YaHei",sans-serif}
-h1 i{font-style:normal;color:#6FE3B4}
-.sub{font-size:11.5px;color:#C2D0E0;letter-spacing:.03em}
-body.bloom-on #stamp::after{content:" · bloom";color:#6FE3B4;font-size:10px;letter-spacing:.08em}
-#stamp{position:fixed;right:28px;top:64px;z-index:5;font-size:11px;color:#9FB0C4;font-variant-numeric:tabular-nums;letter-spacing:.04em;text-align:right;padding:4px 10px;border-radius:10px;background:rgba(4,7,14,.62)}
+   ★★ 2026-11-20 爀曦定了新口径，这条覆盖 11-17 的另一半理由：
+   「星系的主题颜色已经变成棕色了，要和整个程序的极光主题色一致」。
+   所以本页**配色并入 aurora 的 --as-* 色板**（深蓝黑底 #04070E + 冷白字 #EDF4FF + 荧光蓝强调 #6FB6FF），
+   原来那套「暖黑 + 奶油白 + 琥珀」的深空棕全部撤掉。
+   ★ 这同时解掉了 11-17 当时担心的「深蓝黑底 + 荧光青发光字」冲突 —— 那是 VCP 的审美禁令，
+   但**全站一致性是用户明令**，且本页正文对比度 11.9:1（#EDF4FF on #04070E），发光只留在核球与选中臂两处。
+   判据仍成立：光效 ≤ 2 处、正文对比度 ≥ 4.5:1、一屏一焦点。 */
+.as-sky{display:none!important}
+/* ★ 2026-11-20：色板并入全站极光主题（aurora.css 的 --as-* 同一套取值）。
+   原先这里是暖黑 + 奶油白 + 琥珀的「深空棕」，和另外七页的冷蓝极光并排就是两个产品。
+   星体本身的色温（核心暖白 → 外缘青蓝）保留 —— 那是天体物理，不是界面配色。 */
+:root{--ink:#EDF4FF;--ink2:#B9C8DB;--ink3:#8C9EB4;--ink4:#6E83A0;--amber:#6FB6FF;--sage:#3FE3A8;--clay:#F2C15C;--rose:#FF7A68;--slate:#93A6BC;--violet:#9E8BF5;--line:rgba(150,200,255,.18);--line2:rgba(150,200,255,.09)}
+nav{position:fixed;left:0;right:0;top:0;height:36px;display:flex;align-items:center;gap:2px;padding:0 16px;z-index:9;background:rgba(4,7,14,.88);border-bottom:1px solid var(--line2);font-size:12px;white-space:nowrap;overflow-x:auto}
+nav .brand{color:var(--ink);margin-right:18px;flex:none;letter-spacing:.04em}
+nav .brand i{font-style:normal;color:var(--amber)}
+nav .brand em{font-style:normal;font-size:9px;letter-spacing:.22em;color:var(--ink4);margin-left:8px}
+nav a{display:flex;align-items:center;gap:6px;color:var(--ink3);text-decoration:none;padding:5px 10px;border-radius:6px;flex:none}
+nav a b{width:4px;height:4px;border-radius:50%;background:currentColor;opacity:.45}
+nav a:hover{color:var(--ink);background:rgba(111,182,255,.08)}
+nav a.on{color:var(--ink);background:rgba(111,182,255,.14)}
+/* 暗角：暖黑压边，把注意力收到核球那一块（不是发光，是压暗） */
+.vig{position:fixed;inset:0;pointer-events:none;z-index:2;background:radial-gradient(92% 74% at 56% 46%,rgba(4,7,14,.10) 0%,rgba(4,7,14,.30) 52%,rgba(4,7,14,.72) 84%,rgba(4,7,14,.94) 100%)}
+header{position:fixed;left:30px;top:58px;z-index:5;pointer-events:none}
+header::before{content:"";position:absolute;inset:-24px -70px -20px -34px;z-index:-1;border-radius:24px;background:radial-gradient(62% 100% at 16% 46%,rgba(4,7,14,.88),rgba(4,7,14,.45) 56%,rgba(4,7,14,0) 84%)}
+.kick{font-size:9.5px;letter-spacing:.36em;color:var(--ink4);text-transform:uppercase}
+h1{margin:7px 0 2px;font-size:23px;font-weight:400;letter-spacing:.10em;font-family:"Lanxi-超粗黑","Microsoft YaHei",sans-serif}
+h1 i{font-style:normal;color:var(--amber)}
+.sub{font-size:11.5px;color:var(--ink3);letter-spacing:.03em}
+#stamp{position:fixed;right:28px;top:36px;z-index:5;font-size:10.5px;color:var(--ink4);font-variant-numeric:tabular-nums;letter-spacing:.04em;text-align:right}
+/* ── 一屏一焦点：左下角只剩一个主读数（本会话水位），其余全部降级为小字 ── */
+#corner{position:fixed;left:30px;bottom:104px;z-index:6;width:252px;pointer-events:none;transition:opacity .25s ease-out}
+#corner .hero{display:flex;align-items:baseline;gap:9px}
+#corner .hero b{font:400 44px/1 Consolas,ui-monospace,monospace;color:var(--ink);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+#corner .hero s{text-decoration:none;font-size:11px;color:var(--ink3);letter-spacing:.12em}
+#corner .hero u{text-decoration:none;font-size:10px;color:var(--ink4);letter-spacing:.08em}
+#corner .marks{margin-top:11px;display:grid;grid-template-columns:1fr 1fr;gap:2px 14px}
+#corner .marks span{font-size:10px;color:var(--ink4);letter-spacing:.05em;display:flex;justify-content:space-between;gap:6px;border-bottom:1px solid var(--line2);padding:3px 0}
+#corner .marks b{font:400 11.5px/1.3 Consolas,monospace;color:var(--ink2);font-variant-numeric:tabular-nums}
+#corner .meta{margin-top:11px;color:var(--ink4);font-size:10px;line-height:1.7}
+#corner.stale .hero b{color:var(--rose)}
+/* 数据链路状态：这一条回答「屏幕上这些数字是几点的」 */
+#feed{position:fixed;right:28px;top:60px;z-index:6;font-size:11px;color:var(--ink3);text-align:right;letter-spacing:.03em;font-variant-numeric:tabular-nums;padding:4px 10px;border-radius:999px;background:rgba(9,20,36,.72);border:1px solid var(--line2);transition:color .2s,border-color .2s}
+#feed b{font-weight:400;color:var(--ink2)}
+#feed.bad{color:var(--rose);border-color:rgba(232,140,122,.36)}
+#feed.bad b{color:var(--rose)}
+#hint{position:fixed;left:0;right:0;bottom:14px;text-align:center;font-size:10.5px;color:var(--ink4);z-index:4;pointer-events:none;letter-spacing:.05em}
 #labels{position:fixed;inset:0;z-index:3;pointer-events:none}
-.lb{position:absolute;transform:translate(-50%,-50%);font-size:10.5px;letter-spacing:.16em;color:#D5E2F0;white-space:nowrap;padding:2px 9px;border-radius:999px;background:rgba(5,11,21,.62);border:1px solid rgba(150,200,255,.14);text-shadow:0 1px 2px rgba(0,0,0,.9);transition:color .2s,opacity .2s,background .2s}
-.lb b{font-weight:400;color:#F6FAFF}
+.lb{position:absolute;transform:translate(-50%,-50%);font-size:10.5px;letter-spacing:.14em;color:var(--ink2);white-space:nowrap;padding:2px 9px;border-radius:999px;background:rgba(4,7,14,.66);border:1px solid var(--line2);text-shadow:0 1px 3px rgba(0,0,0,.92);transition:color .2s,opacity .2s,background .2s,border-color .2s}
+.lb b{font-weight:400;color:var(--ink)}
 .lb .r{display:inline-block;width:13px;height:13px;vertical-align:-2px;margin-right:5px}
 .lb .r svg{display:block;width:13px;height:13px;transform:rotate(-90deg)}
 .lb .r circle{fill:none;stroke-width:2.4;stroke-linecap:round}
-.lb.on{color:#FFFFFF}
-/* ★ 2026-11-13 重构：面板不再钉在右栏 —— 它跟着选中的悬臂走。
-   位置由 placeLabels() 每帧按 3D 锚点投影写进 left/top，CSS 只留一个垂直居中的位移。
-   max-height 跟着相机走会溢出视口，所以夹在 62vh 并留安全边。 */
-#panel{position:fixed;left:0;top:0;width:326px;max-height:62vh;z-index:6;overflow:auto;padding:16px 18px 18px;border-radius:18px;opacity:0;transform:translate(0,-50%);transition:opacity .26s ease-out;pointer-events:none;background:linear-gradient(158deg,rgba(24,48,78,.94),rgba(7,15,27,.92));border:1px solid rgba(150,200,255,.22);box-shadow:inset 0 1px 0 rgba(214,236,255,.28),inset 0 -26px 36px -30px rgba(4,10,20,.95),0 18px 44px -22px rgba(0,0,0,.82)}
+.lb s{text-decoration:none;font-size:9.5px;letter-spacing:.1em}
+.lb.on{color:#EDF4FF;border-color:rgba(111,182,255,.42);background:rgba(19,42,68,.82)}
+#echo-layers{margin:10px 0 12px;padding:9px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+#echo-layers h3{margin:0 0 7px;font-size:11px;color:var(--ink3);font-weight:400;letter-spacing:.05em}
+#echo-layer-tabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px}
+#echo-layer-tabs button{font:inherit;color:var(--ink3);background:rgba(23,47,75,.72);border:1px solid var(--line2);border-radius:5px;padding:4px 2px;cursor:pointer;font-size:10px}
+#echo-layer-tabs button[aria-current="page"]{color:var(--ink);border-color:rgba(111,182,255,.48);background:rgba(111,182,255,.10)}
+#echo-layer-tabs button:focus-visible{outline:2px solid var(--amber);outline-offset:-2px}
+#panel{position:fixed;right:30px;left:auto;top:196px;width:min(340px,calc(100vw - 60px));max-height:calc(100vh - 320px);z-index:6;overflow:auto;padding:16px 18px 18px;border-radius:16px;opacity:0;transform:translate(0,-50%);transition:opacity .2s ease-out;pointer-events:none;will-change:left,top,opacity;background:linear-gradient(162deg,rgba(22,46,74,.96),rgba(8,17,31,.94));border:1px solid rgba(150,200,255,.20);box-shadow:inset 0 1px 0 rgba(214,236,255,.14),0 18px 44px -24px rgba(0,0,0,.9)}
 #panel.show{opacity:1;pointer-events:auto}
-#panel{will-change:left,top,opacity}
-/* 引线：面板左缘 → 星云锚点，超界时隐藏 */
-/* 悬停预览：比点击轻一级的「看」——不改变任何状态，只把光标下的东西报出来 */
-#hover{position:fixed;z-index:7;pointer-events:none;font-size:11px;letter-spacing:.02em;
-  color:#E6F4FF;background:rgba(6,14,26,.90);border:1px solid rgba(150,200,255,.30);
-  border-radius:8px;padding:5px 10px;white-space:nowrap;opacity:0;transition:opacity .12s;
-  box-shadow:0 10px 26px -14px rgba(0,0,0,.95);transform:translate(-50%,-140%)}
-#hover.show{opacity:1}
-#hover b{font-weight:400;color:#6FE3B4}
-#moons{position:fixed;inset:0;z-index:5;pointer-events:none}
-/* 卫星标签：只在 L3 出现，跟卫星一起转，所以每帧都要重写 left/top */
-#moons .mo{position:absolute;transform:translate(-50%,-50%);font-size:10px;letter-spacing:.02em;
-  color:#DCEFFF;background:rgba(6,14,26,.62);border:1px solid rgba(150,200,255,.20);
-  border-radius:999px;padding:1px 8px;white-space:nowrap;opacity:0;transition:opacity .3s;
-  text-shadow:0 1px 2px rgba(0,0,0,.9)}
-#moons .mo b{font-weight:400;color:#8FD6FF;margin-right:4px}
-#moons .mo.or{font-size:9.5px;border-color:rgba(120,220,170,.28);color:#BCEFD6}
-#moons .mo.or b{color:#6FE3B4}
-#moons .mo.or.alert{border-color:rgba(255,150,120,.45);color:#FFC9B8}
-#moons .mo.or.alert b{color:#FF8A7A}
-#lead{position:fixed;z-index:5;height:1px;background:linear-gradient(90deg,rgba(150,200,255,.5),rgba(150,200,255,.08));transform-origin:0 50%;opacity:0;transition:opacity .26s;pointer-events:none}
+#galaxy-nav{margin-bottom:12px;color:var(--ink3)}
+#galaxy-nav button{font:inherit;color:var(--ink);background:rgba(23,47,75,.92);border:1px solid var(--line);border-radius:6px;padding:3px 8px;margin:4px 4px 0 0;cursor:pointer}
+#galaxy-nav button:focus-visible,#rail button:focus-visible{outline:2px solid var(--amber);outline-offset:-2px}
+@media(max-width:760px){body #panel{left:16px;right:16px;top:auto;bottom:86px;width:auto;max-height:42vh;transform:none}body #rail{justify-content:flex-start}}
+#panel h2{margin:0 0 2px;font-size:15.5px;font-weight:400;letter-spacing:.05em;color:var(--ink)}
+#panel .pm{font-size:10.5px;color:var(--ink4);letter-spacing:.14em;margin-bottom:12px}
+#panel .pi{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line2);font-size:12px}
+#panel .pi b{font-weight:400;color:var(--ink3)}
+#panel .pi span{color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
+#panel .pi.na span{color:var(--ink4)}
+#panel .note{margin-top:10px;font-size:11px;color:var(--ink4);line-height:1.7}
+#panel .note b{color:var(--ink2);font-weight:400}
+#waker-ledger{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);overflow-wrap:anywhere}
+#echo-authority{margin-top:12px;padding-top:12px;border-top:1px solid var(--line);overflow-wrap:anywhere}
+#echo-authority h3{margin:0 0 4px;font-size:13px;font-weight:500}
+#echo-authority button{font:inherit;color:var(--ink2);background:#261e16;border:1px solid var(--line);border-radius:6px;padding:4px 6px;cursor:pointer}
+#echo-authority-state{min-height:1.6em;color:var(--ink2)}
+#echo-authority-state[data-state="error"],#echo-authority-state[data-state="stale"]{color:var(--amber)}
+#echo-authority-rows details{border-top:1px solid var(--line2);padding:6px 0}
+#echo-authority-rows summary{cursor:pointer;color:var(--ink)}
+#echo-authority-rows dl{margin:4px 0;color:var(--ink2);font-size:11px}
+#echo-authority-rows dt{color:var(--ink3);margin-top:4px}
+#echo-authority-rows dd{margin:0;white-space:pre-wrap}
+#waker-ledger h3{margin:0 0 4px;font-size:13px;font-weight:500}
+#waker-ledger button{font:inherit;color:var(--ink2);background:#261e16;border:1px solid var(--line);border-radius:6px;padding:4px 6px;cursor:pointer}
+#waker-ledger button:focus-visible,#waker-ledger summary:focus-visible{outline:2px solid var(--amber);outline-offset:-2px}
+#waker-ledger [aria-selected="true"]{color:var(--ink);border-color:var(--amber)}
+#waker-ledger [aria-disabled="true"]{cursor:wait}
+#waker-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin:8px 0}
+#waker-tabs span{display:block;font-size:11px;font-variant-numeric:tabular-nums}
+#waker-state{min-height:1.6em;color:var(--ink2)}
+#waker-state[data-state="stale"],#waker-state[data-state="error"]{color:var(--amber)}
+#waker-rows details{border-top:1px solid var(--line2);padding:6px 0}
+#waker-rows summary{cursor:pointer;color:var(--ink)}
+#waker-rows dl{margin:4px 0;color:var(--ink2);font-size:11px}
+#waker-rows dt{color:var(--ink3);margin-top:4px}
+#waker-rows dd{margin:0;white-space:pre-wrap}
+#lead{position:fixed;z-index:5;height:1px;background:linear-gradient(90deg,rgba(111,182,255,.42),rgba(111,182,255,.05));transform-origin:0 50%;opacity:0;transition:opacity .2s;pointer-events:none}
 #lead.show{opacity:1}
-#panel h2{margin:0 0 2px;font-size:16px;font-weight:400;letter-spacing:.05em}
-#panel .pm{font-size:10.5px;color:#7B8CA3;letter-spacing:.14em;margin-bottom:14px}
-#panel .pi{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid rgba(180,215,255,.10);font-size:12px}
-#panel .pi b{font-weight:400;color:#A9BACC}
-#panel .pi span{color:#F6FAFF;text-align:right;font-variant-numeric:tabular-nums}
-#panel .pi.na span{color:#7B8CA3}
-#panel .note{margin-top:14px;font-size:11px;color:#7B8CA3;line-height:1.75}
-#rail{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;justify-content:center;gap:9px;padding:18px 22px 22px;flex-wrap:nowrap;overflow-x:auto}
-.chip{display:flex;align-items:center;gap:9px;padding:8px 15px;border-radius:999px;cursor:pointer;font-size:11.5px;letter-spacing:.06em;color:#A9BACC;white-space:nowrap;background:linear-gradient(160deg,rgba(28,52,80,.86),rgba(8,16,28,.82));border:1px solid rgba(150,200,255,.18);box-shadow:inset 0 1px 0 rgba(214,236,255,.20);transition:.2s}
-.chip:hover{color:#F6FAFF;border-color:rgba(190,225,255,.34)}
-.chip.on{color:#F6FAFF;border-color:rgba(190,225,255,.46);box-shadow:inset 0 1px 0 rgba(220,240,255,.26),0 8px 26px rgba(0,0,0,.5)}
-.chip u{width:6px;height:6px;border-radius:50%;text-decoration:none;flex:none;box-shadow:0 0 10px currentColor}
-.chip s{text-decoration:none;color:#7B8CA3;font-size:10px;letter-spacing:.1em}
-#fallback{position:fixed;inset:0;display:none;place-items:center;z-index:9;color:#9FB0C4}
-.altview{display:inline-block;margin-top:8px;font-size:11.5px;color:var(--as-dim);text-decoration:none;border:1px solid var(--as-edge-2);border-radius:5px;padding:2px 9px}
-.altview:hover{color:var(--as-ink);border-color:var(--as-amber)}
+#moons{position:fixed;inset:0;z-index:5;pointer-events:none}
+#moons .mo{position:absolute;transform:translate(-50%,-50%);font-size:10px;color:var(--ink2);background:rgba(4,7,14,.70);border:1px solid var(--line2);border-radius:999px;padding:1px 8px;white-space:nowrap;opacity:0;transition:opacity .3s;text-shadow:0 1px 3px rgba(0,0,0,.92)}
+#moons .mo b{font-weight:400;color:var(--amber);margin-right:4px}
+#hover{position:fixed;z-index:7;pointer-events:none;font-size:11px;color:var(--ink);background:rgba(9,20,36,.96);border:1px solid rgba(150,200,255,.28);border-radius:8px;padding:5px 10px;white-space:nowrap;opacity:0;transition:opacity .12s;box-shadow:0 10px 26px -14px rgba(0,0,0,.95);transform:translate(-50%,-140%)}
+#hover.show{opacity:1}
+#hover b{font-weight:400;color:var(--amber)}
+#rail{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;justify-content:center;gap:8px;padding:16px 22px 34px;overflow-x:auto}
+.chip{font-family:inherit;display:flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;cursor:pointer;font-size:11.5px;letter-spacing:.05em;color:var(--ink3);white-space:nowrap;background:rgba(26,21,16,.88);border:1px solid var(--line2);transition:color .16s,border-color .16s,background .16s}
+.chip:hover{color:var(--ink);border-color:rgba(150,200,255,.30)}
+.chip.on{color:var(--ink);border-color:rgba(111,182,255,.44);background:rgba(23,47,75,.92)}
+.chip u{width:6px;height:6px;border-radius:50%;text-decoration:none;flex:none}
+.chip s{text-decoration:none;color:var(--ink4);font-size:10px;letter-spacing:.09em}
+#fallback{position:fixed;left:30px;top:152px;display:none;z-index:5;color:var(--ink3);pointer-events:none}
+.altview{display:inline-block;margin-top:8px;font-size:11.5px;color:var(--ink4);text-decoration:none;border:1px solid var(--line);border-radius:5px;padding:2px 9px}
+.altview:hover{color:var(--ink);border-color:var(--amber)}
+/* ★ 动效退化：prefers-reduced-motion 时把 CSS 侧的一切运动一次关掉，
+   画布侧的（自转 / 闪烁 / 相机飞行）在 frame() 里按 REDUCE 分支处理 —— 两处都得管，只关一处等于没关。 */
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:1180px){#corner{width:210px}#panel{width:300px}}
 </style>
 <script type="importmap">{"imports":{"three":"/vendor/three.module.min.js"}}</script>
 </head><body><canvas id="c"></canvas><div class="vig"></div><div id="labels"></div>
-<nav><div class='brand'>agent<i>·</i>soul<em>CONSOLE</em></div><a href='/chat'><b></b>对话</a><a href='/organs'><b></b>器官</a><a href='/diary'><b></b>日记</a><a href='/yantai'><b></b>砚台</a><a href='/settings'><b></b>设置</a></nav>
-<header><div class="kick">AgentSoul v4 · 六层运行状态</div><h1>星<i>系</i></h1>
-<div class="sub">六条旋臂各是一层 · 中心的核球是此刻在跑的那个我</div><!-- ★ 2026-11-13：状态球已并入本页（三水位 + 六层明细 + 三项读数），入口取消 --></header>
-<div id="corner">
-  <div class="row"><span>本会话水位</span><b id="cw-lead">—</b></div>
-  <div class="row"><span>活跃会话</span><b id="cw-active">—</b></div>
-  <div class="row"><span>镜像估算</span><b id="cw-mirror">—</b></div>
-<!-- ★ 2026-11-13：从 /sphere 合并过来的三项读数（状态球取消，这里接管） -->
-<div class="row"><span>人格层</span><b id="cw-persona">—</b></div>
-<div class="row"><span>会话容器</span><b id="cw-sessions">—</b></div>
-<div class="row"><span>待答</span><b id="cw-questions">—</b></div>
+<nav><div class="brand">agent<i>·</i>soul<em>CONSOLE</em></div><a href="/chat"><b></b>对话</a><a href="/organs"><b></b>器官</a><a href="/diary"><b></b>日记</a><a href="/yantai"><b></b>砚台</a><a href="/settings"><b></b>设置</a></nav>
+<header><div class="kick">AgentSoul v4</div><h1>星<i>系</i></h1>
+<div class="sub">外层运行分区 · 六条旋臂　/　ECHO 内层 L0–L5 仅在 ECHO 详情中展开</div></header>
+<section id="corner">
+  <div class="hero"><b id="cw-lead">—</b><s>本会话水位</s><u id="cw-lead-tag"></u></div>
+  <div class="marks">
+    <span>活跃会话<b id="cw-active">—</b></span>
+    <span>镜像估算<b id="cw-mirror">—</b></span>
+    <span>人格层<b id="cw-persona">—</b></span>
+    <span>会话容器<b id="cw-sessions">—</b></span>
+    <span>待答<b id="cw-questions">—</b></span>
+    <span>外层分区<b id="cw-layers">—</b></span>
+  </div>
   <div class="meta" id="cw-meta">—</div>
-</div>
-<div id="stamp">读取中…</div><div id="lead"></div><div id="moons"></div><div id="hover"></div><aside id="panel"></aside><div id="rail"></div>
-<div id="fallback">这个浏览器没有 WebGL。</div>
+</section>
+<div id="feed">连接中…</div><div id="stamp"></div>
+<div id="lead"></div><div id="moons"></div><div id="hover"></div><aside id="panel" aria-label="星系详情"><div id="galaxy-nav" role="navigation" aria-label="星系层级"><div id="galaxy-crumb" aria-live="polite"></div><button type="button" id="galaxy-up" hidden></button><div id="galaxy-organs"></div><p id="galaxy-link-note" role="status" hidden></p></div><section id="echo-layers" aria-labelledby="echo-layer-heading" hidden><h3 id="echo-layer-heading">ECHO 内层 · L0–L5（外层分区 6 独立）</h3><div id="echo-layer-tabs" role="navigation" aria-label="ECHO 内层 L0 到 L5"></div></section><div id="galaxy-detail"></div>
+<section id="echo-authority" aria-labelledby="echo-authority-heading" hidden>
+  <h3 id="echo-authority-heading">ECHO 权威索引</h3>
+  <div class="note">只读 · GET <code>/api/echo/authority-view</code> · 按需读取，不触发同步。与 soul / 书房器官、echo-sentinel 探针分开。</div>
+  <button type="button" id="echo-authority-load">读取权威索引</button>
+  <p id="echo-authority-state" role="status">尚未读取 · query 未查询</p>
+  <div id="echo-authority-rows"></div>
+</section>
+<section id="waker-ledger" aria-labelledby="waker-heading" hidden>
+  <h3 id="waker-heading">事件台账</h3>
+  <div class="note">来源：<code>GET /api/waker</code> · 只读、按需加载</div>
+  <button type="button" id="waker-load">读取台账</button>
+  <p id="waker-state" role="status"></p>
+  <div id="waker-tabs" role="tablist" aria-label="事件台账四视图"></div>
+  <div id="waker-view" role="tabpanel" tabindex="0"><p id="waker-count"></p><div id="waker-rows"></div></div>
+  <p class="note">「已判执行」按台账的 <code>resume</code> 判定归类，不代表实际执行。各视图可能重叠；接口不提供执行回执或源台账更新时间。</p>
+</section></aside><div id="rail"></div>
+<div id="hint">点旋臂进层 · 再点星座看状态 · 滚轮进/退 · 双击复位 · 1–6 直达 · Esc 上一级 · 0 总览</div>
+<div id="fallback">WebGL 不可用，可用下方旋臂按钮和详情导航。</div>
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "/vendor/OrbitControls.js";
@@ -108,7 +175,32 @@ import { OrbitControls } from "/vendor/OrbitControls.js";
    bloom 用**动态 import + try/catch** 接。上次用静态 import，addons 一失败整页白屏
    （ES module 的顶层失败包不住）。动态 import 失败只降级成裸渲染，页面照常活。 */
 
-const LV = { ok:[0.24,0.86,0.62], warn:[0.96,0.76,0.29], error:[1.00,0.45,0.42], pending:[0.44,0.66,1.00] };
+/* ★ 2026-11-17（task-10）：四态色从「荧光青/冷蓝」换成暖色系。
+   原因不是审美摇摆，是任务硬约束：**禁止深蓝黑底 + 荧光青发光字**。
+   而这一页原来的底色是 #04070E、主强调色是 #3FE3A8 —— 正好是那条禁令描述的那一对。
+   现在的角色分工（一套色只用在一个含义上）：
+     ok    = 鼠尾草绿（不是荧光青，饱和度压到 0.66）
+     warn  = 琥珀（全页唯一的「亮」色，用于需要被看见的那一处）
+     error = 陶土玫瑰（不是纯红，深底上不刺眼但能分辨）
+     pending = 冷灰蓝（唯一保留的冷色，因为它表示「还没有数据」，本来就该退后）
+   ★ 对比度按 #04070E 底算过：ink 16.5:1 / ink2 10.9 / ink3 7.1 / ink4 5.2，全部 ≥4.5。 */
+/* ★ 2026-11-18：补齐 emergency / alert。
+     实测（/api/organs）：watermark 器官的 level 就是 'emergency'（人格占比 83.9%），
+     而这张表原来只有 ok/warn/error/pending —— 于是 LV['emergency'] 是 undefined，
+     落到 `LV[it.level] || LV.pending` 这条兜底上，**最紧急的告警被画成了最平静的蓝灰**。
+     兜底本身是对的（不认识的颜色别崩），错的是让它默默接住了一个真实存在的级别。 */
+const LV = { ok:[0.588,0.812,0.659], warn:[0.957,0.784,0.478], error:[0.910,0.549,0.478],
+             alert:[0.910,0.549,0.478], emergency:[0.949,0.353,0.318], pending:[0.624,0.698,0.776] };
+/* ★ 2026-11-17：动效退化。这一页的运动有三处：星系自转、粒子闪烁与流光、相机飞行。
+   prefers-reduced-motion 时三处全停（时钟钉在 t=0，相机切到「瞬时到位」，鼠标视差断开）。
+   ★ 只关 CSS 不算数 —— 这一页的主运动在 WebGL 里，CSS 那侧本来就没几条动画。 */
+const REDUCE = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+/* ★ 光效预算（任务：≤2 处）。这一页只留两处发光：
+   ① 核球光晕（glow）—— 它表达「中心是此刻在跑的那个我」，是焦点；
+   ② 选中层沿悬臂的流光（flow）—— 它表达「数据在往哪儿流」。
+   UnrealBloom 是**第三处**，而且是全屏后处理（会把每颗粒子都点亮），所以默认关掉，
+   只用 ?bloom=1 手动开（留作对照，不参与默认观感）。 */
+const BLOOM_ON = new URLSearchParams(location.search).get("bloom") === "1";
 const LAYERS = [
   { k:"echo",       ro:"Ⅰ", en:"ECHO",  zh:"记忆 · 索引 · 检索" },
   { k:"vital",      ro:"Ⅱ", en:"VITAL", zh:"呼吸 · 自主 · 换气" },
@@ -118,13 +210,24 @@ const LAYERS = [
   { k:"events",     ro:"Ⅵ", en:"事件",  zh:"事件源 · 唤醒 · 回执" }
 ];
 const ORDER = LAYERS.map(function(x){ return x.k; });
+const ECHO_LAYERS = [
+  { id:'L0', title:'时钟 / 心跳', detail:'未知 · not-connected；当前页面没有此层读数。' },
+  { id:'L1', title:'SELF / 热记忆', detail:'未知 · not-connected；不以人格体积或书房扫描代填。' },
+  { id:'L2', title:'工作台', detail:'未知 · not-connected；当前页面没有工作台范围读数。' },
+  { id:'L3', title:'一手证据', detail:'未知 · not-connected；未接入有界 source 指针，不预取原文。' },
+  { id:'L4', title:'派生索引', detail:'由显式 GET authority-view 按需读取；索引统计不代表查询回执。' },
+  { id:'L5', title:'查询回执', detail:'not-queried · 当前没有已接入的 query receipt 展示。' }
+];
+let echoLayer = null;
 
 const canvas = document.getElementById("c");
 let renderer;
 try { renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true, powerPreference:"high-performance" }); }
-catch(e){ document.getElementById("fallback").style.display = "grid"; throw e; }
-renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
-renderer.setClearColor(0x000000, 0);
+catch(e){ document.getElementById("fallback").style.display = "block"; }
+if (renderer) {
+  renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
+  renderer.setClearColor(0x000000, 0);
+}
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 200);
@@ -138,7 +241,7 @@ const camera = new THREE.PerspectiveCamera(46, 1, 0.1, 200);
    threshold 高是关键：只让本来就很亮的核心、主星、选中的臂发光，
    暗部粒子不参与，所以不会糊成一片奶白（我之前设 .16 就是这个毛病）。 */
 let composer = null, bloomPass = null;
-try {
+if (renderer && BLOOM_ON) try {
   const mods = await Promise.all([
     import("/vendor/postprocessing/EffectComposer.js"),
     import("/vendor/postprocessing/RenderPass.js"),
@@ -161,9 +264,10 @@ try {
 camera.position.set(0, 2.35, 4.55);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true; controls.dampingFactor = 0.06; controls.enablePan = false;
-controls.minDistance = 3.2; controls.maxDistance = 12;
+const WIDE_MIN_DISTANCE = 3.2, ORGAN_MIN_DISTANCE = 0.75;
+controls.minDistance = WIDE_MIN_DISTANCE; controls.maxDistance = 12;
 controls.minPolarAngle = 0.22; controls.maxPolarAngle = 1.42;
-controls.autoRotate = true; controls.autoRotateSpeed = 0.24;
+controls.autoRotate = !REDUCE; controls.autoRotateSpeed = 0.24;
 
 function gauss(){ let u=0,v=0; while(u===0)u=Math.random(); while(v===0)v=Math.random();
   return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
@@ -269,7 +373,7 @@ LAYERS.forEach(function(L, i){
   g.setAttribute("aD", new THREE.BufferAttribute(dst,1));
   const m = new THREE.ShaderMaterial({
     vertexShader: PVS, fragmentShader: PFS,
-    uniforms: { uTime:{value:0}, uPix:{value:1}, uColor:{value:new THREE.Color(0x6FA8FF)}, uAlpha:{value:1}, uSel:{value:0}, uSpeed:{value:1} },
+    uniforms: { uTime:{value:0}, uPix:{value:1}, uColor:{value:new THREE.Color(0x9FB2C6)}, uAlpha:{value:1}, uSel:{value:0}, uSpeed:{value:1} },
     transparent:true, blending:THREE.AdditiveBlending, depthWrite:false
   });
   const pts = new THREE.Points(g, m);
@@ -292,7 +396,7 @@ LAYERS.forEach(function(L, i){
     uniforms: {
       uTime:{value:0}, uPix:{value:1}, uFlow:{value:1}, uBase:{value:base},
       uR0:{value:R0}, uRMAX:{value:RMAX}, uTurns:{value:TURNS}, uSel:{value:0},
-      uColor:{value:new THREE.Color(0xBFE0FF)}, uAlpha:{value:0.85}
+      uColor:{value:new THREE.Color(0xF4E6CE)}, uAlpha:{value:0.85}
     },
     transparent:true, blending:THREE.AdditiveBlending, depthWrite:false
   });
@@ -320,14 +424,14 @@ function paintRing(it) {
   const okR = it.okR || 0, c = it.col || [0.44,0.66,1.0];
   g2.clearRect(0, 0, 128, 128);
   g2.beginPath(); g2.arc(64, 64, 46, 0, Math.PI*2);
-  g2.strokeStyle = "rgba(160,200,240,0.20)"; g2.lineWidth = 7; g2.stroke();
+  g2.strokeStyle = "rgba(150,200,255,0.20)"; g2.lineWidth = 7; g2.stroke();
   if (okR > 0.001) {
     g2.beginPath();
     g2.arc(64, 64, 46, -Math.PI/2, -Math.PI/2 + Math.PI*2*Math.min(1, okR));
     g2.strokeStyle = "rgb(" + Math.round(c[0]*255) + "," + Math.round(c[1]*255) + "," + Math.round(c[2]*255) + ")";
     g2.lineWidth = 7; g2.lineCap = "round"; g2.stroke();
   }
-  g2.fillStyle = "rgba(232,244,255,0.92)";
+  g2.fillStyle = "rgba(242,234,221,0.92)";
   g2.font = "600 34px system-ui, sans-serif";
   g2.textAlign = "center"; g2.textBaseline = "middle";
   g2.fillText(String(it.nItems || 0), 64, 66);
@@ -440,7 +544,7 @@ const diskMat = new THREE.ShaderMaterial({
     "  float breathe = 0.88 + 0.12*sin(uT*0.85);",
     "  gl_FragColor = vec4(uColor, (g*0.26 + ring*0.10)*breathe); }"
   ].join("\n"),
-  uniforms: { uColor:{value:new THREE.Color(0x3E7AAE)}, uT:{value:0} },
+  uniforms: { uColor:{value:new THREE.Color(0x3A3026)}, uT:{value:0} },
   transparent:true, blending:THREE.AdditiveBlending, depthWrite:false
 });
 const disk = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 6.4), diskMat);
@@ -572,13 +676,13 @@ for (let oi = 0; oi < ORGAN_ORDER.length; oi++){
     const pg = new THREE.BufferGeometry();
     pg.setAttribute("position", new THREE.BufferAttribute(sp, 3));
     const pm = new THREE.PointsMaterial({
-      color: 0xDCEFFF, size: 0.105, sizeAttenuation: true, map: dotTex,
+      color: 0xF2EADD, size: 0.105, sizeAttenuation: true, map: dotTex,
       transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending
     });
     const lg = new THREE.BufferGeometry();
     lg.setAttribute("position", new THREE.Float32BufferAttribute(lp, 3));
     const lm = new THREE.LineBasicMaterial({
-      color: 0x8FD6FF, transparent: true, opacity: 0,
+      color: 0xF4C87A, transparent: true, opacity: 0,
       depthWrite: false, blending: THREE.AdditiveBlending
     });
     const grp = new THREE.Group();
@@ -604,7 +708,7 @@ const chains = [];
     const pts = list.map(function(g){ return g.position.clone(); });
     const geo = new THREE.BufferGeometry().setFromPoints(pts);
     const mat = new THREE.LineBasicMaterial({
-      color: 0x6FA8FF, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending
+      color: 0x9FB2C6, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending
     });
     const l = new THREE.Line(geo, mat);
     gal.add(l);
@@ -627,7 +731,7 @@ const evNodes = [];
 (function(){
   for (let i = 0; i < 16; i++){
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: dotTex, color: 0x9FD8FF, transparent: true, opacity: 0,
+      map: dotTex, color: 0xE8D6B8, transparent: true, opacity: 0,
       depthWrite: false, blending: THREE.AdditiveBlending
     }));
     sp.scale.set(0.10, 0.10, 1);
@@ -652,7 +756,7 @@ function layoutEventSpiral(){
     const lift = 0.10 + 0.06 * Math.sin(i * 1.9);
     sp.position.set(Math.cos(ang) * rr, lift, Math.sin(ang) * rr);
     const st = String(ev.stage || "");
-    sp.material.color.setHex(st === "done" ? 0x6FE3B4 : (st === "held" ? 0xF2C15C : 0x8FA3BA));
+    sp.material.color.setHex(st === "done" ? 0xA8D8B4 : (st === "held" ? 0xF4C87A : 0x8C8172));
     sp.userData.ev = ev;
     sp.userData.tOn = 1;
   });
@@ -667,7 +771,7 @@ const verdictNodes = [];
 (function(){
   for (let i = 0; i < 18; i++){
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: dotTex, color: 0x6FE3B4, transparent: true, opacity: 0,
+      map: dotTex, color: 0xA8D8B4, transparent: true, opacity: 0,
       depthWrite: false, blending: THREE.AdditiveBlending
     }));
     sp.scale.set(0.085, 0.085, 1);
@@ -683,7 +787,7 @@ function layoutVerdicts(){
     const sp = verdictNodes[i];
     if (!sp) return;
     const ch = String(ev.charter || "");
-    sp.material.color.setHex(ch === "pass" ? 0x6FE3B4 : (ch === "ask" ? 0xF2C15C : (ch === "block" ? 0xFF8A7A : 0x8FA3BA)));
+    sp.material.color.setHex(ch === "pass" ? 0xA8D8B4 : (ch === "ask" ? 0xF4C87A : (ch === "block" ? 0xE88C7A : 0x8C8172)));
     sp.userData.ph = (i / Math.max(1, list.length)) * Math.PI * 2;
     sp.userData.ev = ev;
     sp.userData.tOn = 1;
@@ -696,7 +800,7 @@ function layoutVerdicts(){
 const planetCore = new THREE.Mesh(
   new THREE.SphereGeometry(0.26, 36, 24),
   new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: new THREE.Color(0x59A8FF) }, uAlpha: { value: 0 } },
+    uniforms: { uColor: { value: new THREE.Color(0xD8A868) }, uAlpha: { value: 0 } },
     vertexShader: [
       "varying vec3 vN; varying vec3 vV; varying vec3 vP;",
       "void main(){ vN = normalize(normalMatrix * normal); vP = position;",
@@ -720,7 +824,7 @@ const planetCore = new THREE.Mesh(
   })
 );
 const planetAtmo = new THREE.Sprite(new THREE.SpriteMaterial({
-  map: dotTex, color: 0x7FC4FF, transparent: true, opacity: 0,
+  map: dotTex, color: 0xF4C87A, transparent: true, opacity: 0,
   depthWrite: false, blending: THREE.AdditiveBlending
 }));
 planetAtmo.scale.set(1.75, 1.75, 1);
@@ -737,7 +841,7 @@ const moonMeshes = [];
 for (let i = 0; i < MOON_N; i++) {
   const m = new THREE.Mesh(
     new THREE.SphereGeometry(0.042, 14, 10),
-    new THREE.MeshBasicMaterial({ color: 0xB9E1FF, transparent: true, opacity: 0 })
+    new THREE.MeshBasicMaterial({ color: 0xF0DDBE, transparent: true, opacity: 0 })
   );
   m.userData.ph = (i / MOON_N) * Math.PI * 2;
   m.userData.rad = 0.42 + (i % 3) * 0.12;
@@ -760,7 +864,7 @@ const moonOrbits = [];
   for (let i = 0; i < MOON_N; i++){
     const g = new THREE.BufferGeometry().setFromPoints(ringPts);
     const m = new THREE.LineBasicMaterial({
-      color: 0x4E8FC4, transparent: true, opacity: 0,
+      color: 0x8A6E4E, transparent: true, opacity: 0,
       depthWrite: false, blending: THREE.AdditiveBlending
     });
     const l = new THREE.Line(g, m);
@@ -829,13 +933,14 @@ sg.setAttribute("aB", new THREE.BufferAttribute(sbri,1));
 sg.setAttribute("aD", new THREE.BufferAttribute(new Float32Array(STAR_N),1));
 const starMat = new THREE.ShaderMaterial({
   vertexShader: PVS, fragmentShader: PFS,
-  uniforms: { uTime:{value:0}, uPix:{value:1}, uColor:{value:new THREE.Color(0xBFD8FF)}, uAlpha:{value:0.55} },
+  uniforms: { uTime:{value:0}, uPix:{value:1}, uColor:{value:new THREE.Color(0xEFE0C8)}, uAlpha:{value:0.55} },
   transparent:true, blending:THREE.AdditiveBlending, depthWrite:false
 });
 scene.add(new THREE.Points(sg, starMat));
 
 // ── 相机飞行（点击旋臂 → 推进到那条臂；双击 → 复位）──
-let camGoal = null;
+let camGoal = null, cameraFrame = null, cameraFrameCount = 0;
+const homeCamera = new THREE.Vector3(0, 2.35, 4.55);
 /* ★ 2026-11-13（爀曦定）：选中后**相机跟着悬臂转** —— 不是「飞过去停住」。
    星系整体在自转（gal.rotation.y = t*0.045），臂尖的世界坐标每帧都在变；
    所以这里只记 followKey，真正的位置在 frame() 里每帧重算 camGoal。
@@ -850,34 +955,73 @@ let followConst = null;
    要「推近看某座星座」，光挪相机不够，得把注视点也挪过去，否则永远在看中心。 */
 const targetGoal = new THREE.Vector3(0, 0, 0);
 function flyToArm(k) {
-  const it = items.find(function(x){ return x.L.k === k; });
-  if (!it) return;
+  followConst = null;
   followKey = k;
-  const p = it.tip.clone().applyMatrix4(gal.matrixWorld);
-  camGoal = p.clone().multiplyScalar(2.40).add(new THREE.Vector3(0, 1.55, 0));
   controls.autoRotate = false;
 }
-/* L2：推进到某座星座。距离用 2.2 倍「星座中心到星系核」的半径 ——
-   太近会把它放大到糊满屏幕，太远又看不出这是「一颗星球」。 */
 function flyToConst(arm, j) {
-  const g = constNodes[arm] && constNodes[arm][j];
-  if (!g) return;
-  constSel = { arm: arm, j: j };
   followKey = null;
-  followConst = { arm: arm, j: j };
-  const p = g.position.clone().applyMatrix4(gal.matrixWorld);
-  const dir = p.clone().normalize();
-  /* 相机站到星座的「外侧 1.7 单位」，注视点挪到星座本身 ——
-     这样画面里它居中且占满，才是「一镜到底」的第三级。 */
-  targetGoal.copy(p);
-  camGoal = p.clone().add(dir.multiplyScalar(1.15)).add(new THREE.Vector3(0, 0.34, 0));
+  followConst = { arm, j };
   controls.autoRotate = false;
 }
 function resetCam() {
-  followKey = null; followConst = null; constSel = null;
+  followKey = null; followConst = null;
+  camGoal = homeCamera.clone();
   targetGoal.set(0, 0, 0);
-  camGoal = new THREE.Vector3(0, 2.35, 4.55);
-  controls.autoRotate = true;
+  controls.autoRotate = false;
+}
+
+function stepCamera() {
+  if (followConst) {
+    const g = constNodes[followConst.arm][followConst.j];
+    const p = gal.localToWorld(g.position.clone());
+    targetGoal.copy(p);
+    camGoal = p.clone().addScaledVector(p.clone().normalize(), 1.15).add(new THREE.Vector3(0, 0.34, 0));
+  } else if (followKey) {
+    const it = items.find(x => x.L.k === followKey);
+    targetGoal.set(0, 0, 0);
+    camGoal = gal.localToWorld(it.tip.clone()).multiplyScalar(2.40).add(new THREE.Vector3(0, 1.55, 0));
+  }
+  // 朝着同一个注视点飞：插值距离和方向，不让反向飞行的直线穿过注视点。
+  const camK = REDUCE ? 1 : 0.055;
+  if (camGoal) {
+    const from = new THREE.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+    const to = new THREE.Spherical().setFromVector3(camGoal.clone().sub(targetGoal));
+    const turn = to.theta - from.theta;
+    from.theta += Math.atan2(Math.sin(turn), Math.cos(turn)) * camK;
+    from.phi += (to.phi - from.phi) * camK;
+    from.radius += (to.radius - from.radius) * camK;
+    controls.target.lerp(targetGoal, REDUCE ? 1 : 0.06);
+    camera.position.setFromSpherical(from).add(controls.target);
+  } else {
+    controls.target.lerp(targetGoal, REDUCE ? 1 : 0.06);
+  }
+  if (followConst) {
+    controls.minDistance = ORGAN_MIN_DISTANCE;
+  } else if (controls.minDistance < WIDE_MIN_DISTANCE) {
+    // 从 L2 拉远时让下限随飞行恢复，避免第一帧突然跳到 3.2。
+    controls.minDistance = Math.min(WIDE_MIN_DISTANCE, Math.max(ORGAN_MIN_DISTANCE,
+      controls.minDistance, camera.position.distanceTo(controls.target)));
+  }
+  controls.update();
+  // 只记录控制器处理后的实值；没有目标时是 null，不把「没在飞」报成 0 误差。
+  cameraFrame = {
+    number: ++cameraFrameCount,
+    focus: followConst ? "organ" : followKey ? "arm" : "core",
+    arm: selected,
+    organ: followConst ? constNodes[followConst.arm][followConst.j].userData.organ : null,
+    position: camera.position.toArray(),
+    target: controls.target.toArray(),
+    cameraTargetDist: camera.position.distanceTo(controls.target),
+    goalTargetDist: camGoal ? camGoal.distanceTo(targetGoal) : null,
+    goalGap: camGoal ? camera.position.distanceTo(camGoal) : null,
+    targetGap: controls.target.distanceTo(targetGoal),
+    minDistance: controls.minDistance
+  };
+  if (!followKey && !followConst && camGoal && cameraFrame.goalGap < 0.02 && cameraFrame.targetGap < 0.02) {
+    camGoal = null;
+    controls.autoRotate = !REDUCE;
+  }
 }
 
 const raycaster = new THREE.Raycaster();
@@ -885,14 +1029,17 @@ let selected = null;
 
 function resize(){
   const w = window.innerWidth, h = window.innerHeight;
-  renderer.setSize(w, h, false);
+  if (renderer) renderer.setSize(w, h, false);
   if (composer) composer.setSize(w, h);
   camera.aspect = w / h; camera.updateProjectionMatrix();
   const pix = Math.min(1.5, window.devicePixelRatio || 1) * (h / 900);
   items.forEach(function(it){ it.mat.uniforms.uPix.value = pix; if (it.flowMat) it.flowMat.uniforms.uPix.value = pix; });
   coreMat.uniforms.uPix.value = pix; starMat.uniforms.uPix.value = pix; dustMat.uniforms.uPix.value = pix;
 }
-resize(); window.addEventListener("resize", resize);
+resize(); window.addEventListener("resize", function(){
+  resize();
+  if (!renderer) placePanel(window.innerWidth, window.innerHeight, 0);
+});
 
 const clock = new THREE.Clock();
 let running = true;
@@ -911,35 +1058,22 @@ function applySel(){
 }
 
 function frame(){
+  if (!renderer) { placePanel(window.innerWidth, window.innerHeight, 0); return; }
   if (!running) return;
   requestAnimationFrame(frame);
-  const t = clock.getElapsedTime();
+  /* ★ REDUCE 时 t 恒为 0：自转、闪烁、流光、呼吸全部停在定格画面上。 */
+  const t = REDUCE ? 0 : clock.getElapsedTime();
   items.forEach(function(it){ it.mat.uniforms.uTime.value = t; if (it.flowMat) it.flowMat.uniforms.uTime.value = t; });
   coreMat.uniforms.uTime.value = t; starMat.uniforms.uTime.value = t;
   glowMat.uniforms.uT.value = t;
   diskMat.uniforms.uT.value = t;
   gal.rotation.y = t * 0.045;
   /* 鼠标视差：缓动追，别硬跟（硬跟会晕） */
-  sceneTiltY += (mousePX * 0.021 - sceneTiltY) * 0.05;
-  sceneTiltX += (mousePY * 0.016 - sceneTiltX) * 0.05;
+  const tiltK = REDUCE ? 0 : 0.05;
+  sceneTiltY += (mousePX * 0.021 - sceneTiltY) * tiltK;
+  sceneTiltX += (mousePY * 0.016 - sceneTiltX) * tiltK;
   scene.rotation.y = sceneTiltY;
   scene.rotation.x = sceneTiltX;
-  /* 视角跟随：臂在转，相机跟着它转（camGoal 每帧刷新，lerp 负责平滑） */
-  if (followConst) {
-    const gc = constNodes[followConst.arm] && constNodes[followConst.arm][followConst.j];
-    if (gc) {
-      const pc = gc.position.clone().applyMatrix4(gal.matrixWorld);
-      const dc = pc.clone().normalize();
-      targetGoal.copy(pc);
-      camGoal = pc.clone().add(dc.multiplyScalar(1.15)).add(new THREE.Vector3(0, 0.34, 0));
-    }
-  } else if (followKey) {
-    const itf = items.find(function(x){ return x.L.k === followKey; });
-    if (itf) {
-      const pf = itf.tip.clone().applyMatrix4(gal.matrixWorld);
-      camGoal = pf.multiplyScalar(2.40).add(new THREE.Vector3(0, 1.55, 0));
-    }
-  }
   /* 星云插值：目标值来自 updateNebulae()，这里只做缓动（0.12 ≈ 0.4s 到位） */
   nebSprites.forEach(function(sp){
     const m = sp.material;
@@ -1006,7 +1140,7 @@ function frame(){
           const a2 = -t * 0.42 + sp.userData.ph;
           sp.position.set(Math.cos(a2) * 0.88, Math.sin(a2 * 0.7) * 0.07, Math.sin(a2) * 0.88);
           sp.material.opacity += (0.85 - sp.material.opacity) * 0.10;
-          sp.material.color.setHex(o.level === "alert" ? 0xFF8A7A : (o.level === "warn" ? 0xF2C15C : 0x6FE3B4));
+          sp.material.color.setHex(o.level === "alert" ? 0xE88C7A : (o.level === "warn" ? 0xF4C87A : 0xA8D8B4));
         });
       }
     }
@@ -1019,9 +1153,7 @@ function frame(){
     if (planetCore.material.uniforms.uAlpha.value < 0.02) { planetGrp.visible = false; moonGrp.visible = false; organGrp.visible = false; }
   }
   glow.quaternion.copy(camera.quaternion);
-  if (camGoal) { camera.position.lerp(camGoal, 0.055); if (camera.position.distanceTo(camGoal) < 0.02) camGoal = null; }
-  controls.target.lerp(targetGoal, 0.06);
-  controls.update();
+  stepCamera();
   if (composer) composer.render(); else renderer.render(scene, camera);
   placeLabels(t);
 }
@@ -1075,7 +1207,8 @@ function placeLabels(t){
       vo.copy(sp.position).applyMatrix4(organGrp.matrixWorld).project(camera);
       if (vo.z > 1) { d.style.opacity = "0"; return; }
       d.className = "mo or" + (o.level === "alert" ? " alert" : "");
-      d.innerHTML = "<b>" + String(o.name || "") + "</b>" + (o.value === null || o.value === undefined ? "—" : String(o.value));
+      if (o.key === "waker") d.textContent = "台账";
+      else d.innerHTML = "<b>" + String(o.name || "") + "</b>" + (o.value === null || o.value === undefined ? "—" : String(o.value));
       d.style.left = ((vo.x * 0.5 + 0.5) * w).toFixed(1) + "px";
       d.style.top = ((-vo.y * 0.5 + 0.5) * h).toFixed(1) + "px";
       d.style.opacity = "1";
@@ -1116,14 +1249,22 @@ function placePanel(w, h, t){
   const el = document.getElementById("panel");
   const lead = document.getElementById("lead");
   if (!el) return;
-  /* ★ 2026-11-13：L0（没选层）时面板也要在场 —— 它现在装的是概览（核球读数）。
+  /* ★ 2026-11-13：总览态面板保持在场，展示核球读数。
      布局跟选中层时一致：贴右边、垂直居中、不出界。 */
-  if (!selected) {
-    const PW0 = 326;
-    el.style.left = (w - PW0 - 26) + "px";
-    el.style.top = Math.max(120, Math.min(h - 120, h * 0.44)) + "px";
+  if (!selected || !renderer) {
+    if (w <= 760) {
+      el.style.left = "16px"; el.style.right = "16px"; el.style.top = "auto";
+      el.style.bottom = "86px"; el.style.width = "auto"; el.style.maxHeight = "42vh";
+      el.style.transform = "none";
+    } else {
+      const PW0 = el.offsetWidth;
+      el.style.left = Math.max(16, w - PW0 - 26) + "px";
+      el.style.right = "auto"; el.style.top = Math.max(120, Math.min(h - 120, h * 0.44)) + "px";
+      el.style.bottom = "auto"; el.style.width = ""; el.style.maxHeight = "";
+      el.style.transform = "translate(0,-50%)";
+    }
     el.classList.add("show");
-    /* L0 时收起左下角那张水位卡 —— 它有的几项概览面板里都有了，
+    /* 总览时收起左下角那张水位卡 —— 它有的几项概览面板里都有了，
        两张卡同时在场等于同一件事说两遍。 */
     const cEl0 = document.getElementById("corner");
     if (cEl0) cEl0.style.opacity = "0";
@@ -1132,27 +1273,47 @@ function placePanel(w, h, t){
   }
   const it = items.find(function(x){ return x.L.k === selected; });
   if (!it) return;
-  _anchor.copy(it.tip).multiplyScalar(0.62).applyMatrix4(gal.matrixWorld);
-  _anchor.y += 0.16 + 0.03 * Math.sin(t * 0.7);
+  if (constSel) _anchor.copy(targetGoal);
+  else {
+    _anchor.copy(it.tip).multiplyScalar(0.62).applyMatrix4(gal.matrixWorld);
+    _anchor.y += 0.16 + 0.03 * Math.sin(t * 0.7);
+  }
   const p = _anchor.clone().project(camera);
-  if (p.z > 1) { el.classList.remove("show"); if (lead) lead.classList.remove("show"); return; }
+  if (!constSel && p.z > 1) { if (lead) lead.classList.remove("show"); return; }
   const ax = (p.x * 0.5 + 0.5) * w;
-  const ay = (-p.y * 0.5 + 0.5) * h;
+  const ay = p.z > 1 ? h * 0.44 : (-p.y * 0.5 + 0.5) * h;
   /* 相机跟随悬臂之后，锚点在屏幕上的落点已经稳定 ——
      面板就贴「锚点的对侧边」，只夹边界、不追点位，读起来最稳。 */
-  const PW = 326;
-  let left = (ax < w * 0.5) ? (w - PW - 26) : 26;
-  /* 上边界要让开 nav(38) + 标题区，否则面板顶会被压在导航条下面 */
-  const halfH = Math.min((window.innerHeight * 0.62) / 2, 268);
-  const topMin = 52 + halfH;
-  const topMax = h - halfH - 16;
+  const PW = el.offsetWidth;
+  if (w <= 760) {
+    // 窄屏底部sheet：让出header与中部星系，并给rail/hint保留空间。
+    el.style.left = "16px"; el.style.right = "16px"; el.style.top = "auto";
+    el.style.bottom = "86px"; el.style.width = "auto"; el.style.maxHeight = "42vh";
+    el.style.transform = "none";
+    el.classList.add("show");
+    const cMobile = document.getElementById("corner"); if (cMobile) cMobile.style.opacity = "0";
+    if (lead) lead.classList.remove("show");
+    return;
+  }
+  // Wide canvas: dock the detail pane opposite the selected arm, never over its label or the title/header.
+  const left = Math.max(16, Math.min(w - PW - 16, constSel || ax < w * 0.5 ? w - PW - 30 : 26));
+  const halfH = el.offsetHeight / 2;
+  // #panel is vertically centered by translateY(-50%); clamp its top edge below header.
+  const topMin = 190 + halfH;
+  const topMax = h - halfH - 86;
   const top = Math.max(topMin, Math.min(topMax, ay));
   el.style.left = left.toFixed(1) + "px";
+  el.style.right = "auto";
   el.style.top = top.toFixed(1) + "px";
-  el.classList.add("show");   /* ← 忘了这一行：面板在视口内时才显示 */
-  if (lead) {
+  el.style.bottom = "auto";
+  el.style.width = "";
+  el.style.maxHeight = "";
+  el.style.transform = "translate(0,-50%)";
+  el.classList.add("show");
+  if (lead && p.z > 1) lead.classList.remove("show");
+  else if (lead) {
     const y0 = top;
-    const x0 = left + PW;
+    const x0 = constSel ? left : left + PW;
     const dx = ax - x0, dy = ay - y0;
     lead.style.left = x0.toFixed(1) + "px";
     lead.style.top = y0.toFixed(1) + "px";
@@ -1179,7 +1340,7 @@ canvas.addEventListener("mousemove", function(e){
 function showHover(mx, my){
   const el = document.getElementById("hover");
   if (!el) return;
-  let txt = null;
+  let txt = null, eventText = false;
   const hit = function(x, y, r){
     return (x !== undefined && y !== undefined && Math.hypot(x - mx, y - my) < r);
   };
@@ -1192,7 +1353,7 @@ function showHover(mx, my){
   });
   if (vi >= 0 && LIVE && LIVE.recent && LIVE.recent[vi]){
     const V = LIVE.recent[vi];
-    txt = "<b>" + String(V.charter || "未判") + "</b> · " + String(V.stage || "") + " — " + String(V.title || "").slice(0, 30);
+    txt = "LIVE 判词 · " + liveEventLabel(V); eventText = true;
   }
   // 事件点
   if (!txt && selected === "events" && LIVE && LIVE.recent){
@@ -1204,7 +1365,7 @@ function showHover(mx, my){
     });
     if (ei >= 0 && LIVE.recent[ei]){
       const EV = LIVE.recent[ei];
-      txt = "<b>" + String(EV.stage || "") + "</b> — " + String(EV.title || "").slice(0, 34);
+      txt = "LIVE 事件 · " + liveEventLabel(EV); eventText = true;
     }
   }
   // 星座（器官）
@@ -1218,7 +1379,8 @@ function showHover(mx, my){
     });
     if (bj >= 0){
       const o = organByKey((constNodes[arm][bj].userData || {}).organ);
-      if (o) txt = "<b>" + String(o.name) + "</b> · " + String(o.value === null || o.value === undefined ? "—" : o.value) + " · " + String(o.level || "");
+      if (constNodes[arm][bj].userData.organ === "waker") { txt = "台账 · 详情按需读取"; eventText = true; }
+      else if (o) txt = "<b>" + String(o.name) + "</b> · " + String(o.value === null || o.value === undefined ? "—" : o.value) + " · " + String(o.level || "");
     }
   }
   // 悬臂
@@ -1236,7 +1398,7 @@ function showHover(mx, my){
     }
   }
   if (txt){
-    el.innerHTML = txt;
+    if (eventText) el.textContent = txt; else el.innerHTML = txt;
     el.style.left = mx + "px";
     el.style.top = my + "px";
     el.classList.add("show");
@@ -1246,7 +1408,7 @@ function showHover(mx, my){
 }
 canvas.addEventListener("mouseleave", function(){ mousePX = 0; mousePY = 0; });
 
-canvas.addEventListener("dblclick", function(){ select(null); });
+canvas.addEventListener("dblclick", function(){ navigate(null); });
 
 /* ★ 滚轮 = 进/退一级（一镜到底的手感）。
    L1 时向上滚 → 进入屏幕中心最近的那座星座；L2 时向下滚 → 退回层。
@@ -1259,9 +1421,8 @@ canvas.addEventListener("wheel", function(ev){
   const armIdx = ORDER.indexOf(selected);
   if (ev.deltaY > 0 && constSel) {
     lastWheel = now; ev.preventDefault();
-    constSel = null; followConst = null; flyToArm(selected);
-    applySel(); renderPanel(); updateNebulae();
-  } else if (ev.deltaY < 0 && !constSel) {
+    navigateUp();
+  } else if (ev.deltaY < 0 && !constSel && constNodes[armIdx].length) {
     lastWheel = now; ev.preventDefault();
     let bj = 0, bd = 1e9;
     const cx = window.innerWidth * 0.5, cy = window.innerHeight * 0.5;
@@ -1269,32 +1430,9 @@ canvas.addEventListener("wheel", function(ev){
       const d = Math.hypot((g.userData.sx || 0) - cx, (g.userData.sy || 0) - cy);
       if (d < bd) { bd = d; bj = j; }
     });
-    flyToConst(armIdx, bj);
-    applySel(); renderPanel(); updateNebulae();
+    navigate(selected, constNodes[armIdx][bj].userData.organ);
   }
 }, { passive: false });
-
-/* ★ 2026-11-13 调试用：?sel=echo|vital|capability|archive|ops|events 直接进选中态。
-   为什么要它：相机飞行 + 面板跟随都是动画，headless 截图抓不到「点了之后」的样子；
-   有了这个参数，截图和被验收的画面是同一个状态，不用靠猜。 */
-(function(){
-  const qs = new URLSearchParams(location.search);
-  const m = qs.get("sel");
-  if (!m) return;
-  const ok = ORDER.indexOf(m) >= 0;
-  if (!ok) { console.warn("[galaxy] 未知层:", m, "可选:", ORDER.join("/")); return; }
-  /* &c=<序号> 直接进 L2（第几座星座）—— 相机推进是动画，截图必须能定格在同一状态 */
-  const ci = qs.get("c");
-  let tries = 0;
-  const tick = setInterval(function(){
-    tries++;
-    if (STATUS) {
-      clearInterval(tick);
-      select(m);
-      if (ci !== null) setTimeout(function(){ flyToConst(ORDER.indexOf(m), Math.max(0, Math.min(NEBS_PER_ARM - 1, parseInt(ci, 10) || 0))); applySel(); renderPanel(); updateNebulae(); }, 700);
-    } else if (tries > 60) { clearInterval(tick); select(m); }
-  }, 120);
-})();
 
 canvas.addEventListener("click", function(ev){
   /* ★ L2：已经选中某层时，先判这次点是不是落在某座星座上（70px 半径）。
@@ -1315,7 +1453,7 @@ canvas.addEventListener("click", function(ev){
         const d = Math.hypot(sp.userData.sx - ev.clientX, sp.userData.sy - ev.clientY);
         if (d < bdv) { bdv = d; bv = i; }
       });
-      if (bv >= 0) { window.__verSel = bv; renderPanel(); return; }
+      if (bv >= 0) { window.__verSel = LIVE.recent[bv]; window.__evSel = null; renderPanel(); return; }
     }
     /* ★ 事件螺旋优先：它比星座更小、更靠外，不先判它就会被星座抢走命中 */
     if (selected === "events") {
@@ -1326,15 +1464,16 @@ canvas.addEventListener("click", function(ev){
         if (d < bde) { bde = d; be = i; }
       });
       if (be >= 0) {
-        window.__evSel = be;
+        window.__evSel = LIVE.recent[be];
+        window.__verSel = null;
         renderPanel();
         return;
       }
     }
     if (bj >= 0) {
       const same = constSel && constSel.arm === arm && constSel.j === bj;
-      if (same) { constSel = null; followConst = null; if (selected) flyToArm(selected); applySel(); renderPanel(); updateNebulae(); }
-      else { flyToConst(arm, bj); applySel(); renderPanel(); updateNebulae(); }
+      if (same) navigateUp();
+      else navigate(selected, constNodes[arm][bj].userData.organ);
       return;
     }
   }
@@ -1343,43 +1482,68 @@ canvas.addEventListener("click", function(ev){
     const d = Math.hypot(it.sx - ev.clientX, it.sy - ev.clientY);
     if (d < bestD) { bestD = d; best = it.L.k; }
   });
-  select(best === selected ? null : best);
+  if (best) navigate(best);
 });
 
-/* 面板跟随相机：先缩到被选中旋臂在屏幕上的位置，再「飞」回右栏 ——
-   顺序和相机推进一致（相机 0.9s 到位，面板晚 0.18s 起步），所以看起来是
-   「你先飞到那条臂，读数随后跟过来」。 */
-function openPanelFrom(k) {
-  const it = items.find(function(x){ return x.L.k === k; });
-  const el = document.getElementById("panel");
-  if (!el) return;
-  const w = window.innerWidth, h = window.innerHeight;
-  const cx = w - 24 - 172, cy = h / 2;
-  const dx = (it && it.sx ? it.sx : cx) - cx;
-  const dy = (it && it.sy ? it.sy : cy) - cy;
-  el.style.transition = "none";
-  el.style.transform = "translate(" + dx.toFixed(1) + "px," + dy.toFixed(1) + "px) scale(.26)";
-  el.style.opacity = "0";
-  el.style.transformOrigin = "50% 50%";
-  setTimeout(function(){
-    requestAnimationFrame(function(){
-      el.style.transition = "transform .82s cubic-bezier(.18,.80,.20,1), opacity .40s ease-out";
-      el.style.transform = "translate(0,0) scale(1)";
-      el.style.opacity = "1";
-    });
-  }, 180);
+// 深链接只在启动和历史导航读入；轮询不会切换层级。
+function restoreRoute() {
+  const q = new URLSearchParams(location.search);
+  const arm = q.get("sel"), key = q.get("organ"), legacy = q.get("c");
+  const requestedEchoLayer = q.get("echoLayer");
+  echoLayer = arm === "echo" && ECHO_LAYERS.some(x => x.id === requestedEchoLayer) ? requestedEchoLayer : null;
+  if (arm === null && key === null && legacy === null) return navigate(null, null, true);
+  const a = ORDER.indexOf(arm);
+  if (a < 0) return navigate(null, null, true, "无效旋臂，已回到总览。");
+  const nodes = constNodes[a];
+  if (key !== null) return nodes.some(g => g.userData.organ === key)
+    ? navigate(arm, key, true) : navigate(arm, null, true, "器官不在此旋臂，已回到旋臂。");
+  if (legacy !== null) {
+    const n = /^(0|[1-9]\d*)$/.test(legacy) && nodes[Number(legacy)];
+    return n ? navigate(arm, n.userData.organ, true) : navigate(arm, null, true, "无效星座序号，已回到旋臂。");
+  }
+  navigate(arm, null, true);
 }
-
-function select(k){
-  selected = k;
-  constSel = null; followConst = null;   /* 换层就把 L2 的选中收回去 */
-  /* 选中层时让出左下角：那张总览卡（#corner）和跟随面板会叠在一起。
-     它是指针穿透的装饰卡，隐藏不影响操作。 */
-  const cEl = document.getElementById("corner");
-  if (cEl) cEl.style.opacity = k ? "0" : "1";
-  if (k) { flyToArm(k); } else { resetCam(); }
-  applySel(); renderPanel(); updateNebulae();
-  document.querySelectorAll(".chip").forEach(function(c){ c.className = "chip" + (c.dataset.k === k ? " on" : ""); });
+function navigateUp() {
+  if (selected === "echo" && !constSel && echoLayer) {
+    echoLayer = null;
+    const url = new URL(location.href); url.searchParams.delete("echoLayer");
+    history.pushState(null, "", url);
+    renderEchoLayers(); renderGalaxyNav(); renderPanel();
+    return;
+  }
+  if (selected) navigate(constSel ? selected : null, null, false, "", true);
+}
+function navigate(arm, key = null, restore = false, note = "", focus = false) {
+  const a = ORDER.indexOf(arm);
+  if (arm !== null && a < 0) return;
+  const j = key === null || a < 0 ? -1 : constNodes[a].findIndex(g => g.userData.organ === key);
+  if (key !== null && j < 0) return;
+  const same = selected === arm && (constSel ? constSel.j === j : j === -1);
+  if (arm !== "echo") echoLayer = null;
+  const url = new URL(location.href);
+  for (const [param, value] of [["sel", arm], ["organ", key], ["c", null], ["echoLayer", arm === "echo" && echoLayer ? echoLayer : null]]) {
+    if (value === null) { if (url.searchParams.has(param)) url.searchParams.delete(param); }
+    else if (url.searchParams.getAll(param).length !== 1 || url.searchParams.get(param) !== value) url.searchParams.set(param, value);
+  }
+  if (url.href !== location.href) {
+    if (restore) history.replaceState(history.state, "", url);
+    else if (!same) history.pushState(null, "", url);
+  }
+  const msg = document.getElementById("galaxy-link-note");
+  msg.textContent = note; msg.hidden = !note;
+  if (!same) {
+    selected = arm;
+    constSel = j < 0 ? null : { arm:a, j };
+    window.__evSel = null; window.__verSel = null;
+    if (constSel) flyToConst(a, j);
+    else if (arm) flyToArm(arm);
+    else resetCam();
+    applySel(); updateNebulae(); renderRail();
+  }
+  renderGalaxyNav(); renderEchoLayers(); renderPanel(); renderWakerLedger();
+  const panel = document.getElementById("panel");
+  if (!same) panel.scrollTop = 0;
+  if (focus) panel.querySelector("h2")?.focus({preventScroll:true});
 }
 
 /* ★ 2026-11-13：星云展开/收起的目标值。
@@ -1426,12 +1590,11 @@ function applyData(s){
   STATUS = s;
   const layers = (s && s.layers) || {};
   const wm = (s && s.watermarks) || {};
-  let worst = "ok", counts = { ok:0, warn:0, error:0, pending:0 };
+  let worst = "ok";
   items.forEach(function(it){
     const L = layers[it.L.k] || {};
     const lv = L.level || "pending";
     it.level = lv;
-    counts[lv] = (counts[lv] || 0) + 1;
     if (lv === "error" || (worst === "ok" && lv === "warn")) worst = lv;
     const its = L.items || [];
     let okN = 0, liveN = 0;
@@ -1442,10 +1605,10 @@ function applyData(s){
     it.mat.uniforms.uColor.value.setRGB(c[0], c[1], c[2]);
     it.okR = okN / total; it.nItems = its.length; it.col = c;
     paintRing(it);
-    const lvCol = lv === "error" ? "#FF8A7A" : lv === "warn" ? "#F2C15C" : lv === "ok" ? "#6FE3B4" : "#6FA8FF";
+    const lvCol = lv === "error" ? "#FF7A68" : lv === "warn" ? "#6FB6FF" : lv === "ok" ? "#3FE3A8" : "#6FA8FF";
     const dash = (Math.min(1, okN / total) * 2 * Math.PI * 5).toFixed(1);
-    it.el.innerHTML = '<span class="r"><svg viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="5" stroke="rgba(160,200,240,.28)"></circle><circle cx="6.5" cy="6.5" r="5" stroke="' + lvCol + '" stroke-dasharray="' + dash + ' 99"></circle></svg></span>'
-      + "<b>" + it.L.ro + "</b> " + it.L.en + ' <s style="text-decoration:none;font-size:9.5px;letter-spacing:.1em;color:' + lvCol + '">' + lv + " · " + its.length + "</s>";
+    it.el.innerHTML = '<span class="r"><svg viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="5" stroke="rgba(150,200,255,.28)"></circle><circle cx="6.5" cy="6.5" r="5" stroke="' + lvCol + '" stroke-dasharray="' + dash + ' 99"></circle></svg></span>'
+      + "<b>" + it.L.ro + "</b> " + it.L.en + ' <s style="text-decoration:none;font-size:9.5px;letter-spacing:.1em;color:' + lvCol + '">' + lvZh(lv) + " · " + its.length + "</s>";
     const lvW = lv === "ok" ? 1.0 : lv === "warn" ? 0.86 : lv === "error" ? 1.12 : 0.70;
     it.baseAlpha = (0.86 + 0.58*okR) * lvW;
     it.mat.uniforms.uAlpha.value = it.baseAlpha * ((selected === null || selected === it.L.k) ? 1 : 0.12);
@@ -1460,46 +1623,112 @@ function applyData(s){
   updateNebulae();
   /* 天空层的色温跟着整体水平走（环境即状态） */
   if (window.asMood) window.asMood(worst === "error" ? "err" : (worst === "warn" ? "warn" : "ok"));
-  /* 数据回来时若还停在 L0，面板要跟着刷新（概览是活数据）——
-     选中层时不刷，否则每 5 秒把用户滚到一半的面板弹回顶部。 */
-  if (!selected) renderPanel();
+  renderPanel();
   const wc = LV[worst] || LV.pending;
   glowMat.uniforms.uColor.value.setRGB(wc[0]*1.1+0.22, wc[1]*1.0+0.20, wc[2]*0.9+0.18);
   coreMat.uniforms.uColor.value.setRGB(0.98, 0.90, 0.76);
-  renderRail(counts); applySel();
-  /* 左下角数据角标（取代 /status 左栏的三水位 + 读数，但不占一整列） */
+  renderRail(); applySel();
+  /* 左下角：一屏一焦点 = 那个 44px 的水位数字。其余五项降成小字对照表。
+   ★ 为什么把「本会话水位」单独放大：它是这一屏唯一一个「现在就该看」的数，
+     而且它越线是要出事的（80% 红灯）—— 其余五个都是背景。 */
   const L2 = wm.lead || {}, A2 = wm.active || {}, M2 = wm.mirror || {};
-  const setTxt = function(id, v){ const el2 = document.getElementById(id); if (el2) el2.textContent = v; };
-  setTxt("cw-lead", L2.pct != null ? L2.pct.toFixed(1) + "%" : (L2.ok === false ? "读不到" : "—"));
-  setTxt("cw-active", (A2.count != null ? A2.count : "—") + (A2.ok === false ? " · 读不到" : " 条"));
-  setTxt("cw-mirror", M2.pct != null ? M2.pct.toFixed(1) + "%" : "—");
+  const put = function(id, v){ const el2 = document.getElementById(id); if (el2) el2.textContent = v; };
+  put("cw-lead", L2.pct != null ? Math.round(L2.pct) + "%" : (L2.ok === false ? "—" : "—"));
+  put("cw-active", A2.count != null ? A2.count + " 条" : "—");
+  put("cw-mirror", M2.pct != null ? M2.pct.toFixed(1) + "%" : "—");
+  let nBad = 0, nWarn = 0;
+  items.forEach(function(x){ if (x.level === "error") nBad++; else if (x.level === "warn") nWarn++; });
+  put("cw-layers", nBad ? (nBad + " 异常") : (nWarn ? (nWarn + " 注意") : "全部正常"));
   const c2 = s.core || {};
-  setTxt("cw-meta", "pid " + (c2.pid || "—") + " · 已跑 " + Math.round((c2.uptimeSec || 0) / 60) + " 分 · 内存 " + (c2.rssMB || "—") + " MB"
-    + (L2.ok === false ? " ／ 水位读不到《墨》" : ""));
-  const lead = (wm.lead && wm.lead.pct != null) ? wm.lead.pct : null;
-  document.getElementById("stamp").textContent =
-    "pid " + ((s.core && s.core.pid) || "—") + " · 采集 " + (s.tookMs != null ? s.tookMs + "ms" : "—") +
-    (lead != null ? " · 本会话水位 " + lead.toFixed(1) + "%" : " · 水位 —") +
-    " · " + new Date().toTimeString().slice(0,5);
-  const want = new URLSearchParams(location.search).get("sel");
-  if (want && !selected && items.some(function(x){ return x.L.k === want; })) select(want);
+  put("cw-meta", "pid " + (c2.pid || "—") + " · 已跑 " + Math.round((c2.uptimeSec || 0) / 60) + " 分钟 · 内存 " + (c2.rssMB || "—") + " MB"
+    + (L2.ok === false ? " · 水位读不到《墨》" : ""));
+  const leadPct = (wm.lead && wm.lead.pct != null) ? wm.lead.pct : null;
+  const stEl = document.getElementById("stamp");
+  if (stEl) stEl.textContent = "pid " + ((s.core && s.core.pid) || "—") + " · " + (s.core && s.core.node || "—")
+    + (leadPct != null ? " · 水位 " + leadPct.toFixed(1) + "%" : "");
+
 }
 
-function renderRail(counts){
+/* 等级的中文名：ok/warn/error 是后端字段，读者要的是「正常/注意/异常」。 */
+/* ★ 同上：emergency 原来不在表里，lvZh('emergency') 直接把英文原样吐给读者。
+     读者是中文，而且这个级别最该一眼看懂。 */
+const LV_ZH = { ok:"正常", warn:"注意", error:"异常", alert:"异常", emergency:"紧急", pending:"待采" };
+function lvZh(v){ return LV_ZH[v] || (v || "—"); }
+/* 级别 → 颜色（十六进制）。原来是两处内联小表（L2 器官 / L1 器官），各写各的，
+   而且都没有 emergency —— 一份判据写两遍必然分叉，收敛成这一处。 */
+const LV_HEX = { ok:"#3FE3A8", warn:"#6FB6FF", error:"#FF7A68", alert:"#FF7A68", emergency:"#FF7A68", pending:"#93A6BC" };
+function lvHex(v){ return LV_HEX[v] || LV_HEX.pending; }
+
+function renderRail(){
   const rail = document.getElementById("rail");
-  rail.innerHTML = "";
   items.forEach(function(it){
     const c = LV[it.level] || LV.pending;
-    const d = document.createElement("div");
+    let d = rail.querySelector('[data-k="' + it.L.k + '"]');
+    if (!d) {
+      d = document.createElement("button");
+      d.type = "button";
+      d.dataset.k = it.L.k;
+      d.onclick = () => navigate(it.L.k, null, false, "", true);
+      rail.appendChild(d);
+    }
     d.className = "chip" + (selected === it.L.k ? " on" : "");
-    d.dataset.k = it.L.k;
+    d.setAttribute("aria-pressed", String(selected === it.L.k));
     d.innerHTML = '<u style="background:rgb(' + Math.round(c[0]*255) + ',' + Math.round(c[1]*255) + ',' + Math.round(c[2]*255) + ')"></u>' +
-      it.L.ro + " " + it.L.en + " <s>" + it.level + "</s>";
-    d.onclick = function(){ select(selected === it.L.k ? null : it.L.k); };
-    rail.appendChild(d);
+      it.L.ro + " " + it.L.en + " <s>" + lvZh(it.level || "pending") + "</s>";
   });
 }
-
+function renderEchoLayers(){
+  const section = document.getElementById("echo-layers"), box = document.getElementById("echo-layer-tabs");
+  const visible = selected === "echo" && !constSel;
+  section.hidden = !visible;
+  if (!visible) return;
+  if (!box.children.length) box.replaceChildren(...ECHO_LAYERS.map(layer => {
+    const button = document.createElement("button");
+    button.type = "button"; button.dataset.layer = layer.id; button.textContent = layer.id;
+    button.title = layer.title;
+    button.onclick = () => {
+      if (echoLayer === layer.id) return;
+      echoLayer = layer.id;
+      const url = new URL(location.href); url.searchParams.set("echoLayer", layer.id);
+      history.pushState(null, "", url);
+      renderGalaxyNav(); renderEchoLayers(); renderPanel();
+    };
+    return button;
+  }));
+  for (const button of box.children) {
+    button.setAttribute("aria-current", button.dataset.layer === echoLayer ? "page" : "false");
+  }
+}
+function renderGalaxyNav(){
+  const layer = LAYERS.find(l => l.k === selected);
+  const node = constSel && organNodeAt(constSel.arm, constSel.j);
+  const key = node && node.userData.organ;
+  const name = key === "waker" ? "台账" : key && (organByKey(key)?.name || key);
+  const crumb = document.getElementById("galaxy-crumb");
+  const trail = ["总览", layer?.en, layer?.k === "echo" ? echoLayer : null, name].filter(Boolean).join(" / ");
+  if (crumb.textContent !== trail) crumb.textContent = trail;
+  const up = document.getElementById("galaxy-up");
+  up.hidden = !layer;
+  if (layer) up.textContent = "上一级 · " + (key ? layer.en : "总览");
+  const box = document.getElementById("galaxy-organs");
+  const list = layer && !key ? constNodes[ORDER.indexOf(layer.k)] : [];
+  // 轮询仅更新标签，按钮本身留在原处，保留键盘焦点。
+  if (box.dataset.arm !== (list.length ? layer.k : "")) {
+    box.dataset.arm = list.length ? layer.k : "";
+    box.replaceChildren(...list.map(g => {
+      const b = document.createElement("button");
+      const organ = g.userData.organ;
+      b.type = "button";
+      b.dataset.organ = organ;
+      b.onclick = () => navigate(layer.k, organ, false, "", true);
+      return b;
+    }));
+  }
+  for (const b of box.children) {
+    const o = organByKey(b.dataset.organ);
+    b.textContent = b.dataset.organ === "waker" ? "台账" : (o?.name || b.dataset.organ) + (o?.level ? " · " + lvZh(o.level) : "");
+  }
+}
 
 /* ══ 面板里的迷你图表（2026-11-13）════════════════════════════════════
    爀曦：「状态的展示尽可能是用图表」。3D 场景负责「在哪、多大」，图表负责「多少、趋势」。
@@ -1513,10 +1742,62 @@ function chartRing(pct, label, color){
     + '<circle cx="38" cy="38" r="' + R + '" fill="none" stroke="rgba(150,200,255,.14)" stroke-width="7"/>'
     + '<circle cx="38" cy="38" r="' + R + '" fill="none" stroke="' + color + '" stroke-width="7" stroke-linecap="round"'
     + ' stroke-dasharray="' + dash + ' ' + C.toFixed(1) + '" transform="rotate(-90 38 38)"/>'
-    + '<text x="38" y="43" text-anchor="middle" font-size="16" fill="#F6FAFF" font-family="Consolas,monospace">' + p.toFixed(0) + '%</text>'
+    + '<text x="38" y="43" text-anchor="middle" font-size="16" fill="#EDF4FF" font-family="Consolas,monospace">' + p.toFixed(0) + '%</text>'
     + '</svg>'
-    + '<div style="flex:1"><div style="font-size:11.5px;color:#A9BACC">' + label + '</div>'
-    + '<div style="font-size:10px;color:#7B8CA3;margin-top:2px">' + (p >= 80 ? "接近上限" : p >= 60 ? "偏高" : "健康") + '</div></div>'
+    + '<div style="flex:1"><div style="font-size:11.5px;color:#8C9EB4">' + label + '</div>'
+    + '<div style="font-size:10px;color:#6E83A0;margin-top:2px">' + (p >= 80 ? "接近上限" : p >= 60 ? "偏高" : "健康") + '</div></div>'
+    + '</div>';
+}
+
+/* ★ 2026-11-18：本层健康环 —— L1 原来只有两列文字，一句图都没有。
+   爀曦 2026-11-13 说过「状态的展示尽可能是用图表」，L0 有水位环 + 三条 sparkline，L1/L2 一点没有，
+   于是「一镜到底」越往里走，画面里的信息密度反而越低。
+
+   ★ 为什么不画器官读数的条形对比：那些 value 量纲不同（83.9% / idle / 3758 文件 / 0），
+     并排成条等于把不可比的东西画成可比 —— 那是骗人。
+
+   ★★ 为什么不用「正常项占比」切三档（第一版就是这么写的，实测踩到）：
+     4/7 = 57% 会落进「多项异常」的红色档，可那 3 项只是 level=warn（注意），不是错误。
+     **把「注意」画成「异常」会让人以为出了大事** —— 图表不许夸大。
+     所以判据改成看 level 的分布：有 error 才是红，只有 warn 是黄，全 ok 才是绿。 */
+function chartLayerHealth(items){
+  const all = items || [];
+  const naN = all.filter(function(x){ return x && x.na; }).length;
+  const live = all.filter(function(x){ return x && !x.na; });
+  const liveN = live.length;
+  if (!liveN) return '<div class="note" style="padding:6px 0">这一层还没有可读的项。</div>';
+  /* ★★ 2026-11-18 实测纠正：/api/status 的 item **没有 level 字段**。
+     真实字段只有 label / value / unit / sub / why / at / pct / **na** / **bad**。
+     第一版按 x.level 判，于是「level 为 null 就算 ok」→ 每层恒报「全部正常」。
+     那不是图表难看，是图表在撒谎 —— 和今天早些时候那个 emergency 兜底是同一个病：
+     **不认识的东西被静默算成正常。**
+     现在按真实字段判：bad = 坏，na = 读不到，其余 = 正常。 */
+  let nOk = 0, nWarn = 0, nErr = 0, nOther = 0;
+  live.forEach(function(x){
+    if (x.bad) nErr++;
+    else if (x.na) nOther++;          // na 已在上面被 filter 掉，这里兜底
+    else nOk++;
+  });
+  // item 级没有 level，「注意」这一档只能从 sub/why 文本里认，这里不做猜测。
+  const warnText = null;
+  const col = nErr ? "#FF7A68" : "#3FE3A8";
+  const word = nErr ? ("有 " + nErr + " 项异常") : "全部可读";
+  const R = 22, C = 2 * Math.PI * R;
+  const pct = nOk / liveN;
+  const dash = (C * pct).toFixed(1);
+  return '<div style="display:flex;align-items:center;gap:12px;padding:2px 0 8px">'
+    + '<svg width="58" height="58" viewBox="0 0 58 58">'
+    + '<circle cx="29" cy="29" r="' + R + '" fill="none" stroke="rgba(150,200,255,.14)" stroke-width="6"/>'
+    + '<circle cx="29" cy="29" r="' + R + '" fill="none" stroke="' + col + '" stroke-width="6" stroke-linecap="round"'
+    + ' stroke-dasharray="' + dash + ' ' + C.toFixed(1) + '" transform="rotate(-90 29 29)"/>'
+    + '<text x="29" y="33" text-anchor="middle" font-size="13" fill="#EDF4FF" font-family="Consolas,monospace">'
+    + nOk + "/" + liveN + '</text>'
+    + '</svg>'
+    + '<div style="flex:1"><div style="font-size:11.5px;color:' + col + '">' + word + '</div>'
+    + '<div style="font-size:10px;color:#6E83A0;margin-top:2px">本层 ' + liveN + ' 项可读'
+    + (nErr ? ' · ' + nErr + ' 项异常' : '')
+    + (naN ? ' · ' + naN + ' 项读不到' : '')
+    + '</div></div>'
     + '</div>';
 }
 
@@ -1525,13 +1806,13 @@ function chartLayerBars(L){
   items.forEach(function(it){
     const lv = (L[it.L.k] && L[it.L.k].level) || "pending";
     const n = ((L[it.L.k] && L[it.L.k].items) || []).length;
-    const col = lv === "error" ? "#FF7A68" : lv === "warn" ? "#F2C15C" : lv === "ok" ? "#3FE3A8" : "#6FB6FF";
+    const col = lv === "error" ? "#FF7A68" : lv === "warn" ? "#6FB6FF" : lv === "ok" ? "#3FE3A8" : "#93A6BC";
     const w = Math.max(6, Math.min(100, n / 9 * 100));
     h += '<div style="display:flex;align-items:center;gap:7px;margin:3px 0">'
-      + '<span style="width:56px;font-size:10px;color:#A9BACC;text-align:right">' + it.L.ro + " " + it.L.en + '</span>'
+      + '<span style="width:56px;font-size:10px;color:#8C9EB4;text-align:right">' + it.L.ro + " " + it.L.en + '</span>'
       + '<span style="flex:1;height:5px;background:rgba(150,200,255,.10);border-radius:3px;overflow:hidden">'
       + '<span style="display:block;height:100%;width:' + w.toFixed(0) + '%;background:' + col + ';border-radius:3px"></span></span>'
-      + '<span style="width:22px;font-size:10px;color:#C9D8E6;text-align:right;font-variant-numeric:tabular-nums">' + n + '</span>'
+      + '<span style="width:22px;font-size:10px;color:#B9C8DB;text-align:right;font-variant-numeric:tabular-nums">' + n + '</span>'
       + '</div>';
   });
   return h + '</div>';
@@ -1539,7 +1820,7 @@ function chartLayerBars(L){
 
 function chartSpark(series, key, label, color){
   const arr = (series || []).map(function(x){ return Number(x[key]) || 0; });
-  if (arr.length < 2) return '<div style="font-size:10px;color:#7B8CA3;padding:3px 0">' + label + " · 采样不足</div>";
+  if (arr.length < 2) return '<div style="font-size:10px;color:#6E83A0;padding:3px 0">' + label + " · 采样不足</div>";
   const w = 268, h = 32, pad = 3;
   const mn = Math.min.apply(null, arr), mx = Math.max.apply(null, arr);
   const rng = (mx - mn) || 1;
@@ -1549,21 +1830,258 @@ function chartSpark(series, key, label, color){
     return x.toFixed(1) + "," + y.toFixed(1);
   }).join(" ");
   return '<div style="padding:2px 0 3px">'
-    + '<div style="display:flex;justify-content:space-between;font-size:10px;color:#8FA3BA"><span>' + label + '</span>'
+    + '<div style="display:flex;justify-content:space-between;font-size:10px;color:#6E83A0"><span>' + label + '</span>'
     + '<span style="color:' + color + ';font-variant-numeric:tabular-nums">' + arr[arr.length - 1].toLocaleString() + '</span></div>'
     + '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" style="display:block">'
     + '<polyline points="' + pts + '" fill="none" stroke="' + color + '" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" opacity=".9"/>'
     + '</svg></div>';
 }
 
+// The ledger read scans the source file. Keep it outside EP: only the user can start it.
+const WAKER_VIEWS = [["act", "待执行"], ["done", "已判执行"], ["audit", "待审计"], ["auto", "自主判定"]];
+const WAKER_STALE_MS = 60000, WAKER_LIMIT = 200;
+const WAKER_STAGES = ["pending", "woken", "decided", "done", "held", "auditing", "stuck", "blocked"];
+const WAKER_DECISIONS = ["resume", "hold", "audit"];
+const WAKER_CHARTERS = ["pass", "ask", "block", "unchecked"];
+const waker = { view:"act", pending:false, snapshot:null, issue:"", ageTimer:null, rendered:null };
+const wakerEl = id => document.getElementById("waker-" + id);
+const oneOf = (value, options) => options.includes(value) ? value : "—";
+function ledgerText(value, limit) {
+  if (typeof value !== "string" || !value.trim()) return "—";
+  // Free-form label/notes can embed a path. Withhold the field, not a guessed suffix.
+  if (/[\\/]/.test(value)) return "［含路径分隔符，已隐藏］";
+  return value.replace(/[\x00-\x08\x0b-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, "").slice(0, limit);
+}
+function ledgerTime(value) {
+  return typeof value === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(value)
+    && Number.isFinite(Date.parse(value)) ? value : "—";
+}
+function readWakerSnapshot(o) {
+  if (o?.ok !== true) return { issue:"error" };
+  // This adapter uses HTTP 200 with why even when the underlying read failed.
+  if (o.why != null) return { issue:typeof o.why === "string" && /^(文件不存在：|没有台账路径)/.test(o.why) ? "missing" : "error" };
+  const count = n => Number.isSafeInteger(n) && n >= 0;
+  if (!count(o.total)) return { issue:"error" };
+  const counts = {}, views = {};
+  for (const [key] of WAKER_VIEWS) {
+    const n = o.counts?.[key], rows = o.views?.[key];
+    if (!count(n) || n > o.total || !Array.isArray(rows) || rows.length > n) return { issue:"error" };
+    counts[key] = n;
+    views[key] = rows.slice(0, WAKER_LIMIT).map(r => ({
+      title:ledgerText(r?.title, 200), t:ledgerTime(r?.t), from:ledgerText(r?.from, 160), tier:ledgerText(r?.tier, 32),
+      stage:oneOf(r?.stage, WAKER_STAGES), decision:oneOf(r?.decision, WAKER_DECISIONS), charter:oneOf(r?.charter, WAKER_CHARTERS),
+      charterNote:ledgerText(r?.charterNote, 300), note:ledgerText(r?.note, 300)
+    }));
+  }
+  return { snapshot:{ at:Date.now(), total:o.total, counts, views }, issue:"" };
+}
+function ledgerNode(tag, text) {
+  const el = document.createElement(tag);
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+function wakerRow(row) {
+  const details = ledgerNode("details");
+  details.appendChild(ledgerNode("summary", row.title === "—" ? "未命名事件" : row.title));
+  const fields = ledgerNode("dl");
+  for (const [label, value] of [
+    ["事件时间", row.t], ["来源", row.from], ["级别", row.tier], ["台账阶段", row.stage],
+    ["登记判定", row.decision], ["宪章判词", row.charter], ["审计备注", row.charterNote], ["台账备注", row.note]
+  ]) {
+    fields.appendChild(ledgerNode("dt", label));
+    fields.appendChild(ledgerNode("dd", value));
+  }
+  details.appendChild(fields);
+  return details;
+}
+const wakerTabs = WAKER_VIEWS.map(([key, label], index) => {
+  const b = ledgerNode("button");
+  b.type = "button";
+  b.id = "waker-tab-" + key;
+  b.dataset.view = key;
+  b.setAttribute("role", "tab");
+  b.setAttribute("aria-controls", "waker-view");
+  b.appendChild(ledgerNode("b", label));
+  b.appendChild(ledgerNode("span", "—"));
+  b.onclick = () => { waker.view = key; renderWakerLedger(); };
+  b.onkeydown = e => {
+    const n = wakerTabs.length;
+    const dest = { ArrowLeft:(index + n - 1) % n, ArrowRight:(index + 1) % n, Home:0, End:n - 1 }[e.key];
+    if (typeof dest !== "number") return;
+    e.preventDefault();
+    wakerTabs[dest].onclick();
+    wakerTabs[dest].focus();
+  };
+  wakerEl("tabs").appendChild(b);
+  return b;
+});
+function renderWakerLedger() {
+  const visible = selected === "events";
+  wakerEl("ledger").hidden = !visible;
+  if (waker.ageTimer !== null) clearTimeout(waker.ageTimer);
+  waker.ageTimer = null;
+  if (!visible) return;
+  const snap = waker.snapshot;
+  const ttlLeft = snap ? WAKER_STALE_MS - (Date.now() - snap.at) : 0;
+  const stale = snap && (ttlLeft <= 0 || waker.issue);
+  const reason = waker.issue === "missing" ? "未读到台账（未接入或文件缺失）" : waker.issue === "error" ? "读取台账失败" : "";
+  const state = wakerEl("state");
+  state.dataset.state = stale ? "stale" : waker.pending ? "loading" : waker.issue || (snap ? "ready" : "idle");
+  state.textContent = [
+    waker.pending ? (snap ? "正在刷新…" : "正在读取…") : "",
+    reason,
+    snap ? (stale ? "陈旧缓存 · 上次读取 " : "最近读取 ") + new Date(snap.at).toLocaleString() : "",
+    !snap && !waker.pending && !reason ? "尚未读取台账" : ""
+  ].filter(Boolean).join(" · ");
+  if (ttlLeft > 0 && !waker.issue) waker.ageTimer = setTimeout(renderWakerLedger, ttlLeft);
+  const load = wakerEl("load");
+  load.textContent = waker.pending ? "读取中…" : snap ? "刷新台账" : waker.issue ? "重试读取" : "读取台账";
+  load.setAttribute("aria-disabled", String(waker.pending));
+  for (const b of wakerTabs) {
+    const key = b.dataset.view;
+    b.tabIndex = key === waker.view ? 0 : -1;
+    b.setAttribute("aria-selected", String(key === waker.view));
+    b.children[1].textContent = snap ? String(snap.counts[key]) : "—";
+  }
+  wakerEl("view").setAttribute("aria-labelledby", "waker-tab-" + waker.view);
+  if (waker.rendered?.snap === snap && waker.rendered.view === waker.view) return;
+  waker.rendered = { snap, view:waker.view };
+  const rows = snap ? snap.views[waker.view] : [];
+  const n = snap?.counts[waker.view];
+  wakerEl("count").textContent = snap ? "全本 " + snap.total + " 条 · 此视图 " + n + " 条 · 当前列出 " + rows.length + " 条"
+    + (n === 0 ? " · 此视图为空" : n > rows.length ? "（有界列表）" : "") : "视图计数 — · 当前行数 —";
+  wakerEl("rows").replaceChildren(...rows.map(wakerRow));
+}
+wakerEl("load").onclick = async function() {
+  if (selected !== "events" || waker.pending) return;
+  waker.pending = true;
+  renderWakerLedger();
+  const ctl = new AbortController();
+  const timeout = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const r = await fetch("/api/waker", { method:"GET", cache:"no-store", signal:ctl.signal });
+    const result = r.ok ? readWakerSnapshot(await r.json()) : { issue:r.status === 503 ? "missing" : "error" };
+    if (result.snapshot) waker.snapshot = result.snapshot;
+    waker.issue = result.issue;
+  } catch {
+    waker.issue = "error";
+  } finally {
+    clearTimeout(timeout);
+    waker.pending = false;
+    // Cache a late result; only the current Events scope owns this DOM.
+    if (selected === "events") renderWakerLedger();
+  }
+};
+
+const echoAuthority = { data:null, pending:false, issue:null, generation:0, appliedGeneration:0 };
+const echoAuthorityEl = id => document.getElementById("echo-authority-" + id);
+const authorityText = value => {
+  if (value === null || value === undefined || value === "") return "未知";
+  const text = String(value);
+  const isPath = /^[A-Za-z]:/.test(text) || text.startsWith("\\\\") || (text.startsWith("/") && text.indexOf("/", 1) > 0);
+  return isPath ? "含路径内容，已隐藏" : text;
+};
+function authorityRow(label, value) {
+  const dt = document.createElement("dt"); dt.textContent = label;
+  const dd = document.createElement("dd"); dd.textContent = authorityText(value);
+  const pair = document.createElement("div"); pair.append(dt, dd); return pair;
+}
+function renderEchoAuthority() {
+  const state = echoAuthorityEl("state"), rows = echoAuthorityEl("rows"), button = echoAuthorityEl("load");
+  if (!state || !rows || !button) return;
+  const data = echoAuthority.data;
+  button.disabled = echoAuthority.pending;
+  button.textContent = echoAuthority.pending ? "读取中…" : "读取权威索引";
+  state.dataset.state = echoAuthority.pending ? "loading" : echoAuthority.issue || (data ? "ready" : "unknown");
+  if (echoAuthority.pending) state.textContent = "读取中 · query 未查询";
+  else if (echoAuthority.issue === "error") state.textContent = data ? "读取失败 · 显示上次缓存（新鲜度未知）" : "读取失败 · 新鲜度未知 · query 未查询";
+  else if (!data) state.textContent = "尚未读取 · 未知 · query 未查询";
+  else {
+    const fresh = data.freshness && data.freshness.state;
+    const last = data.sync?.last;
+    const syncStatus = last?.ok === false ? "同步最近失败" : data.sync?.enabled === false ? "同步已禁用" : data.sources?.available === false ? "索引未接入" : "同步状态";
+    state.textContent = syncStatus + " · " + (fresh === "fresh" ? "新鲜度：新鲜" : fresh === "stale" ? "新鲜度：陈旧" : "新鲜度：未知")
+      + " · query 未查询" + (data.freshness?.checkedAt ? " · 采集 " + data.freshness.checkedAt : "");
+  }
+  if (!data) { rows.replaceChildren(); return; }
+  const sync = data.sync || {}, last = sync.last || {}, source = data.sources || {};
+  const summary = document.createElement("dl");
+  const syncLabel = source.available === false || data.issue === "database-not-wired" ? "未接入 / 未配置" : sync.configured === false ? "未配置" : sync.configured === true ? "已配置" : "未知";
+  summary.append(authorityRow("同步器接入", syncLabel));
+  summary.append(authorityRow("sync enabled", sync.enabled));
+  summary.append(authorityRow("sync running", sync.running));
+  summary.append(authorityRow("last at", last.at));
+  summary.append(authorityRow("last code", last.code));
+  summary.append(authorityRow("last stage", last.stage));
+  summary.append(authorityRow("last attempt id / count", [last.attemptId, last.attempt].filter(x => x != null).join(" / ") || null));
+  summary.append(authorityRow("last commit id / count", [last.commitId, last.commit].filter(x => x != null).join(" / ") || null));
+  summary.append(authorityRow("last authority", last.authority ? [last.authority.sourceId, last.authority.generation, last.authority.state].filter(x => x != null).join(" · ") : null));
+  summary.append(authorityRow("attempt / commit id", [last.attemptId, last.commitId].filter(Boolean).join(" / ") || null));
+  summary.append(authorityRow("query", data.query?.status || "not-queried"));
+  rows.replaceChildren(summary);
+  if (source.available !== true || !Array.isArray(source.rows)) {
+    rows.append(authorityRow("sources", source.available === false ? "未接入 / 未知" : "未知"));
+    return;
+  }
+  if (!source.rows.length) rows.append(authorityRow("sources", "无 source rows（不等于已同步或健康）"));
+  source.rows.forEach(row => {
+    const detail = document.createElement("details"), heading = document.createElement("summary"), dl = document.createElement("dl");
+    heading.textContent = "source " + authorityText(row.sourceId);
+    for (const [label, value] of [["generation",row.generation],["state",row.state],["cursor",row.cursorSeq],["words / FTS",row.counts ? String(authorityText(row.counts.words)) + " / " + authorityText(row.counts.wordsFts) : null],["summaries / FTS",row.counts ? String(authorityText(row.counts.summaries)) + " / " + authorityText(row.counts.summariesFts) : null],["source seqs / declared",row.counts ? String(authorityText(row.counts.srcSeqs)) + " / " + authorityText(row.counts.declaredSrcSeqs) : null],["aligned",row.aligned]]) dl.append(authorityRow(label,value));
+    detail.append(heading,dl); rows.append(detail);
+  });
+}
+echoAuthorityEl("load").onclick = async function() {
+  if (echoAuthority.pending || selected !== "echo" || constSel || echoLayer !== "L4") return;
+  const generation = ++echoAuthority.generation;
+  echoAuthority.pending = true; echoAuthority.issue = null; renderEchoAuthority();
+  const ctl = new AbortController(), timeout = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const r = await fetch("/api/echo/authority-view", { method:"GET", cache:"no-store", signal:ctl.signal });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const payload = await r.json();
+    if (generation === echoAuthority.generation) { echoAuthority.data = payload; echoAuthority.issue = null; }
+  } catch {
+    if (generation === echoAuthority.generation) echoAuthority.issue = "error";
+  } finally {
+    clearTimeout(timeout);
+    if (generation === echoAuthority.generation) {
+      echoAuthority.pending = false;
+      // Cache late data, but only render it while the ECHO arm remains active.
+      if (selected === "echo" && !constSel) renderEchoAuthority();
+    }
+  }
+};
+
+function liveEventLabel(event) {
+  return "阶段 " + oneOf(event.stage, WAKER_STAGES) + " · 宪章 " + oneOf(event.charter, WAKER_CHARTERS);
+}
+function liveEventSelection() {
+  const e = window.__evSel || window.__verSel;
+  return e ? '<div class="note">选中 LIVE ' + (window.__evSel ? '事件' : '判词') + ' · '
+    + ledgerTime(e.t) + ' · ' + liveEventLabel(e) + '（非执行回执）</div>' : '';
+}
+
 function renderPanel(){
-  const el = document.getElementById("panel");
-  if (!STATUS) { el.innerHTML = ""; return; }
+  const el = document.getElementById("galaxy-detail");
+  const panel = document.getElementById("panel");
+  const scroll = panel.scrollTop;
+  const headingFocused = el.querySelector("h2") === document.activeElement;
+  const authoritySection = document.getElementById("echo-authority");
+  const showAuthority = selected === "echo" && !constSel && echoLayer === "L4";
+  if (!showAuthority && echoAuthority.pending) { echoAuthority.generation++; echoAuthority.pending = false; }
+  if (authoritySection) authoritySection.hidden = !showAuthority;
+  if (showAuthority) renderEchoAuthority();
+  function put(html){
+    el.innerHTML = html;
+    const heading = el.querySelector("h2");
+    if (heading) heading.tabIndex = -1;
+    if (headingFocused) heading?.focus({preventScroll:true});
+    panel.scrollTop = scroll;
+  }
   if (!selected) {
-    /* ★ 2026-11-13：L0 面板 = 原来 /dashboard 的概览。
-       核球是「此刻在跑的这个我」，它该说的是「这台机器现在怎么样」，
-       而不是把六层再列一遍（六层已经用悬臂 + 胶囊表达过了）。 */
-    const L = STATUS.layers || {};
+    /* 全局运行概览：核球描述机器与宿主状态，不属于 ECHO 内层。 */
+    const L = STATUS?.layers || {};
     const nBad = items.filter(function(x){ return x.level === "error"; }).length;
     const nWarn = items.filter(function(x){ return x.level === "warn"; }).length;
     let h = "<h2>核球</h2><div class=\"pm\">此刻在跑的这个我 · " + nBad + " 异常 / " + nWarn + " 注意</div>";
@@ -1575,10 +2093,10 @@ function renderPanel(){
       const nl = conn ? "#3FE3A8" : "#FF7A68";
       const hostName = (O.control && O.control.hosts && O.control.hosts[0] && O.control.hosts[0].host) || "—";
       h += '<div style="display:flex;align-items:center;gap:9px;padding:9px 11px;margin:2px 0 8px;border-radius:10px;'
-        + 'background:' + (conn ? "rgba(63,227,168,.10)" : "rgba(255,122,104,.10)") + ';border:1px solid ' + (conn ? "rgba(63,227,168,.34)" : "rgba(255,122,104,.34)") + '">'
+        + 'background:' + (conn ? "rgba(150,207,168,.10)" : "rgba(232,140,122,.10)") + ';border:1px solid ' + (conn ? "rgba(150,207,168,.34)" : "rgba(232,140,122,.34)") + '">'
         + '<span style="width:9px;height:9px;border-radius:50%;background:' + nl + ';box-shadow:0 0 10px ' + nl + '"></span>'
-        + '<span style="font-size:12.5px;color:#F6FAFF">宿主 ' + (conn ? "已连" : "未连") + '</span>'
-        + '<span style="margin-left:auto;font-size:10.5px;color:#8FA3BA">' + (conn ? hostName + " · " + (O.control.connected) + " 台" : "拿不到控制通道") + '</span>'
+        + '<span style="font-size:12.5px;color:#EDF4FF">宿主 ' + (conn ? "已连" : "未连") + '</span>'
+        + '<span style="margin-left:auto;font-size:10.5px;color:#6E83A0">' + (conn ? hostName + " · " + (O.control.connected) + " 台" : "拿不到控制通道") + '</span>'
         + '</div>';
     }
     if (!O) {
@@ -1586,13 +2104,13 @@ function renderPanel(){
     } else {
       const kv = function(k, v){ return '<div class="pi"><b>' + k + "</b><span>" + v + "</span></div>"; };
       /* 水位搬进来 —— 否则左下角那张 #corner 卡与这见面板会各说一半 */
-      const W = (STATUS.watermarks && STATUS.watermarks.lead) || null;
+      const W = (STATUS?.watermarks && STATUS.watermarks.lead) || null;
       if (W){
         const wp = W.pct || 0;
         h += chartRing(wp, "本会话水位 · " + Math.round((W.used || 0) / 1000) + "K / " + Math.round((W.window || 0) / 1000) + "K",
-          wp >= 80 ? "#FF7A68" : wp >= 60 ? "#F2C15C" : "#3FE3A8");
+          wp >= 80 ? "#FF7A68" : wp >= 60 ? "#6FB6FF" : "#3FE3A8");
       }
-      const AC = (STATUS.watermarks && STATUS.watermarks.active) || null;
+      const AC = (STATUS?.watermarks && STATUS.watermarks.active) || null;
       if (AC) h += kv("活跃会话", (AC.count || 0) + " 条");
       h += kv("会话容器", O.sessions + " 个");
       h += kv("索引行", Number(O.indexRows).toLocaleString() + " 行");
@@ -1605,27 +2123,35 @@ function renderPanel(){
       h += kv("人格层", O.persona.used + " / " + O.persona.budget + " B" + (O.persona.dropped && O.persona.dropped.length ? " · 丢 " + O.persona.dropped.length : ""));
       h += kv("事件引擎", O.events.rules + " 条规则 · " + O.events.ticks + " 次心跳");
     }
-    /* 点过判决点就把那条判定全文摆出来 */
-    if (window.__verSel != null && LIVE && LIVE.recent && LIVE.recent[window.__verSel]) {
-      const V = LIVE.recent[window.__verSel];
-      const cc = String(V.charter || "");
-      const vc = cc === "pass" ? "#3d6b4a" : (cc === "ask" ? "#8a6a2f" : "#a8452f");
-      h += '<div style="margin-top:10px;padding-top:8px;border-top:1px solid #e0d9cb">'
-        + '<div class="note" style="margin-bottom:4px">选中判决 · <b style="color:' + vc + '">' + (cc || "未判") + " · " + String(V.stage || "") + "</b></div>"
-        + '<div style="font-size:12px;line-height:1.55;color:#3a342c">' + String(V.title || "").slice(0, 70) + "</div>";
-      if (V.note) h += '<div class="note" style="font-size:10.5px;margin-top:4px">' + String(V.note).slice(0, 260) + "</div>";
-      h += "</div>";
-    }
+    h += liveEventSelection();
     h += '<div class="note" style="margin:12px 0 4px">六层 · 每层指标数</div>';
     h += chartLayerBars(L);
     if (OVERVIEW && OVERVIEW.series){
       h += '<div class="note" style="margin:10px 0 2px">趋势 · 本进程窗口</div>';
-      h += chartSpark(OVERVIEW.series, "sessions", "会话数", "#6FB6FF");
+      h += chartSpark(OVERVIEW.series, "sessions", "会话数", "#93A6BC");
       h += chartSpark(OVERVIEW.series, "indexRows", "索引行", "#3FE3A8");
       h += chartSpark(OVERVIEW.series, "memMB", "进程内存 MB", "#9E8BF5");
     }
     h += "<div class=\"note\">点任意一条旋臂（或底部胶囊）进去。拖拽转、滚轮缩放。</div>";
-    el.innerHTML = h;
+    put(h);
+    return;
+  }
+  // The status/organ readouts embed source paths; the ledger view does not reuse those free-form fields.
+  if (selected === "echo" && !constSel) {
+    if (echoLayer) {
+      const layer = ECHO_LAYERS.find(x => x.id === echoLayer);
+      let detail = '<h2>ECHO · ' + layer.id + ' · ' + layer.title + '</h2><div class="pm">ECHO 内层 · 与外层六分区分离</div><div class="note">' + layer.detail + '</div>';
+      if (layer.id === "L4") detail += '<div class="note">L4 是派生索引视图；显式点击下方“读取权威索引”才发送只读 GET。authority-view 不触发同步。</div>';
+      if (layer.id === "L5") detail += '<div class="note">L4 索引统计不等于 L5 查询结果；当前未接入 query receipt。</div>';
+      put(detail); return;
+    }
+    put('<h2>Ⅰ · ECHO</h2><div class="pm">外层旋臂 · 器官与探针分域；内层 L0–L5 见上方导航</div>' + liveEventSelection());
+    return;
+  }
+  if (selected === "events") {
+    const title = constSel ? "台账" : "Ⅵ · 事件";
+    const desc = constSel ? "Ⅵ 事件 · 唤醒台账器官" : "事件源 · 唤醒 · 台账";
+    put('<h2>' + title + '</h2><div class="pm">' + desc + '</div>' + liveEventSelection());
     return;
   }
   /* ★ L2：选中了某一座星座 —— 星座就是**器官**，面板切成这个器官的明细 */
@@ -1635,60 +2161,26 @@ function renderPanel(){
     const o = okey ? organByKey(okey) : null;
     const it0 = items.find(function(x){ return x.L.k === selected; });
     if (o) {
-      const lvTxt = ({ ok: "正常", warn: "注意", alert: "异常" })[o.level] || (o.level || "—");
+      const lvTxt = lvZh(o.level);
+      const lvCol = lvHex(o.level);
       let g = "<h2>" + String(o.name || okey) + "</h2>";
-      g += '<div class="pm">' + (it0 ? it0.L.ro + " " + it0.L.en : "") + " · 器官 · " + lvTxt + "</div>";
+      g += '<div class="pm">' + (it0 ? it0.L.ro + " " + it0.L.en : "") + " · 器官 · "
+        + '<s style="text-decoration:none;color:' + lvCol + '">' + lvTxt + '</s></div>';
       g += '<div class="pi"><b>当前</b><span>' + (o.value === null || o.value === undefined ? "—" : String(o.value)) + "</span></div>";
       if (o.note) g += '<div class="note">' + String(o.note) + "</div>";
-      g += '<div class="note" style="margin-top:8px">再点同一座星座退回这一层。</div>';
-      el.innerHTML = g;
-      return;
+      put(g);
+    } else {
+      put('<h2>' + okey + '</h2><div class="note">' + (ORGANS ? '器官读数未提供。' : '器官读数还没到（/api/organs）。') + '</div>');
     }
-    const L2 = (STATUS.layers || {})[selected] || {};
-    const arr = L2.items || [];
-    const item = arr[constSel.j];
-    if (item) {
-      const vv = (item.value === null || item.value === undefined) ? "—" : (String(item.value) + (item.unit || ""));
-      let g = "<h2>" + String(item.label || "—") + "</h2>";
-      g += '<div class="pm">' + (it0 ? it0.L.ro + " " + it0.L.en : "") + " · 第 " + (constSel.j + 1) + " 座星座</div>";
-      g += '<div class="pi' + (item.na ? " na" : "") + '"><b>读数</b><span>' + vv + "</span></div>";
-      if (item.sub) g += '<div class="note">' + String(item.sub) + "</div>";
-      if (item.why) g += '<div class="note">' + String(item.why) + "</div>";
-      if (item.at) g += '<div class="note">采集于 ' + String(item.at) + "</div>";
-      g += '<div class="note" style="margin-top:8px">再点同一座星座退回这一层。</div>';
-      el.innerHTML = g;
-      return;
-    }
+    return;
   }
   const it = items.find(function(x){ return x.L.k === selected; });
-  const L = (STATUS.layers || {})[selected] || {};
+  const L = (STATUS?.layers || {})[selected] || {};
   const its = L.items || [];
-  /* ★ L1：这一层管着哪些器官 —— 先列器官（可点进去），指标条目放在下面做补充 */
-  const myOrgans = organsOfLayer(selected);
-  let h = "<h2>" + it.L.ro + " · " + it.L.en + "</h2><div class=\"pm\">" + it.L.zh + " · " + (L.level || "—") + "</div>";
-  if (myOrgans.length) {
-    h += '<div class="note" style="margin-bottom:6px">这一层的器官（点一下飞过去）</div>';
-    myOrgans.forEach(function(o){
-      const lvTxt = ({ ok: "正常", warn: "注意", alert: "异常" })[o.level] || (o.level || "—");
-      const lvCol = o.level === "alert" ? "#FF7A68" : (o.level === "warn" ? "#F2C15C" : "#3FE3A8");
-      const open = (window.__organOpen === o.key);
-      /* ★ 2026-11-13：点条目 = 展开它的日志（note 全文 + 一手文件路径）。
-         「飞去」是单独的按钮 —— 看日志和跳过去是两件事，不该抢同一个点击。 */
-      h += '<div class="pi" style="cursor:pointer;align-items:flex-start;gap:8px" onclick="window.toggleOrgan(\'' + o.key + '\')">'
-        + '<b style="flex:1;min-width:0">' + String(o.name)
-        + ' <s style="text-decoration:none;color:' + lvCol + ';font-size:10px">' + lvTxt + '</s>'
-        + ' <s style="text-decoration:none;color:#5C6E84;font-size:9.5px">' + (open ? "▾" : "▸") + '</s></b>'
-        + '<span>' + (o.value === null || o.value === undefined ? "—" : String(o.value)) + "</span></div>";
-      if (open) {
-        h += '<div class="note" style="margin:0 0 8px;font-size:10.5px;line-height:1.6;color:#8FA3BA">'
-          + String(o.note || "（这个器官没有 note）").slice(0, 420) + "</div>";
-        h += '<div style="display:flex;gap:8px;margin:0 0 10px">'
-          + '<span style="font-size:10px;color:#6FE3B4;cursor:pointer" onclick="flyToOrgan(\'' + o.key + '\')">飞去这座星座 →</span>'
-          + "</div>";
-      }
-    });
-    h += '<div class="note" style="margin:10px 0 4px">这一层的指标</div>';
-  }
+  let h = '<h2>' + it.L.ro + ' · ' + it.L.en + '</h2><div class="pm">' + it.L.zh + ' · ' + lvZh(L.level || "pending") + '</div>';
+  if (selected === "vital") h = '<h2>上下文管理</h2><div class="pm">观察 · 整理 · 压缩 · 交接 · 保护上下文连续性</div>';
+  if (!STATUS) { put(h + '<div class="note">旋臂读数还没到（/api/status）。</div>' + (selected === "vital" ? '<div class="note">上下文水位字段：not-connected</div>' : "")); return; }
+  h += chartLayerHealth(its);
   if (!its.length) h += "<div class=\"note\">这一层现在没有可读的项。</div>";
   its.forEach(function(x){
     const v = (x.value === null || x.value === undefined) ? "—" : (String(x.value) + (x.unit || ""));
@@ -1696,6 +2188,14 @@ function renderPanel(){
     if (x.sub) h += "<div class=\"note\" style=\"margin:2px 0 6px;font-size:10.5px\">" + String(x.sub) + "</div>";
   });
   if (L.note) h += "<div class=\"note\">" + String(L.note) + "</div>";
+  if (selected === "vital") {
+    const W = STATUS?.watermarks?.lead, A = STATUS?.watermarks?.active, M = STATUS?.watermarks?.mirror;
+    h += '<div class="note">上下文水位 · 来源：/api/status watermarks（各自独立口径）</div>';
+    h += '<div class="pi' + (W?.ok ? '' : ' na') + '"><b>本会话压力</b><span>' + (W?.ok && W.pct != null ? Math.round(W.pct) + '% · ' + (W.used != null ? Math.round(W.used/1000) + 'K' : '未知') + ' / ' + (W.window != null ? Math.round(W.window/1000) + 'K' : '未知') : 'not-connected') + '</span></div>';
+    h += '<div class="pi' + (A?.ok ? '' : ' na') + '"><b>活跃上下文样本</b><span>' + (A?.ok && A.count != null ? A.count + ' 条' : 'not-connected') + '</span></div>';
+    h += '<div class="pi' + (M?.ok ? '' : ' na') + '"><b>镜像帧估算（非水位）</b><span>' + (M?.ok && M.pct != null ? M.pct.toFixed(1) + '%' : 'not-connected') + '</span></div>';
+    h += '<div class="note">观察：读取已接入水位与来源；整理：保持可回取线索可见；压缩：交接时保留精确门牌；交接：保留责任与上下文。此页不触发清理或压缩操作。</div>';
+  }
   /* ★ 2026-11-13：Ⅱ VITAL —— 换气出手（从 /api/organs 的 huanqi 卡抽取，
      它的 note 里就有一手数字：DSH 额度 x/y · 累计熔断 N 次 · 最近一次 skip 原因） */
   if (selected === "vital" && ORGANS) {
@@ -1707,9 +2207,9 @@ function renderPanel(){
       const m3 = note.match(/最近\s*([a-z:]+)/);
       h += '<div class="note" style="margin-top:12px">换气 · 出手台账</div>';
       h += '<div style="display:flex;gap:6px;margin:4px 0 6px">'
-        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10.5px;color:#6FB6FF;background:rgba(150,200,255,.07)">额度 ' + (m1 ? m1[1] : "—") + "</span>"
-        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10.5px;color:#F2C15C;background:rgba(150,200,255,.07)">熔断 ' + (m2 ? m2[1] : "—") + "</span>"
-        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10px;color:#8FA3BA;background:rgba(150,200,255,.07)">' + (m3 ? m3[1].slice(0, 12) : "—") + "</span>"
+        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10.5px;color:#93A6BC;background:rgba(150,200,255,.07)">额度 ' + (m1 ? m1[1] : "—") + "</span>"
+        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10.5px;color:#6FB6FF;background:rgba(150,200,255,.07)">熔断 ' + (m2 ? m2[1] : "—") + "</span>"
+        + '<span style="flex:1;text-align:center;padding:5px 0;border-radius:6px;font-size:10px;color:#6E83A0;background:rgba(150,200,255,.07)">' + (m3 ? m3[1].slice(0, 12) : "—") + "</span>"
         + "</div>";
       h += '<div class="note" style="font-size:10px">' + note.slice(0, 110) + "</div>";
     }
@@ -1722,50 +2222,26 @@ function renderPanel(){
     h += '<div style="display:flex;gap:6px;margin:4px 0 6px">';
     kinds.forEach(function(k){
       const n = by[k] || 0;
-      const col = n > 0 ? "#F2C15C" : "#3FE3A8";
+      const col = n > 0 ? "#6FB6FF" : "#3FE3A8";
       h += '<span style="flex:1;text-align:center;padding:4px 0;border-radius:6px;font-size:10.5px;color:' + col + ';background:rgba(150,200,255,.07)">' + k + " " + n + "</span>";
     });
     h += "</div>";
     (DIAG.items || []).slice(0, 4).forEach(function(it){
-      h += '<div class="pi" style="align-items:flex-start;gap:8px"><b style="flex:1;min-width:0;font-size:10.5px;line-height:1.5;color:#C9D8E6">' + String(it.kind || "") + " ×" + (it.count || 1) + " — " + String(it.why || "").slice(0, 34) + "</b></div>";
+      h += '<div class="pi" style="align-items:flex-start;gap:8px"><b style="flex:1;min-width:0;font-size:10.5px;line-height:1.5;color:#B9C8DB">' + String(it.kind || "") + " ×" + (it.count || 1) + " — " + String(it.why || "").slice(0, 34) + "</b></div>";
     });
     if (DIAG.note) h += '<div class="note" style="font-size:10px">' + String(DIAG.note).slice(0, 120) + "</div>";
   }
   /* ★ 2026-11-13：Ⅰ ECHO —— 回声哨兵（记忆链路的自探针） */
   if (selected === "echo" && SENT) {
     const st = String(SENT.state || "—");
-    const col = st === "ok" ? "#3FE3A8" : (st === "unknown" ? "#8FA3BA" : "#FF7A68");
+    const col = st === "ok" ? "#3FE3A8" : (st === "unknown" ? "#6E83A0" : "#FF7A68");
     const rec = SENT.record || {};
-    h += '<div class="note" style="margin-top:12px">回声哨兵 · <b style="color:' + col + '">' + st + "</b>" + (SENT.stale ? ' · <span style="color:#F2C15C">数据陈旧</span>' : "") + "</div>";
+    h += '<div class="note" style="margin-top:12px">回声哨兵 · <b style="color:' + col + '">' + st + "</b>" + (SENT.stale ? ' · <span style="color:#6FB6FF">数据陈旧</span>' : "") + "</div>";
     h += '<div class="pi"><b>上次探测</b><span>' + String(SENT.resultAt || "—").replace("T", " ").slice(5, 19) + "</span></div>";
     h += '<div class="pi"><b>耗时</b><span>' + (rec.latencyMs || 0) + " ms · " + String(rec.mode || "—") + "</span></div>";
     if (rec.error) h += '<div class="note" style="font-size:10px">' + String(rec.error).slice(0, 90) + "</div>";
   }
-  /* ★ 2026-11-13：Ⅵ 事件层的面板尾部接上真实事件流（/api/live）——
-     这一层原本只有「台账总数 14 条」这种计数，读不出「都是些什么事」。
-     每条按 stage 上色：done 绿 / held 黄 / 其它灰。 */
-  if (selected === "events" && LIVE) {
-    const LW = LIVE.waiting || {};
-    /* 点过某条事件就先把它的全文摆在最上面 */
-    if (window.__evSel != null && LIVE.recent && LIVE.recent[window.__evSel]) {
-      const EV = LIVE.recent[window.__evSel];
-      h += '<div class="note" style="margin-top:12px">选中事件 · ' + String(EV.stage || "") + " · 宪章 " + String(EV.charter || "—") + "</div>";
-      h += '<div class="pi"><b>' + String(EV.title || "").slice(0, 60) + "</b></div>";
-      if (EV.note) h += '<div class="note">' + String(EV.note).slice(0, 400) + "</div>";
-      h += '<div class="note" style="font-size:10px">' + String(EV.t || "").replace("T", " ").slice(0, 19) + " · 再点一次别的事件切换</div>";
-    }
-    h += '<div class="note" style="margin-top:12px">事件流 · 待处理 ' + (LW.pending || 0) + " / 被拦 " + (LW.blocked || 0) + " / 全本 " + (LW.total || 0) + " 条</div>";
-    (LIVE.recent || []).slice(0, 14).forEach(function(ev){
-      const st = String(ev.stage || "?");
-      const col = st === "done" ? "#6FE3B4" : (st === "held" ? "#F2C15C" : "#8FA3BA");
-      const when = String(ev.t || "").replace("T", " ").slice(5, 16);
-      h += '<div class="pi" style="align-items:flex-start;gap:8px;padding:6px 0">'
-        + '<b style="flex:1;min-width:0;font-size:11px;line-height:1.5;color:#C9D8E6">' + String(ev.title || "").slice(0, 46) + "</b>"
-        + '<span style="font-size:10px;color:' + col + ';white-space:nowrap">' + st + "</span></div>"
-        + '<div class="note" style="margin:-2px 0 6px;font-size:10px">' + when + " · 宪章 " + String(ev.charter || "—") + "</div>";
-    });
-  }
-  el.innerHTML = h;
+  put(h);
 }
 
 
@@ -1786,9 +2262,11 @@ function moonTexts(){
   if (!constSel || !selected) return null;
   const nd = organNodeAt(constSel.arm, constSel.j);
   const okey = nd && nd.userData.organ;
+  if (okey === "waker") return [["当前", "按需读取"], ["状态", "见详情"], ["器官", "台账"], ["说明", "只读"], ["来源", "/api/waker"]];
   const o = okey ? organByKey(okey) : null;
   if (!o) return null;
-  const lvTxt = ({ ok: "正常", warn: "注意", alert: "异常" })[o.level] || (o.level || "—");
+  // ★ 2026-11-18：第三处内联级别表也收敛到 lvZh —— 三处各写各的，必有一处漏掉新级别。
+  const lvTxt = lvZh(o.level);
   return [
     ["当前", (o.value === null || o.value === undefined) ? "—" : String(o.value)],
     ["状态", lvTxt],
@@ -1819,7 +2297,7 @@ const organDots = [], organLabels = [];
   const box = document.getElementById("moons");
   for (let i = 0; i < ORGAN_N_MAX; i++){
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: dotTex, color: 0x9FE8C0, transparent: true, opacity: 0,
+      map: dotTex, color: 0xA8D8B4, transparent: true, opacity: 0,
       depthWrite: false, blending: THREE.AdditiveBlending
     }));
     sp.scale.set(0.13, 0.13, 1);
@@ -1834,7 +2312,7 @@ const organDots = [], organLabels = [];
 })();
 gal.add(organGrp);
 let ORGANS = null;
-/* 概览（/api/overview）：L0 的面板就是原来 /dashboard 的那套读数 ——
+/* 概览（/api/overview）：总览面板就是原来 /dashboard 的那套读数 ——
    核球代表「此刻在跑的这个我」，它的面板理应是全局状态，而不是六层列表。 */
 let OVERVIEW = null;
 /* 事件（/api/live）：Ⅵ 事件那条臂的真实内容 —— 台账/投递/唤醒。
@@ -1849,92 +2327,216 @@ function organByKey(k){
   for (let i = 0; i < ORGANS.length; i++) if (ORGANS[i].key === k) return ORGANS[i];
   return null;
 }
-function organsOfLayer(layerKey){
-  if (!ORGANS) return [];
-  return ORGANS.filter(function(o){ return ORGAN_LAYER[o.key] === layerKey; });
-}
-window.toggleOrgan = function(key){
-  window.__organOpen = (window.__organOpen === key) ? null : key;
-  renderPanel();
-};
-window.flyToOrgan = function(key){
-  const lk = ORGAN_LAYER[key];
-  const arm = ORDER.indexOf(lk);
-  if (arm < 0) return;
-  if (selected !== lk) select(lk);
-  const idx = constNodes[arm].findIndex(function(g){ return g.userData.organ === key; });
-  if (idx >= 0) setTimeout(function(){
-    flyToConst(arm, idx); applySel(); renderPanel(); updateNebulae();
-  }, 420);
-};
 function organNodeAt(arm, idx){
   return (constNodes[arm] && constNodes[arm][idx]) ? constNodes[arm][idx] : null;
 }
 
-function load(){
-  fetch("/api/status", { cache:"no-store" }).then(function(r){
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    return r.json();
-  }).then(applyData).catch(function(e){
-    document.getElementById("stamp").textContent = "离线 · " + (e && e.message || "");
-  });
-  /* 换气诊断 + 回声哨兵 */
-  fetch("/api/diagnose", { cache:"no-store" }).then(function(r){ return r.ok ? r.json() : null; })
-    .then(function(o){ if (o) DIAG = o; }).catch(function(){});
-  fetch("/api/echo-sentinel", { cache:"no-store" }).then(function(r){ return r.ok ? r.json() : null; })
-    .then(function(o){ if (o) SENT = o; }).catch(function(){});
-  /* 事件流：Ⅵ 事件层的面板与台账器官都用它 */
-  fetch("/api/live", { cache:"no-store" }).then(function(r){
-    return r.ok ? r.json() : null;
-  }).then(function(o){
-    if (!o) return;
-    LIVE = o;
-    if (typeof layoutEventSpiral === "function") layoutEventSpiral();
-    if (typeof layoutVerdicts === "function") layoutVerdicts();
-  }).catch(function(){});
-  /* 概览：L0 面板用它（合并 /dashboard） */
-  fetch("/api/overview", { cache:"no-store" }).then(function(r){
-    return r.ok ? r.json() : null;
-  }).then(function(o){ if (o) OVERVIEW = o; }).catch(function(){});
-  /* 器官（/api/organs）：L3 时挂成星球外的一圈子环 */
-  fetch("/api/organs", { cache:"no-store" }).then(function(r){
-    return r.ok ? r.json() : null;
-  }).then(function(o){
-    if (o && o.organs) ORGANS = o.organs;
-  }).catch(function(){ /* 器官接口拿不到不影响星系本体 */ });
-  // ★ 2026-11-13：从 /sphere 合并过来的三项读数（状态球取消，星系接管）
-  fetch("/api/vitals", { cache:"no-store" }).then(function(r){
-    return r.ok ? r.json() : null;
-  }).then(function(v){
-    if (!v) return;
-    var set2 = function(id, txt){ var e = document.getElementById(id); if (e) e.textContent = txt; };
-    var p = v.persona || {};
-    set2("cw-persona", p.chars != null
-      ? (p.chars >= 1000 ? (p.chars/1000).toFixed(1) + 'K' : p.chars) + (p.budget ? ' / ' + Math.round(p.budget/1000) + 'K' : '')
-      : '—');
-    set2("cw-sessions", v.sessions != null ? v.sessions + ' 个' : '—');
-    set2("cw-questions", v.openQuestions != null ? v.openQuestions + ' 条' : '—');
-  }).catch(function(){});
+/* ==========================================================================
+   取数层（2026-11-17 task-10 重写）
+   --------------------------------------------------------------------------
+   旧实现（2026-11-13）是 setInterval(load, 5000)，每次 load() 并发打 7 个接口
+   （/api/status /api/diagnose /api/echo-sentinel /api/live /api/overview /api/organs /api/vitals）。
+   它有两个实测会犯的病：
+     ① 页面一直开着就是每 5 秒一次 7 连击，其中 status/overview/organs 都是重接口
+        （status 要建 1400+ 会话索引、overview 要 stat 每个会话）。
+        2026-11-17 01:38~02:24 实测：一次 /api/status 就足以把后端事件循环钉死
+        （data/loop-stall.log: stallMs 659272 / 383210），之后连 /api/health 都不回。
+     ② 页面隐藏时只停了渲染，没停轮询（旧的 visibilitychange 只动 running）。
+        也就是最小化之后它还在每 5 秒锤一次后端。
+   现在的规则（四条，每条对应上面一个病）：
+     A. 串行：全页只有一个定时器，一次只发一个请求，前一个没结束不发下一个。
+     B. 分类节流：轻口（vitals/health）5~20 秒；重口（status/overview/organs/live）
+        15~60 秒，且自带超时与失败冷却（失败一次冷却 3 倍，最多 5 分钟）。
+     C. 冷启动保护：页面打开的前 20 秒只打轻口 —— 那时如果后端刚启动，
+        status 正撞在预热窗口上，一次就够它卡十秒。
+     D. 页面隐藏就停：hidden 时 clearTimeout，visible 时先补一次轻口再恢复节奏。
+   ★ 还有一条不属于取数、属于诚实：每个接口各自记 lastGoodAt。
+     连续失败时界面写「读数中断 · 上次成功 hh:mm:ss」，不拿旧值当新值。
+     这一条是这一版最要紧的东西：屏幕上的数字必须能回答「这是几点的」。
+   ========================================================================== */
+const EP = {
+  vitals:   { path:"/api/vitals",        every:6000,  timeout:4000,  heavy:false, apply:function(o){ applyVitals(o); } },
+  health:   { path:"/api/health",        every:20000, timeout:4000,  heavy:false, apply:function(o){ applyHealth(o); } },
+  status:   { path:"/api/status",        every:15000, timeout:12000, heavy:true,  apply:function(o){ applyData(o); } },
+  overview: { path:"/api/overview",      every:30000, timeout:12000, heavy:true,  apply:function(o){ OVERVIEW = o; if (!selected) renderPanel(); paintFeed(); } },
+  organs:   { path:"/api/organs",        every:30000, timeout:12000, heavy:true,  apply:function(o){ if (Array.isArray(o?.organs)) { ORGANS = o.organs; renderGalaxyNav(); if (selected) renderPanel(); } } },
+  live:     { path:"/api/live",          every:20000, timeout:12000, heavy:true,  apply:function(o){ LIVE = o; layoutEventSpiral(); layoutVerdicts(); } },
+  /* ★ 这两个接口若回 unavailable（回放层没有真实抓取），一律置 null ——
+     面板没有内容好过面板写一个假的「扫了 0 帧」。 */
+  diagnose: { path:"/api/diagnose",      every:60000, timeout:15000, heavy:true,  apply:function(o){ DIAG = (o && o.unavailable) ? null : o; } },
+  sentinel: { path:"/api/echo-sentinel", every:60000, timeout:15000, heavy:true,  apply:function(o){ SENT = (o && o.unavailable) ? null : o; } }
+};
+const NET = { at:{}, err:{}, next:{}, slow:{}, inflight:null, boot:Date.now(), tick:null, paused:false };
+/* 一次请求：自带超时。超时不是异常，是要展示的状态。 */
+function fetchEP(key){
+  const ep = EP[key];
+  const ctl = ("AbortController" in window) ? new AbortController() : null;
+  const t0 = Date.now();
+  const timer = ctl ? setTimeout(function(){ try { ctl.abort(); } catch(e){} }, ep.timeout) : null;
+  return fetch(ep.path, { cache:"no-store", signal: ctl ? ctl.signal : undefined })
+    .then(function(r){ if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(function(o){
+      if (timer) clearTimeout(timer);
+      NET.at[key] = Date.now();
+      const took = Date.now() - t0;
+      delete NET.err[key];
+      /* 慢请求单独记账：它没失败，但是「后端吃力」的早期征兆 —— 比等它超时早十秒看见。 */
+      if (took > ep.timeout * 0.6) NET.slow[key] = took; else delete NET.slow[key];
+      try { ep.apply(o); } catch(e){ NET.err[key] = { msg:"渲染出错 " + ((e && e.message) || e), at:Date.now(), fails:1 }; }
+      return true;
+    })
+    .catch(function(e){
+      if (timer) clearTimeout(timer);
+      const prev = NET.err[key];
+      const fails = ((prev && prev.fails) || 0) + 1;
+      const msg = (e && e.name === "AbortError") ? ("超时 " + ep.timeout + "ms") : String((e && e.message) || e);
+      NET.err[key] = { msg:msg, at:Date.now(), fails:fails };
+      return false;
+    });
 }
-document.addEventListener("visibilitychange", function(){
-  if (document.hidden) { running = false; } else if (!running) { running = true; frame(); }
-});
-/* 排查开关：?sky=0 关掉整片天空（看硬边是不是天空带来的）；?debug=1 点任意位置打印元素链 */
-{
-  const q = new URLSearchParams(location.search);
-  if (q.get("sky") === "0") { const sk = document.querySelector(".as-sky"); if (sk) sk.style.display = "none"; }
-  if (q.get("debug") === "1") {
-    document.addEventListener("click", function(e){
-      const els = document.elementsFromPoint(e.clientX, e.clientY).map(function(el){
-        const r = el.getBoundingClientRect();
-        return el.tagName.toLowerCase() + "." + (el.className || "") + " [" + Math.round(r.left) + "," + Math.round(r.top) + " " + Math.round(r.width) + "x" + Math.round(r.height) + "]";
-      });
-      console.log("HIT " + e.clientX + "," + e.clientY + " => " + els.join("  >  "));
-      document.title = "HIT " + e.clientX + "," + e.clientY + " => " + els.slice(0,3).join(" > ");
-    }, true);
+/* 冷却：基础间隔 x 3^失败次数，封顶 5 分钟。失败不重试，只等冷却。 */
+function cooldownOf(key){
+  const ep = EP[key], bad = NET.err[key];
+  if (!bad || !bad.fails) return 0;
+  return Math.min(300000, ep.every * Math.pow(3, Math.min(4, bad.fails)));
+}
+/* 下一次该轮到谁：轻口先、重口排队，一个周期只发一个。 */
+function pickNext(){
+  const now = Date.now();
+  const order = ["vitals","health","status","overview","organs","live","diagnose","sentinel"];
+  const cold = (now - NET.boot) < 20000;
+  for (let i = 0; i < order.length; i++){
+    const k = order[i], ep = EP[k];
+    if (cold && ep.heavy) continue;          /* C：冷启动前 20 秒不碰重口 */
+    if (now < (NET.next[k] || 0)) continue;
+    const cd = cooldownOf(k);
+    if (cd && now < NET.err[k].at + cd) continue;
+    return k;
+  }
+  return null;
+}
+async function pump(){
+  if (NET.paused) return;
+  if (NET.inflight) { schedule(400); return; }
+  const key = pickNext();
+  if (!key) { schedule(600); return; }
+  NET.inflight = key;
+  const ok = await fetchEP(key);
+  NET.inflight = null;
+  NET.next[key] = Date.now() + (ok ? EP[key].every : cooldownOf(key));
+  paintFeed();
+  schedule(ok ? 350 : 1200);
+}
+function schedule(ms){
+  if (NET.tick) clearTimeout(NET.tick);
+  NET.tick = setTimeout(pump, ms);
+}
+function boot(){
+  /* D：页面隐藏就彻底停 —— 最小化之后不该继续锤后端（旧版这里是个漏）。 */
+  document.addEventListener("visibilitychange", function(){
+    if (document.hidden) { NET.paused = true; if (NET.tick) clearTimeout(NET.tick); }
+    else { NET.paused = false; schedule(200); }
+  });
+  pump();
+}
+/* ---- 各接口的 apply ---- */
+var HEALTH = null, VITALS = null;
+function setTxt(id, v){ var e = document.getElementById(id); if (e) e.textContent = v; }
+function timeHMS(ms){ if (!ms) return "—"; return new Date(ms).toTimeString().slice(0,8); }
+function applyVitals(v){
+  var p = v.persona || {};
+  setTxt("cw-persona", p.chars != null
+    ? (p.chars >= 1000 ? (p.chars/1000).toFixed(1) + "K" : p.chars) + (p.budget ? " / " + Math.round(p.budget/1000) + "K" : "")
+    : "—");
+  setTxt("cw-sessions", v.sessions != null ? v.sessions : "—");
+  setTxt("cw-questions", v.openQuestions != null ? v.openQuestions : "—");
+  VITALS = v;
+}
+function applyHealth(h){ HEALTH = h; paintFeed(); }
+/* 链路条：回答「这块屏幕上的数字是几点的」。
+   它不是装饰 —— 后端卡死时（2026-11-17 实测过），它是唯一还在说真话的一行。 */
+function paintFeed(){
+  var el = document.getElementById("feed");
+  if (!el) return;
+  var worst = null, worstKey = null;
+  Object.keys(NET.err).forEach(function(k){
+    var e = NET.err[k];
+    if (!worst || e.at > worst.at) { worst = e; worstKey = k; }
+  });
+  var lastStatus = NET.at.status || NET.at.overview || NET.at.vitals;
+  var cEl = document.getElementById("corner");
+  if (worst){
+    el.className = "bad";
+    el.innerHTML = "读数中断 · <b>" + (EP[worstKey] ? EP[worstKey].path.replace("/api/","") : worstKey) + "</b> " + worst.msg
+      + " · 上次成功 " + timeHMS(lastStatus);
+    setTxt("cw-lead-tag", "陈旧");
+    if (cEl) cEl.className = "stale";
+  } else {
+    el.className = "";
+    var slowKeys = Object.keys(NET.slow || {});
+    var slow = slowKeys.length ? (" · 慢 " + slowKeys.map(function(k){ return k + " " + NET.slow[k] + "ms"; }).join(" / ")) : "";
+    el.innerHTML = "读数 <b>" + timeHMS(lastStatus) + "</b> · 采集 "
+      + (STATUS && STATUS.tookMs != null ? STATUS.tookMs + "ms" : "—")
+      + " · 外层分区 " + (STATUS ? Object.keys(STATUS.layers || {}).length : 0) + "/6" + slow;
+    if (cEl) cEl.className = "";
+    setTxt("cw-lead-tag", "");
   }
 }
+/* 排查开关（保留原有两个）：?sky=0 关天空层（本版天空已默认关，留着作对照）；
+   ?debug=1 点任意位置打印元素链；?sel=<旋臂>&organ=<器官> 为可分享的深链接。 */
+var QR = new URLSearchParams(location.search);
+if (QR.get("debug") === "1") {
+  document.addEventListener("click", function(e){
+    var els = document.elementsFromPoint(e.clientX, e.clientY).map(function(el){
+      var r = el.getBoundingClientRect();
+      return el.tagName.toLowerCase() + "." + (el.className || "") + " [" + Math.round(r.left) + "," + Math.round(r.top) + " " + Math.round(r.width) + "x" + Math.round(r.height) + "]";
+    });
+    console.log("HIT " + e.clientX + "," + e.clientY + " => " + els.join("  >  "));
+  }, true);
+}
+document.getElementById("galaxy-up").onclick = navigateUp;
+window.addEventListener("popstate", function(){
+  const panel = document.getElementById("panel");
+  const inPanel = panel.contains(document.activeElement);
+  restoreRoute();
+  renderEchoLayers();
+  if (inPanel) panel.querySelector("h2")?.focus({preventScroll:true});
+});
+document.addEventListener("keydown", function(e){
+  if (e.defaultPrevented || e.repeat || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey ||
+      e.target.closest?.("input,textarea,select,[contenteditable]")) return;
+  if (e.key === "Escape" && selected) { e.preventDefault(); navigateUp(); }
+  else if (e.key === "0") { e.preventDefault(); navigate(null, null, false, "", true); }
+  else if (/^[1-6]$/.test(e.key)) { e.preventDefault(); navigate(ORDER[Number(e.key) - 1], null, false, "", true); }
+});
+/* 渲染循环起转。★ 它与取数是两条独立的链：画布先动起来（空星系也有骨架），
+   数据后到（applyData 里再上色/上环）。这也是「骨架先渲染、数据后到」那条老规矩。 */
+/* ★ 骨架先渲染（老规矩）：数据还没到，底部六枚胶囊与面板的空态已经在了。
+   这样首屏不会是一块「什么都没有」的黑，也不会让用户以为界面坏了。
+   数据到了以后 renderRail/renderPanel 会把它们替换成真读数。 */
+/* 只读诊断口：验收脚本用它判断「画布到底在不在动」。
+   ★ 为什么不靠两张截图比字节：PNG 编码本身可能有差异，字节不同不等于画面在动。
+   这里读的是运动来源本身 —— 星系自转角、相机距离、着色器时间 uniform、帧计数。 */
+window.__galaxyDiag = function(){
+  return {
+    reduce: REDUCE,
+    webgl: !!renderer,
+    organ: constSel ? organNodeAt(constSel.arm, constSel.j).userData.organ : null,
+    cameraFocus: followConst ? "organ" : followKey ? "arm" : "core",
+    targetDist: controls.target.length(),
+    cameraFrame,
+    planetVisible: planetGrp.visible,
+    autoRotate: controls.autoRotate,
+    galRotY: Math.round(gal.rotation.y * 100000) / 100000,
+    camDist: Math.round(camera.position.length() * 1000) / 1000,
+    uTime: Math.round(coreMat.uniforms.uTime.value * 1000) / 1000,
+    selected: selected || null
+  };
+};
 
-frame(); load(); setInterval(load, 5000);
+renderRail();
+restoreRoute();
+frame();
+boot();
 </script>
 </body></html>

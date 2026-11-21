@@ -1,0 +1,2 @@
+{"t":"2026-11-11T10:00:00.000Z","session":"session-echoq-shared","ws":"ws-echoq-v4","seq":12,"turn":7,"log":"D:/synthetic/logs/echoq-v4.jsonl","role":"user","kind":"message","len":24,"truncated":false,"text":"V4 流第十二帧：meta.sqlite 镜像行"}
+{"t":"2026-11-11T11:00:00.000Z","session":"session-echoq-shared","ws":"ws-echoq-v4","seq":13,"turn":8,"log":"D:/synthetic/logs/echoq-v4.jsonl","role":"user","kind":"message","len":24,"truncated":false,"text":"V4 流第十三帧：echo_search 镜像行"}

@@ -1,5 +1,7 @@
 import fsMod from 'node:fs';
 import pathMod from 'node:path';
+// ★ 2026-11-17：dshHome 的默认值要走「开发路径存在才生效」，别再硬编码。
+import { devPathOr } from '../config.mjs';
 
 // 上下文器官 —— 时间 + 水位
 //
@@ -188,7 +190,9 @@ export function hostPressure(sessionId, opts) {
     // ★ 只允许安全字符：会话 id 会拼进路径，不许有 .. 或分隔符
     if (!/^[A-Za-z0-9._-]+$/.test(sid)) return { ok: false, reason: '会话 id 含非法字符' };
 
-    const home = String(o.dshHome || process.env.DSH_HOME || 'D:/AI/dsh/home');
+    // ★ 2026-11-17：原来这里是硬编码 'D:/AI/dsh/home' —— 分发版会指到一个不存在的目录。
+  //   改成和 organs/huanqi-read.mjs 同一条判据：**开发路径只在它真的存在时才生效**。
+  const home = String(o.dshHome || process.env.DSH_HOME || devPathOr('dshHome', '') || '');
     const name = (sid.startsWith('session-') ? sid : 'session-' + sid) + '.json';
     const file = pathMod.join(home, 'storages', 'session_projcache', 'sessions', name);
 

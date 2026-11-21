@@ -1,0 +1,2 @@
+{"seq":0,"t":"2026-11-15T09:00:00.000Z","session":"session-synthetic-a1","ws":"--synthetic-workspace--","role":"user","text":"Synthetic query alpha"}
+{"seq":1,"t":"2026-11-15T09:00:01.000Z","session":"session-synthetic-a1","ws":"--synthetic-workspace--","role":"assistant","text":"Synthetic response beta"}

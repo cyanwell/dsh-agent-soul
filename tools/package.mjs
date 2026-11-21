@@ -72,6 +72,16 @@ console.log('  用 node: ' + NODE);
 entries.push({ name: 'runtime/node.exe', data: fs.readFileSync(NODE) });
 addDir(path.join(ROOT, 'src'), 'src');
 if (fs.existsSync(path.join(ROOT, 'docs'))) addDir(path.join(ROOT, 'docs'), 'docs');
+// ★ 2026-11-18：seed/ 也必须进包 —— 那是六层里 L1 的种子（SELF.src.md 骨架）。
+//   这份单文件 exe 解压到 %LOCALAPPDATA%\agent-soul，portable.mjs 的 programRoot()
+//   在那里就是解压根，seedDir() = <根>/seed —— 所以它要放在载荷**根**上。
+if (fs.existsSync(path.join(ROOT, 'seed'))) {
+  const before = entries.length;
+  addDir(path.join(ROOT, 'seed'), 'seed');
+  console.log('  seed/: ' + (entries.length - before) + ' 个文件（L1 种子）');
+} else {
+  console.log('  ✗ 警告：仓库里没有 seed/ —— 装出来会缺 L1 人格骨架');
+}
 for (const f of ['package.json', 'README.md']) {
   const p = path.join(ROOT, f);
   if (fs.existsSync(p)) entries.push({ name: f, data: fs.readFileSync(p) });
