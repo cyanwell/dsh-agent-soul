@@ -80,7 +80,10 @@ window.__ModuleLoader__.load({
         fetch("/agent-soul/status", { cache: "no-store" })
           .then(function (r) {
             if (!r.ok) { setState({ alive: false, offline: true, statusError: "HTTP " + r.status }); return null }
-            return r.json().then(function (d) { if (d) d.statusError = ""; setState(d) });
+            return r.json().then(function (d) {
+              if (d) { d.statusError = ""; if (d.csrf) csrf = String(d.csrf); }
+              setState(d);
+            });
           })
           .catch(function (e) { setState({ alive: false, offline: true, statusError: String((e && e.message) || e) }) });
       };
@@ -95,7 +98,7 @@ window.__ModuleLoader__.load({
         /* ★ 2026-11-13：**不要加 ?t= 查询串** —— DSH 的路由是 exact 匹配，
            带 query 的路径匹配不上，直接 404（刚才就是这么错的：status 不带参数能通，带 ?t= 的全 404）。
            防缓存靠 fetch 的 cache:"no-store"，不靠改 URL。 */
-        call("/agent-soul/" + name, function () { load() })
+        call("/agent-soul/" + name, function () { load() }, true)
           .catch(function (e) { setBusy(""); setErr(String((e && e.message) || e)) })
           .then(function () { setBusy(""); });
       };
@@ -108,11 +111,30 @@ window.__ModuleLoader__.load({
       return { state: state, busy: busy, probe: probe, act: act, runProbe: runProbe, load: load, lastErr: lastErr };
     }
 
-    /* ★ 2026-11-13：所有管理端点**只接 GET**（实测 POST 回 405）。
-       而且失败必须显示出来 —— 之前 catch 是静默的，点下去没反应还以为按钮坏了。 */
-    function call(path, onOk) {
-      return fetch(path, { cache: "no-store" })
-        .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json() })
+    /* ★★★ 2026-11-21：**写操作必须是 POST**，而且要带 requestId + CSRF。
+       上一版这里写的是「所有端点只接 GET」，于 start/stop/restart 走 GET → 恒 405。
+       那条注释本身就是错的（它把「我当时测出来 405」当成了「端点只接 GET」）。
+       现在的判据：MANAGEMENT_ROUTES 里 status/probe 是 GET，其余三个是 POST。 */
+    var csrf = "";
+    function call(path, onOk, isWrite) {
+      var opt = { cache: "no-store" };
+      if (isWrite) {
+        var rid = "ui-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+        opt.method = "POST";
+        opt.headers = { "Content-Type": "application/json", "X-DSH-CSRF": csrf };
+        opt.body = JSON.stringify({ requestId: rid, csrf: csrf });
+      }
+      return fetch(path, opt)
+        .then(function (r) {
+          if (!r.ok) {
+            return r.text().then(function (t) {
+              var code = "";
+              try { code = (JSON.parse(t) || {}).code || ""; } catch (e) { }
+              throw new Error("HTTP " + r.status + (code ? " · " + code : ""));
+            });
+          }
+          return r.json();
+        })
         .then(function (d) { if (onOk) onOk(d); return d });
     }
 

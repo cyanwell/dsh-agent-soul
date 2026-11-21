@@ -56,7 +56,7 @@ export const name = 'dsh-agent-soul-bridge'
 export const inject = ['webServer']
 
 // ★ 发布版本：与 package.json.version 保持一致。
-const VERSION = '0.1.7'
+const VERSION = '0.1.8'
 const TAG = '[agent-soul-bridge]'
 
 export const DEFAULTS = {
@@ -1206,8 +1206,54 @@ function safeEqual(a, b) { const x = Buffer.from(String(a || '')); const y = Buf
 export function isLoopbackAddress(a) { return /^(127\.0\.0\.1|::1|0:0:0:0:0:0:0:1|::ffff:127\.0\.0\.1)$/i.test(String(a || '').replace(/^\[|\]$/g, '')) }
 function originOf(v) { try { const u = new URL(String(v || '')); if (!/^https?:$/.test(u.protocol) || u.username || u.password || (u.pathname !== '/' && u.pathname !== '') || u.search || u.hash) return null; return u.origin } catch { return null } }
 function refererOriginOf(v) { try { const u = new URL(String(v || '')); if (!/^https?:$/.test(u.protocol) || u.username || u.password) return null; return u.origin } catch { return null } }
-export function makeManagementSecurity(o = {}) { const token = String(o.token || ''); const csrf = String(o.csrfNonce || crypto.randomBytes(32).toString('base64url')); const origin = originOf(o.origin); const used = new Set(); return { expectedOrigin: origin, csrfNonce: csrf, configured: !!(token && origin), tokenMatches: v => safeEqual(v, token), consumeCsrf(v) { const n = String(v || ''); if (!n || used.has(n) || !safeEqual(n, csrf)) return false; used.add(n); return true } } }
-export function validateManagementRequest(req, expectedMethod, sec) { const method = String(req && req.method || '').toUpperCase(); if (method !== expectedMethod) return { ok:false, status:405, headers:{ Allow:expectedMethod }, code:'method-not-allowed' }; const remote = String(req && req.socket && req.socket.remoteAddress || req && req.connection && req.connection.remoteAddress || ''); if (!isLoopbackAddress(remote)) return { ok:false, status:403, code:'loopback-required' }; const origin = originOf(req && req.headers && req.headers.origin); if (!sec || !sec.configured || origin !== sec.expectedOrigin) return { ok:false, status:403, code:'origin-denied' }; const ref = req && req.headers && req.headers.referer; if (ref !== undefined && refererOriginOf(ref) !== sec.expectedOrigin) return { ok:false, status:403, code:'referer-denied' }; const m = /^Bearer[ \t]+(.+)$/.exec(String(req && req.headers && req.headers.authorization || '')); if (!m || !sec.tokenMatches(m[1])) return { ok:false, status:401, code:'local-admin-required' }; return { ok:true } }
+/**
+ * 管理端点的鉴权材料。
+ *
+ * ★★★ 2026-11-21：**配置口径改了**，起因是用户截图里那个「失败：HTTP 403」。
+ *
+ *   原来：`configured: !!(token && origin)` —— 而 `localAdminToken` 默认是空串，
+ *   于是 `configured` **恒为 false** → `validateManagementRequest` 一律返回
+ *   `origin-denied` → 浏览器里那个 panel（以及任何调用方）**从设计上就不可能调通**。
+ *   写操作还多一层：CSRF nonce 默认是 `randomBytes` 临时生成的、只活在内存里，
+ *   panel 拿不到 → 写操作同样恒 403。**两把锁都锁死了自己**。
+ *
+ *   现在分三层，各管一件事：
+ *     ① **loopback** —— 只接受 127.0.0.1/::1 的来源（这条没变，永远生效）
+ *     ② **严格同源** —— Origin 必须逐字等于本实例的 origin（`configured` 只看这一条）。
+ *        这本身就是 CSRF 防线：攻击页面**发不出**匹配的 Origin，
+ *        而 CORS 又让它读不到响应 —— 所以 nonce 不会泄。
+ *     ③ **token（可选）** —— **配了才校验**。没配就是「同源即可」，
+ *        因为那份 token 本来也没有渠道交给浏览器里的面板。
+ *   CSRF nonce 保留，但改为由 `GET /agent-soul/status` **只回给已通过 ② 的调用方**，
+ *   panel 拿到后用于写操作。这样 nonce 仍然是一次性、不可跨源猜的。
+ */
+export function makeManagementSecurity(o = {}) {
+  const token = String(o.token || '')
+  const csrf = String(o.csrfNonce || crypto.randomBytes(32).toString('base64url'))
+  const origin = originOf(o.origin)
+  const used = new Set()
+  return {
+    expectedOrigin: origin,
+    csrfNonce: csrf,
+    hasToken: token.length > 0,
+    // ★ 只看 origin —— 这是唯一「浏览器里的调用方一定能满足」的条件
+    configured: !!origin,
+    tokenMatches: v => safeEqual(v, token),
+    consumeCsrf (v) {
+      const n = String(v || '')
+      if (!n || used.has(n) || !safeEqual(n, csrf)) return false
+      used.add(n)
+      return true
+    },
+  }
+}
+export function validateManagementRequest(req, expectedMethod, sec) { const method = String(req && req.method || '').toUpperCase(); if (method !== expectedMethod) return { ok:false, status:405, headers:{ Allow:expectedMethod }, code:'method-not-allowed' }; const remote = String(req && req.socket && req.socket.remoteAddress || req && req.connection && req.connection.remoteAddress || ''); if (!isLoopbackAddress(remote)) return { ok:false, status:403, code:'loopback-required' }; const origin = originOf(req && req.headers && req.headers.origin); if (!sec || !sec.configured || origin !== sec.expectedOrigin) return { ok:false, status:403, code:'origin-denied' }; const ref = req && req.headers && req.headers.referer; if (ref !== undefined && refererOriginOf(ref) !== sec.expectedOrigin) return { ok:false, status:403, code:'referer-denied' }; // ★ 2026-11-21：token **配了才校验**。没配时「loopback + 严格同源」就是完整判据 ——
+  //   否则默认配置下所有调用恒 401/403，端点等于不存在（这就是截图里那个 403）。
+  if (sec.hasToken) {
+    const m = /^Bearer[ \t]+(.+)$/.exec(String(req && req.headers && req.headers.authorization || ''))
+    if (!m || !sec.tokenMatches(m[1])) return { ok:false, status:401, code:'local-admin-required' }
+  }
+  return { ok:true } }
 export async function readManagementBody(req, limit = MANAGEMENT_BODY_LIMIT) { const h = req && req.headers || {}; if (String(h['content-type'] || '').split(';',1)[0].trim().toLowerCase() !== 'application/json') return { ok:false,status:400,code:'json-required' }; if (Number(h['content-length']) > limit) return { ok:false,status:413,code:'body-too-large' }; if (req && req.body !== undefined) { const raw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body); if (Buffer.byteLength(raw) > limit) return {ok:false,status:413,code:'body-too-large'}; try { const b=JSON.parse(raw); return b && typeof b === 'object' && !Array.isArray(b) ? {ok:true,body:b} : {ok:false,status:400,code:'object-required'} } catch { return {ok:false,status:400,code:'invalid-json'} } } if (!req || typeof req.on !== 'function') return {ok:false,status:400,code:'body-unavailable'}; return await new Promise(resolve => { let raw='', n=0, done=false; const end=v=>{if(!done){done=true;resolve(v)}}; req.on('data',c=>{if(done)return;n+=Buffer.byteLength(c);if(n>limit)end({ok:false,status:413,code:'body-too-large'});else raw+=c}); req.on('end',()=>{if(done)return;try{const b=JSON.parse(raw||'{}');end(b&&typeof b==='object'&&!Array.isArray(b)?{ok:true,body:b}:{ok:false,status:400,code:'object-required'})}catch{end({ok:false,status:400,code:'invalid-json'})}}); req.on('error',()=>end({ok:false,status:400,code:'body-read-failed'})) }) }
 export function makeRequestLedger(o = {}) { const ttl=Number(o.ttlMs)>0?Number(o.ttlMs):600000; const max=Number(o.max)>0?Number(o.max):256; const rows=new Map(); const prune=()=>{const t=Date.now();for(const[k,v]of rows)if(v.at+ttl<t)rows.delete(k);while(rows.size>max)rows.delete(rows.keys().next().value)}; return { begin(route,id,semantic,work) { prune(); const k=String(id), hit=rows.get(k); if(hit){if(hit.route!==String(route) || hit.semantic!==semantic)return Promise.resolve({conflict:true});return hit.promise.then(r=>Object.assign({},r,{replayed:!!hit.done}))} const row={at:Date.now(),route:String(route),semantic,done:false}; row.promise=Promise.resolve().then(work).then(r=>{row.done=true;return r}); rows.set(k,row); return row.promise }, size:()=>rows.size, clear:()=>rows.clear() } }
 function canonicalPath(v) { try { return fs.realpathSync.native ? fs.realpathSync.native(String(v || '')) : fs.realpathSync(String(v || '')) } catch { return path.resolve(String(v || '')) } }
@@ -1582,6 +1628,11 @@ export function apply (ctx, config) {
         jout(s, 200, {
           at: Date.now(),
           version: VERSION,
+          // ★ 2026-11-21：写操作要 CSRF nonce，而 panel 没有别的渠道拿到它。
+          //   这里是**只回给已通过 loopback + 严格同源**的调用方的 ——
+          //   跨源页面拿不到这个响应（CORS），所以 nonce 不会泄。
+          //   没配 token 时这一条就是 panel 能按下按钮的唯一前提。
+          csrf: adminSecurity.csrfNonce,
           alive: !!h.ok,
           health: h,
           control: c,
