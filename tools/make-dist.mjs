@@ -48,6 +48,26 @@ const SETUP = path.join(DEV, 'dist', 'AgentSoul-Setup-' + VER + '.exe');
 const STUB = path.join(DEV, 'build/setup-stub.exe');
 const MAGIC = Buffer.from('AGENTSOULPKG01', 'ascii');
 
+function findForbiddenPayloadEntries(root) {
+  const found = [];
+  function visit(dir, rel = '') {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const abs = path.join(dir, entry.name);
+      const child = rel ? rel + '/' + entry.name : entry.name;
+      const info = fs.lstatSync(abs);
+      if (info.isSymbolicLink()) { found.push(child + ' (symlink)'); continue; }
+      if (entry.isDirectory()) {
+        if (entry.name.toLowerCase() === 'data') { found.push(child + '/ (runtime data directory)'); continue; }
+        visit(abs, child);
+      } else if (/^(token\.txt|config\.local\.json|\.env(?:\..*)?)$/i.test(entry.name)) {
+        found.push(child);
+      }
+    }
+  }
+  visit(root);
+  return found;
+}
+
 const log = (m) => console.log(m);
 const die = (m) => { console.error('✗ ' + m); process.exit(1); };
 
@@ -63,6 +83,7 @@ function copyDir(from, to) {
   }
   return n;
 }
+
 function walk(d, base = '') {
   const out = [];
   for (const e of fs.readdirSync(d, { withFileTypes: true })) {
@@ -73,6 +94,14 @@ function walk(d, base = '') {
   }
   return out;
 }
+
+// Refuse unsafe payloads before deleting or creating staging files.
+const PROD_VER = path.join(PROD, 'app', VER);
+if (!fs.existsSync(PROD_VER)) die('生产载荷不存在，先跑 tools/release.mjs --to=' + VER);
+const payloadStat = fs.lstatSync(PROD_VER);
+if (payloadStat.isSymbolicLink() || !payloadStat.isDirectory()) die('生产载荷根必须是真实目录，拒绝符号链接/非目录');
+const forbidden = findForbiddenPayloadEntries(PROD_VER);
+if (forbidden.length) die('生产载荷包含运行时数据/凭据或符号链接，拒绝打包：' + forbidden.slice(0, 20).join(', '));
 
 // ── ① 装载 ────────────────────────────────────────────────────────────
 log('[' + VER + '] 1/5 构建便携目录');
@@ -112,8 +141,6 @@ if (!fs.existsSync(path.join(MODEL_SRC, 'bge-small-zh', 'onnx', 'model_quantized
 const modelN = copyDir(MODEL_SRC, path.join(STAGE, 'models'));
 log('  models/ ' + modelN + ' 个文件（含 onnx 模型本体与 onnxruntime 原生库）');
 
-const PROD_VER = path.join(PROD, 'app', VER);
-if (!fs.existsSync(PROD_VER)) die('生产载荷不存在，先跑 tools/release.mjs --to=' + VER + '：' + PROD_VER);
 log('  app/' + VER + ' ' + copyDir(PROD_VER, path.join(STAGE, 'app', VER)) + ' 个文件（来自生产载荷）');
 fs.writeFileSync(path.join(STAGE, 'app', 'current.txt'), VER + '\n', 'utf8');
 

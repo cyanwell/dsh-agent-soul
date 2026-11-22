@@ -359,6 +359,36 @@ function conserved(name, r) {
   check('t11 no default snapshot root', code === 'E_USAGE', 'got ' + code);
 }
 
+// ── T12 tilde SID：冻结快照经真实 batch builder 构建并进入全局 feed ──────────────
+{
+  const sid = 'jinglan~003Amain';
+  const snap = makeSnapshot('t12-tilde-sid', [{
+    sid,
+    words: [wordRow({ sid, seq: 3, text: 'tilde-sid-word' })],
+    summaries: [summaryRow({ sid, id: 'cmp-tilde-sid', srcSeqs: [3], summary: 'tilde-sid-summary' })],
+  }]);
+  const out = freshOut('t12-tilde-sid');
+  const r = await run(snap.snapRoot, out);
+  check('t12 tilde SID exit 0', r.result.exitCode === 0, 'exit=' + r.result.exitCode);
+  check('t12 tilde SID source built', r.result.accounting.built === 1 && r.result.accounting.refused === 0 && r.result.batchManifest.sources[0].status === 'built', JSON.stringify(r.result.accounting));
+  check('t12 tilde SID output row preserved', r.result.globalFeed.emitted === true && JSON.parse(fs.readFileSync(path.join(out, 'global', 'words.jsonl'), 'utf8').trim()).session === sid, 'global word row did not preserve SID');
+  check('t12 tilde SID valid summary output', r.result.globalFeed.emitted === true && JSON.parse(fs.readFileSync(path.join(out, 'global', 'summaries.jsonl'), 'utf8').trim()).cmpId === 'cmp-tilde-sid', 'global summary output missing or invalid');
+}
+
+// ── T13 非法 SID：仍由真实 batch builder 按 ROW_SID 拒绝 ───────────────────────────
+{
+  const sid = 's invalid';
+  const snap = makeSnapshot('t13-invalid-sid', [{
+    sid, words: [wordRow({ sid, seq: 1, text: 'invalid-sid-word' })], nSum: 0, sumBytes: Buffer.from('\n', 'utf8'),
+  }]);
+  const out = freshOut('t13-invalid-sid');
+  const r = await run(snap.snapRoot, out);
+  check('t13 illegal SID exit 3', r.result.exitCode === 3, 'exit=' + r.result.exitCode);
+  check('t13 illegal SID refused as ROW_SID', r.result.accounting.refused === 1 && r.result.batchManifest.sources[0].code === 'ROW_SID', JSON.stringify(r.result.batchManifest.sources[0]));
+  check('t13 illegal SID withholds global feed', r.result.globalFeed.emitted === false, JSON.stringify(r.result.globalFeed));
+  conserved('t13 accounting conserved', r.result);
+}
+
 for (const dir of roots) {
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* leftover temp is acceptable */ }
 }

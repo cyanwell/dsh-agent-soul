@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { EchoImportRefusal, parseJsonlBytes, parseWordRow, parseSummaryRow, parseEchoPtr } from './echo-index-import.mjs';
+const word = { t:'2026-11-23T00:00:00.000Z', session:'jinglan~003Amain', ws:null, seq:1, turn:null, log:null, role:'user', kind:'chat', len:4, truncated:false, text:'测试' };
+word.len = Array.from(word.text).length;
+const summary = { cmpId:'cmp~draft', t:word.t, session:word.session, ws:null, log:null, srcSeqs:[1], shadowedTokens:1, shadowedChars:4, provider:null, model:null, status:'active', summary:'摘要' };
+const check=(name,fn)=>{try{fn();console.log('PASS '+name)}catch(e){console.error('FAIL '+name+': '+e.message);process.exitCode=1}};
+check('valid Chinese JSONL / blank rows counted / tilde SID accepted',()=>{const b=Buffer.from(JSON.stringify(word)+'\n\n','utf8');const x=parseJsonlBytes(b,parseWordRow,'words','WORDS');assert.equal(x.rows.length,1);assert.equal(x.physicalLines,2);assert.equal(x.blankLines,1);assert.equal(x.rows[0].session,word.session)});
+check('tilde summary ID and SID accepted',()=>{const b=Buffer.from(JSON.stringify(summary)+'\n','utf8');const x=parseJsonlBytes(b,parseSummaryRow,'summaries','SUMMARIES');assert.equal(x.rows[0].cmp_id,summary.cmpId);assert.equal(x.rows[0].session,summary.session)});
+for (const [name,bytes,code] of [['empty',Buffer.alloc(0),'WORDS_EMPTY'],['BOM',Buffer.concat([Buffer.from([239,187,191]),Buffer.from('{}\n')]),'WORDS_HAS_BOM'],['missing final LF',Buffer.from('{}'),'WORDS_NO_FINAL_LF'],['invalid UTF-8',Buffer.from([0xff,10]),'WORDS_INVALID_UTF8']]) check(name,()=>{assert.throws(()=>parseJsonlBytes(bytes,parseWordRow,'words','WORDS'),e=>e instanceof EchoImportRefusal&&e.code===code)});
+check('blank-only rows are counted, not silently discarded',()=>{const x=parseJsonlBytes(Buffer.from('\n\t\n'),parseWordRow,'words','WORDS');assert.equal(x.rows.length,0);assert.equal(x.physicalLines,2);assert.equal(x.blankLines,2)});
+check('invalid UTF-8 wins over a missing final LF (legacy diagnostic precedence)',()=>{assert.throws(()=>parseJsonlBytes(Buffer.from([0xff]),parseWordRow,'words','WORDS'),e=>e instanceof EchoImportRefusal&&e.code==='WORDS_INVALID_UTF8')});
+check('tilde word pointer accepted',()=>{const p=parseEchoPtr('v4log:jinglan~003Amain#seq=1');assert.equal(p.sessionId,word.session)});
+check('tilde summary pointer accepted',()=>{const p=parseEchoPtr('idx:cmp~draft');assert.equal(p.cmpId,summary.cmpId)});

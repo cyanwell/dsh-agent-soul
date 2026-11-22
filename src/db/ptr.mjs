@@ -21,7 +21,7 @@ export const V4_NAMESPACE = 'v4log';
 // ptr 的 seq 段是 1..15 位十进制；上界与 PTR_RE 的 \d{1,15} 严丝合缝。
 export const MAX_PTR_SEQ = 999999999999999;
 
-const PTR_RE = /^([a-z][a-z0-9_-]{0,31}):([A-Za-z0-9._-]{1,128})#seq=(\d{1,15})$/;
+const PTR_RE = /^([a-z][a-z0-9_-]{0,31}):([A-Za-z0-9._~-]{1,128})#seq=(\d{1,15})$/;
 
 function assertCanonicalSeqText(text, ptr) {
   if (!/^(0|[1-9][0-9]*)$/.test(text)) {

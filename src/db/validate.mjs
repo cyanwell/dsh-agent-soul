@@ -8,6 +8,7 @@ import { fail, CODES } from './errors.mjs';
 import { MAX_PTR_SEQ } from './ptr.mjs';
 
 const ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
+const ECHO_SESSION_ID_RE = /^[A-Za-z0-9._~-]{1,128}$/;
 const NAMESPACE_RE = /^[a-z][a-z0-9_-]{0,31}$/;
 const KIND_RE = /^[a-z][a-z0-9-]{0,31}$/;
 const HASH_RE = /^[0-9a-f]{64}$/;
@@ -44,8 +45,18 @@ export function assertSourceId(value, field) {
   return assertId(value, field || 'sourceId');
 }
 
+// Session IDs may include host-escaped tildes (for example ~003A).
+// Source IDs deliberately keep the narrower assertId grammar below.
 export function assertSessionId(value, field) {
-  return assertId(value, field || 'sessionId');
+  const name = field || 'sessionId';
+  assertString(value, name, { min: 1, max: 128 });
+  if (!ECHO_SESSION_ID_RE.test(value)) bad(name, 'only letters, digits, dot, dash, underscore, tilde allowed', value);
+  return value;
+}
+
+// Kept as an explicit alias for ingestion call sites documenting ECHO provenance.
+export function assertEchoSessionId(value, field) {
+  return assertSessionId(value, field || 'sessionId');
 }
 
 export function assertNamespace(value, field) {

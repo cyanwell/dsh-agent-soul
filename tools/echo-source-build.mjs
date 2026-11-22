@@ -67,8 +67,8 @@ export function parseArgs(argv) {
 }
 const sha256 = (b) => createHash('sha256').update(b).digest('hex');
 const sourcePathOk = isCanonicalSourcePath;
-const CMP_RE = /^[A-Za-z0-9._-]{1,128}$/;
-const SESSION_RE = /^[A-Za-z0-9._-]{1,128}$/;
+const CMP_RE = /^[A-Za-z0-9._~-]{1,128}$/;
+const SESSION_RE = /^[A-Za-z0-9._~-]{1,128}$/;
 const SUMMARY_FIELDS = ECHO_SUMMARY_FIELDS;
 const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 
@@ -113,10 +113,24 @@ function parseSummariesBytes(bytes) {
   return { bytes, rows, srcSeqs };
 }
 
+// ★★★ 2026-11-22：**不要用 join('\n') 拼整代。**
+//   全量重建（索引为空时的第一条路）会把所有行拼成一个字符串 ——
+//   1752 个会话的真实数据超过 V8 的字符串上限（~512MB），
+//   于是 build 阶段抛 `Invalid string length`，整代失败。
+//   ★ 症状极容易误判：它看起来像「数据太大」的环境问题，实际是**拼接方式**的 bug。
+//   判据：**凡是「行数由数据规模决定」的拼接，一律用 Buffer 数组，不用 join。**
+function linesToBytes (lines) {
+  const parts = [];
+  for (const line of lines) parts.push(Buffer.from(line + '\n', 'utf8'));
+  if (!parts.length) parts.push(Buffer.from('\n', 'utf8'));
+  return Buffer.concat(parts);
+}
+
 // 输出三件套：不覆盖 + 写失败整组回滚（synthetic 与 source 共用同一份实现）。
 function writeOutputTriplet(outDir, wordsBytes, summariesBytes, manifestBytes) {
   fs.mkdirSync(outDir,{recursive:true});
-  const wordsPath=path.join(outDir,'words.jsonl');
+
+const wordsPath=path.join(outDir,'words.jsonl');
   const summariesPath=path.join(outDir,'summaries.jsonl');
   const manifestPath=path.join(outDir,'manifest.json');
   for (const file of [wordsPath,summariesPath,manifestPath]) {
@@ -149,7 +163,7 @@ function parseInput(inputPath) {
     for(const k of Object.keys(row)) if(!allowed.has(k)) fail('line '+(i+1)+': unsupported field '+k);
     if(!Number.isSafeInteger(row.seq)||row.seq<0) fail('line '+(i+1)+': seq must be safe integer >=0');
     if(typeof row.t!=='string'||!row.t.trim()||!Number.isFinite(Date.parse(row.t))) fail('line '+(i+1)+': t must be parseable timestamp');
-    if(typeof row.session!=='string'||! /^[A-Za-z0-9._-]{1,128}$/.test(row.session)) fail('line '+(i+1)+': session must be ptr-safe');
+    if(typeof row.session!=='string'||! /^[A-Za-z0-9._~-]{1,128}$/.test(row.session)) fail('line '+(i+1)+': session must be ptr-safe');
     if(row.ws!==undefined && (typeof row.ws!=='string'||!row.ws.trim())) fail('line '+(i+1)+': ws must be non-empty string');
     if(row.role!=='user'&&row.role!=='assistant') fail('line '+(i+1)+': role must be user|assistant');
     if(typeof row.text!=='string'||!row.text.trim()) fail('line '+(i+1)+': text must be non-empty string');
@@ -187,7 +201,7 @@ export function buildSource(options) {
     wordContentHash(row); // Validate canonical hash input order; importer recomputes and stores the digest.
     return row;
   });
-  const wordsBytes=Buffer.from(wordsRows.map(x=>JSON.stringify(x)).join('\n')+'\n','utf8');
+  const wordsBytes=linesToBytes(wordsRows.map(x=>JSON.stringify(x)));
   // No summariesPath: importer requires non-empty, strict UTF-8, final LF — one blank row is canonical.
   // With summariesPath: the caller's bytes are written untouched and hashed as-is.
   const summariesBytes=parsedSummaries===null?Buffer.from('\n','utf8'):parsedSummaries.bytes;
@@ -283,7 +297,7 @@ function readFrames(db, sourceId) {
 function classifyFrame(raw, where) {
   const seq = Number(raw.seq);
   if (!Number.isSafeInteger(seq) || seq < 0) fail(where + ': seq must be a non-negative safe integer');
-  if (typeof raw.session_id !== 'string' || !SESSION_RE.test(raw.session_id)) fail(where + ': session_id ' + JSON.stringify(raw.session_id) + ' is not ptr-safe ([A-Za-z0-9._-]{1,128})');
+  if (typeof raw.session_id !== 'string' || !SESSION_RE.test(raw.session_id)) fail(where + ': session_id ' + JSON.stringify(raw.session_id) + ' is not ptr-safe ([A-Za-z0-9._~-]{1,128})');
   if (raw.type === null || raw.type === undefined || raw.type === '') fail(where + ': frame type is missing and cannot be classified');
   if (typeof raw.type !== 'string') fail(where + ': frame type must be a string');
   const type = raw.type;
@@ -302,7 +316,7 @@ function validateSummaryPayload(obj, where) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) fail(where + ': summary frame must hold a JSON object');
   for (const k of Object.keys(obj)) if (!SUMMARY_FIELDS.includes(k)) fail(where + ': unsupported summary field ' + k);
   for (const k of SUMMARY_FIELDS) if (!Object.prototype.hasOwnProperty.call(obj, k)) fail(where + ': missing summary field ' + k);
-  if (typeof obj.cmpId !== 'string' || !CMP_RE.test(obj.cmpId)) fail(where + ': cmpId must be idx-safe ([A-Za-z0-9._-]{1,128})');
+  if (typeof obj.cmpId !== 'string' || !CMP_RE.test(obj.cmpId)) fail(where + ': cmpId must be idx-safe ([A-Za-z0-9._~-]{1,128})');
   if (typeof obj.t !== 'string' || !obj.t || !Number.isFinite(Date.parse(obj.t))) fail(where + ': t must be a parseable timestamp');
   if (typeof obj.session !== 'string' || !SESSION_RE.test(obj.session)) fail(where + ': session must be ptr-safe');
   for (const k of ['ws','log','provider','model']) if (obj[k] !== null && typeof obj[k] !== 'string') fail(where + ': ' + k + ' must be a string or null');
@@ -408,7 +422,7 @@ export function buildFromMetaSqlite(options) {
   const afterDigest = hashFileSync(realDb);
   if (afterDigest.sha256 !== digest.sha256) fail('source database bytes changed during the build; refusing an inconsistent snapshot');
 
-  const wordsBytes = Buffer.from(wordsRows.map((x) => JSON.stringify(x)).join('\n') + '\n', 'utf8');
+  const wordsBytes = linesToBytes(wordsRows.map((x) => JSON.stringify(x)));
   // v4 frame_index has no authoritative summary payload/srcSeqs. Emit the canonical empty artifact.
   const nonEmptySummaries = Buffer.from('\n', 'utf8');
   const maxSeq = Math.max(...wordsRows.map((r) => r.seq));
@@ -545,7 +559,7 @@ export function readSessionTailIndex(options) {
     try { row = JSON.parse(lines[i]); } catch (err) { fail(where + ' invalid JSON: ' + err.message); }
     if (!row || typeof row !== 'object' || Array.isArray(row)) fail(where + ' must be a JSON object');
     if (typeof row.file !== 'string' || row.file.length === 0) fail(where + ' requires a non-empty file');
-    if (typeof row.sid !== 'string' || !SESSION_RE.test(row.sid)) fail(where + ' requires a ptr-safe sid ([A-Za-z0-9._-]{1,128})');
+    if (typeof row.sid !== 'string' || !SESSION_RE.test(row.sid)) fail(where + ' requires a ptr-safe sid ([A-Za-z0-9._~-]{1,128})');
     if (row.ws !== undefined && row.ws !== null && typeof row.ws !== 'string') fail(where + ' ws must be a string or null');
     const file = path.resolve(row.file);
     if (!isSameOrWithin(root, file)) fail(where + ' declares a file outside sourceRoot: ' + row.file);
@@ -1130,7 +1144,7 @@ export function syncFromSessionTail(options) {
 
   const wordRows = [...wordLines.entries()].map(([k, line]) => ({ k, line, key: k.split('\u0000') }))
     .sort((a, b) => (a.key[0] < b.key[0] ? -1 : a.key[0] > b.key[0] ? 1 : Number(a.key[1]) - Number(b.key[1])));
-  const wordsBytes = Buffer.from(wordRows.map((r) => r.line).join('\n') + '\n', 'utf8');
+  const wordsBytes = linesToBytes(wordRows.map((r) => r.line));
 
   const parsedSummaries = [...summaryLines.values()].map((line) => JSON.parse(line));
   parsedSummaries.sort((a, b) => {
@@ -1139,7 +1153,7 @@ export function syncFromSessionTail(options) {
     return a.cmpId < b.cmpId ? -1 : a.cmpId > b.cmpId ? 1 : 0;
   });
   const summaryLinesSorted = parsedSummaries.map((s) => summaryLines.get(s.cmpId));
-  const summariesBytes = summaryLinesSorted.length === 0 ? Buffer.from('\n', 'utf8') : Buffer.from(summaryLinesSorted.join('\n') + '\n', 'utf8');
+  const summariesBytes = linesToBytes(summaryLinesSorted);
 
   // srcSeq 覆盖是**声明 vs 已发射**的诚实对照：既不丢声明，也不假装解析得到。
   const emittedKeys = new Set(wordRows.map((r) => r.key[0] + '\u0000' + r.key[1]));
@@ -1213,8 +1227,8 @@ export function syncFromSessionTail(options) {
   });
   manifest.counts.newWords = deltaWordRows.length;
   manifest.counts.newSummaries = deltaSummaryLines.length;
-  const deltaWordsBytes = Buffer.from(deltaWordRows.length ? deltaWordRows.map((r) => r.line).join('\n') + '\n' : '', 'utf8');
-  const deltaSummariesBytes = Buffer.from(deltaSummaryLines.length ? deltaSummaryLines.join('\n') + '\n' : '', 'utf8');
+  const deltaWordsBytes = deltaWordRows.length ? linesToBytes(deltaWordRows.map((r) => r.line)) : Buffer.alloc(0);
+  const deltaSummariesBytes = deltaSummaryLines.length ? linesToBytes(deltaSummaryLines) : Buffer.alloc(0);
 
   const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2) + '\n', 'utf8');
   const paths = writeOutputTriplet(outDir, wordsBytes, summariesBytes, manifestBytes);
@@ -1395,7 +1409,7 @@ function readEchoIndexFiles(abs) {
     if (typeof o.key !== 'string' || o.key.length === 0) fail(where + ': key must be a non-empty string');
     if (!Number.isSafeInteger(o.nextByte) || o.nextByte < 0) fail(where + ': nextByte must be a non-negative safe integer (it is the consumed offset, not the file length)');
     if (o.ws !== null && (typeof o.ws !== 'string' || o.ws.length === 0)) fail(where + ': ws must be a non-empty string or null');
-    if (typeof o.sid !== 'string' || !SESSION_RE.test(o.sid)) fail(where + ': sid must be ptr-safe ([A-Za-z0-9._-]{1,128})');
+    if (typeof o.sid !== 'string' || !SESSION_RE.test(o.sid)) fail(where + ': sid must be ptr-safe ([A-Za-z0-9._~-]{1,128})');
     for (const k of ['nSum', 'nWord']) if (!Number.isSafeInteger(o[k]) || o[k] < 0) fail(where + ': ' + k + ' must be a non-negative safe integer');
     for (const k of ['sumOut', 'wordOut']) if (typeof o[k] !== 'string' || o[k].length === 0) fail(where + ': ' + k + ' must be a non-empty path');
     const id = toPosix(path.resolve(o.file));
@@ -1485,7 +1499,7 @@ function collectEchoIndexFeed(options) {
     const where = 'words.jsonl line ' + entry.line;
     const row = entry.obj;
     if (typeof row.t !== 'string' || row.t.length === 0 || !Number.isFinite(Date.parse(row.t))) fail(where + ': t must be a parseable timestamp');
-    if (typeof row.session !== 'string' || !SESSION_RE.test(row.session)) fail(where + ': session must be ptr-safe ([A-Za-z0-9._-]{1,128}); log:<sid>#seq must stay resolvable');
+    if (typeof row.session !== 'string' || !SESSION_RE.test(row.session)) fail(where + ': session must be ptr-safe ([A-Za-z0-9._~-]{1,128}); log:<sid>#seq must stay resolvable');
     if (row.ws !== null && typeof row.ws !== 'string') fail(where + ': ws must be a string or null');
     if (!Number.isSafeInteger(row.seq) || row.seq < 0) fail(where + ': seq must be a non-negative safe integer');
     if (row.turn !== null && (!Number.isSafeInteger(row.turn) || row.turn < 0)) fail(where + ': turn must be null or a non-negative safe integer');
@@ -1537,7 +1551,7 @@ function collectEchoIndexFeed(options) {
   for (const entry of summariesParsed.rows) {
     const where = 'summaries.jsonl line ' + entry.line;
     const row = entry.obj;
-    if (typeof row.id !== 'string' || !CMP_RE.test(row.id)) fail(where + ': id must be idx-safe ([A-Za-z0-9._-]{1,128})');
+    if (typeof row.id !== 'string' || !CMP_RE.test(row.id)) fail(where + ': id must be idx-safe ([A-Za-z0-9._~-]{1,128})');
     if (typeof row.t !== 'string' || row.t.length === 0 || !Number.isFinite(Date.parse(row.t))) fail(where + ': t must be a parseable timestamp');
     if (typeof row.session !== 'string' || !SESSION_RE.test(row.session)) fail(where + ': session must be ptr-safe');
     for (const k of ['ws', 'log', 'provider', 'model']) if (row[k] !== null && typeof row[k] !== 'string') fail(where + ': ' + k + ' must be a string or null');
@@ -1840,10 +1854,10 @@ export function buildFromEchoIndexFiles(options) {
     sourceReport.push({ path: pathId, sid: source.sid, mode, nextByte: source.nextByte, key: source.key, words: derived.words, summaries: derived.summaries });
   }
 
-  const wordsBytes = Buffer.from(collected.words.map((w) => canonicalWordLine(w)).join('\n') + '\n', 'utf8');
+  const wordsBytes = linesToBytes(collected.words.map((w) => canonicalWordLine(w)));
   const summariesBytes = collected.summaries.length === 0
     ? Buffer.from('\n', 'utf8')
-    : Buffer.from(collected.summaries.map((s) => JSON.stringify(s)).join('\n') + '\n', 'utf8');
+    : linesToBytes(collected.summaries.map((s) => JSON.stringify(s)));
 
   const maxSeq = Math.max(...collected.words.map((w) => w.seq));
   const snapshot = Object.keys(stateFiles).sort().map((f) => ({ file: f, key: stateFiles[f].key, nextByte: stateFiles[f].nextByte }));

@@ -13,7 +13,7 @@
 //       GET  http://127.0.0.1:<port>/mcp   （返回服务信息）
 
 import http from 'node:http';
-import { TOOLS, callTool, SERVER_INFO, closeStore, setStoreMode } from './mcp-tools.mjs';
+import { TOOLS, callTool, SERVER_INFO, closeStore, closeEchoReaders, setStoreMode } from './mcp-tools.mjs';
 import { readonlyEnabled, classifyMcpCall, rejection, MANIFEST_ID } from '../security/write-manifest.mjs';
 
 export function createMcpHttpHandler({ path = '/mcp' } = {}) {
@@ -129,7 +129,7 @@ if (import.meta.url === 'file:///' + process.argv[1].replace(/\\/g, '/')) {
     if (!handled) { res.writeHead(404); res.end('not found'); }
   });
   for (const sig of ['exit', 'SIGINT', 'SIGTERM']) {
-    process.on(sig, () => { try { closeStore(); } catch {} if (sig !== 'exit') process.exit(0); });
+    process.on(sig, () => { try { closeStore(); } catch {} try { closeEchoReaders(); } catch {} if (sig !== 'exit') process.exit(0); });
   }
   srv.listen(port, '127.0.0.1', () => {
     process.stderr.write('[agent-soul] MCP over HTTP ready: http://127.0.0.1:' + port + '/mcp\n');

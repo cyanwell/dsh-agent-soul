@@ -917,7 +917,22 @@ const managerProofHandler = (req, res, deps) => handleManagerProofRequest(req, r
     } catch { return null; }
   },
 });
-const server = createServer({ store, loop, tools, config, bus, sched, persona, autonomy, ledger, control, degradation, eventsIngress, sessionDispatch, llm, cleanup, echoSentinel, echoLive, managerProofHandler });
+// ECHO is auxiliary. The liveness route reports it as unsampled and never opens
+// meta.sqlite; detailed authority reads request one readonly MetaStore snapshot and
+// server.mjs closes that snapshot after the response. Keeping this getter lazy avoids
+// startup I/O and prevents a persistent readonly connection from overlapping ECHO writes.
+// Historical trigger: the first startup-side open blocked for 29.8 seconds on the 7.29 GB DB.
+function getEchoStore () {
+  try {
+    return openMetaStore({ path: path.join(config.dataDir, 'meta.sqlite'), mode: 'readonly' });
+  } catch (e) {
+    console.error('  [ECHO] meta.sqlite 打不开（索引状态将显示不可用）：' + String((e && e.message) || e).slice(0, 160));
+    return null;
+  }
+}
+// 传给 createServer 的是**取用函数**，不是实例 —— 见 server.mjs 的 echoStore 用法。
+
+const server = createServer({ store, echoStore: getEchoStore, loop, tools, config, bus, sched, persona, autonomy, ledger, control, degradation, eventsIngress, sessionDispatch, llm, cleanup, echoSentinel, echoLive, managerProofHandler });
 
 // ── POST /api/shutdown（2026-11-09 · M0 壳集成）──────────────────────────────
 //
@@ -1684,6 +1699,10 @@ async function shutdown(reason) {
   ]);
   mark('closeServer');
   try { if (mobileChat && mobileChat.server) mobileChat.server.close(); } catch {}
+  try {
+    const { closeEchoReaders } = await import('./adapters/mcp-tools.mjs');
+    closeEchoReaders();
+  } catch {}
 
   // ③④ 冲缓存 + 写日志（同步，不会被上面任何超时打断）
   const rec = recordShutdown(reason, true, t0, { httpDrained, stages });

@@ -53,7 +53,7 @@ export const MAX_BLANK_SHARDS = 5;
 export const EXIT = Object.freeze({ ok: 0, usage: 2, refused: 3, io: 4 });
 
 const SHA_RE = /^[0-9a-f]{64}$/;
-const SID_RE = /^[A-Za-z0-9._-]{1,128}$/;
+const SID_RE = /^[A-Za-z0-9._~-]{1,128}$/;
 const ROLE_VALUES = new Set(['files', 'words', 'summaries', 'shard']);
 const IS_WIN = process.platform === 'win32';
 const LF = String.fromCharCode(10);

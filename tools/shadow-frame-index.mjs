@@ -291,7 +291,7 @@ async function main() {
   trace('pass1-done records=' + parsedRecords);
   if (!sessionHeader) throw new Error('no session header (type=session) found; cannot derive the real session id');
   const sessionId = sessionHeader.id;
-  if (typeof sessionId !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(sessionId)) {
+  if (typeof sessionId !== 'string' || !/^[A-Za-z0-9._~-]{1,128}$/.test(sessionId)) {
     throw new Error('session header id is not a valid session id: ' + String(sessionId).slice(0, 80));
   }
   if (firstCompleteFrame === null) throw new Error('no complete frame available for the stream fingerprint');
@@ -347,8 +347,9 @@ async function main() {
   out.dbPath = dbPath;
   out.relocateDir = relocateDir;
 
+  const shadowId = createHash('sha256').update(sessionId, 'utf8').digest('hex').slice(0, 32);
   const source = {
-    sourceId: 'p2-shadow-' + sessionId,
+    sourceId: 'p2-shadow-' + shadowId,
     kind: 'dsh-log',
     namespace: 'log',
     authority: 'primary',
@@ -392,7 +393,7 @@ async function main() {
       const h = hashFrame(text);
       if (text.length > 4096) truncatedExpected += 1;
       if (text.length > maxCanonicalLength) maxCanonicalLength = text.length;
-      const res = store.ingest({
+      const res = store.ingestEchoShadow({
         source,
         session,
         frame: {
@@ -439,7 +440,7 @@ async function main() {
       const seq = rec.seq;
       if (!Number.isSafeInteger(seq) || seq < 0) return;
       const text = canonicalOf(rec);
-      const res = store.ingest({
+      const res = store.ingestEchoShadow({
         source,
         session,
         frame: { seq, frameOrdinal: ordinal, rawPath: srcFile, type: typeof rec.type === 'string' ? rec.type : null, eventAt: rec.time === undefined || rec.time === null ? null : String(rec.time), text },

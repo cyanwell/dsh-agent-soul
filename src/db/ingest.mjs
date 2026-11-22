@@ -24,6 +24,7 @@ import {
   assertPathKind,
   assertSeq,
   assertSessionId,
+  assertEchoSessionId,
   assertSourceId,
   assertString,
   assertTailState,
@@ -57,9 +58,11 @@ function normalizeSource(src) {
   return { sourceId, kind, namespace, authority, rawPath, pathKind };
 }
 
-function normalizeSession(sess, sourceId) {
+function normalizeSession(sess, sourceId, allowEchoSessionId) {
   if (!sess || typeof sess !== 'object') fail(CODES.INVALID_INPUT, 'record.session is required', { session: sess });
-  const sessionId = assertSessionId(sess.sessionId, 'session.sessionId');
+  const sessionId = allowEchoSessionId
+    ? assertEchoSessionId(sess.sessionId, 'session.sessionId')
+    : assertSessionId(sess.sessionId, 'session.sessionId');
   const containerId = sess.containerId === undefined || sess.containerId === null
     ? null
     : assertString(sess.containerId, 'session.containerId', { min: 1, max: 128 });
@@ -207,7 +210,7 @@ export function ingestRecord(db, record, options) {
 
   // 全部校验在事务之外完成：非法输入不会留下任何痕迹。
   const source = normalizeSource(record && record.source);
-  const session = normalizeSession(record && record.session, source.sourceId);
+  const session = normalizeSession(record && record.session, source.sourceId, o.allowEchoSessionId === true);
   const frame = normalizeFrame(record && record.frame, source);
   const cursor = record && record.cursor !== undefined && record.cursor !== null
     ? normalizeCursor(record.cursor, session, frame)

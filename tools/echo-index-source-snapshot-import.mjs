@@ -162,7 +162,7 @@ const SID_ALLOWED_COLUMNS = Object.freeze({
   'echo_summaries_fts.raw_text': true,
   'echo_summaries_fts.search_text': true,
 });
-const SID_RE = /^[A-Za-z0-9._-]{1,128}$/;
+const SID_RE = /^[A-Za-z0-9._~-]{1,128}$/;
 const sha = (b) => createHash('sha256').update(b instanceof Buffer ? b : Buffer.from(String(b), 'utf8')).digest('hex');
 const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -205,7 +205,7 @@ function requireSid(src, where) {
     throw refuse('SID_MISSING', where + ' does not carry sid (the only identity input besides namespace)');
   }
   if (typeof sid !== 'string' || !SID_RE.test(sid)) {
-    throw refuse('SID_MALFORMED', where + '.sid must be ptr-safe ([A-Za-z0-9._-]{1,128}) — log:<sid>#seq must stay resolvable');
+    throw refuse('SID_MALFORMED', where + '.sid must be ptr-safe ([A-Za-z0-9._~-]{1,128}) — log:<sid>#seq must stay resolvable');
   }
   return sid;
 }

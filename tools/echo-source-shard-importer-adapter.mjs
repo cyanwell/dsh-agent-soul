@@ -71,8 +71,8 @@ const wordKey = (w) => JSON.stringify([w.session,w.seq]);
 // only path/version/namespace per shard, so sourcePath is threaded in from the descriptors instead.
 const sourceIdentity = (sourcePath,version,namespace) => JSON.stringify([sourcePath,version,namespace]);
 const scopedWordKey = (scope,w) => JSON.stringify([scope,w.session,w.seq]);
-const SESSION_RE = /^[A-Za-z0-9._-]{1,128}$/;
-const CMP_RE = /^[A-Za-z0-9._-]{1,128}$/;
+const SESSION_RE = /^[A-Za-z0-9._~-]{1,128}$/;
+const CMP_RE = /^[A-Za-z0-9._~-]{1,128}$/;
 const REASONING = ['reasoning','thinking'];
 
 function validateExpectedWord(w,where){ if(!object(w)||!str(w.session)||!safe(w.seq))throw new TypeError(where+' requires session and seq >= 0'); }
@@ -84,7 +84,7 @@ function validateWordRow(row){
   for(const k of Object.keys(row))if(!IMPORTER_WORD_FIELDS.includes(k))throw new Error('unsupported field '+k+' (importer shape is exactly '+IMPORTER_WORD_FIELDS.join(',')+')');
   for(const k of IMPORTER_WORD_FIELDS)if(!own(row,k))throw new Error('missing source field '+k);
   if(typeof row.t!=='string'||!row.t.trim()||!Number.isFinite(Date.parse(row.t)))throw new Error('t must be a parseable timestamp');
-  if(typeof row.session!=='string'||!SESSION_RE.test(row.session))throw new Error('session must be ptr-safe ([A-Za-z0-9._-]{1,128})');
+  if(typeof row.session!=='string'||!SESSION_RE.test(row.session))throw new Error('session must be ptr-safe ([A-Za-z0-9._~-]{1,128})');
   if(!(row.ws===null||typeof row.ws==='string'))throw new Error('ws must be a string or null');
   if(!safe(row.seq))throw new Error('seq must be a safe integer >= 0');
   if(!(row.turn===null||safe(row.turn)))throw new Error('turn must be null or a safe integer >= 0');

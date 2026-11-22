@@ -24,8 +24,8 @@ cfg.dataDir = path.join(ROOT, 'data', 'selftest-' + Date.now());
 //   ★ 这不是「让测试变绿」：断言一个字没改，改的是**输入**。
 cfg.llm = Object.assign({}, cfg.llm, { apiKey: '', apiKeyRef: null });
 const store = new SessionStore(cfg.dataDir);
-// /api/health ECHO summary is additive; the HTTP self-test uses a deterministic stub, never a shared meta.sqlite.
-store.echoStats = () => ({ available: true, aligned: true, ok: true, searchable: true, words: 1, summaries: 0, problems: [] });
+// /api/health is liveness-only: it never opens or queries MetaStore.
+// Detailed ECHO views receive a distinct read-only store getter when explicitly requested.
 
 const missingEchoHealth = echoHealthSummary(null);
 if (missingEchoHealth.available !== false || missingEchoHealth.aligned !== null || missingEchoHealth.counts !== null) throw new Error('ECHO missing-store fallback invalid');
@@ -94,7 +94,17 @@ await check('单调守卫能否决', async () => {
 });
 
 await check('HTTP 服务 + 接口 + 五槽位', async () => {
-  const server = createServer({ store, loop, tools, config: cfg });
+  let echoStoreOpens = 0;
+  let echoStoreCloses = 0;
+  let echoStoreFailure = false;
+  const server = createServer({ store, loop, tools, config: cfg, echoStore: () => {
+    echoStoreOpens++;
+    if (echoStoreFailure) throw new Error('synthetic private db path');
+    return {
+      echoSourceStatus: () => ({ available: true, aligned: true, truncated: false, rows: [{ sourceId: 'synthetic', namespace: 'log', sourceVersion: 'v3', generation: 1, state: 'committed', cursorSeq: 1, counts: { words: 1, wordsFts: 1, summaries: 0, summariesFts: 0, srcSeqs: 0, declaredSrcSeqs: 0 }, aligned: true }]}),
+      close: () => { echoStoreCloses++; },
+    };
+  } });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
   const base = 'http://127.0.0.1:' + port;
@@ -102,31 +112,19 @@ await check('HTTP 服务 + 接口 + 五槽位', async () => {
   try {
     const h = await (await fetch(base + '/api/health')).json();
     if (!h.ok) throw new Error('health 不对');
-    if (!h.echoIndex || h.echoIndex.available !== true || h.echoIndex.aligned !== true || h.echoIndex.searchable !== true) throw new Error('ECHO health summary missing/invalid');
-    if (JSON.stringify(h.echoIndex).match(/source|pointer|session-|path|token/i)) throw new Error('ECHO health summary leaked detail');
-    const echoStatsBefore = store.echoStats;
-    store.echoStats = () => ({ available: true, aligned: false, ok: false, searchable: false, words: 2, summaries: 1, problems: [{ kind: 'source-declared-counts' }] });
-    const badEchoHealth = await (await fetch(base + '/api/health')).json();
-    store.echoStats = echoStatsBefore;
-    if (!badEchoHealth.ok || badEchoHealth.echoIndex.aligned !== false || badEchoHealth.echoIndex.problemKinds[0] !== 'source-declared-counts') throw new Error('ECHO health must report index degradation without changing service liveness');
-    const echoFallbacks = [
-      [undefined, 'Store unavailable'],
-      [() => ({ available: false, why: 'secret path D:/private' }), 'ECHO index unavailable'],
-      [() => { throw new Error('secret path D:/private'); }, 'ECHO stats read failed']
-    ];
-    for (const [statsFn, reason] of echoFallbacks) {
-      try {
-        if (statsFn === undefined) delete store.echoStats;
-        else store.echoStats = statsFn;
-        const response = await fetch(base + '/api/health');
-        const body = await response.json();
-        const encoded = JSON.stringify(body.echoIndex);
-        if (response.status !== 200 || body.ok !== true || body.echoIndex.available !== false || body.echoIndex.reason !== reason) throw new Error('ECHO fallback mismatch for ' + reason);
-        if (encoded.includes('secret') || encoded.includes('D:/private')) throw new Error('ECHO fallback leaked error detail');
-      } finally {
-        store.echoStats = echoStatsBefore;
-      }
-    }
+    if (!h.echoIndex || h.echoIndex.available !== false || h.echoIndex.aligned !== null || h.echoIndex.reason !== 'not sampled by liveness probe') throw new Error('health must not query the ECHO store');
+    if (JSON.stringify(h.echoIndex).match(/source|pointer|session-|path|token/i)) throw new Error('ECHO liveness status leaked detail');
+    if (echoStoreOpens !== 0) throw new Error('/api/health opened ECHO MetaStore');
+    const authorityResponse = await fetch(base + '/api/echo/authority-view', { headers: { 'X-Soul-Token': token } });
+    const authority = await authorityResponse.json();
+    if (!authorityResponse.ok || authority.sources.available !== true || authority.sources.aligned !== true) throw new Error('authority-view did not use explicit ECHO snapshot');
+    if (echoStoreOpens !== 1 || echoStoreCloses !== 1) throw new Error('authority-view must open/close exactly one ECHO snapshot');
+    echoStoreFailure = true;
+    const missingAuthorityResponse = await fetch(base + '/api/echo/authority-view', { headers: { 'X-Soul-Token': token } });
+    const missingAuthority = await missingAuthorityResponse.json();
+    echoStoreFailure = false;
+    if (missingAuthorityResponse.status !== 503 || missingAuthority.code !== 'ECHO_STORE_UNAVAILABLE') throw new Error('authority-view must report unavailable store, never fallback to SessionStore');
+    if (JSON.stringify(missingAuthority).includes('private db path')) throw new Error('authority-view store failure leaked details');
     const list = await (await fetch(base + '/api/sessions')).json();
     if (!list.sessions.length) throw new Error('会话列表空');
     const frResponse = await fetch(base + '/api/session/' + sid + '/frames', { headers: { 'X-Soul-Token': token } });

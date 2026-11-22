@@ -17,7 +17,7 @@ function validateRow(row){
   for(const k of Object.keys(row))if(!allow.has(k))throw new Error('unsupported field '+k);
   if(!safe(row.seq))throw new Error('seq must be safe integer >=0');
   if(typeof row.t!=='string'||!row.t.trim()||!Number.isFinite(Date.parse(row.t)))throw new Error('t must be parseable timestamp');
-  if(typeof row.session!=='string'||!/^[A-Za-z0-9._-]{1,128}$/.test(row.session))throw new Error('session must be ptr-safe');
+  if(typeof row.session!=='string'||!/^[A-Za-z0-9._~-]{1,128}$/.test(row.session))throw new Error('session must be ptr-safe');
   if(own(row,'ws')&&(typeof row.ws!=='string'||!row.ws.trim()))throw new Error('ws must be non-empty string');
   if(row.role!=='user'&&row.role!=='assistant')throw new Error('role must be user|assistant');
   if(typeof row.text!=='string'||!row.text.trim())throw new Error('text must be non-empty string');
@@ -27,9 +27,9 @@ function validateSummaryRow(r){
   if(!object(r))throw new Error('summary must be object');
   for(const k of Object.keys(r))if(!SUMMARY_FIELDS.has(k))throw new Error('unsupported summary field '+k);
   for(const k of SUMMARY_FIELDS)if(!own(r,k))throw new Error('missing summary field '+k);
-  if(typeof r.cmpId!=='string'||!/^[A-Za-z0-9._-]{1,128}$/.test(r.cmpId))throw new Error('cmpId must be idx-safe');
+  if(typeof r.cmpId!=='string'||!/^[A-Za-z0-9._~-]{1,128}$/.test(r.cmpId))throw new Error('cmpId must be idx-safe');
   if(typeof r.t!=='string'||!r.t.trim()||!Number.isFinite(Date.parse(r.t)))throw new Error('summary t must be parseable');
-  if(typeof r.session!=='string'||!/^[A-Za-z0-9._-]{1,128}$/.test(r.session))throw new Error('summary session must be ptr-safe');
+  if(typeof r.session!=='string'||!/^[A-Za-z0-9._~-]{1,128}$/.test(r.session))throw new Error('summary session must be ptr-safe');
   for(const k of ['ws','log','provider','model'])if(r[k]!==null&&typeof r[k]!=='string')throw new Error(k+' must be string or null');
   if(!Array.isArray(r.srcSeqs)||r.srcSeqs.some((x)=>!safe(x)))throw new Error('srcSeqs must be ordered nonnegative safe integers');
   if(!safe(r.shadowedTokens)||!safe(r.shadowedChars))throw new Error('shadowed counts must be nonnegative safe integers');

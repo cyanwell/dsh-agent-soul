@@ -85,7 +85,18 @@ function mapCursor(row) {
 // 与导入器同一个批量。它只影响往返次数，**不影响是否命中**（见 search.mjs 文件头）。
 const ECHO_SEARCH_BATCH = 200;
 const ECHO_LIMIT_MAX = 500;
-const ECHO_CMP_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
+const ECHO_CMP_ID_RE = /^[A-Za-z0-9._~-]{1,128}$/;
+const ECHO_COUNT_SQL = Object.freeze({
+  words: 'SELECT echo_source_id AS sid, COUNT(*) AS n FROM echo_words GROUP BY echo_source_id',
+  wordsFts: 'SELECT echo_source_id AS sid, COUNT(*) AS n FROM echo_words_fts GROUP BY echo_source_id',
+  summaries: 'SELECT echo_source_id AS sid, COUNT(*) AS n FROM echo_summaries GROUP BY echo_source_id',
+  summariesFts: 'SELECT echo_source_id AS sid, COUNT(*) AS n FROM echo_summaries_fts GROUP BY echo_source_id',
+  declaredSeqRows: 'SELECT echo_source_id AS sid, COALESCE(SUM(src_seq_count), 0) AS n FROM echo_summaries GROUP BY echo_source_id',
+  seqRows: 'SELECT echo_source_id AS sid, COUNT(*) AS n FROM echo_summary_src_seqs GROUP BY echo_source_id',
+  builds: 'SELECT echo_source_id AS sid, COUNT(*) AS n FROM echo_source_builds GROUP BY echo_source_id',
+  maxBuildGeneration: 'SELECT echo_source_id AS sid, MAX(generation) AS n FROM echo_source_builds GROUP BY echo_source_id',
+});
+
 
 // 七张表的清单与缺表探测都搬到 ./echo-integrity.mjs（ECHO_INTEGRITY_TABLES / echoMissingTables）。
 // ★ 只留一处定义：缺表口径（echoStats 回 available:false、检索抛 ECHO_INDEX_MISSING）用的是同一张表。
@@ -160,7 +171,35 @@ function echoSourceFromRow(row) {
 }
 
 function echoIndexInfo(db) {
-  const sources = db.prepare(ECHO_SOURCE_STATS_SQL).all().map(echoSourceFromRow);
+  // FTS echo_source_id columns are UNINDEXED. Aggregate each table once instead
+  // of doing one full virtual-table count scan for every source row.
+  db.exec('SAVEPOINT echo_index_info_read');
+  let sources;
+  try {
+    const baseRows = db.prepare([
+      'SELECT s.echo_source_id AS sid, s.source_path AS path, s.source_version AS version, s.namespace AS ns,',
+      '  s.generation AS generation, s.state AS state, s.cursor_seq AS cursor_seq, s.cursor_json AS cursor_json,',
+      '  s.words_count AS declared_words, s.summaries_count AS declared_summaries, s.src_seq_count AS declared_src_seqs,',
+      '  s.source_sha256 AS sha, s.source_bytes AS bytes, s.built_at AS built_at, s.imported_at AS imported_at, s.importer AS importer',
+      'FROM echo_index_sources s ORDER BY s.source_path, s.source_version',
+    ].join(' ')).all();
+    const counts = {};
+    for (const key of Object.keys(ECHO_COUNT_SQL)) {
+      const map = new Map();
+      for (const row of db.prepare(ECHO_COUNT_SQL[key]).all()) map.set(row.sid, row.n === null ? null : Number(row.n));
+      counts[key] = map;
+    }
+    sources = baseRows.map((row) => echoSourceFromRow(Object.assign({}, row, {
+      words: counts.words.get(row.sid) || 0,
+      words_fts: counts.wordsFts.get(row.sid) || 0,
+      summaries: counts.summaries.get(row.sid) || 0,
+      summaries_fts: counts.summariesFts.get(row.sid) || 0,
+      declared_seq_rows: counts.declaredSeqRows.get(row.sid) || 0,
+      seq_rows: counts.seqRows.get(row.sid) || 0,
+      builds: counts.builds.get(row.sid) || 0,
+      max_build_generation: counts.maxBuildGeneration.has(row.sid) ? counts.maxBuildGeneration.get(row.sid) : null,
+    })));
+  } finally { db.exec('RELEASE echo_index_info_read'); }
   return {
     sources,
     words: sources.reduce(function (a, x) { return a + x.words; }, 0),
@@ -171,7 +210,7 @@ function echoIndexInfo(db) {
 
 // 闸：缺表 = ECHO_INDEX_MISSING（不是空索引）；有表但计数不齐 = ECHO_INDEX_STALE。
 // ★ 两件事必须分开：前者是「没建过」，后者是「建了但坏了」。混成一句，人会去重建而不是去查是谁写坏的。
-function echoAssertIndex(db) {
+function echoAssertIndex(db, echoSourceId) {
   const missing = echoMissingTables(db);
   if (missing.length > 0) {
     fail('ECHO_INDEX_MISSING',
@@ -190,6 +229,16 @@ function echoAssertIndex(db) {
 function echoSourceRow(db, echoSourceId) {
   const row = db.prepare(ECHO_SOURCE_ONE_SQL).get(echoSourceId);
   return row ? echoSourceFromRow(row) : null;
+}
+
+function echoSourceMetadata(db, echoSourceId) {
+  const row = db.prepare('SELECT echo_source_id AS sid, source_path AS path, source_version AS version, namespace AS ns, generation, state, source_sha256 AS sha, cursor_seq FROM echo_index_sources WHERE echo_source_id = ?').get(echoSourceId);
+  if (!row) return null;
+  return {
+    echoSourceId: row.sid, sourcePath: row.path, sourceVersion: row.version,
+    namespace: row.ns, generation: Number(row.generation), state: row.state,
+    sourceSha256: row.sha, cursorSeq: Number(row.cursor_seq),
+  };
 }
 
 // ── 指针：三种命名空间互不冒充（与 v9 parseEchoPtr 同一套判据、同一套码）────
@@ -237,30 +286,32 @@ function echoSourceSelector(options) {
 }
 
 function echoPickCandidate(db, ptr, kind, rows, selector) {
-  const candidates = rows.map(function (r) { return echoSourceRow(db, r.sid); });
+  const candidateIds = rows.map((r) => r.sid);
   if (selector !== null) {
-    const hit = candidates.filter(function (c) { return c && c.echoSourceId === selector; });
-    if (hit.length !== 1) {
+    if (candidateIds.filter((id) => id === selector).length !== 1) {
+      const candidates = rows.map((r) => echoSourceRow(db, r.sid));
       fail('ECHO_PTR_SOURCE_MISMATCH',
         'echoSourceId ' + selector + ' is not one of the ' + rows.length + ' ECHO sources behind ' + ptr + ' (' + kind + '); refusing to look outside this pointer\'s candidates',
-        {
-          ptr, kind, echoSourceId: selector,
-          candidateIds: candidates.map(function (c) { return c && c.echoSourceId ? c.echoSourceId : null; }),
-          candidates,
-        });
+        { ptr, kind, echoSourceId: selector, candidateIds, candidates });
     }
-    return hit[0];
+    return echoSourceMetadata(db, selector);
   }
   if (rows.length > 1) {
+    const candidates = rows.map((r) => echoSourceRow(db, r.sid));
     fail('ECHO_PTR_AMBIGUOUS',
       'ptr ' + ptr + ' matches ' + rows.length + ' ECHO sources (' + kind + '); refusing to guess — pick one of the candidate paths',
       { ptr, kind, candidates });
   }
-  return candidates[0];
+  return echoSourceMetadata(db, candidateIds[0]);
 }
 
 function echoOpenIn(db, ptr, options) {
-  echoAssertIndex(db);
+  const missing = echoMissingTables(db);
+  if (missing.length > 0) {
+    fail('ECHO_INDEX_MISSING',
+      'this database has no ECHO derived index (missing: ' + missing.join(', ') + '); import one with tools/echo-index-import.mjs — the store never fabricates it',
+      { missing });
+  }
   const parsed = echoParsePtr(ptr);
   // ★ 只在候选选定这一步起作用：指针文本本身原样保留（不做 @stream16 之类的改写）。
   const selector = echoSourceSelector(options);
@@ -532,7 +583,7 @@ function echoScanSummariesIn(db, plan, filters, limit, out) {
   }
 }
 
-function echoSearchIn(db, query, options) {
+function echoSearchIn(db, query, options, validatedIndex) {
   const o = options || {};
   const surface = o.surface === undefined || o.surface === null ? 'all' : String(o.surface);
   if (['all', 'words', 'summaries'].indexOf(surface) === -1) {
@@ -550,7 +601,7 @@ function echoSearchIn(db, query, options) {
     ? null : String(o.echoSourceId);
   // 先校验查询串（非法输入优先报 INVALID_INPUT），再验索引，最后才扫描 —— 与 searchFrames 同序。
   const plan = buildQueryPlan(query);
-  const index = echoAssertIndex(db);
+  const index = validatedIndex || echoAssertIndex(db, echoSourceId);
   if (echoSourceId !== null && !index.sources.some(function (s) { return s.echoSourceId === echoSourceId; })) {
     fail('ECHO_SOURCE_NOT_FOUND', 'no ECHO source indexed with id ' + echoSourceId, {
       echoSourceId, sources: index.sources.map(function (s) { return s.echoSourceId; }),
@@ -701,6 +752,7 @@ export function openMetaStore(options) {
   }
 
   let closed = false;
+  let echoProofCache = null;
 
   // ── v8：导入行是溯源，不是「现在」 ──────────────────────────────────────
   // 当前主导只认**本机写入**的 lead（import_batch_id IS NULL）。历史导入的 lead 行
@@ -747,6 +799,7 @@ export function openMetaStore(options) {
     refreshState() {
       state = readSchemaState(db);
       ledgerColumns = null;
+      echoProofCache = null;
       return state;
     },
 
@@ -930,6 +983,19 @@ export function openMetaStore(options) {
       }
     },
 
+    // Internal-purpose write path for the isolated shadow importer: SID grammar
+    // admits host-escaped '~', while sourceId and ordinary frame ingest stay strict.
+    ingestEchoShadow(record) {
+      store.assertOpen();
+      if (readOnly) fail(CODES.READONLY, 'readonly store cannot ingest ECHO shadow frames', { path: filePath });
+      store.ensureReady();
+      try {
+        return ingestRecord(db, record, { now: new Date().toISOString(), allowEchoSessionId: true });
+      } catch (err) {
+        throw translateSqliteError(err);
+      }
+    },
+
     resolvePtr(ptr) {
       store.assertOpen();
       store.ensureReady();
@@ -1057,7 +1123,26 @@ export function openMetaStore(options) {
     echoSearch(query, options) {
       store.assertOpen();
       store.ensureReady();
-      return echoSearchIn(db, query, options);
+      if (!readOnly) return echoSearchIn(db, query, options);
+      // One readonly Store may serve many MCP calls. Cache only the exact global
+      // alignment proof, keyed to SQLite data_version, and pin validation + search
+      // inside the same read snapshot. Any external commit invalidates the proof.
+      db.exec('SAVEPOINT echo_search_read');
+      try {
+        // Pin the SQLite read snapshot with an actual table read before sampling
+        // data_version; SAVEPOINT/PRAGMA alone do not establish the read view.
+        db.prepare('SELECT echo_source_id FROM echo_index_sources ORDER BY echo_source_id LIMIT 1').get();
+        const version = Number(db.prepare('PRAGMA data_version').get().data_version);
+        let index = echoProofCache && echoProofCache.version === version ? echoProofCache.index : null;
+        if (!index) {
+          index = echoAssertIndex(db, null);
+          echoProofCache = { version, index };
+        }
+        return echoSearchIn(db, query, options, index);
+      } finally {
+        try { db.exec('ROLLBACK TO echo_search_read'); } catch {}
+        try { db.exec('RELEASE echo_search_read'); } catch {}
+      }
     },
 
     // 打开一个 ECHO 指针。返回 { status:'ok', kind:'word'|'summary', ... }。
@@ -1089,19 +1174,29 @@ export function openMetaStore(options) {
       const required = ['echo_index_sources', 'echo_words', 'echo_words_fts', 'echo_summaries', 'echo_summaries_fts', 'echo_summary_src_seqs', 'echo_source_builds'];
       const present = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table','view')").all().map((row) => row.name));
       if (!required.every((name) => present.has(name))) return { available: null, aligned: null, rows: null };
-      const rows = db.prepare([
-        'SELECT s.echo_source_id AS source_id, s.namespace AS namespace, s.source_version AS source_version,',
-        's.generation AS generation, s.state AS state, s.cursor_seq AS cursor_seq,',
-        's.words_count AS declared_words, s.summaries_count AS declared_summaries, s.src_seq_count AS declared_src_seqs,',
-        '(SELECT COUNT(*) FROM echo_words w WHERE w.echo_source_id=s.echo_source_id) AS words,',
-        '(SELECT COUNT(*) FROM echo_words_fts f WHERE f.echo_source_id=s.echo_source_id) AS words_fts,',
-        '(SELECT COUNT(*) FROM echo_summaries m WHERE m.echo_source_id=s.echo_source_id) AS summaries,',
-        '(SELECT COUNT(*) FROM echo_summaries_fts f WHERE f.echo_source_id=s.echo_source_id) AS summaries_fts,',
-        '(SELECT COALESCE(SUM(m.src_seq_count),0) FROM echo_summaries m WHERE m.echo_source_id=s.echo_source_id) AS declared_seq_rows,',
-        '(SELECT COUNT(*) FROM echo_summary_src_seqs q WHERE q.echo_source_id=s.echo_source_id) AS seq_rows,',
-        's.built_at AS built_at, s.imported_at AS imported_at',
-        'FROM echo_index_sources s ORDER BY s.echo_source_id LIMIT 65'
-      ].join(' ')).all();
+      // Keep the multi-query status snapshot consistent if an importer commits concurrently.
+      db.exec('SAVEPOINT echo_source_status_read');
+      let rows;
+      try {
+        const baseRows = db.prepare([
+          'SELECT s.echo_source_id AS source_id, s.namespace AS namespace, s.source_version AS source_version,',
+          's.generation AS generation, s.state AS state, s.cursor_seq AS cursor_seq,',
+          's.words_count AS declared_words, s.summaries_count AS declared_summaries, s.src_seq_count AS declared_src_seqs,',
+          '(SELECT COUNT(*) FROM echo_words w WHERE w.echo_source_id=s.echo_source_id) AS words,',
+          '(SELECT COUNT(*) FROM echo_summaries m WHERE m.echo_source_id=s.echo_source_id) AS summaries,',
+          '(SELECT COALESCE(SUM(m.src_seq_count),0) FROM echo_summaries m WHERE m.echo_source_id=s.echo_source_id) AS declared_seq_rows,',
+          '(SELECT COUNT(*) FROM echo_summary_src_seqs q WHERE q.echo_source_id=s.echo_source_id) AS seq_rows,',
+          's.built_at AS built_at, s.imported_at AS imported_at',
+          'FROM echo_index_sources s ORDER BY s.echo_source_id LIMIT 65'
+        ].join(' ')).all();
+        const countBySource = (table) => new Map(db.prepare('SELECT echo_source_id AS sid, COUNT(*) AS n FROM ' + table + ' GROUP BY echo_source_id').all().map(r => [r.sid, Number(r.n)]));
+        const wordsFts = countBySource('echo_words_fts');
+        const summariesFts = countBySource('echo_summaries_fts');
+        rows = baseRows.map(row => Object.assign({}, row, {
+          words_fts: wordsFts.get(row.source_id) || 0,
+          summaries_fts: summariesFts.get(row.source_id) || 0,
+        }));
+      } finally { db.exec('RELEASE echo_source_status_read'); }
       const truncated = rows.length > 64;
       const sources = rows.slice(0, 64).map((row) => {
         const counts = { words: Number(row.words), wordsFts: Number(row.words_fts), summaries: Number(row.summaries), summariesFts: Number(row.summaries_fts), srcSeqs: Number(row.seq_rows), declaredSrcSeqs: Number(row.declared_src_seqs) };
@@ -1263,6 +1358,7 @@ export function openMetaStore(options) {
 
     close() {
       if (closed) return false;
+      echoProofCache = null;
       closed = true;
       db.close();
       return true;

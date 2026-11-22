@@ -1,9 +1,9 @@
-﻿{
+{
   "name": "agent-soul",
-  "version": "1.0.80",
+  "version": "1.0.86",
   "private": true,
   "type": "module",
-  "description": "agent-soul v4 鈥斺€?浠?DSH 瑙ｈ€﹀嚭鏉ョ殑鐏甸瓊灞傝繍琛屾椂銆備細璇?/ 浜嬩欢 / 璁板繂 / 浜烘牸锛岃嚜甯︼紝浠讳綍 harness 閮借兘鎺ャ€?,
+  "description": "agent-soul v4 —— 从 DSH 解耦出来的灵魂层运行时。会话 / 事件 / 记忆 / 人格，自带，任何 harness 都能接。",
   "main": "src/index.mjs",
   "engines": {
     "node": ">=22"

@@ -77,8 +77,8 @@ function triStateFlag(value) {
 }
 
 /** Additive, redacted ECHO status for the unauthenticated liveness endpoint. */
-export function echoHealthSummary(store) {
-  const unknown = { available: false, aligned: null, ok: null, searchable: null, counts: null, problemKinds: [], reason: 'Store unavailable' };
+export function echoHealthSummary(store, unavailableReason = 'Store unavailable') {
+  const unknown = { available: false, aligned: null, ok: null, searchable: null, counts: null, problemKinds: [], reason: String(unavailableReason) };
   try {
     if (!store || typeof store.echoStats !== 'function') return unknown;
     const stats = store.echoStats();
@@ -732,7 +732,7 @@ async function writeFileAtomic(file, text) {
 //   不挂在 control 底下：hub 认识「谁连上来了、谁会什么」，器官认识「这意味着什么」。
 // ★ 2026-11-10：多收一个 llm —— /api/guard 的模糊层要用**同一个** LlmClient 实例。
 //   不新建第二套宿主：配置、协议、key 来源、运行统计都跟对话主链路共用一份。
-export function createServer({ store, loop, tools, config, bus, sched, persona, autonomy, ledger, control, degradation, eventsIngress = null, sessionDispatch: sessionDispatchIn = null, llm = null, cleanup = null, echoSentinel = null, echoLive = null, managerProofHandler = null }) {
+export function createServer({ store, echoStore = null, loop, tools, config, bus, sched, persona, autonomy, ledger, control, degradation, eventsIngress = null, sessionDispatch: sessionDispatchIn = null, llm = null, cleanup = null, echoSentinel = null, echoLive = null, managerProofHandler = null }) {
   // ★ overview 缓存：首次采集要 3.2 秒（1006 个会话建索引），开页面等这么久不可接受。
   //   30 秒内的重复请求直接回缓存；?fresh=1 强制重算。
   let ovCache = null, ovAt = 0;
@@ -1394,7 +1394,16 @@ const payload = await statusCached({ config, store, persona, tools, autonomy, lo
       //   ★ 读数来自回执文件（子进程写的几百字节 JSON），不是同步查库。
       //     查库是 1.6~7.6 秒的同步 SQL —— 那正是阶段 2 花力气挪走的东西。
       if (p === '/api/echo/authority-view' && req.method === 'GET') {
-        return json(res, 200, echoAuthorityView({ store, echoLive }), { 'Cache-Control': 'no-store' });
+        // Explicit detailed read path: open read-only, serve one snapshot, then close.
+        // Liveness health never enters this synchronous path.
+        let snapshot = null;
+        try { snapshot = typeof echoStore === 'function' ? echoStore() : echoStore; } catch { snapshot = null; }
+        if (!snapshot || typeof snapshot.echoSourceStatus !== 'function') {
+          return json(res, 503, { ok: false, code: 'ECHO_STORE_UNAVAILABLE', issue: 'database-not-wired' }, { 'Cache-Control': 'no-store' });
+        }
+        try {
+          return json(res, 200, echoAuthorityView({ store: snapshot, echoLive }), { 'Cache-Control': 'no-store' });
+        } finally { try { if (typeof snapshot.close === 'function') snapshot.close(); } catch { /* read cleanup */ } }
       }
       if (p === '/api/echo-live' && req.method === 'GET') {
         if (!echoLive) return json(res, 200, { ok: false, enabled: false, reason: '本进程没有接 echoLive 器官' });
@@ -1828,7 +1837,17 @@ const payload = await statusCached({ config, store, persona, tools, autonomy, lo
         } catch (e) { return { ok: false, reason: String((e && e.message) || e).slice(0, 160) }; }
       })(),
           // Additive subsystem health: ECHO never changes the core liveness `ok` contract.
-          echoIndex: echoHealthSummary(store),
+          // ★★★ 2026-11-22：**传进来的 store 是 SessionStore，它没有 echoStats()。**
+          //   SessionStore 管的是 frames（会话帧），MetaStore 管的是 meta.sqlite
+          //   （《墨》/ ECHO 索引 / 迁移史）—— 是两个东西，两个文件。
+          //   这里一直传 SessionStore，于是 echoHealthSummary 的
+          //   `typeof store.echoStats !== 'function'` 恒真 → 永远 "Store unavailable"。
+          //   ★ 症状：面板说"索引不可用"，而库里索引完好（实测 136,756 词 / aligned=true）。
+          //   ★ 判据：**"读不到"分两种 —— 数据没有，和我拿错了对象。**
+          //     这次的报错文案（Store unavailable）把人往第一种引，而真相是第二种。
+          // The unauthenticated liveness probe must never open/migrate the ECHO DB.
+          // Detailed ECHO routes open the store explicitly in read-only mode.
+          echoIndex: echoHealthSummary(null, 'not sampled by liveness probe'),
           // ★ 2026-11-12：加 dataDir —— 但要**只给尾部两段**。
           //
           //   为什么要它：打包新版本时如果 cwd 错了，dataDir 会指到 app/<版本>/data（空目录），

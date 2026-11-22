@@ -49,12 +49,14 @@ function leaksIn(out, needles) {
 
 // 回退形状是契约的一部分：字段集合与顺序之外的任何增减都算破坏。
 const UNKNOWN = { available: false, aligned: null, ok: null, searchable: null, counts: null, problemKinds: [], reason: 'Store unavailable' };
+const UNSAMPLED = { available: false, aligned: null, ok: null, searchable: null, counts: null, problemKinds: [], reason: 'not sampled by liveness probe' };
 const UNAVAILABLE = { available: false, aligned: null, ok: null, searchable: null, counts: null, problemKinds: [], reason: 'ECHO index unavailable' };
 const THROWN = { available: false, aligned: null, ok: null, searchable: null, counts: null, problemKinds: [], reason: 'ECHO stats read failed' };
 
 // ─────────────────────────────────────────────────────────────────────
-// 1. 没有 store / 没有 echoStats → available:false, aligned:null
+// 1. Liveness does not sample MetaStore unless a safe snapshot is explicitly supplied.
 // ─────────────────────────────────────────────────────────────────────
+eq('health default is explicitly unsampled', echoHealthSummary(null, 'not sampled by liveness probe'), UNSAMPLED);
 for (const [label, fakeStore] of [
   ['null', null],
   ['undefined', undefined],

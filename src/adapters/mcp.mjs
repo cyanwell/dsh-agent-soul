@@ -18,7 +18,7 @@
 // 启动：node src/adapters/mcp.mjs
 // 宿主配置：command=<node 路径>, args=["D:/AI/agent-soul/src/adapters/mcp.mjs"]
 
-import { TOOLS, callTool, SERVER_INFO, closeStore, setStoreMode } from './mcp-tools.mjs';
+import { TOOLS, callTool, SERVER_INFO, closeStore, closeEchoReaders, setStoreMode } from './mcp-tools.mjs';
 import { StdioRouter, isWriteCall, degradedBlock, rejectedBlock, hubDownBlock } from './mcp-proxy.mjs';
 import { readonlyEnabled, classifyMcpCall, rejection } from '../security/write-manifest.mjs';
 
@@ -153,7 +153,7 @@ process.stdin.on('data', async (chunk) => {
   }
 });
 
-process.stdin.on('end', () => { try { closeStore(); } catch {} process.exit(0); });
+process.stdin.on('end', () => { try { closeStore(); } catch {} try { closeEchoReaders(); } catch {} process.exit(0); });
 
 // ★ 横幅放在路由落定之后 —— 否则宿主日志里那句「ready」说的是旧行为。
 initP.then(() => {

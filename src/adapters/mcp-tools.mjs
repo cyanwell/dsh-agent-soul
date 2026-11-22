@@ -19,6 +19,7 @@ const ROOT = path.resolve(HERE, '../..');
 export const SERVER_INFO = { name: 'agent-soul', version: '0.1.0' };
 
 let _store = null;
+const echoReaderStores = new Map();
 /** 书房索引按根目录缓存 —— 常驻，只重读变了的 */
 const soulIdxCache = new Map();
 
@@ -277,6 +278,29 @@ function echoFailText(e) {
   return JSON.stringify(out, null, 2);
 }
 
+// Read-only ECHO stores are service-lived so Store-local exact-alignment proofs can be
+// reused across calls. Keep the pool bounded for config changes/tests; transports close
+// it explicitly at shutdown.
+export function closeEchoReaders() {
+  for (const reader of echoReaderStores.values()) { try { reader.close(); } catch {} }
+  echoReaderStores.clear();
+}
+
+function echoReaderFor(dbPath, openMetaStore) {
+  const key = path.resolve(dbPath);
+  let reader = echoReaderStores.get(key);
+  if (reader && !reader.closed) return reader;
+  reader = openMetaStore({ path: dbPath, mode: 'readonly' });
+  echoReaderStores.set(key, reader);
+  while (echoReaderStores.size > 2) {
+    const first = echoReaderStores.keys().next().value;
+    const old = echoReaderStores.get(first);
+    try { old.close(); } catch {}
+    echoReaderStores.delete(first);
+  }
+  return reader;
+}
+
 async function runEchoTool(name, args) {
   const cfg = echoConfig();
   const dbPath = metaDbPath(cfg);
@@ -290,8 +314,8 @@ async function runEchoTool(name, args) {
   const { openMetaStore } = await import('../db/index.mjs');
   let st = null;
   try {
-    // ★ 只读打开：这三个工具没有任何写路径，库也不需要被建出来（上面已经判过存在性）。
-    st = openMetaStore({ path: dbPath, mode: 'readonly' });
+    // Open once per MCP service/database path; data_version invalidates its cached proof on commits.
+    st = echoReaderFor(dbPath, openMetaStore);
   } catch (e) {
     return JSON.stringify({
       ok: false, code: 'ECHO_DB_UNOPENABLE', db: dbPath,
@@ -429,8 +453,6 @@ async function runEchoTool(name, args) {
       return echoFailText(e);
     }
     return JSON.stringify({ ok: false, code: 'ECHO_QUERY_FAILED', db: dbPath, why: String((e && e.message) || e) }, null, 2);
-  } finally {
-    try { st.close(); } catch (_) { /* 关闭失败不掩盖原结果 */ }
   }
 }
 

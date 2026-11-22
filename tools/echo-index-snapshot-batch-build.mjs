@@ -43,7 +43,7 @@ export const USAGE = 'usage: echo-index-snapshot-batch-build.mjs --snapshot-root
 const LOCK_NAME = '.batch-build.lock';
 const MAX_SOURCES = 20000;
 const SHA_RE = /^[0-9a-f]{64}$/;
-const SID_RE = /^[A-Za-z0-9._-]{1,128}$/;
+const SID_RE = /^[A-Za-z0-9._~-]{1,128}$/;
 const ROLE_VALUES = new Set(['files', 'words', 'summaries', 'shard']);
 const IS_WIN = process.platform === 'win32';
 

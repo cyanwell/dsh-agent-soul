@@ -28,9 +28,10 @@ function check(name, fn) {
 }
 
 const serverSource = fs.readFileSync(new URL('../src/web/server.mjs', import.meta.url), 'utf8');
-check('route is GET-only and delegates to the adapter', () => {
+check('route is GET-only, requests a snapshot, reports store failures, and closes it', () => {
   assert(serverSource.includes("p === '/api/echo/authority-view' && req.method === 'GET'"));
-  assert(serverSource.includes('echoAuthorityView({ store, echoLive })'));
+  assert(serverSource.includes('snapshot.close()'));
+  assert(serverSource.includes('ECHO_STORE_UNAVAILABLE'));
 });
 
 const fakeLive = {
@@ -101,9 +102,63 @@ try {
     store.db.exec("CREATE VIRTUAL TABLE echo_words_fts USING fts5(search_text, raw_text, echo_source_id UNINDEXED, word_ord UNINDEXED, session UNINDEXED, seq UNINDEXED, tokenize='unicode61 remove_diacritics 0')");
     const insertSource = store.db.prepare('INSERT INTO echo_index_sources (echo_source_id,source_path,source_version,namespace,generation,state,cursor_seq,cursor_json,words_count,summaries_count,src_seq_count,source_sha256,source_bytes,built_at,imported_at,importer) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
     insertSource.run('fixture-id', '/private/source.jsonl', 'fixture/1', 'log', 3, 'committed', 12, 'SECRET_CURSOR_JSON', 0, 0, 0, 'a'.repeat(64), 0, 'built', 'imported', 'secret-importer');
+    const insertWord = store.db.prepare('INSERT INTO echo_words (echo_source_id,word_ord,src_line,t,session,ws,seq,turn,log,role,kind,len,truncated,text,content_hash,content_class) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    const insertFts = store.db.prepare('INSERT INTO echo_words_fts (search_text,raw_text,echo_source_id,word_ord,session,seq) VALUES (?,?,?,?,?,?)');
+    const insertSummary = store.db.prepare('INSERT INTO echo_summaries (echo_source_id,cmp_id,ord,src_line,t,session,ws,log,shadowed_tokens,shadowed_chars,provider,model,status,summary,full_json,src_seq_count,content_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    insertSource.run('fixture-with-rows', '/private/source-2.jsonl', 'fixture/1', 'v4log', 4, 'committed', 13, 'SECRET_CURSOR_JSON_2', 1, 1, 1, 'b'.repeat(64), 0, 'built', 'imported', 'secret-importer');
+    insertWord.run('fixture-with-rows',0,1,'2026-11-19T00:00:00Z','session-tilde~x',null,1,null,null,'user','chat',6,0,'unique needle','c'.repeat(64),'dialogue');
+    insertFts.run('unique needle','unique needle','fixture-with-rows',0,'session-tilde~x',1);
+    insertSummary.run('fixture-with-rows','cmp-1',0,1,'2026-11-19T00:00:00Z','session-tilde~x',null,null,1,6,null,null,'active','summary','{}',1,'d'.repeat(64));
+    store.db.prepare('INSERT INTO echo_summaries_fts (search_text,raw_text,echo_source_id,cmp_id) VALUES (?,?,?,?)').run('summary','summary','fixture-with-rows','cmp-1');
+    store.db.prepare('INSERT INTO echo_summary_src_seqs (echo_source_id,cmp_id,ord,seq) VALUES (?,?,?,?)').run('fixture-with-rows','cmp-1',0,1);
     const bounded = store.echoSourceStatus();
-    assert.deepEqual(bounded.rows[0], { sourceId: 'fixture-id', namespace: 'log', sourceVersion: 'fixture/1', generation: 3, state: 'committed', cursorSeq: 12, counts: { words: 0, wordsFts: 0, summaries: 0, summariesFts: 0, srcSeqs: 0, declaredSrcSeqs: 0 }, builtAt: 'built', importedAt: 'imported', aligned: true });
-    assert.equal(bounded.aligned, true);
+    const withRows = bounded.rows.find(x => x.sourceId === 'fixture-with-rows');
+    assert.deepEqual(withRows.counts, { words:1,wordsFts:1,summaries:1,summariesFts:1,srcSeqs:1,declaredSrcSeqs:1 });
+    assert.equal(withRows.aligned,true);
+    const cacheReader = openMetaStore({ path: dbPath, mode: 'readonly' });
+    try {
+      assert.equal(cacheReader.echoSearch('unique needle', { surface:'words', echoSourceId:'fixture-with-rows' }).surfaces.words.results.length,1);
+      const writer = openMetaStore({ path: dbPath, mode: 'readwrite' });
+      try {
+        writer.db.prepare('DELETE FROM echo_words_fts WHERE echo_source_id=?').run('fixture-with-rows');
+        assert.throws(() => cacheReader.echoSearch('unique needle', { surface:'words', echoSourceId:'fixture-with-rows' }), e => e.code === 'ECHO_INDEX_STALE');
+        insertFts.run('unique needle','unique needle','fixture-with-rows',0,'session-tilde~x',1);
+        assert.equal(cacheReader.echoSearch('unique needle', { surface:'words', echoSourceId:'fixture-with-rows' }).surfaces.words.results.length,1);
+      } finally { writer.close(); }
+      assertions += 1;
+      console.log('PASS readonly proof cache invalidates on external commits');
+    } finally { cacheReader.close(); }
+    insertSource.run('fixture-damaged-hit', '/private/source-3.jsonl', 'fixture/1', 'log', 5, 'committed', 20, 'SECRET_CURSOR_JSON_3', 1, 0, 0, 'e'.repeat(64), 0, 'built', 'imported', 'secret-importer');
+    insertWord.run('fixture-damaged-hit',0,1,'2026-11-19T00:00:00Z','session-damaged~x',null,20,null,null,'user','chat',11,0,'unique needle','f'.repeat(64),'dialogue');
+    insertFts.run('unique needle','unique needle','fixture-damaged-hit',0,'session-damaged~x',20);
+    insertFts.run('extra orphan','extra orphan','fixture-damaged-hit',1,'session-damaged~x',21);
+    assert.throws(() => store.echoSearch('unique needle', { surface:'words' }), e => e.code === 'ECHO_INDEX_STALE');
+    const openDespiteFtsDrift = store.echoOpen('log:session-damaged~x#seq=20', { echoSourceId:'fixture-damaged-hit' });
+    assert.equal(openDespiteFtsDrift.kind,'word');
+    assert.equal(openDespiteFtsDrift.word.text,'unique needle');
+    assert.equal(openDespiteFtsDrift.source.echoSourceId,'fixture-damaged-hit');
+    assertions += 1;
+    console.log('PASS global search fails closed; pointer open still reads present base row');
+    const withoutRows = bounded.rows.find(x => x.sourceId === 'fixture-id');
+    assert.equal(withoutRows.aligned,true);
+    assert.equal(bounded.aligned,true);
+    assert.equal(bounded.rows.length,2);
+    const damagedStatus = store.echoSourceStatus();
+    assert.equal(damagedStatus.rows.find(x => x.sourceId === 'fixture-damaged-hit').aligned,false);
+    assert.equal(damagedStatus.rows.find(x => x.sourceId === 'fixture-id').aligned,true);
+    assert.equal(damagedStatus.rows.find(x => x.sourceId === 'fixture-with-rows').aligned,true);
+    assert.equal(damagedStatus.aligned,false);
+    store.db.exec('BEGIN IMMEDIATE');
+    try {
+      const nestedSnapshot = store.echoSourceStatus();
+      assert.equal(nestedSnapshot.aligned,false);
+      assert.equal(nestedSnapshot.rows.find(x => x.sourceId === 'fixture-damaged-hit').aligned,false);
+      assert.equal(nestedSnapshot.rows.length,3);
+    } finally { store.db.exec('ROLLBACK'); }
+    assertions += 1;
+    console.log('PASS status SAVEPOINT nests safely inside an importer transaction');
+    assertions += 1;
+    console.log('PASS grouped FTS counts preserve per-source counts and alignment');
     const redacted = echoAuthorityView({ store, now: 0 });
     assert.equal(JSON.stringify(redacted.sources).includes('D:/private'), false);
     assert.equal(JSON.stringify(redacted.sources).includes('SECRET'), false);

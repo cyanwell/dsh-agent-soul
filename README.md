@@ -387,6 +387,21 @@ data/
 
 ## 更新记录
 
+### 1.0.86（2026-11-23）
+
+- ECHO liveness health 不再同步打开或扫描 MetaStore；详细 authority-view 每次请求打开只读快照并在回执后关闭，打开失败明确回 `503 ECHO_STORE_UNAVAILABLE`。
+- MCP 复用有界的只读 MetaStore reader；每个连接缓存 exact ECHO alignment proof。先执行真实 `SELECT` 固定 SQLite 读快照，再采样 `data_version`；proof validation 与 search 在同一 snapshot 内完成，外部 commit 后由 version 变化触发重验。Core shutdown 在 HTTP drain/超时之后关闭 pooled readers。生产只读探针（3 次同连接测试）：首次 exact validation + source-scoped query 5.46–8.60 秒；proof 热后的重复查询 2–4 毫秒；pointer open 2–6 毫秒且正文校验通过。每次均为 2 hits / 3 scanned。数据来自切换前已打开的旧本机库；计时样本不是在安装后的 1.0.86 Core 进程中采集。
+- 常见的 source-scoped query 已有全局验证 proof 时可复用全库 proof；全局 proof 未缓存或外部 commit 后改变时仍重验，漂移继续 fail-closed。
+- pointer open 改为读取来源身份元数据，不再为回取基础词/摘要行统计巨型 FTS 表。生产只读探针在缓存热后 pointer open 约 2–6 毫秒；TEMP regression 覆盖 FTS 漂移时仍可回取存在的基础行。
+- session ID 接受宿主转义的 `~`，source ID 字符规则不变；batch builder、MetaStore 与 shadow importer 均有 TEMP 覆盖。
+- JSONL byte parser 恢复错误优先级：非法 UTF-8 先于缺少 final LF 报告。
+- portable packager 在任何 staging 清理之前拒绝 `data/`、token/config/env 文件及根/嵌套 symlink；6 个合成夹具通过。
+
+> 生产性能计时是本机只读 probe，不能外推为所有安装环境保证；首次 exact validation 受 FTS 表大小影响，热 proof 查询显著更快。
+>
+> 发布备注（2026-11-23）：origin 当前 tags 列至 1.0.78，未列出 1.0.79–1.0.83；这些本地部署版本的精确源码提交归属仍未完全核实。
+
+
 ### 1.0.80（2026-11-22）
 
 **把 1.0.78 锁死的 aurabot 面板救回来 —— 判据从「带 token」换成「同源」。**

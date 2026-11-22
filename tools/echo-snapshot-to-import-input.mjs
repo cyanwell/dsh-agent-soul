@@ -120,7 +120,7 @@ export const EXIT = Object.freeze({ ok: 0, usage: 2, refused: 3, io: 4 });
 // 绝不许落盘的两个根：仓库自己（快照产物不该混进源码树）与记忆留底库。
 export const FORBIDDEN_OUT_ROOTS = Object.freeze(['D:/AI/agent-soul', 'D:/AI/memory']);
 const SHA_RE = /^[0-9a-f]{64}$/;
-const SID_RE = /^[A-Za-z0-9._-]{1,128}$/;
+const SID_RE = /^[A-Za-z0-9._~-]{1,128}$/;
 const ROLE_VALUES = new Set(['files', 'words', 'summaries', 'shard']);
 const NAMESPACE_BY_VARIANT = Object.freeze({ v3: 'log', v4: 'v4log' });
 const IS_WIN = process.platform === 'win32';
@@ -427,7 +427,7 @@ export function produceImportInput(options) {
     if (typeof row.key !== 'string' || row.key === '') refuse('FILES_ROW_INVALID', 'a files.jsonl row key must be a non-empty string', { row: i });
     if (!Number.isSafeInteger(row.nextByte) || row.nextByte < 0) refuse('FILES_ROW_INVALID', 'a files.jsonl row nextByte must be a non-negative safe integer', { row: i });
     if (row.ws !== null && (typeof row.ws !== 'string' || row.ws === '')) refuse('FILES_ROW_INVALID', 'a files.jsonl row ws must be a non-empty string or null', { row: i });
-    if (typeof row.sid !== 'string' || !SID_RE.test(row.sid)) refuse('SID_MALFORMED', 'a files.jsonl row sid is not ptr-safe ([A-Za-z0-9._-]{1,128})', { row: i });
+    if (typeof row.sid !== 'string' || !SID_RE.test(row.sid)) refuse('SID_MALFORMED', 'a files.jsonl row sid is not ptr-safe ([A-Za-z0-9._~-]{1,128})', { row: i });
     for (const k of ['nWord', 'nSum']) {
       if (!Number.isSafeInteger(row[k]) || row[k] < 0) refuse('FILES_ROW_INVALID', 'a files.jsonl row ' + k + ' must be a non-negative safe integer', { row: i });
     }

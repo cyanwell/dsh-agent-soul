@@ -1363,6 +1363,7 @@ try {
   t('自检本身没有抛异常', false, e && e.stack ? e.stack.split('\n').slice(0, 6).join(' | ') : String(e));
 } finally {
   try { if (store) store.close(); } catch (_) { /* 关闭失败不掩盖结果 */ }
+  try { if (mcp && typeof mcp.closeEchoReaders === 'function') mcp.closeEchoReaders(); } catch (_) { /* TEMP reader cleanup */ }
   try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch (_) { /* 保留现场以便排查 */ }
   report.cleanup.removed = !fs.existsSync(ROOT);
   t('[H] 临时目录（库 + 报告）已删除', report.cleanup.removed, ROOT);

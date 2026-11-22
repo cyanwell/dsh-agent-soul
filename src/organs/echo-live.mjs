@@ -172,7 +172,13 @@ export function createEchoLive(o) {
           bytesRead: r.tail ? r.tail.bytesRead : null,
           appended: r.tail ? r.tail.appended : null,
           skippedUnchanged: r.tail ? r.tail.skippedUnchanged : null,
-          error: r.error || null,
+          // ★★ 2026-11-22：**字段名不一致，把唯一能看懂的那句话吃掉了。**
+          //   回执（tools/echo-live-sync.mjs 的失败分支）写的是 `message`，
+          //   而这里读的是 `error` → 永远 null → 面板上只剩 `E_UNEXPECTED`。
+          //   ★ 症状：一个**看得懂的**真 bug（sid 含 ~ 被拒），显示成「未知」。
+          //   我因此先怀疑了配置、又怀疑了数据目录，绕了两圈才拿到原文。
+          //   判据：**兜底包装可以，但兜底不许把原始信息丢掉。**
+          error: r.error || r.message || null,
           stage: r.stage || null,
         };
         stats.lastCode = rec.code;

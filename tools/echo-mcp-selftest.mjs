@@ -119,6 +119,7 @@ function throwsCode(fn) {
 }
 
 // ── 主流程 ────────────────────────────────────────────────────────────────
+let cleanupEchoReaders = () => {};
 async function main() {
   // ★ MCP 腿与 Store 腿读同一个库：AGENT_SOUL_META_DB 是给自检的显式覆盖（不来自 MCP 参数）。
   process.env.AGENT_SOUL_META_DB = path.join(ROOT, 'not-yet.sqlite');
@@ -145,6 +146,7 @@ async function main() {
   {
     // 同步拿 MCP 面（import 会读环境；上面已经设好）
     const mcp = await import('../src/adapters/mcp-tools.mjs');
+    cleanupEchoReaders = mcp.closeEchoReaders;
     const manifestMod = await import('../src/security/write-manifest.mjs');
     globalThis.__mcp = mcp;
     globalThis.__manifest = manifestMod;
@@ -307,6 +309,10 @@ async function main() {
 
     const v4 = ro.echoOpen('v4log:session-shared-0001#seq=12');
     t('[F] v4log: 单条解析，落到 v4 路径', v4.source.sourcePath === 'D:/synthetic/echo/v4/index' && v4.word.text === 'V4 流里的第十二帧', v4.source.sourcePath);
+    const missingTilde = throwsCode(() => ro.echoOpen('v4log:missing~003Asid#seq=1'));
+    t('[F] tilde sid 接受并走到 NOT_FOUND（不是 MALFORMED）', missingTilde && missingTilde.code === 'ECHO_PTR_NOT_FOUND', missingTilde && missingTilde.code);
+    const idxTilde = throwsCode(() => ro.echoOpen('idx:missing~summary'));
+    t('[F] tilde cmpId 接受并走到 NOT_FOUND（不是 MALFORMED）', idxTilde && idxTilde.code === 'ECHO_PTR_NOT_FOUND', idxTilde && idxTilde.code);
     const single = ro.echoOpen('log:session-aaaa1111#seq=1');
     t('[F] log: 单条解析，正文与源一致', single.word.text === '解耦机制记在六层解码之后' && single.namespace === 'log', single.word.text);
 
@@ -457,8 +463,8 @@ async function main() {
     t('[H] echoStats 不抛：如实报 aligned=false + problem 明细',
       stats.available === true && stats.aligned === false && stats.problems.some((p) => p.kind === 'words-fts'),
       JSON.stringify(stats.problems));
-    const staleOpen = throwsCode(() => st.echoOpen('log:session-aaaa1111#seq=1'));
-    t('[H] 门牌解析同样被闸住（同一个判据，不是两套）', staleOpen && staleOpen.code === 'ECHO_INDEX_STALE', staleOpen && staleOpen.code);
+    const pointerOpen = st.echoOpen('log:session-aaaa1111#seq=1');
+    t('[H] FTS 漂移不遮蔽仍存在的基础词行 pointer open', pointerOpen && pointerOpen.kind === 'word' && pointerOpen.word.text === '解耦机制记在六层解码之后', pointerOpen && pointerOpen.kind);
     st.close();
 
     // H2 没迁到 v9 的库（v8）：不许假装「索引是空的」
@@ -538,4 +544,5 @@ try { code = await main(); } catch (e) {
   console.error('SELFTEST CRASHED:', e && e.stack ? e.stack : e);
   code = 1;
 }
+try { cleanupEchoReaders(); } catch {}
 process.exit(code);

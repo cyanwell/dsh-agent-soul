@@ -65,8 +65,8 @@ export const ECHO_SUMMARY_STATUSES = Object.freeze(['active', 'void']);
 export const ECHO_SEARCH_BATCH = 200;
 
 const SHA_RE = /^[0-9a-f]{64}$/;
-const SESSION_RE = /^[A-Za-z0-9._-]{1,128}$/;
-const CMP_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
+const SESSION_RE = /^[A-Za-z0-9._~-]{1,128}$/;
+const CMP_ID_RE = /^[A-Za-z0-9._~-]{1,128}$/;
 const BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 
 export const EXIT = Object.freeze({ ok: 0, usage: 2, refused: 3, schema: 4, io: 5, write: 6 });
@@ -524,7 +524,7 @@ function optionalStringField(rec, key, where) {
   return v;
 }
 
-function parseWordRow(lineNo, rawLine) {
+export function parseWordRow(lineNo, rawLine) {
   const where = 'words line ' + lineNo;
   let rec;
   try { rec = JSON.parse(rawLine); } catch (err) {
@@ -537,7 +537,7 @@ function parseWordRow(lineNo, rawLine) {
   const t = requireString(rec, 't', where, false);
   const session = requireString(rec, 'session', where, false);
   if (!SESSION_RE.test(session)) {
-    refuse('ROW_FIELD_INVALID', where + ': session ' + JSON.stringify(session) + ' is not ptr-safe ([A-Za-z0-9._-]{1,128}); log:<sid>#seq must stay resolvable', { line: lineNo, session });
+    refuse('ROW_FIELD_INVALID', where + ': session ' + JSON.stringify(session) + ' is not ptr-safe ([A-Za-z0-9._~-]{1,128}); log:<sid>#seq must stay resolvable', { line: lineNo, session });
   }
   const ws = optionalStringField(rec, 'ws', where);
   const seq = requireInt(rec, 'seq', where, 0);
@@ -564,7 +564,7 @@ function parseWordRow(lineNo, rawLine) {
   return row;
 }
 
-function parseSummaryRow(lineNo, rawLine) {
+export function parseSummaryRow(lineNo, rawLine) {
   const where = 'summaries line ' + lineNo;
   let rec;
   try { rec = JSON.parse(rawLine); } catch (err) {
@@ -607,6 +607,50 @@ function parseSummaryRow(lineNo, rawLine) {
   };
 }
 
+/**
+ * ★★★ 2026-11-22：**按字节切行，逐行解码** —— 不把整份文件变成一个字符串。
+ *
+ *   原来是 `decodeStrict(bytes)`（整份 → 一个字符串）再 `text.split('\n')`。
+ *   全量重建的 words.jsonl 会超过 V8 的字符串上限（0x1fffffe8 字符 ≈ 512MB），
+ *   于是**解码那一步就抛**，而 `decodeStrict` 把所有 decode 异常都归成
+ *   `_INVALID_UTF8` —— 报错说「不是合法 UTF-8」，**真实原因是「太大了」**。
+ *
+ *   ★ 这条和 build 侧那两处是**同一个病的第三次发作**：
+ *     凡是「大小由数据规模决定」的中间体，都不能用一个字符串或一次 join 承载。
+ *   ★ 判据：**报错说要检查的，未必是真正出问题的那件事。**
+ *     `_INVALID_UTF8` 这个名字把「超限」藏了 190 秒。
+ */
+export function parseJsonlBytes(bytes, parser, label, codePrefix) {
+  if (!bytes.length) refuse(codePrefix + '_EMPTY', label + ' is empty (0 bytes)', { label });
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    refuse(codePrefix + '_HAS_BOM', label + ' starts with a UTF-8 BOM; strip it first', { label });
+  }
+  const missingFinalLf = bytes[bytes.length - 1] !== 0x0a;
+  const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+  const rows = [];
+  let blank = 0;
+  let lineNo = 0;
+  let start = 0;
+  for (let i = 0; i < bytes.length; i += 1) {
+    if (bytes[i] !== 0x0a) continue;
+    lineNo += 1;
+    let rawLine;
+    try { rawLine = decoder.decode(bytes.subarray(start, i)); }
+    catch (err) { refuse(codePrefix + '_INVALID_UTF8', label + ' line ' + lineNo + ' is not valid UTF-8: ' + (err && err.message), { label, line: lineNo }); }
+    start = i + 1;
+    if (rawLine.trim() === '') { blank += 1; continue; }
+    rows.push(parser(lineNo, rawLine));
+  }
+  if (missingFinalLf) {
+    // Validate an unterminated tail before reporting the absent newline. fatal
+    // TextDecoder would reject malformed or incomplete UTF-8 here first too.
+    try { decoder.decode(bytes.subarray(start)); }
+    catch (err) { refuse(codePrefix + '_INVALID_UTF8', label + ' line ' + (lineNo + 1) + ' is not valid UTF-8: ' + (err && err.message), { label, line: lineNo + 1 }); }
+    refuse(codePrefix + '_NO_FINAL_LF', label + ' does not end with LF; a missing terminator is the signature of a truncated write', { label });
+  }
+  return { rows, physicalLines: lineNo, blankLines: blank, label };
+}
+
 export function parseJsonl(text, parser, label) {
   const parts = text.split('\n');
   parts.pop();
@@ -631,11 +675,8 @@ function readJsonlInput(abs, codePrefix, label, parser, declared) {
     refuse('INPUT_BYTES_MISMATCH', label + ' byte length does not match the manifest',
       { label, path: abs, expected: declared.bytes, actual: bytes.length });
   }
-  const text = decodeStrict(bytes, codePrefix, label);
-  if (bytes[bytes.length - 1] !== 0x0a) {
-    refuse(codePrefix + '_NO_FINAL_LF', label + ' does not end with LF; a missing terminator is the signature of a truncated write', { label, lastByte: bytes[bytes.length - 1] });
-  }
-  const parsed = parseJsonl(text, parser, label);
+  // ★ 2026-11-22：整份解码 → 逐行解码（见 parseJsonlBytes 的头注释）
+  const parsed = parseJsonlBytes(bytes, parser, label, codePrefix);
   if (declared && declared.rows !== undefined && declared.rows !== parsed.rows.length) {
     refuse('INPUT_ROWS_MISMATCH', label + ' row count does not match the manifest',
       { label, expected: declared.rows, actual: parsed.rows.length, blankLines: parsed.blankLines });
