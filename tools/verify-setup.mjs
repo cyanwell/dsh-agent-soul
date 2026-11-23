@@ -28,7 +28,25 @@ if (!fs.existsSync(SETUP)) {
   process.exit(1);
 }
 const TARGET = path.join(os.tmpdir(), 'as-setup-verify-' + Date.now());
-
+const UNINSTALL_KEY = String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\AgentSoul`;
+const START_MENU_LINK = path.join(process.env.APPDATA, 'Microsoft/Windows/Start Menu/Programs/AgentSoul/AgentSoul.lnk');
+const START_MENU_DIR = path.dirname(START_MENU_LINK);
+const DESKTOP_LINK = path.join(process.env.USERPROFILE, 'Desktop/AgentSoul.lnk');
+const PRODUCTION_ROOT = 'C:\\Users\\pc\\Desktop\\deepseek harness\\agent soul';
+const existingInstallResult = spawnSync('reg', ['query', UNINSTALL_KEY], { stdio: 'ignore' });
+const coreCheck = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+  "$root='C:\\Users\\pc\\Desktop\\deepseek harness\\agent soul'; Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { ($_.ExecutablePath -eq (Join-Path $root 'runtime\\node.exe') -or $_.ExecutablePath -eq (Join-Path $root 'AgentSoul.exe')) -and $_.CommandLine -like '*src\\index.mjs*' } | Select-Object -ExpandProperty ExecutablePath"], { encoding: 'utf8' });
+const portCheck = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+  "$c=New-Object System.Net.Sockets.TcpClient; try { $a=$c.BeginConnect('127.0.0.1',7310,$null,$null); if(-not $a.AsyncWaitHandle.WaitOne(1500)){exit 2}; $c.EndConnect($a); exit 0 } catch { exit 1 } finally { $c.Dispose() }"] , { encoding: 'utf8' });
+const preflightFailed = existingInstallResult.error || coreCheck.error || coreCheck.status !== 0 || portCheck.error || portCheck.status === 2;
+const existingInstall = existingInstallResult.status === 0;
+const existingCorePaths = String(coreCheck.stdout || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+const portInUse = portCheck.status === 0;
+if (preflightFailed || existingInstall || existingCorePaths.length > 0 || portInUse || fs.existsSync(START_MENU_LINK) || fs.existsSync(START_MENU_DIR) || fs.existsSync(DESKTOP_LINK)) {
+  console.error('✗ 安全拒绝：发现现有 AgentSoul 注册项、快捷方式或进程；E2E 不覆盖现有安装。');
+  process.exit(2);
+}
+let child = null;
 function run(exe, args, opts) {
   const o = opts || {};
   const r = spawnSync(exe, args, { encoding: 'utf8', timeout: o.timeout || 180000, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -82,14 +100,14 @@ const probe = (port) => new Promise((resolve) => {
 
     console.log('');
     console.log('=== 3. 注册表卸载项 ===');
-    const reg = run('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\AgentSoul']);
+    const reg = run('reg', ['query', UNINSTALL_KEY]);
     console.log('  ' + (reg.code === 0 ? '✓ 存在' : '✗ 不存在'));
     for (const l of reg.out.split(/\r?\n/).filter((x) => /DisplayName|DisplayVersion|InstallLocation|UninstallString/i.test(x))) console.log('    ' + l.trim());
 
     console.log('');
     console.log('=== 4. 快捷方式 ===');
-    const sm = path.join(process.env.APPDATA, 'Microsoft/Windows/Start Menu/Programs/AgentSoul/AgentSoul.lnk');
-    const dt = path.join(process.env.USERPROFILE, 'Desktop/AgentSoul.lnk');
+    const sm = START_MENU_LINK;
+    const dt = DESKTOP_LINK;
     console.log('  开始菜单: ' + fs.existsSync(sm));
     console.log('  桌面    : ' + fs.existsSync(dt));
 
@@ -97,21 +115,29 @@ const probe = (port) => new Promise((resolve) => {
     console.log('=== 5. 启动已安装的程序 ===');
     const cfg = JSON.parse(fs.readFileSync(TARGET + '/config.json', 'utf8'));
     const port = cfg.port || 7310;
-    const child = spawn(TARGET + '/AgentSoul.exe', [], { cwd: TARGET, detached: true, stdio: 'ignore', windowsHide: true });
-    child.unref();
+    child = spawn(TARGET + '/AgentSoul.exe', [], { cwd: TARGET, stdio: 'ignore', windowsHide: true });
+    let childExit = null;
+    child.once('exit', (code, signal) => { childExit = { code, signal }; });
     let got = null;
     for (let i = 0; i < 40; i += 1) {
       await new Promise((r) => setTimeout(r, 1500));
       got = await probe(port);
       if (got.ok) break;
+      if (childExit) break;
       process.stdout.write('.');
     }
     console.log('');
+    if (!got?.ok && child && child.exitCode === null) {
+      try { execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); } catch {}
+      await new Promise((r) => setTimeout(r, 1000));
+    }
     console.log('  ' + (got && got.ok ? '✓ HTTP ' + got.code + '  ' + got.len + ' 字节' : '✗ 没起来 ' + JSON.stringify(got)));
 
     console.log('');
     console.log('=== 6. 卸载 ===');
-    try { execFileSync('taskkill', ['/IM', 'AgentSoul.exe', '/F'], { stdio: 'ignore' }); } catch { }
+    if (child && child.pid && child.exitCode === null) {
+      try { execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); } catch { }
+    }
     await new Promise((r) => setTimeout(r, 1500));
     const un = run(TARGET + '/uninstall.exe', ['/uninstall'], { timeout: 120000 });
     console.log('  exit=' + un.code);
@@ -148,8 +174,10 @@ const probe = (port) => new Promise((resolve) => {
     console.log('');
     console.log('  ' + (pass ? 'PASS 安装 → 运行 → 卸载 全链路可用' : 'FAIL 见上面各项'));
   } finally {
-    try { execFileSync('taskkill', ['/IM', 'AgentSoul.exe', '/F'], { stdio: 'ignore' }); } catch { }
-    await new Promise((r) => setTimeout(r, 1000));
+    if (child && child.pid && child.exitCode === null) {
+      try { execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); } catch { }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
     try { fs.rmSync(TARGET, { recursive: true, force: true }); } catch { }
   }
 })();

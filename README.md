@@ -74,11 +74,11 @@
 
 ```
 ① 装 agent-soul 本体
-    · 下载发布包：[AgentSoul v4 1.0.78](https://github.com/cyanwell/dsh-agent-soul/releases/latest)
-      - `AgentSoul-Setup-1.0.78.exe` —— 大多数人选这个，双击装（装到 %LOCALAPPDATA%\Programs\AgentSoul，
+    · 下载发布包：[AgentSoul v4 1.0.86](https://github.com/cyanwell/dsh-agent-soul/releases/latest)
+      - `AgentSoul-Setup-1.0.86.exe` —— 大多数人选这个，双击装（装到 %LOCALAPPDATA%\Programs\AgentSoul，
         建开始菜单/桌面快捷方式，卸载项进「设置→应用」，**不需要管理员**）
-      - `AgentSoul-1.0.78-portable.zip` —— 不想装的人，解压即用（下称 <SOUL>）
-      - `AgentSoul-1.0.78-htmlpatch.zip` —— 已有安装，只换界面（199 KB）
+      - `AgentSoul-1.0.86-portable.zip` —— 不想装的人，解压即用（下称 <SOUL>）
+      - `AgentSoul-1.0.86-htmlpatch.zip` —— 已有安装，只换界面（212 KB）
     · ★ 卸载**不会**删你的 `config.json`（含 API Key）与 `data\`（会话/索引/账本）—— 它们留在原位，要彻底清干净自己删这两个。
     · 双击 <SOUL>\AgentSoul.exe 启动
     · ★ 必须用**当前用户身份**启动（key 是 DPAPI 密文，SYSTEM 身份解不开）
@@ -396,10 +396,11 @@ data/
 - session ID 接受宿主转义的 `~`，source ID 字符规则不变；batch builder、MetaStore 与 shadow importer 均有 TEMP 覆盖。
 - JSONL byte parser 恢复错误优先级：非法 UTF-8 先于缺少 final LF 报告。
 - portable packager 在任何 staging 清理之前拒绝 `data/`、token/config/env 文件及根/嵌套 symlink；6 个合成夹具通过。
+- 已在本机生产目录启动并验证 Core 1.0.86：`/api/health` 返回 `ok=true`、`llmUsable=true`。本机 OneBot ingress 当前为 `RECONNECT_GAVE_UP`（不代表 Core 整体不可用；DSH control host 已连接），OneBot 事件流需要单独恢复。
 
 > 生产性能计时是本机只读 probe，不能外推为所有安装环境保证；首次 exact validation 受 FTS 表大小影响，热 proof 查询显著更快。
 >
-> 发布备注（2026-11-23）：origin 当前 tags 列至 1.0.78，未列出 1.0.79–1.0.83；这些本地部署版本的精确源码提交归属仍未完全核实。
+> 发布备注（2026-11-23）：origin 当前 tags 列至 1.0.78，未列出 1.0.79–1.0.83；本地按 `src/tools/sql` 载荷路径与时间窗口比对 377 个可达提交及 3 个不可达提交，未找到这些部署 payload 的精确 Git commit；近似提交不作为 provenance 证明。旧版本构建时的外部 CI/ref 记录未取得。
 
 
 ### 1.0.80（2026-11-22）
