@@ -15,6 +15,7 @@ import { dataDir } from './store.js'
 import { registerSecretField } from './config.js'
 import { defineTool } from '../tools/tools.js'
 import { resolveLoadLibImpl } from './clone-seam.js'
+import { createModuleCoreFacade } from './module-onebot-policy.mjs'
 
 /** 扩展接口版本：只加不改。哪天不得不改已有的东西才升到 2，并在更新说明里写清楚怎么迁移。 */
 export const API_VERSION = 1
@@ -194,6 +195,7 @@ export function createModules({ ctx, core, getConfig, setConfig, logger, version
     // 内置模块和替换它的版本用原来的路径（内置的面板页照常能用）；新模块放在 /ext/模块id/ 下
     const prefix = builtinDefs.has(id) ? '' : `/ext/${id}`
     const def = rec.def
+    const { core: moduleCore, call: moduleOneBotCall } = createModuleCoreFacade(core, getConfig)
     const api = {
       id,
       source,
@@ -216,7 +218,7 @@ export function createModules({ ctx, core, getConfig, setConfig, logger, version
       use: (other) => exportsOf(other),
       lazy: (other) => lazyProxy(() => exportsOf(other)),
       has: (other) => live.has(other),
-      core,
+      core: moduleCore,
       dsh: ctx,
       lib,
       // ---- 往插件里加东西 ----
@@ -272,7 +274,7 @@ export function createModules({ ctx, core, getConfig, setConfig, logger, version
       sendVoiceFile: (chatId, file, note) => core.hub.sendVoiceFile(String(chatId), file, note || `[${id}] 语音`),
       ask: (opts) => core.ask(typeof opts === 'string' ? { text: opts } : opts),
       think: (prompt, opts = {}) => core.hub.runSystemTurn(`ext-${id}`, opts.title || def.name || id, String(prompt), opts),
-      onebot: (action, params, opts) => core.onebot.call(action, params, opts),
+      onebot: (action, params, opts) => moduleOneBotCall(action, params, opts),
       dshTool: (tool) => { rec.dshTools.push(tool); core.bridge?.refresh(); return () => { remove(rec.dshTools, tool); core.bridge?.refresh() } },
     }
     return api

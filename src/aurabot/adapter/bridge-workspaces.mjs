@@ -46,6 +46,9 @@ async function call (control, action, args, timeoutMs) {
   //   原文要求 data.ok===true，等于**只要回执带了数据就判失败**。
   //   业务失败在 bridge 那边是扔错（走 exec 的 reject），这里只需判「有没有回执」。
   if (!data) throw new Error('workspaces/' + action + ' 回执为空（协议不符，不是「没有工作区」）')
+  if (data && typeof data === 'object' && data.ok === false) {
+    throw new Error('workspaces/' + action + ' 被宿主拒绝：' + String(data.message || data.error || data.code || '没有原因'))
+  }
   return data
 }
 
@@ -134,6 +137,29 @@ export function createBridgeWorkspaceRegistry (control, opts = {}) {
       if (!key) throw new Error('get 需要一个工作区 id')
       const data = await call(control, 'get', { id: key }, timeoutMs)
       return data.workspace || undefined
+    },
+    async archiveSession (sessionId) {
+      const key = String(sessionId || '').trim()
+      if (!key) throw new Error('archiveSession 需要 sessionId')
+      const peer = (() => {
+        if (!control || typeof control.whoHas !== 'function') throw new Error('没有控制通道——无法归档 session')
+        let peers = []
+        try { peers = control.whoHas('service') || [] } catch {}
+        if (!peers.length) throw new Error('没有宿主声明 service 能力——无法归档 session')
+        return peers[0]
+      })()
+      try {
+        const receipt = await control.exec(peer.id, 'service', 'call', {
+          name: 'workspaceRegistry', method: 'archiveSession', args: [key],
+        }, timeoutMs)
+        // DSH service gateway encodes a void archiveSession success as null.
+        if (receipt && typeof receipt === 'object' && receipt.ok === false) {
+          throw new Error('宿主拒绝 archiveSession：' + String(receipt.message || receipt.error || receipt.code || '没有原因'))
+        }
+        return receipt
+      } catch (error) {
+        throw new Error('service/workspaceRegistry.archiveSession 失败（host=' + (peer.host || peer.id) + '）：' + String((error && error.message) || error))
+      }
     },
     /**
      * ★ 同步 getter（hub.js:213 就是同步读的）。过期就顺手踢一次后台刷新。

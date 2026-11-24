@@ -25,7 +25,7 @@
 
 import fs from 'node:fs'
 import { resolveSessionFile, decodeSessionBytes, parseRecords } from '../organs/frame-reader.mjs'
-import { readAllSessionViaBridge } from '../adapters/bridge-sessions.mjs'
+import { readSessionViaBridge } from '../adapters/bridge-sessions.mjs'
 
 /** 默认只读尾部这么多字节。0 = 整份读（慢，但不会被截断影响）。 */
 const DEFAULT_TAIL_BYTES = 4 * 1024 * 1024
@@ -208,8 +208,10 @@ export function createReplyReaderViaBridge(opts = {}) {
   if (!control || typeof control.exec !== 'function') {
     throw new Error('createReplyReaderViaBridge 需要 control（control hub 实例）—— 没有它读不到任何东西')
   }
-  const maxFrames = Number.isFinite(Number(opts.maxFrames)) && Number(opts.maxFrames) > 0 ? Number(opts.maxFrames) : 4000
-  const pageSize = Number.isFinite(Number(opts.pageSize)) && Number(opts.pageSize) > 0 ? Number(opts.pageSize) : 800
+  // Reply polling only needs the newest complete turn; avoid reading an ever-growing session.
+  // Host caps tailFrames at 20,000. If it reports truncation, fail closed.
+  const requestedTailFrames = Number(opts.tailFrames)
+  const tailFrames = Number.isFinite(requestedTailFrames) && requestedTailFrames > 0 ? Math.min(requestedTailFrames, 20000) : 8000
   const log = typeof opts.log === 'function' ? opts.log : () => {}
   const counters = { reads: 0, ok: 0, failed: 0, lastAt: null, lastError: null }
 
@@ -217,37 +219,55 @@ export function createReplyReaderViaBridge(opts = {}) {
     counters.reads += 1
     counters.lastAt = new Date().toISOString()
     let got = null
-    // ★★ 2026-11-16（第 1 批补闸）：**只给 tailFrames 就会静默截断**。
-    //   实测 readAllSessionViaBridge 里 tailFrames>0 走的是「一次调用读最后 N 帧」的捷径
-    //   —— 它**不看 maxFrames，也不翻页**。于是一条 5000 帧的会话给 tailFrames=4000，
-    //   返回的 4000 帧里未必有 turn/end，判据回 REPLY_NO_TURN_END ——
-    //   而那是「读不到」被装扮成了「她这一轮没说」。设计纪律写的是「不静默截断」，
-    //   这里把它落成结构上的：尾读 + 有上限 → 直接拒绝，让调用方显式选择。
-    //   ★ 单测见 test/reply-bridge-tail.test.mjs（不连任何真实宿主）。
-    const tailOpt = Number(callOpts && callOpts.tailFrames)
-    if (Number.isFinite(tailOpt) && tailOpt > 0) {
-      counters.failed += 1
-      counters.lastError = 'REPLY_TAIL_TRUNCATION_REJECTED'
-      return fail('REPLY_TAIL_TRUNCATION_REJECTED',
-        'bridge 回复读取不支持只读尾部（tailFrames=' + tailOpt + '）—— 尾读会静默截断并且不看 maxFrames；'
-        + '要么去掉 tailFrames 走分页全读，要么把这个上限显式提高', { sessionId, tailFrames: tailOpt, maxFrames })
-    }
     try {
-      got = await readAllSessionViaBridge(control, sessionId, { maxFrames, pageSize })
+      got = await readSessionViaBridge(control, sessionId, { tailFrames })
     } catch (e) {
       counters.failed += 1
       counters.lastError = String((e && e.message) || e)
       return fail('REPLY_BRIDGE_FAILED', counters.lastError, { sessionId })
     }
-    if (!got || !Array.isArray(got.frames) || got.frames.length === 0) {
+    if (!got || !Array.isArray(got.frames)) {
       counters.failed += 1
-      counters.lastError = 'bridge 返回 0 帧'
-      return fail('REPLY_BRIDGE_EMPTY', 'bridge 读到了 0 帧（不是「这轮没说」，是没读到内容）', { sessionId })
+      counters.lastError = 'bridge reply tail receipt lacks frames'
+      return fail('REPLY_BRIDGE_SHAPE', counters.lastError, { sessionId })
+    }
+    // fromEnd anchors this bounded read at EOF; truncated only says older file bytes were omitted.
+    if (got.fromEnd !== true || typeof got.truncated !== 'boolean' || !Number.isInteger(got.badLines) || got.badLines !== 0) {
+      counters.failed += 1
+      counters.lastError = 'tail receipt incomplete: fromEnd=' + String(got.fromEnd) + ' truncated=' + String(got.truncated) + ' badLines=' + String(got.badLines)
+      return fail('REPLY_BRIDGE_TRUNCATED', counters.lastError, { sessionId, count: Number(got.count) || got.frames.length, total: Number(got.total) || null, tailFrames })
+    }
+    const receiptValid = Number.isInteger(got.count) && got.count === got.frames.length
+      && Number.isInteger(got.total) && got.total >= got.count
+      && Number.isInteger(got.tailFrames) && got.tailFrames === tailFrames
+    if (!receiptValid) {
+      counters.failed += 1
+      counters.lastError = 'tail receipt counters inconsistent'
+      return fail('REPLY_BRIDGE_RECEIPT_INVALID', counters.lastError, { sessionId, count: got.count, frames: got.frames.length, total: got.total, tailFrames: got.tailFrames })
+    }
+    if (got.frames.length === 0) {
+      counters.failed += 1
+      counters.lastError = 'bridge returned zero frames'
+      return fail('REPLY_BRIDGE_EMPTY', 'bridge read zero frames (not equivalent to a silent turn)', { sessionId })
     }
     // ★ 拼回 JSONL 文本 → 复用同一套判据。一份实现，一个真相。
     const text = got.frames.map((f) => JSON.stringify(f)).join('\n')
     const out = extractLastReply(text, callOpts)
-    if (out.ok) { counters.ok += 1 } else { counters.failed += 1; counters.lastError = out.code }
+    if (out.ok) { counters.ok += 1 } else {
+      counters.failed += 1
+      counters.lastError = out.code
+      if (out.code === 'REPLY_NO_TURN_END') {
+        const total = Number(got.total)
+        const fullFileRead = got.fromEnd === true && got.truncated === false && got.tailBytesUsed === 0 && got.badLines === 0
+        out.baselineEmpty = fullFileRead && Number.isInteger(total) && total >= 0 && total < tailFrames
+        out.sessionFrames = Number.isInteger(total) ? total : null
+        out.tailFrames = tailFrames
+        if (got.truncated === true) {
+          counters.lastError = 'host byte-tail omitted older session bytes; no completed turn in available tail'
+          return fail('REPLY_BASELINE_UNPROVEN', counters.lastError, { sessionId, count: got.count, total: got.total, tailFrames })
+        }
+      }
+    }
     if (!out.ok) log('bridge 读回复失败：' + out.code + '（session ' + sessionId + '）')
     return out
   }
@@ -256,7 +276,7 @@ export function createReplyReaderViaBridge(opts = {}) {
     lastReply,
     viaBridge: true,
     view() {
-      return { viaBridge: true, maxFrames, pageSize, reads: counters.reads, ok: counters.ok, failed: counters.failed, lastAt: counters.lastAt, lastError: counters.lastError }
+      return { viaBridge: true, tailFrames, reads: counters.reads, ok: counters.ok, failed: counters.failed, lastAt: counters.lastAt, lastError: counters.lastError }
     },
   }
 }

@@ -23,6 +23,7 @@ import { createFaces, textToSegments, stripFaceTags, speakableText } from './fac
 import { expandMentions, hasMention } from './mentions.js'
 import { createRecentMedia } from './recent-media.js'
 import { createTitleFilter } from './title-filter.js'
+import { listAfterFreshArchiveState, resetWorkspaceSessions } from './session-reset.mjs'
 
 // QQ 会话的工作区目录，第一次收到消息时自动创建。面板「连接」页能改（config.workspaceDir，#32）；
 // 没填就用环境变量 AURABOT_WORKSPACE，再没有：老安装沿用 C:\Aurabot\qq-chats，新安装放在用户目录下（不用往 C 盘根目录写）
@@ -50,6 +51,7 @@ const sessionKey = (id) => {
  *   send(message, info) → 改最终发出去的 OneBot 消息段；返回 null 表示不发
  *   model(selection, chat) → 这个聊天用哪个模型 { provider, model, reasoningEffort }（同步）；selection 已经按主人「按聊天选模型」的设置算过
  *   poke(event) → true 表示戳一戳被模块接管了
+ *   pokeBlocked(reason, info) → 总开关关着 / 试运行时，她这一轮想戳一戳但没戳；reason = 'disabled' | 'dryRun'
  */
 // 模拟测试：这里面发出去的消息只记下来，不真发
 const captureStore = new AsyncLocalStorage()
@@ -457,7 +459,12 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     const group = chatId.startsWith('group:') ? chatId.slice(6) : ''
     const target = group ? lastPoker.get(chatId) || lastSpeaker.get(chatId) : chatId.slice(8)
     if (!target) return
-    if (!cfg.enabled || cfg.dryRun) return log.info(`试运行（没真戳）→ ${chatId}：戳了戳 ${target}`)
+    if (!cfg.enabled || cfg.dryRun) {
+      log.info(`试运行（没真戳）→ ${chatId}：戳了戳 ${target}`)
+      // 扩展模块的「戳一戳」工具照常回成功、但标一下没真戳（面板 / 模块不用去问总开关和试运行开没开）
+      try { hooks?.pokeBlocked?.(!cfg.enabled ? 'disabled' : 'dryRun', { chatId, target }) } catch (error) {}
+      return
+    }
     try {
       await onebot.call('send_poke', { user_id: Number(target), ...(group ? { group_id: Number(group) } : {}) }, { timeoutMs: 10000 })
       log.info(`${chatId}：她戳了戳 ${target}`)
@@ -1200,8 +1207,9 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   const typing = new Map() // sessionKey → timer
   function startTyping(key, chat) {
     const cfg = getConfig()
+    // 总开关关着 / 试运行：压根不建 typing 计时器 —— 不只是「不调 onebot」，之后也不会冒出一次迟到的心跳
     if (chat.kind !== 'private' || !cfg.enabled || cfg.dryRun || typing.has(key)) return
-    const ping = () => onebot.call('set_input_status', { user_id: Number(chat.userId), event_type: 1 }, { timeoutMs: 5000 }).catch(() => {})
+    const ping = () => { if (!getConfig().enabled || getConfig().dryRun) return stopTyping(key); onebot.call('set_input_status', { user_id: Number(chat.userId), event_type: 1 }, { timeoutMs: 5000 }).catch(() => {}) }
     ping()
     const started = Date.now()
     const t = setInterval(() => {
@@ -1336,51 +1344,102 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     return ''
   }
 
-  /** 只让一个聊天重新开始：归档它的会话，下一条消息开新会话。 */
-  function resetChat(chatId) {
+  /**
+   * 只让一个聊天重新开始：归档它的会话，下一条消息开新会话。
+   * 顺序是有意的（和 resetSessions 一样）：
+   *   归档之前不动任何映射 —— 归档失败/被拒，磁盘和内存原样保留，主人还能接着用旧会话；
+   *   先写盘、写成功了再删内存里的实时映射 —— 写盘失败时如实抛错，绝不假装这个聊天已经重开。
+   * 返回 true = 归档成功、映射已清；false = 这个聊天本来就没有对应会话（什么都不做）。
+   */
+  async function resetChat(chatId) {
     const reg = dsh.workspaceRegistry || dsh.get('workspaceRegistry')
     const m = map()
     const e = m.chats[chatId]
     if (!e) return false
-    Promise.resolve(reg?.archiveSession?.(e.sessionId)).catch((error) => log.debug('归档会话失败：', error.message))
+    if (!reg || typeof reg.archiveSession !== 'function') {
+      const error = new Error('workspaceRegistry archiveSession 不可用')
+      error.code = 'workspace-registry-unavailable'
+      error.stage = 'preflight'
+      throw error
+    }
+    try {
+      await reg.archiveSession(e.sessionId)
+    } catch (cause) {
+      const error = new Error('归档会话失败')
+      error.code = 'archive-failed'
+      error.stage = 'archive'
+      error.cause = cause
+      throw error
+    }
+    // 归档成功了才动映射；先在副本上删，写盘成功之前内存里的实时映射一律不动。
+    const next = { ...m, chats: { ...(m.chats || {}) } }
+    delete next.chats[chatId]
+    try {
+      saveMap(next)
+    } catch (cause) {
+      const error = new Error('保存聊天映射失败，原来的会话映射保留')
+      error.code = 'map-save-failed'
+      error.stage = 'save'
+      error.cause = cause
+      throw error
+    }
     sessionToChat.delete(sessionKey(e.sessionId))
     turnState.delete(sessionKey(e.sessionId))
-    delete m.chats[chatId]
-    saveMap(m)
     log.info(`${chatId} 重新开始`)
     return true
   }
 
-  /** 重新开始：把现有的 QQ 会话都归档（侧栏里还能找回），下一条消息起开新会话。 */
-  function resetSessions() {
+  /** 重新开始：archive 成功后才解除映射，失败项保留给下一条消息复用。 */
+  async function resetSessions() {
     const reg = dsh.workspaceRegistry || dsh.get('workspaceRegistry')
-    const m = map()
-    let n = 0
-    for (const [chatId, e] of Object.entries(m.chats)) {
-      try {
-        // 可能返回 Promise：必须接住 rejection，未处理的 rejection 会让 DSH 宿主退出
-        Promise.resolve(reg?.archiveSession?.(e.sessionId)).catch((error) => log.debug('归档会话失败：', error.message))
-      } catch (error) {
-        log.debug('归档会话失败：', error.message)
-      }
-      sessionToChat.delete(sessionKey(e.sessionId))
-      turnState.delete(sessionKey(e.sessionId))
-      delete m.chats[chatId]
-      n++
+    if (!reg || typeof reg.list !== 'function' || typeof reg.archiveSession !== 'function') {
+      const error = new Error('workspaceRegistry list/archiveSession 不可用')
+      error.code = 'workspace-registry-unavailable'
+      error.stage = 'preflight'
+      throw error
     }
-    // 专用工作区里其他零散的会话（比如手动点「新会话」留下的空白会话）也一起归档
+    const m = map()
+    let looseIds
     try {
-      const norm = (p) => String(p || '').replace(/[\\/]+$/, '').toLowerCase()
-      const ws = (reg?.list?.() || []).find((w) => norm(w.path) === norm(workspaceDirOf(getConfig())))
-      for (const sid of ws?.sessionIds || []) {
-        if ((reg.archivedSessionIds || []).includes(sid)) continue
-        Promise.resolve(reg.archiveSession(sid)).catch(() => {})
-        n++
-      }
-    } catch (error) {}
+      looseIds = await listAfterFreshArchiveState({
+        refreshArchived: typeof reg.refreshArchived === 'function' ? () => reg.refreshArchived() : null,
+        archivedFresh: () => reg.archivedFresh,
+        listWorkspaces: () => reg.list(),
+        workspacePath: workspaceDirOf(getConfig()),
+        archivedSessionIds: () => reg.archivedSessionIds,
+        excludeSessionIds: Object.values(m.chats).map((e) => String(e && e.sessionId || '')).filter(Boolean),
+      })
+    } catch (cause) {
+      const preflight = cause && cause.code === 'archived-state-unavailable'
+      const error = new Error(preflight ? 'archive state unavailable' : 'reset session listing failed')
+      error.code = preflight ? 'archived-state-unavailable' : 'workspace-list-failed'
+      error.stage = preflight ? 'preflight' : 'list'
+      error.cause = cause
+      throw error
+    }
+    const result = await resetWorkspaceSessions({
+      chats: m.chats,
+      looseSessionIds: looseIds,
+      archiveSession: (sid) => reg.archiveSession(sid),
+    })
+    m.chats = result.chats
+    // Persist first; if disk write fails, retain the old in-memory chat mappings.
     saveMap(m)
-    log.info(`重新开始：归档了 ${n} 个 QQ 会话`)
-    return n
+    for (const sid of result.archivedIds) {
+      sessionToChat.delete(sessionKey(sid))
+      turnState.delete(sessionKey(sid))
+    }
+    for (const [chatId, entry] of Object.entries(m.chats)) sessionToChat.set(sessionKey(entry.sessionId), chatId)
+    log.info(`重新开始：归档了 ${result.archived} 个 QQ 会话；失败 ${result.failed} 个`)
+    if (result.failed) {
+      const error = new Error('部分会话归档失败（已成功 ' + result.archived + '，失败 ' + result.failed + '）')
+      error.code = 'archive-partial-failure'
+      error.stage = 'archive'
+      error.archived = result.archived
+      error.failed = result.failed
+      throw error
+    }
+    return result.archived
   }
 
   /** 模拟测试：fn 里发出去的消息都记下来不真发，返回 { result, sent }。 */

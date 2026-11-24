@@ -90,6 +90,14 @@ export function createWakeDeliverer (opts = {}) {
     if (!sessionId) return { ok: false, code: 'RESOLVE_NO_SESSION' }
     stats.requested++
 
+    // Capture before followup: a fast DSH turn may finish before the delivery receipt returns.
+    let turnBefore = null
+    if (responder && typeof responder.captureBaseline === 'function') {
+      const baseline = await responder.captureBaseline(sessionId)
+      if (!baseline || baseline.ok !== true) return { ok: false, code: (baseline && baseline.code) || 'RESPOND_BASELINE_UNAVAILABLE' }
+      turnBefore = baseline.turn
+    }
+
     const d = await dispatch.followup({ sessionId, text: ask.text })
     if (!d || d.ok !== true) return { ok: false, code: (d && d.code) || 'FOLLOWUP_FAILED' }
 
@@ -99,7 +107,7 @@ export function createWakeDeliverer (opts = {}) {
     const back = String(d.sessionId || '')
     if (back && back !== sessionId) return { ok: false, code: 'SESSION_MISMATCH' }
 
-    return { ok: true, sessionId }
+    return { ok: true, sessionId, turnBefore }
   }
 
   /**
@@ -154,7 +162,7 @@ export function createWakeDeliverer (opts = {}) {
         if (responder) {
           try {
             // ★ 2026-11-13：watch 现在是 async（bridge 版 reader 是异步的）。
-            const w = await responder.watch(outcome.sessionId, key, {})
+            const w = await responder.watch(outcome.sessionId, key, Number.isFinite(outcome.turnBefore) ? { turnBefore: outcome.turnBefore } : {})
             if (!w || w.ok !== true) {
               stats.watchFailed = (stats.watchFailed || 0) + 1
               stats.lastWatchCode = (w && w.code) || 'WATCH_FAILED'
@@ -162,7 +170,8 @@ export function createWakeDeliverer (opts = {}) {
           } catch (e) {
             stats.watchFailed = (stats.watchFailed || 0) + 1
             stats.lastWatchCode = 'WATCH_THREW'
-            log('[deliver] 登记等回复失败：' + String((e && e.message) || e))
+            stats.lastWatchError = String((e && e.message) || e).slice(0, 200)
+            log('[deliver] 登记等回复失败：' + stats.lastWatchError)
           }
         }
       } else {

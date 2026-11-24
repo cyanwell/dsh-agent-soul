@@ -66,22 +66,35 @@ export function createResponder(opts = {}) {
 
   function keyOf(sessionId, chatId) { return String(sessionId) + '\u0000' + String(chatId) }
 
+  /** Read a turn watermark before followup so a very fast turn cannot race past watch(). */
+  async function captureBaseline(sessionId) {
+    if (!replyReader) return { ok: false, code: 'RESPOND_UNCONFIGURED', error: '没有 replyReader' }
+    try {
+      const base = await replyReader.lastReply(sessionId)
+      if (base && base.ok === true && Number.isFinite(Number(base.turn))) return { ok: true, turn: Number(base.turn) }
+      if (base && base.ok === false && base.baselineEmpty === true) return { ok: true, turn: 0 }
+      return { ok: false, code: 'RESPOND_BASELINE_UNAVAILABLE', error: (base && base.error) || '无法证明当前完整 turn 序号' }
+    } catch (e) {
+      return { ok: false, code: 'RESPOND_BASELINE_FAILED', error: String((e && e.message) || e) }
+    }
+  }
+
   /** 投递成功后登记一次「等这一轮的回复」。重复登记同一个 (会话,chat) 会覆盖旧的。 */
-  // ★★★ 2026-11-13（架构收敛）：改成 async —— bridge 版的 replyReader 是异步的。
-  //   ★ `await` 一个非 Promise 值在 JS 里是合法的，所以**同步的旧 reader 照样工作**，
-  //     这条改动对现有调用方是向后兼容的。
   async function watch(sessionId, chatId, watchOpts = {}) {
     if (!replyReader) return { ok: false, code: 'RESPOND_UNCONFIGURED', error: '没有 replyReader' }
     if (!outbox) return { ok: false, code: 'RESPOND_UNCONFIGURED', error: '没有 outbox' }
 
-    // ★ 基准 turn：投递**之前**读一次。读不到就当 0（会话里还没有完整的一轮）——
-    //   那样第一条完整回复就会被发出去，这是想要的行为（她第一次说话就该发）。
-    let turnBefore = 0
-    try {
-      const base = await replyReader.lastReply(sessionId)
-      if (base.ok && Number.isFinite(base.turn)) turnBefore = Number(base.turn)
-    } catch (e) { log('respond: 取基准 turn 失败（当 0 处理）：' + String((e && e.message) || e)) }
-    if (Number.isFinite(Number(watchOpts.turnBefore))) turnBefore = Number(watchOpts.turnBefore)
+    let turnBefore = watchOpts.turnBefore != null && Number.isFinite(Number(watchOpts.turnBefore)) ? Number(watchOpts.turnBefore) : null
+    if (turnBefore === null) {
+      const base = await captureBaseline(sessionId)
+      if (!base.ok) {
+        counters.failed += 1
+        counters.lastCode = base.code
+        counters.lastError = base.error
+        return base
+      }
+      turnBefore = base.turn
+    }
 
     const key = keyOf(sessionId, chatId)
     const old = watches.get(key)
@@ -301,5 +314,5 @@ export function createResponder(opts = {}) {
     }
   }
 
-  return { watch, stop, view }
+  return { captureBaseline, watch, stop, view }
 }

@@ -19,10 +19,11 @@ const http = cfg.networks.httpServers[0]
 const token = String(http.accessToken || '')
 const base = 'http://127.0.0.1:' + http.port
 
-const outbox = createOutbox({ baseUrl: base, tokenEnv: '', timeoutMs: 15000 })
+// ★ 2026-11-24：默认模式是 off —— 这个脚本存在的意义就是「真的发出去」，必须显式打开。
+const outbox = createOutbox({ mode: 'onebot-http', baseUrl: base, tokenEnv: '', timeoutMs: 15000 })
 // ★ outbox 只认 tokenEnv（环境变量名），这里直接把 token 塞进 env
 process.env.__V4_TEST_TOKEN = token
-const ob = createOutbox({ baseUrl: base, tokenEnv: '__V4_TEST_TOKEN', timeoutMs: 15000 })
+const ob = createOutbox({ mode: 'onebot-http', baseUrl: base, tokenEnv: '__V4_TEST_TOKEN', timeoutMs: 15000 })
 
 const stickers = createStickerLib({ root: 'D:/AI/dsh/home/plugins-data/aurabot/stickers', log: (m) => console.log(m) })
 const tts = createTts({ outDir: 'D:/AI/agent-soul/data/voice-cache', log: (m) => console.log(m) })

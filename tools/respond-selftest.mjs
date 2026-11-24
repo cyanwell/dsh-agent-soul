@@ -84,15 +84,14 @@ const mk = (readerTurn, sendFail) => {
   await clock.flush(300)
   ok('旧 turn 不发', outbox.sent.length === 0, outbox.sent)
 }
-// ③ 一直读不到（会话文件不存在）→ 不抛、超时记一笔
+// ③ baseline 读不到时立即拒绝登记（不把失败伪装成 turn 0 / 后续超时）
 {
   const { clock, reader, outbox, r } = mk(5)
   reader.state.ok = false
-  await r.watch('s1', 'group:1')
-  await clock.flush(1200)
-  ok('读不到时不发', outbox.sent.length === 0, outbox.sent)
-  ok('超时计数 = 1', r.view().timeouts === 1, r.view())
-  ok('超时后不再 watch', r.view().watching === 0, r.view())
+  const result = await r.watch('s1', 'group:1')
+  ok('不可信 baseline 明确拒绝', result.ok === false && result.code === 'RESPOND_BASELINE_UNAVAILABLE', result)
+  ok('baseline 失败时不发', outbox.sent.length === 0, outbox.sent)
+  ok('baseline 失败不注册 watcher', r.view().watching === 0 && r.view().timeouts === 0, r.view())
 }
 // ④ 发失败 → failed 计数，lastCode 记下来
 {
@@ -124,16 +123,25 @@ const mk = (readerTurn, sendFail) => {
   await clock.flush(200)
   ok('还是只发一次', outbox.sent.length === 1, outbox.sent)
 }
-// ⑦ 投递前没有完整一轮（turnBefore=0）→ 第一个完整回复就发
+// ⑦ 明确证明为完整读出的新空 session（baselineEmpty=true）→ 首个完整 turn 可以发送。
 {
   const clock = makeClock()
-  const reader = { lastReply: () => ({ ok: false, code: 'REPLY_NO_TURN_END' }) }
+  const reader = { lastReply: () => ({ ok: false, code: 'REPLY_NO_TURN_END', baselineEmpty: true, sessionFrames: 1, tailFrames: 8000 }) }
   const outbox = makeOutbox()
   const r = createResponder({ replyReader: reader, outbox, now: clock.now, setTimer: clock.setTimer, clearTimer: clock.clearTimer, pollMs: 100, timeoutMs: 1000 })
-  await r.watch('s1', 'private:9')
+  const watch = await r.watch('s1', 'private:9')
   reader.lastReply = () => ({ ok: true, turn: 1, text: '第一次说话' })
   await clock.flush(200)
-  ok('无基准时首个完整回复就发', outbox.sent.length === 1 && outbox.sent[0].text === '第一次说话', outbox.sent)
+  ok('完整空 session 的首个 turn 可发送', watch.ok && watch.turnBefore === 0 && outbox.sent.length === 1 && outbox.sent[0].text === '第一次说话', outbox.sent)
+}
+// ⑦b 无完整 turn 但也未证明整个 session 已读完 → 不注册，不误把尾部旧内容当首轮。
+{
+  const clock = makeClock()
+  const reader = { lastReply: () => ({ ok: false, code: 'REPLY_NO_TURN_END', baselineEmpty: false }) }
+  const outbox = makeOutbox()
+  const r = createResponder({ replyReader: reader, outbox, now: clock.now, setTimer: clock.setTimer, clearTimer: clock.clearTimer, pollMs: 100, timeoutMs: 1000 })
+  const watch = await r.watch('s1', 'private:9')
+  ok('不可信空历史 baseline fail-closed', watch.ok === false && watch.code === 'RESPOND_BASELINE_UNAVAILABLE' && r.view().watching === 0, watch)
 }
 // ⑧ 没有 reader / outbox → 明确拒绝，不假装登记
 {

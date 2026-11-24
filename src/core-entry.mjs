@@ -71,7 +71,9 @@ import { createEventsIngress } from './events/index.mjs';
 // ★ 2026-11-12：会话调度器**只在这里建一次** —— web 的 /api/session 与事件层的投递器
 //   必须共用同一个实例，否则 counts / noHost 各算各的，面板上两个数对不上。
 import { createSessionDispatch } from './organs/session-dispatch.mjs';
-import { createOutbox } from './adapters/outbox.mjs';
+// ★ 2026-11-24：出站口的**模式判据**也在这里（selectOutbox）。
+//   它是「这个进程手里到底有没有『发出去』那只手」的唯一定义 —— events / aurabot 两处接线都问它。
+import { createOutbox, selectOutbox } from './adapters/outbox.mjs';
 // ★ 2026-11-12：③ 取回式同步的入口 —— GET /api/search?q=...
 //   取回式而不是推送式（爀曦拍板）：推送会把别人的帧写进当前上下文，而上下文变大正是污染源，
 //   于是「同步」和「换气」直接对冲。取回只提供入口，不占上下文。
@@ -90,6 +92,9 @@ import { createBridgeSessionController } from './aurabot/adapter/bridge-session-
 import { createBridgeServices } from './aurabot/adapter/bridge-services.mjs'
 import { createAurabotLlm } from './aurabot/adapter/llm-adapter.mjs';
 import { handleAurabotApi, AURABOT_API_PREFIX } from './aurabot/adapter/http.mjs';
+// ★ 2026-11-24：**出站口交不交给 aurabot，只由这一条判据决定**（mode === 'onebot-http'）。
+//   纯函数，不碰配置、不建对象 —— 测试只测它，不用起 core-entry。
+import { selectAurabotOutbox } from './aurabot/adapter/outbox-gateway.mjs';
 import { handleAurabotStatic } from './aurabot/adapter/static.mjs';
 // ★ 2026-11-13：echo 体检页（照 v3 的 dsh-yanqing-echo，15 项）。
 //   逻辑不搬 —— 调 D:\AI\memory\hub\echo-doctor.mjs 的 runDoctor()，
@@ -487,6 +492,11 @@ const sessionDispatch = createSessionDispatch({
 const _egress = (config.events && config.events.egress) || {};
 const _egressOb = _egress.onebot || {};
 const outbox = createOutbox({
+  // ★★★ 2026-11-24：**模式也传进去** —— 出站口自己就先挡一道，与「有没有 httpUrl」无关。
+  //   在这之前这里只传 baseUrl，于是 managed 配置那种「mode=off 但留着 httpUrl」
+  //   在出站口眼里和「开着的」一模一样：开关关着，消息照样发得出去。
+  //   现在判据落回它该在的地方：**这只手自己知道能不能发**，不靠每个调用点记得先看一眼。
+  mode: _egress.mode,
   baseUrl: _egressOb.httpUrl || '',
   tokenEnv: _egressOb.tokenEnv || '',
   timeoutMs: _egressOb.timeoutMs,
@@ -494,6 +504,17 @@ const outbox = createOutbox({
   env: process.env,
   log: (m) => { if (!config.quiet) console.log('  ' + m); },
 });
+
+// ★★ 交给「事件层回复投递器」的那一份，同样由 mode 决定（与 aurabot 那处是同一个判据函数）。
+//   为什么给 null 而不是给一个「关着的出站口」：events/index.mjs 的判据是
+//   `_replySourceReady && opts.outbox` —— 它拿到 null 就**根本不建 responder**。
+//   建一个「会失败的 responder」和「没有 responder」在日志里很像，但前者还留着一条
+//   「再试一次也许就出去了」的路；而 mode=off 的语义是**这只手不存在**，不是「它今天心情不好」。
+const eventsOutbox = selectOutbox(_egress.mode, outbox);
+if (!eventsOutbox) {
+  console.log('  事件层不接出站口（events.egress.mode=' + String(_egress.mode || 'off')
+    + '）：她的回复只投不回 —— 不建 responder，也不回落 OneBot client');
+}
 
 /* ★★★ 2026-11-14（第 14 代）：**「审核通过 → 转给 lead」这一步原来没有落点。**
  *
@@ -553,7 +574,9 @@ const eventsIngress = createEventsIngress({
   dispatch: sessionDispatch,
   // ★★ 2026-11-12：出站口也传进去 —— 投递成功之后，会话的回复靠它发回 QQ。
   //   不传就是「只投不回」：话送进会话了，但群里一个字都看不到。
-  outbox,
+  //   ★★★ 2026-11-24：传的是**选出来的**那一份（见上面 eventsOutbox）——
+  //     events.egress.mode 不是 onebot-http 时它是 null，于是 responder 根本不会建。
+  outbox: eventsOutbox,
   // ★★★ 2026-11-13（第 14 代）：**事件层的宪章闸门** —— 爀曦定的核心机制：
   //   aurabot 提执行申请 → soul 内嵌 LLM 审是否合宪 → 通过才转给 lead（我）。
   //   ★ 三条定死的规矩：
@@ -1035,6 +1058,25 @@ if (managedPreflight) {
   //     但会把原因记在 status().archived.why 里，不是静默。
   await bridgeServices.ready();
 
+  // ★★★ 2026-11-24：**出站口只在 events.egress.mode === 'onebot-http' 时才交给 aurabot。**
+  //
+  //   原来的写法是「无条件交 outbox」。而 createOutbox 只判 baseUrl、不判 mode，
+  //   managed 配置又**强制 mode=off 却可能留着 httpUrl** —— 于是 mode=off 仍然发得出去：
+  //   「开关关着」和「能发」同时成立，两种状态在日志里长得一模一样。
+  //
+  //   现在判据收在一个纯函数里（adapters/outbox.mjs 的 selectOutbox；
+  //   aurabot 那侧的 selectAurabotOutbox 只是它的别名），这里只是调用它。
+  //   ★ 出站口自己也用同一个判据挡 send / poke —— 所以即使有人绕过这里把裸 outbox
+  //     传出去，也还是发不动。两道闸同一个判据，不是两套规则。
+  //   ★ 层次要看清：enabled / dryRun / capture 三道闸仍在 hub 里、仍架在这之上；
+  //     这一道管的是更下面的事 ——「这个进程手里到底有没有『发出去』的那只手」。
+  //   ★ 不认的模式一律不交 → 适配层对三个迁移动作抛 outbox-unavailable，绝不回落直连。
+  const aurabotOutbox = selectAurabotOutbox(_egress.mode, outbox)
+  if (!aurabotOutbox) {
+    console.log('  aurabot 不接出站口（events.egress.mode=' + String(_egress.mode || 'off')
+      + '）：send_group_msg / send_private_msg / send_poke 会直接拒绝，不回落直连')
+  }
+
   const ab = createAurabotCtx({
     llm,
     log: abLog,
@@ -1072,6 +1114,17 @@ if (managedPreflight) {
       //   attachments.admitPromptContent 都走这两个代理。
       sessions: bridgeServices.sessions,
       attachments: bridgeServices.attachments,
+      // ★★★ 2026-11-24：**出站口也交给 aurabot。**
+      //   aurabot（同一进程，见下面 createAurabotCtx）的 send_group_msg / send_private_msg /
+      //   send_poke 三个写动作改走它，其余动作仍走 aurabot 自己的 OneBot client。
+      //   ★ 为什么必须传：不传的话同一进程里就有两个「发消息」的出口，
+      //     而这个文件顶上那个 outbox 数不着 aurabot 发的那些 —— /api/outbox 会稳定显示 0，
+      //     而「0」和「没发过」长得一模一样（本项目为这类死读数付过代价）。
+      //   ★ 同一个对象、不是新建一个：一个进程只该有一个出站口。
+      //   ★★ 2026-11-24：但**交不交**由 mode 决定 —— 见上面 selectAurabotOutbox 那段。
+      //     mode 不是 onebot-http 时这里是 null：适配层拿不到出站口就拒绝，
+      //     于是「关着」和「能发」不可能同时成立。
+      outbox: aurabotOutbox,
     },
     // ★ 事件层：ctx.mjs 收到 control 就自建 bridge-events，并把
     //   emit('session/event', session, event)（**两个参数**）接到埋好的监听器上。

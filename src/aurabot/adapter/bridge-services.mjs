@@ -205,6 +205,11 @@ export function createBridgeServices (control, opts = {}) {
         if (data && data.workspace) return data.workspace
         return data || undefined
       },
+      async archiveSession (sessionId) {
+        const sid = String(sessionId || '').trim()
+        if (!sid) throw fail('workspaceRegistry.archiveSession 需要 sessionId', { name: 'workspaceRegistry', method: 'archiveSession', code: 'bad-request' })
+        return callService('workspaceRegistry', 'archiveSession', [sid], 'call')
+      },
       /** ★ 同步 getter（调用方 hub.js:213 就是同步读的）。过期就顺手踢一次后台刷新。 */
       get archivedSessionIds () {
         if (Date.now() - archived.at > cacheTtlMs && !archived.inflight) refreshArchived().catch(() => {})

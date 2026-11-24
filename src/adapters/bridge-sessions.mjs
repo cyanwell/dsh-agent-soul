@@ -86,7 +86,13 @@ export async function readAllSessionViaBridge (control, sessionId, opts = {}) {
   const tailFrames = Number.isFinite(opts.tailFrames) && opts.tailFrames > 0 ? opts.tailFrames : 0
   if (tailFrames > 0) {
     const one = await readSessionViaBridge(control, sessionId, { limit: tailFrames, tailFrames })
-    return { sessionId, frames: one.frames, count: one.frames.length, badLines: one.badLines || 0, tailFrames, fromEnd: true }
+    if (one.fromEnd !== true || !Number.isInteger(one.count) || one.count !== one.frames.length
+      || !Number.isInteger(one.total) || one.total < one.count
+      || one.tailFrames !== tailFrames || !Number.isInteger(one.badLines) || one.badLines < 0
+      || typeof one.truncated !== 'boolean') {
+      throw new Error('sessions/read 尾读回执字段不一致或缺失（session=' + sessionId + '）')
+    }
+    return { ...one, sessionId, tailFrames }
   }
 
   const all = []

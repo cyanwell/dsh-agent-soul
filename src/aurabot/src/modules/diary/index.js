@@ -67,7 +67,8 @@ export default {
       return { ok: true, items: qzone.history(), next: qzone.nextTime(), warning: sync.warning || '' }
     })
     api.route('/qzone/delete', async (req) => {
-      await qzone.remove((await http.body(req)).tid)
+      const result = await qzone.remove((await http.body(req)).tid)
+      if (result && result.ok === false) return result
       return { ok: true, message: '删掉了' }
     })
     return qzone

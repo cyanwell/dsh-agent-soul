@@ -108,7 +108,7 @@ export default {
 | `api.dataDir(...路径)` | 这个模块专用的数据文件夹（`plugins-data/aurabot/modules-data/<id>/`），自动建好 |
 | `api.log.info / warn / error / debug(...)` | 写日志（面板「日志」页能看，自动脱敏） |
 
-**发消息**（总开关、试运行照常管着：关着 / 试运行时只写日志）
+**Hub 消息快捷方法**（普通调用受总开关与试运行管控；主人命令 force 行为见下方说明；raw `api.onebot` 按下方写action策略另行处理）
 
 | | |
 |---|---|
@@ -119,7 +119,13 @@ export default {
 | `api.sendFile(chatId, 文件路径或网址, 文件名?)` | 把文件（文档、压缩包、音频、视频……）当文件发过去。要先在面板「聊天」页打开「发文件」；本机文件给**绝对路径**，而且只能在 QQ 工作区或主人在面板里加的目录里；单个文件有大小上限（默认 50 MB）。网关在别的机器 / 容器里看不到本机路径时，小文件会自动改用 base64 再试一次 |
 | `api.sendVoiceFile(chatId, 音频文件, 日志备注?)` | 把本机一个音频文件当语音条发出去（不走「念文字」） |
 | `api.sendSegments(chatId, [OneBot 消息段], 日志备注)` | 发任意 OneBot 消息段 |
-| `api.onebot(action, params)` | 直接调 OneBot（SnowLuma）的任意 API，比如 `api.onebot('get_group_member_list', { group_id: 123 })` |
+| `api.onebot(action, params)` | 兼容性直调 OneBot（SnowLuma）API；**不是**完整 capability allowlist。22 个已盘点 write action 在总开关关闭或 `dryRun=true` 时拒绝；19 个已登记 read action 在这两种模式下**照常放行**；其余未分类 action 在关闭 / 试运行下拒绝（`reason: unclassified`），live 下仍原样透传 |
+
+Hub 普通 `sendSegments` 先经过 capture，再受 enabled/dryRun 控制；内部主人命令回复的 `force:true` 会跳过 enabled/dryRun，但仍先经过 capture，且迁移动作仍受 Core `events.egress.mode` gate。`pokeBack` 单独检查 enabled/dryRun。
+
+`api.onebot(...)` 与 `api.core.onebot.call(...)` 共用冻结的模块OneBot facade，三类名字分开判：（1）**已知写**（22 个，名单唯一来源是出站口的 `OUTBOX_PORT.actions`）在总开关关闭或 `dryRun=true` 时以 rejected Promise 拒绝，错误码 `onebot-write-blocked`、`reason` 为 `disabled` / `dry-run`、stage `policy`；（2）**已登记读**（19 个，`MODULE_ONEBOT_READ_ACTIONS`）是只读动作，**在这两种模式下照常放行**（它们不产生任何出站写，所以闸不开也照读）；（3）**未分类 action**（既不在写名单、也不在读名单 —— 不按前缀 / 大小写 / 别名猜）在关闭 / 试运行下同样拒绝，同一个错误码 `onebot-write-blocked`、但 `reason` 为 `unclassified`、stage `policy`，message 会提示「确认它是只读动作就把动作名逐字登记到 `MODULE_ONEBOT_READ_ACTIONS`」。**live 模式下未分类 action 仍原样透传**（兼容性保留：第三方网关 / 自建 facade 的动作名盘不全，不把「没盘到」变成「突然不能用」）—— 所以这仍**不是**完整 capability allowlist，名单里没有的名字没有任何一层替它背书。空串 / 纯空白动作名在所有模式下一律 `onebot-action-invalid`、stage `policy`。闸判在 client 之前：已知写与未分类动作先撞 policy 闸，再轮到 `onebot-unavailable`（stage `adapter`）；读动作不看总开关，但 client 缺失时同样报 `onebot-unavailable`。查表用 trim 后的名字，动作名本身原样往下传。源码：`module-onebot-policy.mjs`。
+
+在 AgentSoul v4 中，OneBot client wrapper 只拦截以下22个 action；无论调用来自 Hub 还是模块，只要 action 名匹配就会走 Core 共享 outbox：`send_group_msg`、`send_private_msg`、`send_poke`、`set_input_status`、`modify_custom_face`、`delete_custom_face`、`set_self_longnick`、`set_qq_profile`、`set_qq_avatar`、`add_custom_face`、`set_friend_add_request`、`set_doubt_friends_add_request`、`delete_qzone_msg`、`upload_group_file`、`upload_private_file`、`set_group_special_title`、`_send_group_notice`、send_qzone_msg、comment_qzone、set_group_ban、set_group_kick、like_qzone。这不是任意action转发，也不表示所有 `api.send*` 或所有 QQ 写操作都已统一。outbox 只有在 `events.egress.mode` 精确设为 `onebot-http` 时启用，默认 `off`（managed 配置也强制 off）；mode off时这22项均 fail-closed且不回退到 Aurabot 的 OneBot client。部署前需配置有效的 `events.egress.onebot.httpUrl` 与 `tokenEnv`，并确认它们指向和 Aurabot 接收消息相同的 SnowLuma 网关/账号；两套端点没有自动一致性校验。已知写action无剩余；未知/custom action及全部读action仍可能经 Aurabot client 直连（模块 facade 那道闸只决定 enabled / dryRun 下放不放行，不改变这一层的路由：读动作在 live 与 dryRun 都原样转给 client，未分类动作在 live 下也原样转）；`act()`仅支持列明的19个严格白名单动作（三个发送/戳另行路由；其中10个是资料 / 状态 / 表情库 / 好友申请审批 / 自有 Qzone 说说撤回，授权上传动作（2项）：Hub sendFile调用时有Hub的enabled / dryRun / 路径 / 大小门控；模块通用OneBot facade仅有全局enabled / dryRun写门（当前源码无模块上传调用点），不自动继承Hub文件路径 / 大小校验，上传能力owner仍待收敛），动作类不做摘要幂等且不自动重试；`/api/outbox` 目前统计这22个action及 v4 自身的 outbox 调用。`set_qq_avatar` 的 `file` 三种形态（`base64://…` / 本机路径 / http(s) 网址）原样透传，`add_custom_face` 成功时返回网关 `data` 原件（含 `emoji_id`）。
 
 `chatId` 的格式：`private:QQ号`、`group:群号`（她后台自己想事情用的会话是 `system:名字`，工具生成函数里可能见到，发不了消息）。
 
@@ -165,8 +171,8 @@ export default {
 
 | | |
 |---|---|
-| `hub` | 聊天中枢：`deliver(chatId, text)` `sendText` `sendVoice(chatId, 文字)` `sendVoiceFile(chatId, 音频文件)` `sendImage` `sendSticker(chatId, 名字)` `sendSegments` `runSystemTurn(名字, 标题, 提示词)` `pushToSession(...)` `resetChat(chatId)` `groupName(群号)` `turnHasOwner(sessionId)` `chatOfSession(sessionId)` `stats()` `sessions()` `chatLogOf(日期)` `lastChatAt` `lastOwnerChatAt` …… |
-| `onebot` | QQ 网关：`call(action, params, { timeoutMs })`、`state` |
+| `hub` | 聊天中枢：`deliver(chatId, text)` `sendText` `sendVoice(chatId, 文字)` `sendVoiceFile(chatId, 音频文件)` `sendImage` `sendSticker(chatId, 名字)` `sendSegments` `runSystemTurn(名字, 标题, 提示词)` `pushToSession(...)` `resetChat(chatId): Promise<boolean>`（先 await archiveSession，再保存并清live映射；无映射返回false；失败reject）` `groupName(群号)` `turnHasOwner(sessionId)` `chatOfSession(sessionId)` `stats()` `sessions()` `chatLogOf(日期)` `lastChatAt` `lastOwnerChatAt` …… |
+| `onebot` | 模块侧OneBot facade：`call(action, params, { timeoutMs })`、`state`；`api.onebot(...)`快捷调用与`api.core.onebot.call(...)`共用同一道闸：22 个 known write 在总开关关闭或 `dryRun=true` 时拒绝（`onebot-write-blocked`），19 个已登记 read 照常放行，未分类 action 在关闭 / 试运行下同样拒绝（`reason: unclassified`），live 下未分类仍原样透传。`api.send*`/hub helper由Hub单独拦截，不走这张action表 |
 | `snowluma` | SnowLuma 管理：`running()` `start()` `stop()` `detect()` …… |
 | `local` | 本地接口（「本地接口」页那四项）：`active(slot)` `call(slot, 参数)` |
 | `groupRoles` | 她在各群的身份：`get(群号)` `canManage(role)` `label(role)` |
@@ -179,6 +185,8 @@ export default {
 | `getConfig()` / `setConfig(cfg)` | 同 `api.config` / 整份替换配置 |
 | `logger` | 插件的日志器（`logger.child('名字')` 拿一个分类） |
 | `root` | 插件自己的安装目录 |
+
+这张表只列`api.core`常用项，不是封闭allowlist；`api.core`和`api.dsh`仍可访问更广的host context/IO。模块代码是受信任的同进程JavaScript，OneBot disabled/dryRun facade是防误操作guard，不是恶意模块隔离边界；通过配置修改或其它未迁移IO仍可能绕过。
 
 ## 事件
 
@@ -222,7 +230,7 @@ api.on('reply/items', (items) => [...items, { kind: 'text', value: '—— 大�
 | `song/sung` | `{ title, chatId }` | 翻唱模块唱完一首 |
 | 你自己 `api.emit` 的 | 随你 | 模块之间互相通知 |
 
-`msg` 长这样（`text` 是纯文字：@ 她的那段去掉了，@ 别人的写成「@昵称」，图片 / 表情 / 文件写成「[图片]」这类占位；引用的那条消息的文字**不在**里面，要的话用 `replyId` 去 `api.onebot('get_msg', { message_id })` 拿）：
+`msg` 长这样（`text` 是纯文字：@ 她的那段去掉了，@ 别人的写成「@昵称」，图片 / 表情 / 文件写成「[图片]」这类占位；引用的那条消息的文字**不在**里面，要的话用 `replyId` 去 `api.onebot('get_msg', { message_id })` 拿 —— `get_msg` 已登记为读动作，总开关关着 / 试运行下同样能读）：
 
 ```js
 {
@@ -342,7 +350,7 @@ return function Panel({ settings, save, toast }) {
 - **模拟一条消息**：选你是主人还是别人、私聊还是群聊，写一句话，看它会被哪个模块接管、命令回了什么；再写一句「她的回复」，看经过各个模块改写后最后会发出去什么
 - 你的模块加的 `/命令` 在模拟里**会执行**（看 `run` 回了什么）
 - **调用工具**：选一个工具、填参数（JSON），直接调用，看返回值
-- 这期间**发出去的消息只截下来显示，不会真发到 QQ**。但模块直接调 `api.onebot(...)` 的操作（禁言、发空间……）不在此列，是真的会执行的
+- 这期间**经聊天中枢发出去的消息只截下来显示，不会真发到 QQ**。模块侧已盘点的22类 OneBot写action在总开关关闭或 `dryRun=true` 时也会拒绝；**未分类的 raw action 在这两种模式下同样会被模块 facade 拒绝**（`onebot-write-blocked`、`reason: unclassified`），只有 live 模式才原样透传。`api.core.hub.*` 这类 hub helper 有自己的 enabled / dryRun 判断、host 侧直连 client 的调用也不经过这道闸 —— 所以模拟测试仍然**不能**代替完整的 OneBot capability allowlist。
 - 内置命令（`/off` 这些会改设置的）模拟里不执行
 
 ## 内部源码

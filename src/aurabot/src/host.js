@@ -17,8 +17,10 @@ import { loadConfig, saveConfig, publicConfig, mergeFromPanel } from './core/con
 import { createLogger } from './core/logger.js'
 import { registerSecret, redact } from './core/redact.js'
 import { createOneBotClient } from './onebot/client.js'
+import { createOutboxGateway, outboxFromCtx } from '../adapter/outbox-gateway.mjs'
 import { createSnowLumaManager, DOWNLOAD_PAGE } from './snowluma/manager.js'
 import { createHub, workspaceDirOf } from './chat/hub.js'
+import { registerSessionResetRoute } from './session-reset-route.mjs'
 import { createLocal, fileOf, toImageBuffer } from './local/local.js'
 import { createGroupRoles } from './chat/group-roles.js'
 import { defaultModel, askModel, modelReasoning, modelVision, clearReasoningCache, clearVisionCache } from './core/llm.js'
@@ -28,6 +30,7 @@ import { createUpdateChecker, changelogSection } from './core/update.js'
 import { parseCommand, runCommand, createMutes, commandList } from './chat/commands.js'
 import { listPersonas, readPersona, savePersona, deletePersona, currentPersonaText, rulesText, seedPersonas } from './persona/personas.js'
 import { createModules, createHostModules, API_VERSION } from './core/modules.js'
+import { createAvatarSyncHandler } from './core/module-onebot-policy.mjs'
 import { createBridge } from './core/bridge.js'
 import { createDangerGuard } from './security/danger.js'
 import { BUILTINS } from './modules/index.js'
@@ -187,7 +190,7 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
       hub.onPoke(ev).catch((error) => log.error('处理戳一戳出错：', error.message))
     }
   }
-  const onebot = onebotFactory({
+  const onebotClient = onebotFactory({
     endpoint,
     log: logger.child('onebot'),
     onState: (s, d) => {
@@ -208,6 +211,22 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
       }
       handleEvent(ev)
     },
+  })
+  // ★★★ 2026-11-24：**出站那一步改走进程内 outbox。**
+  //
+  //   为什么在「客户端」这一层换，而不是去 hub.js 里改 sendSegments：
+  //   hub 的三道闸（capture / 总开关 / 试运行）本来就架在客户端**之上** —— 换的是下面
+  //   那层，闸就自动仍然在前。反过来把闸搬进传输层，才是真会出事的那种顺手重构。
+  //
+  //   ★ 只有 send_group_msg / send_private_msg / send_poke 改道；
+  //     读、上传、资料、群管理…… 原样转给真的 client（未迁移，见 adapter 文件末尾清单）。
+  //   ★ 没有出站口时**拒绝**、不回落直连 —— 回落会让「走没走 outbox」变成靠运气，
+  //     而两种行为在日志里长得一模一样。
+  const onebot = createOutboxGateway({
+    client: onebotClient,
+    // 晚绑定：出站口是 core 在进程启动时建的，这里只在真正要发的时候才去取
+    getOutbox: () => outboxFromCtx(ctx),
+    log: (m) => { try { log.debug?.(String(m)) } catch (error) {} },
   })
   const groupRoles = groupRolesFactory({ onebot, getConfig, log: logger.child('chat') })
   const local = localFactory({ getConfig, log: logger })
@@ -599,10 +618,7 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
     return r ? { ok: true, message: '发给主人了，去 QQ 看看' } : { ok: false, message: '没发出去（看日志）' }
   })
 
-  route('/sessions/reset', async () => {
-    const n = hub.resetSessions()
-    return { ok: true, message: n ? `归档了 ${n} 个会话，下一条消息起她会重新开始` : '本来就没有会话' }
-  })
+  registerSessionResetRoute(route, hub)
 
   // 人格
   route('/personas', async () => ({ ok: true, list: personaDeps.list(), current: cfg.persona.current }))
@@ -845,15 +861,11 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
     try { unlinkSync(AVATAR()) } catch (error) {}
     return { ok: true, message: '恢复成默认头像了', avatar: avatarInfo() }
   })
-  route('/avatar/sync-qq', async () => {
-    const buf = existsSync(AVATAR()) ? readFileSync(AVATAR()) : readFileSync(join(ROOT, 'assets', 'dafeiyu.jpg'))
-    try {
-      await onebot.call('set_qq_avatar', { file: 'base64://' + buf.toString('base64') })
-      return { ok: true, message: '已经设成机器人号的 QQ 头像' }
-    } catch (error) {
-      return { ok: false, message: 'QQ 头像没换成：' + error.message }
-    }
-  })
+  route('/avatar/sync-qq', createAvatarSyncHandler({
+    getConfig,
+    readAvatar: () => existsSync(AVATAR()) ? readFileSync(AVATAR()) : readFileSync(join(ROOT, 'assets', 'dafeiyu.jpg')),
+    onebot,
+  }))
 
   log.info(`Aurabot v${VERSION} 已加载｜总开关 ${cfg.enabled ? '开' : '关'}｜试运行 ${cfg.dryRun ? '开' : '关'}｜工作区 ${workspaceDirOf(cfg)}`)
 

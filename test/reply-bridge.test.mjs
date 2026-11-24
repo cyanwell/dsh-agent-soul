@@ -18,9 +18,9 @@ const framesFor = (opts = {}) => {
 }
 
 const mkControl = (frames, opts = {}) => ({
-  exec: async () => {
+  exec: async (hostId, cap, action, args) => {
     if (opts.throw) throw new Error('sessions/read 失败（模拟）')
-    return { ok: true, frames, count: frames.length, nextFromSeq: null, badLines: 0 }
+    return { ok: true, frames, count: frames.length, total: frames.length, nextFromSeq: null, badLines: 0, fromEnd: true, truncated: false, tailFrames: args?.tailFrames }
   },
   whoHas: () => [{ id: 'h', host: 'dsh' }],
 })

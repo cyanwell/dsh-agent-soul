@@ -70,6 +70,12 @@ export function createQzone({ getConfig, onebot, hub, log, onDiary, pickImage })
   async function remove(tid) {
     tid = String(tid || '').trim()
     if (!tid) throw new Error('缺少说说 ID')
+    const cfg = getConfig()
+    if (!cfg.enabled) return { ok: false, code: 'disabled', message: '总开关关着，未删除' }
+    if (cfg.dryRun) {
+      log.info('试运行：本来要删除空间说说 ' + tid + '，未执行')
+      return { ok: false, code: 'dry-run', dryRun: true, message: '试运行：本次未删除' }
+    }
     const result = await onebot.call('delete_qzone_msg', { tid })
     const s = state()
     let changed = false

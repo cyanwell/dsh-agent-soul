@@ -295,23 +295,14 @@ export function createEventsIngress (opts = {}) {
     })
     // ★ 2026-11-12：投递器。**默认关**（events.wake.deliver 不给就是 false）。
     //   ★ 它的开关是函数，每次投递前读一次 —— 改配置不用重启 core。
-    // ★★ 2026-11-12：闭环的另一半 —— 投出去之后把回复要回来发到 QQ。
-    //
-    //   为什么需要读日志：v4 不在宿主进程里，控制通道是单向的（v4 请求 → 宿主应答），
-    //   收不到 turn/end 事件。之前这一步是 aurabot 的 onSessionEvent 做的。
-    //
-    //   ★ 三样缺一就**不建** responder（而不是建个残缺的）：
-    //     sessionRoot（读哪）/ outbox（发哪）/ 配置里的 reply 段。
-    //     缺任一样时 deliver.view() 的 hasResponder 会是 false —— 那是能力缺口的显式标注，
-    //     不是「配置错了」这种含糊状态。
+    // ★★ v4 接管后的回复回程：useBridgeSessions 模式从 DSH bridge 读 turn，
+    //   不要求也不访问旧的 DSH sessions 文件路径。legacy file-reader 仍严格要求 sessionRoot。
     const _replyCfg = (config.events && config.events.reply) || {}
     const _replyRoot = String(_replyCfg.sessionRoot || '').trim()
-    if (_replyRoot && opts.outbox) {
+    const _useBridgeReply = Boolean(config.integrations && config.integrations.useBridgeSessions === true && control)
+    const _replySourceReady = _useBridgeReply || Boolean(_replyRoot)
+    if (_replySourceReady && opts.outbox) {
       try {
-        // ★★★ 2026-11-13（架构收敛）：按开关选 reader。
-        //   useBridgeSessions=true → 走 bridge（v4 不开 DSH 的会话目录）；false → 旧的文件直读。
-        //   ★ 默认 false：bridge 的 sessions 能力要等 DSH 重启才上线。
-        const _useBridgeReply = config.integrations && config.integrations.useBridgeSessions === true && control
         if (_useBridgeReply) {
           replyReader = createReplyReaderViaBridge({
             control,

@@ -56,7 +56,7 @@ export const name = 'dsh-agent-soul-bridge'
 export const inject = ['webServer']
 
 // ★ 发布版本：与 package.json.version 保持一致。
-const VERSION = '0.1.15'
+const VERSION = '0.1.16'
 const TAG = '[agent-soul-bridge]'
 
 export const DEFAULTS = {
@@ -777,6 +777,11 @@ export const SERVICE_ALLOWLIST = Object.freeze({
     methods: ['list', 'create', 'get', 'resolveByPath', 'archiveSession'],
     properties: ['archivedSessionIds'],
     project: 'workspace',
+    /* ★ 只有这些方法吐 **Workspace 实体**，才需要投影（2026-11-24 修）。
+       · archiveSession → 返回 void（undefined），不是实体
+       · archivedSessionIds 属性 → **string[]**，不是实体
+       只要不在这张表里，返回值**原样过 JSON 闸门**，绝不套 projectWorkspace。 */
+    projectMethods: ['list', 'create', 'get', 'resolveByPath'],
   },
   sessions: { methods: ['list', 'get', 'flush'], project: 'session' },
 })
@@ -867,7 +872,13 @@ export function makeServiceGateway (opts) {
   /** 投影 + JSON 闸门：能跨进程才算「拿到真值」。跨不了就抛，绝不返回半个对象。 */
   function toWire (name, method, value) {
     let v = value
-    if (name === 'workspaceRegistry') {
+    /* ★ 只对**吐 Workspace 实体**的方法投影（projectMethods）；属性与 void 方法**原样透传**。
+       曾经的写法是「workspaceRegistry 的返回值一律 projectWorkspace」，于是：
+       · archivedSessionIds（string[]）被逐个投影成 {id:null,...} → 过 JSON 后是 [{...}...]，
+         实际值已经是对象而不是字符串，v4 侧 String() 拿到 'null'，自愈 .includes(sid) 永远 false；
+       · archiveSession（void）被投影成 null —— 这个恰好无害。
+       代价是「数组里每个字符串都变成空投影对象」，比报错更难查：它不抛，它静默地错。 */
+    if (name === 'workspaceRegistry' && (SERVICE_ALLOWLIST.workspaceRegistry.projectMethods || []).indexOf(method) >= 0) {
       v = Array.isArray(value) ? value.map(projectWorkspace) : projectWorkspace(value)
     } else if (name === 'sessions') {
       v = Array.isArray(value) ? value.map(projectSession) : projectSession(value)

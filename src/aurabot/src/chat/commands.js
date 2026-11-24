@@ -191,9 +191,21 @@ export async function runCommand(cmd, msg, deps) {
       const r = memory.add({ text: cmd.arg, aboutName: cfg.ownerName || '主人', about: cfg.ownerQQ, importance: 0.8, source: 'panel', chatId: msg.chatId })
       return r.ok ? '记住了' : '没记上：' + (r.message || '')
     }
-    case 'reset':
-      hub.resetChat(msg.chatId)
-      return '好，我们重新开始'
+    case 'reset': {
+      // 先归档再清映射：只有 hub 确认「真的重开了」才敢说这句话，失败时映射还在（主人重发一次就行）。
+      let ok
+      try {
+        ok = await hub.resetChat(msg.chatId)
+      } catch (error) {
+        if (error && error.code === 'map-save-failed') {
+          return `归档已完成，但${here}的会话映射没保存好；原映射保留了，过一会儿可以再发一次 /reset 试试`
+        }
+        return `没重开成，${here}原来的会话还留着；过一会儿可以再发一次 /reset 试试`
+      }
+      return ok
+        ? '好，我们重新开始'
+        : `${here}还没有对应的会话，没什么可重开的，下一条消息我会开一个新的`
+    }
     case 'on':
       setConfig({ ...cfg, enabled: true })
       return cfg.dryRun ? '总开关打开了（现在是试运行，我说的话只进日志）' : '我上线啦'

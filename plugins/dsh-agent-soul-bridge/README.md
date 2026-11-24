@@ -1,6 +1,6 @@
 # dsh-agent-soul-bridge
 
-版本：**0.1.4**（2026-11-19 发布审计修复）
+版本：**0.1.16**（2026-11-24 archivedSessionIds wire 修复）
 
 agent-soul v4 控制通道的 **纯 Host 插件**。它连接 `ws://127.0.0.1:7310/control`，自报 Host 能力、接收 exec、返回 result，并按轮上报上下文水位。运行时只使用 Node.js 内置模块，不新增第三方依赖。
 
@@ -236,3 +236,21 @@ pruner 相关的历史评估和独立复核保留在 `_verify`，其中依赖外
 ★ 还有一句：**同一个谓词在两个地方各写一遍，参数类型一定会有人传错。**
 
 测试 ⑬ 新增（回执的 `hasMarker` 必须与 pruner 的 `already-pruned` 一致）。全套 **92 → 93**。
+
+### 0.1.16 · 2026-11-24
+
+- **`workspaceRegistry.archivedSessionIds` 被投影成空实体数组（跨进程口径错）。**
+  `toWire` 原来的写法是「`workspaceRegistry` 的返回值一律 `projectWorkspace`」。
+  可 `archivedSessionIds` 是 dsh-workspace 上的 **`string[]` 属性**（getter），
+  于是数组里每个字符串都被包成一个空 Workspace，过完 JSON 闸门**实际值已经是 `[{…}]` 而不是 `['sid']`**；
+  v4 侧 `String(x)` 拿到 `'null'`，hub 自愈里的 `archivedSessionIds.includes(sid)` **永远 false**
+  （同一次回执里 `archivedFresh` 却是 true）。★ 它不抛错，它安静地错 —— 所以难查。
+  · 改法：白名单新增 `projectMethods: ['list','create','get','resolveByPath']`，
+    只对**吐 Workspace 实体**的方法投影；属性（`archivedSessionIds` → `string[]`）
+    与 void 方法（`archiveSession` → `undefined`）**原样过 JSON 闸门**，绝不套投影。
+- 离线回归：`_verify/workspace-archive-wire.test.mjs`（假 svc，不连 7310、不启 DSH）。
+  agent-soul 仓库侧另有一份对**镜像**跑的守卫：`test/bridge-archive-wire.test.mjs`。
+- ★ **本版本只改 host 半（`index.js`），而 host 半是 DSH 启动时加载的。**
+  运行中的 DSH 进程仍然跑着旧代码 —— **要重启 DSH 才生效**。
+  发布 ≠ 线上已修好：在重启并核对一次 `archivedSessionIds` 回执之前，
+  不得声称运行实例已加载本修复。

@@ -42,14 +42,22 @@ export default {
           const uid = Number(user_id || 0)
           if (action !== 'notice' && !uid) return { ok: false, message: '要说清楚对谁（QQ 号）' }
           if (uid && String(uid) === String(cfg.ownerQQ) && action !== 'unban' && action !== 'title') return { ok: false, message: '不能对主人做这个' }
+          // ★ 五个动作**都**要先过这一关：查不到（''）也是拒。
+          //   这条判据以前写成 `if (role && !canManage(role))` —— 空角色于是「不算普通成员」，
+          //   一路放行到 set_group_ban / set_group_special_title。fresh 查询失败恰好返回 ''，
+          //   所以「查不到身份」与「有管理权」曾经是同一个结果。
           const role = await groupRoles.get(gid, { fresh: true })
-          if (role && !groupRoles.canManage(role)) return { ok: false, message: '我在这个群只是普通成员，没有管理权限' }
+          if (!role) return { ok: false, message: '查不到我在这个群的身份（不确定是不是群主 / 管理员），没有做任何事' }
+          if (!groupRoles.canManage(role)) return { ok: false, message: '我在这个群只是普通成员，没有管理权限' }
           if (role === 'admin' && action === 'title') return { ok: false, message: '改专属头衔要群主才行，我只是管理员' }
           if (cfg.dryRun) return { ok: true, message: `试运行：本来要对群 ${gid} 做 ${action}` }
           switch (action) {
             case 'ban': await onebot.call('set_group_ban', { group_id: gid, user_id: uid, duration: Math.max(1, Number(minutes) || 10) * 60 }); break
             case 'unban': await onebot.call('set_group_ban', { group_id: gid, user_id: uid, duration: 0 }); break
             case 'kick': await onebot.call('set_group_kick', { group_id: gid, user_id: uid, reject_add_request: false }); break
+            // ★ 这两个名字（也只有这两个）在 Core outbox 的严格白名单里：mode=off / 没接线时
+            //   会在联网之前被拒（见 src/adapters/outbox.mjs 的 ACT_ACTIONS）。禁言 / 解禁 / 踢人
+            //   仍然走旧 OneBot client，是待办不是漏了。
             case 'title': await onebot.call('set_group_special_title', { group_id: gid, user_id: uid, special_title: String(text || '') }); break
             case 'notice': await onebot.call('_send_group_notice', { group_id: gid, content: String(text || '') }); break
             default: return { ok: false, message: '不认识的操作' }

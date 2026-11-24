@@ -22,69 +22,97 @@ const frames = () => ([
   { seq: 3, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
 ])
 
-/** 假 control：记下每次 exec 的 args，回执按「分页全读」的形状给。 */
+/** Fake host follows sessions/read tail receipt schema. */
 const mkControl = (calls, opts = {}) => ({
   whoHas: () => (opts.noHost ? [] : [{ id: 'h', host: 'dsh', caps: { has: () => true } }]),
   exec: async (hostId, cap, action, args) => {
     calls.push({ hostId, cap, action, args })
     if (opts.throw) throw new Error('sessions/read 失败（模拟）')
-    const all = frames()
-    const from = Number(args.fromSeq || 0)
-    const page = all.slice(from, from + (args.limit || 400))
-    return { ok: true, frames: page, count: page.length, nextFromSeq: null, badLines: 0 }
+    const all = opts.empty ? [] : frames()
+    return { ok: true, frames: all, count: all.length, total: all.length, nextFromSeq: null, badLines: 0, fromEnd: true, truncated: false, tailFrames: args.tailFrames }
   },
 })
 
-// 1) 只给 tailFrames → 拒绝（不把它装成「这轮没说」），而且**一次 exec 都不发**
+// 1) 长于旧 4,000-frame 上限的 session：bounded tail 找到最新完整 turn。
 {
   const calls = []
-  const r = createReplyReaderViaBridge({ control: mkControl(calls) })
-  const v = await r.lastReply('s1', { tailFrames: 1200 })
-  check('tailFrames 被拒绝', v.ok === false && v.code === 'REPLY_TAIL_TRUNCATION_REJECTED', v.ok ? 'ok?!' : v.code)
-  check('拒绝时说清 maxFrames 是多少', /maxFrames|不支持只读尾部/.test(String(v.error)), String(v.error).slice(0, 40))
-  check('拒绝时不发任何 bridge 请求', calls.length === 0, 'calls=' + calls.length)
-  check('回执带 tailFrames 供定位', v.tailFrames === 1200, 'tailFrames=' + v.tailFrames)
-  const view = r.view()
-  check('计数把它记成失败而不是成功', view.failed === 1 && view.ok === 0, 'ok=' + view.ok + ' failed=' + view.failed)
-}
-// 2) 不给 tailFrames → 正常分页路径（maxFrames 由构造参数给）
-{
-  const calls = []
-  const r = createReplyReaderViaBridge({ control: mkControl(calls), maxFrames: 4000, pageSize: 800 })
-  const v = await r.lastReply('s2')
-  check('正常路径拿到正文', v.ok === true && v.text === '回复正文', v.ok ? v.text : v.code)
-  const a = calls[0] && calls[0].args
-  check('走的是分页参数（有 fromSeq/limit，没有 tailFrames）',
-    !!a && a.fromSeq === 0 && a.limit === 800 && a.tailFrames === undefined,
-    a ? JSON.stringify({ fromSeq: a.fromSeq, limit: a.limit, tailFrames: a.tailFrames }) : 'no call')
-}
-// 3) tailFrames=0 / 负数 / 非数字 → 等同于没给（不该被闸挡住）
-{
-  for (const bad of [0, -1, 'abc', null, undefined]) {
-    const calls = []
-    const r = createReplyReaderViaBridge({ control: mkControl(calls) })
-    const v = await r.lastReply('s3', { tailFrames: bad })
-    check('tailFrames=' + String(bad) + ' 不触发截断闸', v.ok === true, v.ok ? 'ok' : v.code)
-  }
-}
-// 4) 超上限 → 仍然是 REPLY_BRIDGE_FAILED（分页全读那条腿自己的闸），
-//    不能被误报成「截断拒绝」—— 两个错因要分得开。
-{
-  const all = []
-  for (let i = 1; i <= 9; i++) all.push({ seq: i, type: 'other', data: {} })
+  const total = 4138
+  const tail = Array.from({ length: total }, (_, i) => ({ seq: i + 1, type: 'other', data: {} }))
+  tail[total - 2] = { seq: total - 1, type: 'assistant/message', data: { turn: 7, message: { content: [{ type: 'reasoning', text: 'hidden' }, { type: 'text', text: '尾部回复' }] } } }
+  tail[total - 1] = { seq: total, type: 'turn/end', data: { turn: 7, reason: { kind: 'completed' } } }
   const control = {
     whoHas: () => [{ id: 'h', host: 'dsh' }],
-    exec: async (hostId, cap, action, args) => {
-      const from = Number(args.fromSeq || 0)
-      const page = all.slice(from, from + (args.limit || 400))
-      const next = from + page.length < all.length ? from + page.length : null
-      return { ok: true, frames: page, count: page.length, nextFromSeq: next, badLines: 0 }
-    },
+    exec: async (hostId, cap, action, args) => { calls.push({ hostId, cap, action, args }); return { ok: true, frames: tail, count: tail.length, total, nextFromSeq: null, badLines: 0, fromEnd: true, truncated: false, tailFrames: args.tailFrames, tailBytesUsed: 0 } },
   }
-  const r = createReplyReaderViaBridge({ control, maxFrames: 2, pageSize: 1 })
-  const v = await r.lastReply('s4')
-  check('超过 maxFrames 报 REPLY_BRIDGE_FAILED（不冒充截断拒绝）',
-    v.ok === false && v.code === 'REPLY_BRIDGE_FAILED' && /超过上限/.test(String(v.error)), v.code)
+  const r = createReplyReaderViaBridge({ control })
+  const v = await r.lastReply('long-session')
+  check('4138帧 session 尾读可提取最新 completed turn', v.ok === true && v.text === '尾部回复' && v.turn === 7, v.ok ? v.text : v.code)
+  check('尾读请求有界且单次', calls.length === 1 && calls[0].args.tailFrames === 8000, JSON.stringify(calls[0]?.args))
+  check('尾读不泄露 reasoning', v.ok && !v.text.includes('hidden'))
+  check('view 报告 tailFrames', r.view().tailFrames === 8000)
+}
+// A) A short, fully-read empty session is proven empty and may establish baseline turn 0.
+{
+  const noTurn = [{ seq: 1, type: 'user/message', data: { message: { content: [{ type: 'text', text: 'hi' }] } } }]
+  const control = { whoHas: () => [{ id: 'h', host: 'dsh' }], exec: async () => ({ ok: true, frames: noTurn, count: 1, total: 1, badLines: 0, fromEnd: true, truncated: false, tailFrames: 8000, tailBytesUsed: 0 }) }
+  const r = createReplyReaderViaBridge({ control })
+  const v = await r.lastReply('new-short-session')
+  check('short empty session is proven complete', v.ok === false && v.code === 'REPLY_NO_TURN_END' && v.baselineEmpty === true && v.sessionFrames === 1, JSON.stringify({ code: v.code, baselineEmpty: v.baselineEmpty, sessionFrames: v.sessionFrames }))
+}
+// B) A tail window with no completed turn is not proof of an empty session.
+{
+  const noTurn = Array.from({ length: 8000 }, (_, i) => ({ seq: i + 1, type: 'user/message', data: { message: { content: [{ type: 'text', text: 'hi' }] } } }))
+  const control = { whoHas: () => [{ id: 'h', host: 'dsh' }], exec: async (_host, _cap, _action, args) => ({ ok: true, frames: noTurn, count: noTurn.length, total: noTurn.length, badLines: 0, fromEnd: true, truncated: true, tailFrames: args.tailFrames, tailBytesUsed: 4 * 1024 * 1024 }) }
+  const r = createReplyReaderViaBridge({ control })
+  const v = await r.lastReply('old-no-turn')
+  check('tail without complete turn does not claim empty baseline', v.ok === false && v.code === 'REPLY_BASELINE_UNPROVEN' && v.baselineEmpty !== true, v.code)
+}
+// 2) Byte tail 已截去旧 bytes，但 EOF 尾部有 completed turn：允许提取最新 turn。
+{
+  const control = { whoHas: () => [{ id: 'h', host: 'dsh' }], exec: async (_host, _cap, _action, args) => ({ ok: true, frames: frames(), count: 3, total: 3, badLines: 0, fromEnd: true, truncated: true, tailFrames: args.tailFrames, tailBytesUsed: 4 * 1024 * 1024 }) }
+  const r = createReplyReaderViaBridge({ control })
+  const v = await r.lastReply('byte-truncated-with-complete-turn')
+  check('byte-truncated EOF tail with completed turn is usable', v.ok === true && v.turn === 1 && v.text === '回复正文', v.ok ? v.text : v.code)
+}
+// 3) Byte truncation with no turn/end cannot prove the session is empty.
+{
+  const noTurn = [{ seq: 9001, type: 'user/message', data: { message: { content: [{ type: 'text', text: 'hi' }] } } }]
+  const control = { whoHas: () => [{ id: 'h', host: 'dsh' }], exec: async (_host, _cap, _action, args) => ({ ok: true, frames: noTurn, count: 1, total: 1, badLines: 0, fromEnd: true, truncated: true, tailFrames: args.tailFrames, tailBytesUsed: 4 * 1024 * 1024 }) }
+  const r = createReplyReaderViaBridge({ control })
+  const v = await r.lastReply('byte-truncated-no-turn')
+  check('truncated no-turn tail is baseline-unproven', v.ok === false && v.code === 'REPLY_BASELINE_UNPROVEN' && v.baselineEmpty !== true, v.code)
+}
+// 3) tail 中存在坏行：拒绝，不把剩余帧包装成完整结果。
+{
+  const control = { whoHas: () => [{ id: 'h', host: 'dsh' }], exec: async () => ({ ok: true, frames: frames(), count: 3, total: 3, badLines: 1, fromEnd: true, truncated: false, tailFrames: 8000 }) }
+  const r = createReplyReaderViaBridge({ control })
+  const v = await r.lastReply('bad-lines')
+  check('badLines tail fail-closed', v.ok === false && v.code === 'REPLY_BRIDGE_TRUNCATED', v.code)
+}
+// 4) Missing EOF proof / fromEnd marker: reject unknown host contract.
+{
+  const control = { whoHas: () => [{ id: 'h', host: 'dsh' }], exec: async () => ({ ok: true, frames: frames(), count: 3, total: 3, badLines: 0, tailFrames: 8000 }) }
+  const r = createReplyReaderViaBridge({ control })
+  const v = await r.lastReply('missing-proof')
+  check('missing fromEnd proof fail-closed', v.ok === false && v.code === 'REPLY_BRIDGE_TRUNCATED', v.code)
+}
+// 5) tailFrames 超过 host cap 会由调用侧收敛到 20,000，并检查 host 的 truncation receipt。
+{
+  const calls = []
+  const control = { whoHas: () => [{ id: 'h', host: 'dsh' }], exec: async (hostId, cap, action, args) => { calls.push(args); return { ok: true, frames: frames(), count: 3, total: 3, badLines: 0, fromEnd: true, truncated: true, tailBytesUsed: 4 * 1024 * 1024, tailFrames: 20000 } } }
+  const r = createReplyReaderViaBridge({ control, tailFrames: 30000 })
+  const v = await r.lastReply('over-cap')
+  check('tailFrames request capped at 20000', calls[0]?.tailFrames === 20000, String(calls[0]?.tailFrames))
+  check('capped EOF tail remains usable', v.ok === true && v.turn === 1, v.ok ? String(v.turn) : v.code)
+}
+// 6) Reader independently rejects incoherent receipt counters.
+{
+  for (const patch of [{ count: 2 }, { total: 0 }, { tailFrames: 7999 }]) {
+    const control = { whoHas: () => [{ id: 'h', host: 'dsh' }], exec: async (_host, _cap, _action, args) => ({ ok: true, frames: frames(), count: patch.count ?? 3, total: patch.total ?? 3, badLines: 0, fromEnd: true, truncated: false, tailFrames: patch.tailFrames ?? args.tailFrames }) }
+    const r = createReplyReaderViaBridge({ control })
+    const v = await r.lastReply('bad-counters')
+    check('inconsistent receipt counters fail closed', v.ok === false && v.code === 'REPLY_BRIDGE_RECEIPT_INVALID', v.code)
+  }
 }
 // 5) 没有宿主声明 sessions → 失败外显（不退回文件）
 {

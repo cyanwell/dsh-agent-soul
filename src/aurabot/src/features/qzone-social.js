@@ -74,6 +74,11 @@ export function createQzoneSocial({ getConfig, onebot, hub, log, memory }) {
 
   async function sendComment(tid, content, targetUin) {
     const cfg = getConfig()
+    if (!cfg.enabled) {
+      const error = new Error('总开关已关闭，未发送空间评论')
+      error.code = 'disabled'
+      throw error
+    }
     if (cfg.dryRun) {
       log.info(`试运行：本来要在空间评论（${targetUin || '自己'} / ${tid}）：${content}`)
       return true
@@ -146,7 +151,8 @@ export function createQzoneSocial({ getConfig, onebot, hub, log, memory }) {
         content = String(f.html || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
       }
       images = (String(f.html || '').match(/<img/g) || []).length
-      if (c.like && !getConfig().dryRun) {
+      const latest = getConfig()
+      if (c.like && latest.enabled && !latest.dryRun) {
         try { await onebot.call('like_qzone', { tid: f.key, target_uin: Number(f.uin), abstime: Number(f.time) || 0 }, { timeoutMs: 20000 }) } catch (error) { log.debug('点赞失败：', error.message) }
       }
       const text = await write(`你在刷 QQ 空间，看到${isOwner ? `你的${owner()}` : `好友 ${f.nickname}`}发的说说：「${content.slice(0, 300) || '（只有图片）'}」${images ? `（配了图）` : ''}\n` +
@@ -169,7 +175,8 @@ export function createQzoneSocial({ getConfig, onebot, hub, log, memory }) {
     const cfg = getConfig()
     const c = cfg.qzoneSocial
     if (busy) return { ok: false, message: '正在逛空间' }
-    if (!force && (!cfg.enabled || !c.enabled)) return { ok: false, message: '没打开' }
+    if (!cfg.enabled) return { ok: false, message: '总开关关着' }
+    if (!force && !c.enabled) return { ok: false, message: '没打开' }
     busy = true
     const s = load()
     if (s.day !== dayKey()) Object.assign(s, { day: dayKey(), count: 0 })
