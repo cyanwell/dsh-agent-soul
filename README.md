@@ -393,7 +393,7 @@ data/
 - 验证：全量297/297、Shell marker selftest和syntax checks通过；Hub fake集成覆盖fresh merge flush及两轮current/pending eventId归属（第一轮只含A、下一轮只含B）、per-bubble OneBot call opts；policy-denied只增聚合计数且不泄漏身份；outbox fake验证message_id重复判据。未发送真实QQ消息。
 - 生产运行态：1.0.101 health=true、owner=Core ingress、3003单socket。当前采样累计2条消息入账并转发至Aurabot；Aurabot阶段计数为policyDenied=0、muted=0、groupNoReply=2、hookHandled=0、enqueued=0、assistantReplyTurns=0、sendAttempts=0，说明这两条按群策略正常选择不回，outbox trace为空；真实“同事件同part重复归零”仍需一次可发回复验证。
 - SnowLuma协议接口仍Unauthorized、consent unknown；autoAttach=true但attach被安全闸阻止。安装E2E preflight exit 2检测到现有AgentSoul注册项/快捷方式/进程后拒绝，未覆盖生产。
-- GitHub latest REST核实1.0.87（2026-11-24）；tag 1.0.87指向57c487d（origin/main），origin/v4 HEAD为7541145。工作树含多组本目标未提交改动，尚未commit/tag/push；1.0.102本机候选待构建。
+- GitHub latest REST核实1.0.87（2026-11-24）；tag 1.0.87指向57c487d（origin/main），origin/v4 HEAD为7541145。本目标已在v4本地提交13c88f6（48 files，diff --check通过）；尚未tag/push正式Release。1.0.102候选包已构建；真实出站重复归零验收仍未完成。
 
 ### 1.0.87（2026-11-24）
 
