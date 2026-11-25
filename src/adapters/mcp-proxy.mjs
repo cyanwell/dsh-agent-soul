@@ -19,12 +19,9 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { loadConfig, appRoot } from '../config.mjs';
 import { classifyMcpCall } from '../security/write-manifest.mjs';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(HERE, '../..');
 
 /** 探测缓存窗口。主服务起/停都在 2 秒内被看见，又不至于每个 call 都探一次。 */
 export const PROBE_TTL_MS = Number(process.env.SOUL_PROBE_TTL_MS) || 2000;
@@ -40,14 +37,13 @@ export const PROBE_TTL_MS = Number(process.env.SOUL_PROBE_TTL_MS) || 2000;
 //     那条前提建立在「我能证明主服务在线」上 —— 而 401 让我**证明不了**，
 //     于是进程退到只读打开，**双写又回来了**（虽然是被动回来的）。
 //
-//   所以：自己读 token，和页面一样带上去。
-//   ★ 读不到 token 时**不猜、不静默** —— 它意味着主服务也在用空 token（那就没人需要 token），
-//     或者这台机器还没生成过。两种情况都让请求原样发出去，让主服务自己判。
-const HUB_TOKEN = (() => {
-  // ★★ 2026-11-22 第二版 —— 第一版**三个候选全指错地方**，我实测才发现：
+//   所以：按Core有效配置读取同一个token文件，并通过X-Soul-Token转发。
+//   ★ token文件暂缺时不发鉴权头，让Core按401拒绝；不回退到其它实例的数据目录。
+export function readHubToken() {
+  // 历史排障记录（以下多候选回退已删除；当前唯一判据是loadConfig().dataDir）：
   //
   //   本进程的 ROOT / appRoot() 都解析到 `<生产根>/app/<版本>`（因为 config.mjs 就在那下面），
-  //   所以我写的三个候选 `cfg.dataDir` / `appRoot()/data` / `ROOT/data` **全变成同一个路径**：
+  //   旧实现曾经尝试多个路径；那段记录仅用于解释旧故障，不再代表当前路径逻辑：
   //       <生产根>/app/1.0.78/data/token.txt
   //   而真正的 token 在**上一级**：`<生产根>/data/token.txt`。
   //
@@ -55,24 +51,18 @@ const HUB_TOKEN = (() => {
   //   `readFileSync().trim()` 得到 ''，我的 `if (t)` 判空跳过，于是循环走完返回 ''，
   //   **看起来"读过了"，实际什么也没读到**，然后请求不带 header → 401。
   //
-  //   ★ 判据：**路径候选列表里不许出现"三个写法指向同一个目录"的假多样性**；
+  //   当前实现不保留候选列表或回退路径。
   //     而且"文件存在但内容为空"必须当成**没读到**，不能当成读到了空 token。
-  const cands = [];
-  try { const cfg = loadConfig(); if (cfg && cfg.dataDir) cands.push(cfg.dataDir); } catch {}
-  const up2 = path.resolve(ROOT, '..', '..');   // <生产根>（app/<版本> 的上两级）
-  cands.push(path.join(up2, 'data'), path.join(appRoot(), 'data'), path.join(ROOT, 'data'));
-  const seen = new Set();
-  for (const d of cands) {
-    const f = path.join(d, 'token.txt');
-    if (seen.has(f)) continue;              // 同一个文件不重复试
-    seen.add(f);
-    try {
-      const t = fs.readFileSync(f, 'utf8').trim();
-      if (t.length >= 16) return t;          // 空/占位文件不算
-    } catch {}
-  }
-  return '';
-})();
+  let cfg;
+  try { cfg = loadConfig(); } catch { return ''; }
+  const dir = String(cfg && cfg.dataDir || '').trim();
+  if (!dir) return '';
+  try {
+    const token = String(fs.readFileSync(path.join(dir, 'token.txt'), 'utf8') || '').trim();
+    return token.length >= 24 ? token : '';
+  } catch { return ''; }
+}
+
 /** 探测超时：500ms。本机回环正常是 1-3ms，500ms 已经足够宽松。 */
 export const PROBE_TIMEOUT_MS = Number(process.env.SOUL_PROBE_TIMEOUT_MS) || 500;
 /** 转发超时：soul_ask_host 可能要等宿主 15s，所以默认给 20s。 */
@@ -135,6 +125,7 @@ export function forwardRpc(msg, { base = hubBase(), timeoutMs = FORWARD_TIMEOUT_
     const body = JSON.stringify(msg);
     let u;
     try { u = new URL(base + '/mcp'); } catch { return reject(Object.assign(new Error('主服务地址不合法：' + base), { code: 'SOUL_HUB_BAD' })); }
+    const hubToken = readHubToken()
     const req = http.request({
       hostname: u.hostname,
       port: u.port || 80,
@@ -144,7 +135,7 @@ export function forwardRpc(msg, { base = hubBase(), timeoutMs = FORWARD_TIMEOUT_
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(body),
         // ★ 不带它 → 主服务 401 → 本进程误判"主服务挂了" → 整个 MCP 面离线
-        ...(HUB_TOKEN ? { 'x-soul-token': HUB_TOKEN } : {}),
+        ...(hubToken ? { 'x-soul-token': hubToken } : {}),
       },
     }, (res) => {
       let out = '';

@@ -74,11 +74,11 @@
 
 ```
 ① 装 agent-soul 本体
-    · GitHub当前正式Release为 1.0.102（2026-11-25），1.0.87为前一正式版。
+    · GitHub最新正式Release仍为 1.0.87；1.0.102仅v4 tag已推，未创建Release附件。1.0.103为本机MCP认证hotfix候选。
       正式版附件可从GitHub Release下载；本机留存同版本构建产物。
-      - `AgentSoul-Setup-1.0.102.exe` —— 正式版安装器
-      - `AgentSoul-1.0.102-portable.zip` —— 正式版便携包
-      - `AgentSoul-1.0.102-htmlpatch.zip` —— 正式版界面补丁
+      - `AgentSoul-Setup-1.0.103.exe` —— 本地hotfix候选安装器
+      - `AgentSoul-1.0.103-portable.zip` —— 本地hotfix候选便携包
+      - `AgentSoul-1.0.103-htmlpatch.zip` —— 本地hotfix候选界面补丁
     · ★ 卸载**不会**删你的 `config.json`（含 API Key）与 `data\`（会话/索引/账本）—— 它们留在原位，要彻底清干净自己删这两个。
     · 双击 <SOUL>\AgentSoul.exe 启动
     · ★ 必须用**当前用户身份**启动（key 是 DPAPI 密文，SYSTEM 身份解不开）
@@ -387,7 +387,14 @@ data/
 
 ## 更新记录
 
-### 1.0.102 正式版（2026-11-25）
+### 1.0.103 本机hotfix候选（2026-11-25，未发布）
+
+- 修复AgentSoul MCP proxy token错位：以前MCP在模块导入时缓存token，并在多个猜测root里找文件；source MCP实际dataDir与生产Core不同，且Core可在MCP启动后生成token，导致 /mcp 外层401。现每次forward按有效config.dataDir读取token，缺失/短值时不回退其它root。
+- 本机DSH MCP Hub的AgentSoul server env已配置AGENT_SOUL_DATA指向Core有效dataDir；该server的子进程当前已退出，MCP Hub未自动重拉。**须在安全的空闲窗口重启DSH/MCP Hub后再验证soul_health、soul_ask_host与ECHO。**
+- 验证：298/298通过、Core shell marker selftest通过；新增fake HTTP测试覆盖source config路径与AGENT_SOUL_DATA分叉、MCP先启动/token后创建及token轮换，header与期望匹配；无生产token或真实数据进入断言/日志。
+- 候选已构建：payload 627项无差异；Setup尾标、2936个ZIP条目和关键文件自检通过。真实生产MCP/ECHO恢复尚未验证，AgentSoul MCP worker当前断开，需在空闲窗口重启DSH/MCP Hub；因此1.0.103未commit/tag/push，GitHub Release未创建。此前1.0.102 tag已推至v4但没有Release附件。
+
+### 1.0.102 v4 tag（GitHub Release未创建）
 
 - Hub explicit correlation完成：fresh flush传newTurn，pushToSession按调用前running状态区分当前与pending turn；event_id以显式参数穿过session turn/end和每个bubble send。阶段计数仅提供policyDenied/muted/groupNoReply/hookHandled/enqueued/assistantReplyTurns/sendAttempts，不记录消息正文或QQ/chat ID。
 - 验证：全量297/297、Shell marker selftest和syntax checks通过；Hub fake集成覆盖fresh merge flush和两轮current/pending eventId归属（第一轮只含A、下一轮只含B）、per-bubble OneBot call opts；policy-denied仅增聚合计数且不泄漏身份。生产trace另见下项。
