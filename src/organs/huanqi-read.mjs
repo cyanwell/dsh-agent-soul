@@ -222,7 +222,12 @@ export function huanqiCard(snap) {
     parts.push('本进程：' + a.why);
   }
   if (d.ok) {
-    parts.push('DSH 额度 ' + d.credit + '/' + (d.creditMax === null ? '?' : d.creditMax)
+    const label = d.ledgerStale ? '旧 DSH 额度（已停用 · 历史）' : 'DSH 额度';
+    const freshness = d.ledgerStale && Number.isFinite(d.ledgerAgeMs)
+      ? ' · ' + Math.round(d.ledgerAgeMs / 60000) + ' 分钟未更新'
+      : '';
+    parts.push(label + ' ' + d.credit + '/' + (d.creditMax === null ? '?' : d.creditMax)
+      + freshness
       + (d.stats && d.stats.circuitBreaks !== null ? ' · 累计熔断 ' + d.stats.circuitBreaks + ' 次' : '')
       + (d.lastTurn && d.lastTurn.verdict ? ' · 最近 ' + d.lastTurn.verdict : '') + '（' + d.ledgerFile + '）');
   } else {

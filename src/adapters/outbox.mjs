@@ -378,13 +378,36 @@ export function createOutbox (opts = {}) {
   const log = typeof opts.log === 'function' ? opts.log : () => {}
   const redact = makeRedactor(token)
 
-  const counters = { sent: 0, deduped: 0, failed: 0, lastAt: null }
+  const counters = { sent: 0, deduped: 0, failed: 0, duplicateEventParts: 0, lastAt: null }
+  const correlations = [] // Bounded volatile event/session/outboxMessageId trace; never written to disk.
+  const correlationParts = new Map()
   const entries = new Map()       // 幂等表：key → { at, ok, retcode, messageId }
   const recent = []               // 最近发送记录（新的在前，已脱敏）
   const inflight = new Set()      // 在途请求的 AbortController（close() 要能掐断）
   let closed = false
 
   const iso = (ms) => new Date(ms).toISOString()
+
+  function recordCorrelation (raw, messageId, deduped) {
+    if (!raw || typeof raw !== 'object') return
+    const eventIds = [...new Set((Array.isArray(raw.eventIds) ? raw.eventIds : [])
+      .map((id) => String(id || '')).filter((id) => /^ev_[a-f0-9]{16}$/.test(id)))].slice(0, 20)
+    const sessionHash = String(raw.sessionHash || '')
+    const partIndex = Number(raw.partIndex)
+    if (!eventIds.length || !/^sess_[a-f0-9]{16}$/.test(sessionHash) || !Number.isInteger(partIndex) || partIndex < 0) return
+    const id = messageId == null ? '' : String(messageId)
+    let duplicate = false
+    for (const eventId of eventIds) {
+      const key = eventId + '|' + sessionHash + '|' + partIndex
+      const prior = correlationParts.get(key)
+      if (prior && prior !== id && id) duplicate = true
+      correlationParts.set(key, id)
+    }
+    if (correlationParts.size > 256) correlationParts.delete(correlationParts.keys().next().value)
+    if (duplicate) counters.duplicateEventParts++
+    correlations.unshift({ at: iso(now()), origin: 'aurabot', eventIds, sessionHash, partIndex, messageId: id, deduped: Boolean(deduped), duplicate })
+    if (correlations.length > 64) correlations.length = 64
+  }
 
   /** 记一条：只留计数、动作、结果、脱敏预览。token 与完整正文都不进这里。 */
   function record (row) {
@@ -444,6 +467,7 @@ export function createOutbox (opts = {}) {
     if (hit) {
       if (now() - hit.at < ttlMs) {
         counters.deduped += 1
+        recordCorrelation(sendOpts.correlation, hit.messageId, true)
         log('[outbox] 幂等命中 ' + target.action + ' ' + target.chatId + '（10 分钟内同一内容，不重发）')
         return { ok: true, retcode: hit.retcode, messageId: hit.messageId, deduped: true }
       }
@@ -502,6 +526,7 @@ export function createOutbox (opts = {}) {
     counters.sent += 1
     counters.lastAt = iso(now())
     entries.set(key, { at: now(), ok: true, retcode: 0, messageId })
+    recordCorrelation(sendOpts.correlation, messageId, false)
     prune()
     record({ at: counters.lastAt, chatId: target.chatId, action: target.action, ok: true, retcode: 0, messageId, deduped: false, len: textOf(segs).length, preview: previewOf(segs) })
     log('[outbox] 已发 ' + target.action + ' ' + target.chatId + ' → message_id=' + String(messageId))
@@ -689,7 +714,7 @@ export function createOutbox (opts = {}) {
   }
 
   function stats () {
-    return { sent: counters.sent, deduped: counters.deduped, failed: counters.failed, lastAt: counters.lastAt }
+    return { sent: counters.sent, deduped: counters.deduped, failed: counters.failed, duplicateEventParts: counters.duplicateEventParts, lastAt: counters.lastAt }
   }
 
   /** 给 /api/outbox 的形状。★ 只读视图：脱敏预览 + 计数，正文请回网关日志看。 */
@@ -715,7 +740,8 @@ export function createOutbox (opts = {}) {
       stats: stats(),
       dedupe: { ttlMs, entries: entries.size },
       recent: recent.slice(0, n),
-      note: '只给计数 + 脱敏预览（前 40 字）；要正文回网关日志看 —— 投影不该比权威更方便',
+      correlation: { count: correlations.length, duplicateEventParts: counters.duplicateEventParts, recent: correlations.slice(0, Math.min(n, 64)) },
+      note: 'recent为脱敏预览；correlation是内存中eventId/session哈希/messageId链，不含chatId或消息正文',
     }
   }
 

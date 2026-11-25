@@ -656,12 +656,13 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       const cfg = st.config
       const s = st.stats || {}
       const conn = st.onebot.state === 'connected'
+      const ingressOwns = st.onebot.owner === 'core-events-ingress'
       const quick = (p, body) => async () => { const r = await post(p, body); toast(r.message || (r.ok ? '好了' : '没成功')) }
       return h('div', { className: 'ab-grid' },
         h(UpdateNotes, { st, toast }),
         !cfg.enabled ? h('div', { className: 'ab-note warn' }, '总开关是关着的：大肥鱼现在不会收也不会发任何 QQ 消息。准备好了就在右上角打开。') : null,
         cfg.enabled && cfg.dryRun ? h('div', { className: 'ab-note' }, '现在是试运行：她会照常思考回复，但只写进日志，不会真的发到 QQ。确认没问题后在右上角关掉「试运行」。') : null,
-        cfg.enabled && !conn ? h('div', { className: 'ab-note err' }, '还没连上 QQ 网关' + (st.onebot.problem ? '：' + st.onebot.problem + '。' : '。去「连接」标签看看 SnowLuma 有没有装好、启动没有。') + ' ', h('a', { href: '#', onClick: (e) => { e.preventDefault(); go('connect') } }, '去连接 →')) : null,
+        ingressOwns ? h('div', { className: 'ab-note' }, 'QQ接收由AgentSoul v4 events ingress统一管理；Aurabot独立连接保持停止是预期状态。') : cfg.enabled && !conn ? h('div', { className: 'ab-note err' }, '还没连上 QQ 网关' + (st.onebot.problem ? '：' + st.onebot.problem + '。' : '。去「连接」标签看看 SnowLuma 有没有装好、启动没有。') + ' ', h('a', { href: '#', onClick: (e) => { e.preventDefault(); go('connect') } }, '去连接 →')) : null,
         h('div', { className: 'ab-grid ab-g4' },
           [['今天收到', s.received, '📥'], ['今天发出', s.sent, '📤'], ['语音条', s.voice, '🎙️'], ['表情包', s.stickers, '😺']].map(([l, n, ic]) => h('div', { key: l, className: 'ab-card ab-stat' }, h('span', { className: 'ic', 'aria-hidden': true }, ic), h('div', { className: 'n' }, n || 0), h('div', { className: 'l' }, l))),
         ),
@@ -781,13 +782,16 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       const sl = st.snowluma
       const [procs, setProcs] = useState(null)
       const conn = st.onebot.state === 'connected'
+      const ingressOwns = st.onebot.owner === 'core-events-ingress'
       const loadProcs = async () => { const r = await get('/snowluma/processes'); setProcs(r.list || []); if (!r.ok) toast(r.message) }
       const act = (p) => async () => { const r = await post(p); toast(r.message || (r.ok ? '好了' : '没成功')); reload() }
       const login = st.onebot.login
       const external = draft.gateway === 'onebot'
-      const testBtns = h('div', { className: 'ab-flex', style: { marginTop: 8 } },
-        h(Btn, { small: true, onClick: async () => { const r = await get('/onebot/test'); toast(r.message) } }, '测试连接'),
-        h(Btn, { small: true, onClick: async () => { const r = await post('/onebot/reconnect'); toast(r.message, r.ok ? 'ok' : 'err'); reload() } }, '重新连接'))
+      const testBtns = ingressOwns
+        ? h('div', { className: 'ab-note', style: { marginTop: 8 } }, '接收连接由AgentSoul v4 events ingress管理；此处不单独测试或重连。')
+        : h('div', { className: 'ab-flex', style: { marginTop: 8 } },
+          h(Btn, { small: true, onClick: async () => { const r = await get('/onebot/test'); toast(r.message) } }, '测试连接'),
+          h(Btn, { small: true, onClick: async () => { const r = await post('/onebot/reconnect'); toast(r.message, r.ok ? 'ok' : 'err'); reload() } }, '重新连接'))
       return h('div', { className: 'ab-grid' },
         h(Card, { title: '用什么接 QQ', right: openWizard ? h(Btn, { small: true, kind: 'ghost', onClick: openWizard }, '重新走一遍设置向导') : null }, h(GatewayChoice, { draft, setDraft })),
         external ? h(Card, { title: '接上 QQ（已有的 OneBot 机器人）', desc: '让你的 OneBot 服务登录机器人号 ' + (draft.botQQ || '') + '，把它的正向 WebSocket 地址填在这里，保存后插件就会去连。插件只连接，不会启动或注入任何东西；连上后会先核对登录的是不是机器人号，不是就断开。' },
@@ -833,13 +837,14 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
           h('div', { className: 'ab-muted ab-small' }, '现在用的：' + (st.workspaceDir || '—'))),
         h(Card, { title: '连接状态' },
           h('div', { className: 'ab-kv' },
-            h('span', null, 'QQ 网关'), h('span', null, h('span', { className: 'ab-flex' }, h('i', { className: cx('ab-dot', conn ? 'ok' : st.onebot.state === 'connecting' ? 'warn' : 'err') }), { connected: '已连上', connecting: '连接中', disconnected: '断开了，正在重连', stopped: '没启动（总开关关着）', unconfigured: '还没配置' }[st.onebot.state] || st.onebot.state)),
+            h('span', null, 'QQ 网关'), h('span', null, h('span', { className: 'ab-flex' }, h('i', { className: cx('ab-dot', ingressOwns ? 'warn' : conn ? 'ok' : st.onebot.state === 'connecting' ? 'warn' : 'err') }), ingressOwns ? '由AgentSoul v4 events ingress接管' : { connected: '已连上', connecting: '连接中', disconnected: '断开了，正在重连', stopped: '没启动（总开关关着）', unconfigured: '还没配置' }[st.onebot.state] || st.onebot.state)),
             h('span', null, '登录的号'), h('span', null, login ? login.nickname + '（' + login.uin + '）' + (login.uin !== draft.botQQ ? ' ⚠ 不是机器人号！' : '') : '—'),
             h('span', null, 'HTTP'), h('span', null, st.onebot.endpoint.httpUrl || '—'),
             h('span', null, 'WebSocket'), h('span', null, st.onebot.endpoint.wsUrl || '—'),
           ),
-          !conn && st.onebot.problem ? h('div', { className: 'ab-note warn', style: { marginTop: 10 } }, st.onebot.problem) : null,
-          h('div', { className: 'ab-flex', style: { marginTop: 10 } }, h(Btn, { small: true, onClick: async () => { const r = await post('/onebot/reconnect'); toast(r.message, r.ok ? 'ok' : 'err'); reload() } }, '重新连接')),
+          !ingressOwns && !conn && st.onebot.problem ? h('div', { className: 'ab-note warn', style: { marginTop: 10 } }, st.onebot.problem) : null,
+          ingressOwns ? h('div', { className: 'ab-note', style: { marginTop: 10 } }, st.onebot.problem || 'Core events ingress拥有当前接收连接。') : null,
+          !ingressOwns ? h('div', { className: 'ab-flex', style: { marginTop: 10 } }, h(Btn, { small: true, onClick: async () => { const r = await post('/onebot/reconnect'); toast(r.message, r.ok ? 'ok' : 'err'); reload() } }, '重新连接')) : null,
         ),
         external ? null : h(Card, { title: '高级', desc: '一般不用动：地址和令牌会自动从 SnowLuma 的配置里读。' },
           h(Row, { label: '机器人 QQ 号' }, f.text('botQQ')),
@@ -1391,7 +1396,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
           h(Row, { label: '偷表情', hint: '别人发的表情包会被收藏（普通照片不收）。' }, f.sw('stickers.collect'), h('span', { className: 'ab-muted' }, '从群里'), f.sw('stickers.fromGroups'), h('span', { className: 'ab-muted' }, '从私聊'), f.sw('stickers.fromPrivate')),
           h(Row, { label: '每小时最多收' }, f.num('stickers.maxPerHour', { min: 0 }), h('span', { className: 'ab-muted' }, '张')),
           h(Row, { label: '表情库最多存', hint: 'QQ 收藏表情有数量上限，满了就收不进去了。超过这个数会自动清掉最少用的偷来的表情（你自己加的不会动）' }, f.num('stickers.maxLibrary', { min: 20, max: 2000 }), h('span', { className: 'ab-muted' }, '张')),
-          h(Row, { label: '看图起名', hint: '收下后让模型看图起个 12 字以内的备注' }, f.sw('stickers.caption')),
+          h(Row, { label: '看图起名', hint: '收下后让模型看图起个 12 字以内的备注' }, f.sw('stickers.caption'), st.stickers.caption && st.stickers.caption.state !== 'ready' ? h('span', { className: 'ab-muted ab-small' }, st.stickers.caption.reason || '模型状态待确认') : null),
         ),
         h(Card, { title: '表情库' + (items ? '（' + items.length + ' 张）' : ''), right: h('div', { className: 'ab-flex' },
           h('input', { ref: fileRef, type: 'file', accept: 'image/*', multiple: true, style: { display: 'none' }, onChange: (e) => { upload(e.target.files); e.target.value = '' } }),
@@ -1564,7 +1569,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
           h('div', { className: 'ab-mood' }, h('i', { style: { width: Math.max(4, st.mood.value) + '%' } })),
           h('div', { style: { marginTop: 10 } },
             h(Row, { label: '多久回到平常', hint: '半衰期' }, f.range('mood.halfLifeHours', 0.5, 24, 0.5, (v) => v + ' 小时')),
-            h(Row, { label: '用模型判断心情', hint: '每轮聊完用模型判一次（能分清开玩笑和真骂、她主动找你时的心意），更准；每轮多一次很短的模型调用。关着就按关键词' }, f.sw('mood.judge'))),
+            h(Row, { label: '用模型判断心情', hint: '每轮聊完用模型判一次（能分清开玩笑和真骂、她主动找你时的心意），更准；每轮多一次很短的模型调用。关着就按关键词' }, f.sw('mood.judge'), st.mood.judgeStatus && st.mood.judgeStatus.state !== 'ready' ? h('span', { className: 'ab-muted ab-small' }, st.mood.judgeStatus.reason || '模型状态待确认') : null)),
           (st.mood.history || []).length ? h('div', { className: 'ab-list', style: { marginTop: 8 } }, st.mood.history.slice(0, 6).map((x, i) => h('div', { key: i, className: 'ab-li' },
             h('div', { className: 'meta' }, timeAgo(x.at)),
             h('div', { className: 'body' }, (x.to >= x.from ? '↑ ' : '↓ ') + x.from + ' → ' + x.to, h('span', { className: 'ab-muted ab-small' }, '  ' + x.reason))))) : null,

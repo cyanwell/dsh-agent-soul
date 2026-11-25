@@ -1,7 +1,7 @@
 // 陪伴类小功能：心情、主动搭话。
 
 import { dataDir, readJson, writeJson } from '../core/store.js'
-import { askModel } from '../core/llm.js'
+import { askModel, backgroundLlmStatus } from '../core/llm.js'
 
 // ---------------- 心情 ----------------
 // 0~100，基线 60。聊天里的话按关键词推一推，随时间按半衰期回到基线。
@@ -68,6 +68,13 @@ export function createMood({ getConfig, dsh }) {
   const file = () => dataDir('mood.json')
   const load = () => readJson(file(), () => ({ value: 65, at: Date.now(), reason: '', history: [] }))
   const save = (s) => writeJson(file(), s)
+  let lastJudge = { state: 'not-run', reason: '' }
+  const judgeStatus = () => {
+    const cfg = getConfig().mood
+    if (!cfg.enabled) return { enabled: false, state: 'disabled', reason: '心情功能已关闭' }
+    if (!cfg.judge) return { enabled: false, state: 'disabled', reason: '模型判断已关闭，使用关键词模式' }
+    return { enabled: true, ...backgroundLlmStatus(dsh, getConfig()), lastAttemptAt: lastJudge.at || 0, lastResult: lastJudge.state }
+  }
   const current = () => {
     const s = load()
     return Math.round(decayed(s.value, s.at, getConfig().mood.halfLifeHours))
@@ -86,7 +93,7 @@ export function createMood({ getConfig, dsh }) {
   return {
     current,
     label: () => moodLabel(current()),
-    state: () => ({ ...load(), value: current(), label: moodLabel(current()) }),
+    state: () => ({ ...load(), value: current(), label: moodLabel(current()), judgeStatus: judgeStatus() }),
     effects: () => (getConfig().mood.enabled ? moodEffects(current()) : moodEffects(60)),
     nudge,
     /**
@@ -106,7 +113,12 @@ export function createMood({ getConfig, dsh }) {
      */
     async judge({ userText, reply, who = '对方', origin = 'user' }) {
       const cfg = getConfig().mood
-      if (!cfg.enabled || !cfg.judge || !dsh) return null
+      if (!cfg.enabled || !cfg.judge) return null
+      const readiness = backgroundLlmStatus(dsh, getConfig())
+      if (!readiness.available) {
+        lastJudge = { state: readiness.state, reason: readiness.reason, at: Date.now() }
+        return null
+      }
       const v = current()
       const scene = origin === 'speak-up' ? `这一轮是她自己想${who}了、主动去找${who}说话（不是被叫来干活）` : `这一轮是${who}在跟她说话`
       try {
@@ -118,10 +130,12 @@ export function createMood({ getConfig, dsh }) {
           temperature: 0.2,
         })
         const r = parseMoodJudge(out)
-        if (!r) return null
+        if (!r) { lastJudge = { state: 'invalid-response', reason: '模型未返回可解析的判断', at: Date.now() }; return null }
+        lastJudge = { state: 'ready', reason: '', at: Date.now() }
         if (r.confidence >= 0.6 && Math.abs(r.delta) >= 2) nudge(r.delta, r.reason || '刚才那一下')
         return r
       } catch (error) {
+        lastJudge = { state: 'error', reason: '后台LLM调用失败', at: Date.now() }
         return null
       }
     },

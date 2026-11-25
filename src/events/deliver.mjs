@@ -41,6 +41,7 @@ export function createWakeDeliverer (opts = {}) {
   //   状态建起来但没人写，等于没建 —— 上一轮就是停在这里。
   const engage = opts.engage || null
   const enabledOf = typeof opts.enabled === 'function' ? opts.enabled : () => Boolean(opts.enabled)
+  const disabledReason = String(opts.disabledReason || '')
   const log = typeof opts.log === 'function' ? opts.log : () => {}
   const now = typeof opts.now === 'function' ? opts.now : () => Date.now()
 
@@ -200,6 +201,7 @@ export function createWakeDeliverer (opts = {}) {
   function view () {
     return {
       enabled: (() => { try { return Boolean(enabledOf()) } catch { return false } })(),
+      disabledReason: !enabledOf() ? disabledReason : '',
       hasDispatch: Boolean(dispatch),
       // ★ 有没有「投完等回复」这一环。false = 只投不回（能力缺口，不是正常状态）。
       hasResponder: Boolean(responder),

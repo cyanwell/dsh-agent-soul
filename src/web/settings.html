@@ -457,12 +457,21 @@ function onOk(d){
 function onFail(d,status){
   clearMarks();
   var errs=(d&&d.errors&&d.errors.length)?d.errors:[{field:'(请求)',message:(d&&(d.error||d.configError||d.fileError))||('HTTP '+status)}];
-  var lines=['没有写盘 —— 校验没过，一个字都没落盘',''];
+  var fieldValidation=status===400&&d&&d.written===false&&d.errors&&d.errors.length;
+  var authFailure=status===401||status===403;
+  var prefix=fieldValidation
+    ? '没有写盘 —— 字段校验未通过，一个字都没落盘'
+    : authFailure
+      ? '没有保存 —— 身份校验失败（HTTP '+status+'），不是参数校验'
+      : d&&d.written===false
+        ? '没有写盘 —— 服务端写入失败（HTTP '+status+'）'
+        : '保存失败（HTTP '+status+'）—— 服务端未确认结果';
+  var lines=[prefix,''];
   var first=null;
   errs.forEach(function(e){
     lines.push('  · '+labelOf(e.field)+'（'+e.field+'）：'+e.message);
     var r=rowByKey(e.field);
-    if(r){
+    if(r&&fieldValidation){
       r.tr.className='bad';
       r.errEl.textContent=e.message;
       r.errEl.setAttribute('style','display:block');
@@ -470,9 +479,8 @@ function onFail(d,status){
     }
   });
   showMsg('no',lines.join('\n'));
-  // ★ nearest 而不是 center：把错误行滚到中间，顶上那条「没有写盘」的汇总就被顶出视口了
   if(first&&first.scrollIntoView)first.scrollIntoView({block:'nearest'});
-  setStatus('校验没过');
+  setStatus(authFailure?'需要重新认证':fieldValidation?'字段校验失败':d&&d.written===false?'写入失败':'保存结果未知');
 }
 
 $('save').onclick=save;

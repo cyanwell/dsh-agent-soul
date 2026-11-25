@@ -1,21 +1,14 @@
-// 唤醒台账读模型 —— **只读**权威台账，全文件扫描，不读渲染后的摘要。
+// Waker read model — one normalizer/view calculation for every surface.
 //
-// ★★ 2026-11-10（三项死读数修复之二）：
-//   原来的两处读法互相打架 ——
-//     · soul_waker（adapters/mcp-tools.mjs:687）读 `<dataDir>/ledger.json`
-//     · /api/organs 的台账卡（web/server.mjs:958）读进程里那个 Ledger 实例（也是 dataDir/ledger.json）
-//   而真事件在 `<状态目录>/lead-waker-台账.json`。两个文件同构、字段同名，
-//   所以读错**不会报错**，只会安静地显示一个很小的数（本机实测：1 条 vs 43 条）。
+// Production supplies the live v4 Core Ledger instance, the same one used by
+// soul_waker ingest/decide and /api/waker. Explicit file reads remain for offline
+// diagnostics and pre-integration snapshots; they never replace the active ledger.
 //
-// ★ 三条纪律：
-//   ① **只读。** 这个模块只有 fs.readFileSync / statSync，没有一处写。
-//      要写的调用方自己拿 Ledger 去写自己的文件，且必须显式说明写的是哪一本。
-//   ② **全文件扫描。** 不做条数截断、不读任何「摘要」字段 —— 计数就是数 events 数组。
-//   ③ **源路径 + mtime 一起给。** 一份读数如果说不清自己是哪份文件的哪一刻，它就不能被引用。
+// The reader is read-only: it normalizes records, computes all five views and
+// returns source/mtime provenance. It never writes either source.
 //
-// ★ 字段来源：organ/waker.mjs 的 normalizeRecord 白名单（key/t/title/from/tier/stage/wakeCount/
-//   wokenAt/decision/charter/charterNote/decidedAt/note/fromSession）。
-//   本机真台账 43 条实测就是这 14 个字段 —— 读它不需要猜格式。
+// Field whitelist is defined once in organs/waker.mjs: key/t/title/from/tier/stage/
+// wakeCount/wokenAt/decision/charter/charterNote/decidedAt/note/fromSession.
 
 import fs from 'node:fs';
 import { normalizeRecord, viewsOf, badgeOf, STAGES, DECISIONS, CHARTERS } from './waker.mjs';
@@ -32,31 +25,44 @@ function bump(obj, k) { obj[k] = (obj[k] || 0) + 1; }
  */
 export function readWakerLedger(opts) {
   const o = opts || {};
-  const file = o.file || (o.config ? wakerLedgerFileOf(o.config) : null);
+  const liveLedger = o.ledger && Array.isArray(o.ledger.events) ? o.ledger : null;
+  const file = liveLedger ? String(liveLedger.file || '') : (o.file || (o.config ? wakerLedgerFileOf(o.config) : null));
   const out = {
-    ok: false, file, exists: false, mtimeMs: null, bytes: null, updatedAt: null,
+    ok: false, source: liveLedger ? 'core-ledger' : 'file', file: file || null,
+    exists: false, mtimeMs: null, bytes: null, updatedAt: null,
     total: 0, stages: {}, decisions: {}, charters: {}, unknownStage: 0,
-    views: { act: [], done: [], audit: [], auto: [] }, counts: { act: 0, done: 0, audit: 0, auto: 0 },
+    views: { act: [], done: [], audit: [], auto: [], blocked: [] }, counts: { act: 0, done: 0, audit: 0, auto: 0, blocked: 0 },
     badge: 0, duplicateKeys: 0, last: null, why: null,
   };
-  if (!file) { out.why = '没有台账路径（config 没给 statusDir / soul.root）'; return out; }
+  if (!liveLedger && !file) { out.why = '没有台账路径（Core ledger 或 config.statusDir / soul.root 均未提供）'; return out; }
 
-  let st;
-  try { st = fs.statSync(file); } catch { out.why = '文件不存在：' + file; return out; }
-  out.exists = true;
-  out.mtimeMs = st.mtimeMs;
-  out.bytes = st.size;
-  if (st.size > MAX_BYTES) { out.why = '文件过大（' + st.size + ' B > ' + MAX_BYTES + '），拒绝解析 —— 不用截断冒充全量'; return out; }
+  let raw, j = null;
+  if (liveLedger) {
+    raw = liveLedger.events;
+    out.exists = true;
+    out.updatedAt = liveLedger.data && liveLedger.data.updatedAt || null;
+    if (file) {
+      try {
+        const st = fs.statSync(file);
+        out.mtimeMs = st.mtimeMs;
+        out.bytes = st.size;
+      } catch { /* live memory remains authoritative if stat is unavailable */ }
+    }
+  } else {
+    let st;
+    try { st = fs.statSync(file); } catch { out.why = '文件不存在：' + file; return out; }
+    out.exists = true;
+    out.mtimeMs = st.mtimeMs;
+    out.bytes = st.size;
+    if (st.size > MAX_BYTES) { out.why = '文件过大（' + st.size + ' B > ' + MAX_BYTES + '），拒绝解析 —— 不用截断冒充全量'; return out; }
+    try { j = JSON.parse(fs.readFileSync(file, 'utf8')); }
+    catch (e) { out.why = '解析失败：' + String((e && e.message) || e); return out; }
+    raw = Array.isArray(j) ? j : (j && Array.isArray(j.events) ? j.events : null);
+    if (!raw) { out.why = '没有 events 数组（格式不对）：' + file; return out; }
+    out.updatedAt = (j && !Array.isArray(j) && j.updatedAt) ? j.updatedAt : null;
+  }
 
-  let j;
-  try { j = JSON.parse(fs.readFileSync(file, 'utf8')); }
-  catch (e) { out.why = '解析失败：' + String((e && e.message) || e); return out; }
-
-  const raw = Array.isArray(j) ? j : (j && Array.isArray(j.events) ? j.events : null);
-  if (!raw) { out.why = '没有 events 数组（格式不对）：' + file; return out; }
-  out.updatedAt = (j && !Array.isArray(j) && j.updatedAt) ? j.updatedAt : null;
-
-  // ★ 全文件扫描：不 slice、不取 last N。计数就是数完整个数组。
+  // Scan the complete current source; never infer completeness from a tail window.
   const seen = new Set();
   const events = [];
   for (const r of raw) {
@@ -74,7 +80,7 @@ export function readWakerLedger(opts) {
 
   const v = viewsOf(events);
   out.views = v;
-  out.counts = { act: v.act.length, done: v.done.length, audit: v.audit.length, auto: v.auto.length };
+  out.counts = { act: v.act.length, done: v.done.length, audit: v.audit.length, auto: v.auto.length, blocked: v.blocked.length };
   out.badge = badgeOf(v);
 
   // 最近一条：按 t（ISO 串）取最大，而不是数组最后一项 —— 数组顺序不保证是写入顺序。

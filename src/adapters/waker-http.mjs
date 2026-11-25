@@ -1,27 +1,7 @@
-// 台账页的后端：读 waker 的五视图，写判定
-// ============================================================================
-// ★ 为什么在 v4 里做：v3 的 `dsh-yanqing-lead-waker` 面板就是这个。
-//   爀曦的目标是解耦 —— 尽量少往 DSH 里装东西。所以这个面板要搬进 v4。
-//
-// ★ 数据源是 v4 自己的 `organs/waker.mjs`（Ledger 类），不是 v3 的那个 json：
-//     views() → { act, done, audit, auto, blocked, badge }
-//     decide(key, patch) → 写判定（applyDecision）
-//   v3 的台账文件仍是**上游**（只追加、别人写），v4 只读它、自己的判定写在 v4 侧。
-// ============================================================================
-
-// ★★ 2026-11-13：**必须用 readWakerLedger()，不是 ledger.views()。**
-//
-//   `organs/waker-read.mjs` 的头注里写着这个坑（2026-11-10 修过）：
-//     · 一代：soul_waker 读 <dataDir>/ledger.json（进程里那个 Ledger 实例）
-//     · 真事件在 <状态目录>/lead-waker-台账.json
-//   **两个文件同构、字段同名，所以读错不会报错，只会安静地显示一个很小的数**
-//   （本机实测：1 条 vs 43 条）。
-//
-//   ★ 我第一版就是用的 ledger.views() —— 面板上全是 0，正是那个「安静的小数」。
-//   现在读真台账；写判定仍走 ledger.decide（v4 自己的账本）。
+// AgentSoul v4 soul_waker HTTP surface: read views and write decisions against
+// the same Core-owned Ledger instance. The absorbed lead-waker is one runtime owner.
+// Legacy statusDir files remain available only to explicit offline readers/tests.
 import { readWakerLedger } from '../organs/waker-read.mjs'
-import { wakerLedgerFileOf } from '../config.mjs'
-import { viewsOf, badgeOf } from '../organs/waker.mjs'
 
 export function isWakerPath (req) {
   try {
@@ -81,17 +61,9 @@ export async function handleWakerApi (req, res, o) {
   // —— 读：五视图 + 徽章（★ 从真台账读，不是进程里那个实例）
   if (p === '/api/waker' && req.method === 'GET') {
     try {
-      // ★★ 必须传 config（或 file）—— 传空对象它会直接返回「没有台账路径」，
-      //    面板上就是全 0。我第一次就是这么错的。
-      // ★ 而且它自己就返回 views / counts / badge（waker-read.mjs:37-40），
-      //    **不用我再 viewsOf 算一遍** —— 算两遍反而可能和它对不上。
-      // ★★ 传 file 而不是 config：
-      //   `wakerLedgerFileOf(config)` 依赖 config 里的 statusDir / soul.root，
-      //   而 core 那份 config.json **没有这两项** —— 于是它 fallback 到
-      //   `appRoot()/workspace/lead-waker-台账.json`（一个不存在的路径）。
-      //   不带参数调 `wakerLedgerFileOf()` 才是对的：它会用默认状态目录。
-      const led = readWakerLedger({ file: wakerLedgerFileOf() })
-      const v = led || {}
+      // Read the same v4-owned Ledger instance that the POST decide path mutates.
+      // The pre-integration statusDir file is not a second live source of truth.
+      const v = readWakerLedger({ ledger })
       // ★ 只回面板要的字段，别把整条事件（可能含长 facts）全推过去
       const slim = (arr) => (arr || []).slice(0, 200).map((e) => ({
         key: e.key,

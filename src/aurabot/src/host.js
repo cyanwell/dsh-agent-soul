@@ -18,6 +18,7 @@ import { createLogger } from './core/logger.js'
 import { registerSecret, redact } from './core/redact.js'
 import { createOneBotClient } from './onebot/client.js'
 import { createOutboxGateway, outboxFromCtx } from '../adapter/outbox-gateway.mjs'
+import { createCoreIngressReceiver } from '../adapter/core-ingress.mjs'
 import { createSnowLumaManager, DOWNLOAD_PAGE } from './snowluma/manager.js'
 import { createHub, workspaceDirOf } from './chat/hub.js'
 import { registerSessionResetRoute } from './session-reset-route.mjs'
@@ -44,6 +45,27 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const getPackageMetadata = createPackageMetadataGetter({ path: join(ROOT, 'package.json'), readFile: readFileSync })
 const PREFIX = '/aurabot/api'
 
+export function canStartOneBot(ctx, env = process.env) {
+  return ctx?.aurabotOneBotConnect !== false && env.AURABOT_NO_CONNECT !== '1'
+}
+
+export function canAttachSnowLuma({ running, consented }) {
+  return running === true && consented === true
+}
+
+export async function readAurabotBody(req) {
+  if (req?.body !== undefined) {
+    if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) return req.body
+    if (typeof req.body === 'string') {
+      try { return JSON.parse(req.body || '{}') } catch (error) { return {} }
+    }
+    return {}
+  }
+  let s = ''
+  try { for await (const c of req) s += c } catch (error) {}
+  try { return JSON.parse(s || '{}') } catch (error) { return {} }
+}
+
 export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata) {
   const cloneMode = options !== undefined
   const deps = cloneMode ? resolveHostBootstrapDeps(options, null) : null
@@ -60,6 +82,8 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
   options = {}
   const logger = createLogger({ dsh: ctx })
   const log = logger.child('core')
+  const startOneBot = canStartOneBot(ctx)
+  log.info('QQ receive owner: ' + (startOneBot ? 'standalone Aurabot OneBot client' : 'AgentSoul v4 events ingress'))
   let cfg = configDeps.load()
   let mods = null
   let bridge = null
@@ -71,7 +95,7 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
     // 改机器人号后旧连接的核对结果立刻失效，必须重新核对才能处理消息或完成向导。
     if (before.botQQ !== cfg.botQQ) {
       wrongAccount = ''
-      if (onebotState === 'connected') onebot.restart()
+      if (startOneBot && onebotState === 'connected') onebot.restart()
     }
     if (!cloneMode) secrets()
     if (bridge && before.bridge.dshTools !== cfg.bridge.dshTools) bridge.refresh()
@@ -170,8 +194,18 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
       verifying = false
     }
   }
-  /** 核对通过后的事件都在这里处理（onEvent 直接调，核对期间攒下的也会补到这里）。 */
-  function handleEvent(ev) {
+  const receiveCoreIngressEvent = createCoreIngressReceiver({
+    getSelfId: () => cfg.botQQ,
+    onEvent: (ev, meta) => {
+      onebotState = 'connected'
+      loginOk = true
+      wrongAccount = ''
+      handleEvent(ev, meta)
+    },
+  })
+
+  /** 标准化后给modules/hub分发；Core receiver与standalone OneBot client共用。 */
+  function handleEvent(ev, meta = {}) {
     if (!hub) return
     // 模块能看到所有原始事件（加群、撤回、好友申请……），只看不拦
     mods?.emit('onebot', ev)
@@ -184,7 +218,7 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
             : ''
           if (dangerGuard.handleReply(`private:${ev.user_id}`, ev.user_id, text)) return
         }
-        hub.onMessage(ev).catch((error) => log.error('处理消息出错：', error.message))
+        hub.onMessage(ev, { eventId: meta.eventId || '' }).catch((error) => log.error('处理消息出错：', error.message))
       }
     } else if (ev.post_type === 'notice' && ev.notice_type === 'notify' && ev.sub_type === 'poke') {
       hub.onPoke(ev).catch((error) => log.error('处理戳一戳出错：', error.message))
@@ -265,6 +299,7 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
     pickForReply: (t) => use('stickers')?.pickForReply?.(t) ?? null,
     collect: async (s, chatId) => (use('stickers')?.collect ? use('stickers').collect(s, chatId) : { ok: false, reason: '表情包模块关着' }),
     library: () => use('stickers')?.library?.() ?? { items: [] },
+    captionStatus: () => use('stickers')?.captionStatus?.() ?? { enabled: false, state: 'disabled', reason: '表情包模块未加载' },
   }
   const tts = {
     speak: async (text) => {
@@ -321,11 +356,7 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
       res.end?.(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body))
     } catch (error) {}
   }
-  const readBody = async (req) => {
-    let s = ''
-    try { for await (const c of req) s += c } catch (error) {}
-    try { return JSON.parse(s || '{}') } catch (error) { return {} }
-  }
+  const readBody = readAurabotBody
   /** 原样读请求体（上传大文件用），超过 max 字节就报错。 */
   const readRaw = async (req, max) => {
     const parts = []
@@ -430,8 +461,8 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
     //     而两边读的是同一份 config.json —— 改配置拦不住，只能在代码里拦。
     //   ★ 用环境变量而不是改默认值：DSH 侧不受影响（它不设这个变量）。
     //     这样 v4 只提供接口和面板，QQ 连接仍然只有一处。
-    if (onebot.state === 'stopped' && !process.env.AURABOT_NO_CONNECT) onebot.start()
-    if (own && cfg.snowluma.autoAttach && cfg.snowluma.webuiPassword && onebotState !== 'connected' && (await snowluma.running())) {
+    if (onebot.state === 'stopped' && startOneBot) onebot.start()
+    if (own && cfg.snowluma.autoAttach && cfg.snowluma.webuiPassword && onebotState !== 'connected' && canAttachSnowLuma({ running: await snowluma.running(), consented: await consented(true) })) {
       const last = snowluma.lastAttach
       if (Date.now() - last.at > 60_000) {
         const r = await snowluma.attachBot()
@@ -477,12 +508,12 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
       version: VERSION,
       apiVersion: API_VERSION,
       config: configDeps.public(cfg),
-      onebot: { state: onebotState, login, endpoint: { httpUrl: endpoint().httpUrl, wsUrl: endpoint().wsUrl }, problem: onebotState === 'connected' && loginOk ? '' : await connectionProblem() },
+      onebot: { owner: startOneBot ? 'aurabot' : 'core-events-ingress', state: onebotState, login, endpoint: { httpUrl: endpoint().httpUrl, wsUrl: endpoint().wsUrl }, problem: onebotState === 'connected' && loginOk ? '' : await connectionProblem() },
       snowluma: { ...inst, running, consented: await consented(running), owns: snowluma.ownsProcess, lastAttach: snowluma.lastAttach, downloadPage: DOWNLOAD_PAGE, webui: snowluma.webuiUrl() },
       stats: hub.stats(),
       // 模块关着时给个空壳，面板照常显示
       mood: use('mood')?.state?.() ?? { value: 0, label: '心情模块关着', reason: '', history: [] },
-      stickers: { count: stickers.library().items.length },
+      stickers: { count: stickers.library().items.length, caption: stickers.captionStatus() },
       diary: diary ? { next: diary.nextTime(), last: diary.history()[0] || null } : { next: 0, last: null },
       qzoneSocial: use('qzone-social')?.state?.() ?? null,
       speakUp: use('speakup')?.state?.() ?? { count: 0 },
@@ -514,7 +545,7 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
     const changedModel = before.model.provider !== cfg.model.provider || before.model.model !== cfg.model.model
     if (changedModel) { clearReasoningCache(); clearVisionCache() }
     if (changedConn || before.botQQ !== cfg.botQQ) wrongAccount = ''
-    if (changedConn && onebot.state !== 'stopped') onebot.restart()
+    if (startOneBot && changedConn && onebot.state !== 'stopped') onebot.restart()
     if (!before.enabled && cfg.enabled) setTimeout(safe(watchdog, '看门狗'), 100)
     if (before.enabled && !cfg.enabled) onebot.stop()
     log.info(`设置已保存｜总开关 ${cfg.enabled ? '开' : '关'}｜试运行 ${cfg.dryRun ? '开' : '关'}`)
@@ -532,10 +563,13 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
   route('/snowluma/start', async () => snowluma.start())
   route('/snowluma/stop', async () => snowluma.stop())
   route('/snowluma/attach', async () => {
+    const running = await snowluma.running()
+    const consent = running ? await consented(true) : false
+    if (!canAttachSnowLuma({ running, consented: consent })) return { ok: false, code: 'SNOWLUMA_CONSENT_REQUIRED', message: 'SnowLuma 尚未运行或协议状态未能确认为已同意；请先启动并在面板阅读协议、由用户本人同意' }
     wrongAccount = ''
     snowluma.clearRejected()
     const r = await snowluma.attachBot()
-    if (cfg.enabled && onebot.state === 'stopped' && !process.env.AURABOT_NO_CONNECT) onebot.start()
+    if (cfg.enabled && onebot.state === 'stopped' && startOneBot) onebot.start()
     return r
   })
   route('/commands', async () => ({ ok: true, list: commandList(mods.commands()) }))
@@ -574,6 +608,7 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
   })
   /** 连不上 QQ 网关时，按顺序找卡在哪一步，给一句人话。 */
   async function connectionProblem() {
+    if (!startOneBot) return 'QQ接收由AgentSoul v4 events ingress管理；Aurabot独立连接保持停止是预期状态，请查看Core事件接收状态。'
     if (!cfg.enabled) return '总开关关着（右上角），打开后才会连'
     if (!cfg.botQQ) return '还没填机器人 QQ 号'
     if (cfg.gateway === 'onebot') {
@@ -594,6 +629,7 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
     return `连 ${ep.wsUrl || ep.httpUrl} 没连上：确认机器人号的 QQ 开着、已经登录，并且 SnowLuma 控制台里这个号显示已接入`
   }
   route('/onebot/reconnect', async () => {
+    if (!startOneBot) return { ok: false, code: 'CORE_INGRESS_OWNS_CONNECTION', message: 'AgentSoul v4 events ingress 管理 QQ 接收连接' }
     if (!cfg.enabled) return { ok: false, message: await connectionProblem() }
     wrongAccount = ''
     onebot.restart()
@@ -870,7 +906,7 @@ export function apply(ctx, options, getPackageMetadataImpl = getPackageMetadata)
   log.info(`Aurabot v${VERSION} 已加载｜总开关 ${cfg.enabled ? '开' : '关'}｜试运行 ${cfg.dryRun ? '开' : '关'}｜工作区 ${workspaceDirOf(cfg)}`)
 
   return {
-    hub, onebot, snowluma, getConfig, setConfig, logger, modules: mods, bridge, ready: booted,
+    hub, onebot, snowluma, getConfig, setConfig, receiveCoreIngressEvent, logger, modules: mods, bridge, ready: booted,
     get stickers() { return use('stickers') },
     get qzone() { return use('diary') },
     get mood() { return use('mood') },

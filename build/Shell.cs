@@ -1442,6 +1442,8 @@ class ShellForm : Form
             // ★ 只开主面板：手机通道（8901）不监听。
             //   这条是安全红线 —— 8901 绑的是 0.0.0.0，等于同一局域网谁都能读到对话。
             psi.EnvironmentVariables["AGENT_SOUL_CHAT"] = "off";
+            // v4 events/ingress owns QQ receive; the embedded Aurabot provides modules, not a second WS listener.
+            psi.EnvironmentVariables["AURABOT_NO_CONNECT"] = "1";
             // 端口必须和壳轮询的一致（core 读 config.port，环境变量优先）
             psi.EnvironmentVariables["AGENT_SOUL_PORT"] = S.Port.ToString();
             // ★ 父进程看门狗：壳被强杀时，core 自己会跟着退（见 src/util/parent-watchdog.mjs）

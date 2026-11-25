@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { dataDir, readJson, writeJson } from '../core/store.js'
 import { imageSize, mimeOf, stickerSizeOk } from '../chat/inbound.js'
 import { segmentBytes, fetchImage } from '../core/net.js'
-import { askModel, canSeeImages } from '../core/llm.js'
+import { askModel, backgroundLlmStatus, canSeeImages } from '../core/llm.js'
 
 const dir = () => dataDir('stickers')
 const indexFile = () => join(dir(), 'index.json')
@@ -76,11 +76,23 @@ export function pickEvict(items) {
 
 export function createStickerStore({ dsh, getConfig, onebot, log }) {
   const recent = [] // 每小时限额
+  let lastCaption = { state: 'not-run', reason: '', at: 0 }
+  const captionStatus = () => {
+    const cfg = getConfig().stickers
+    if (!cfg.enabled || !cfg.caption) return { enabled: false, state: 'disabled', reason: '表情包或看图起名功能已关闭', lastAttemptAt: lastCaption.at }
+    return { enabled: true, ...backgroundLlmStatus(dsh, getConfig()), lastAttemptAt: lastCaption.at, lastResult: lastCaption.state }
+  }
 
   async function caption(buf, mime, hint) {
     try {
+      const readiness = backgroundLlmStatus(dsh, getConfig())
+      if (!readiness.available) {
+        lastCaption = { state: readiness.state, reason: readiness.reason, at: Date.now() }
+        return { name: '', tags: [] }
+      }
       // 模型看不了图就别硬发：会报错，名字也起不出来
       if ((await canSeeImages(dsh, getConfig())) === false) {
+        lastCaption = { state: 'unsupported-vision', reason: '当前模型不支持看图', at: Date.now() }
         log.debug('模型不支持看图，跳过表情起名')
         return { name: '', tags: [] }
       }
@@ -93,12 +105,16 @@ export function createStickerStore({ dsh, getConfig, onebot, log }) {
         maxTokens: 1000,
         temperature: 0.2,
       })
-      if (!text) log.warn('看图起名：模型没给出文字')
+      if (!text) {
+        lastCaption = { state: 'empty-response', reason: '模型未返回文字', at: Date.now() }
+        log.warn('看图起名：模型没给出文字')
+      } else lastCaption = { state: 'ready', reason: '', at: Date.now() }
       const line = text.split(/\r?\n/).map((s) => s.trim()).find(Boolean) || ''
       const tags = [...line.matchAll(/#\s*([^\s#]+)/g)].map((m) => m[1]).filter((t) => t.length <= 6).slice(0, 3)
       const name = line.replace(/#\s*[^\s#]+/g, '').replace(/[「」"'“”]/g, '').trim().slice(0, 12)
       return { name, tags }
     } catch (error) {
+      lastCaption = { state: 'error', reason: '后台LLM调用失败', at: Date.now() }
       log.warn('看图起名失败：', error.message)
       return { name: '', tags: [] }
     }
@@ -292,5 +308,5 @@ export function createStickerStore({ dsh, getConfig, onebot, log }) {
     return importing
   }
 
-  return { importFromQQ, collect, addFromBuffer, remove, rename, segmentFor, markUsed, trim, library: loadLibrary, match: (q) => matchSticker(loadLibrary().items, q), pickForReply: (t) => pickForReply(loadLibrary().items, t) }
+  return { importFromQQ, collect, addFromBuffer, remove, rename, segmentFor, markUsed, trim, library: loadLibrary, captionStatus, match: (q) => matchSticker(loadLibrary().items, q), pickForReply: (t) => pickForReply(loadLibrary().items, t) }
 }

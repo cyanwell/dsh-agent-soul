@@ -1387,27 +1387,18 @@ export function readOpsLayer(ctx) {
 }
 
 /**
- * Ⅵ · 事件 —— **只读**权威台账，全文件扫描，不读渲染后的摘要。
- *
- * ★★ 2026-11-10（三项死读数修复之二）：
- *   这一层原来就读对了路径（<状态目录>/lead-waker-台账.json），但只数 stage.done / stage.held，
- *   不给文件名、不给 mtime，也不给四视图 —— 而真台账里 stage 只有 done/held 两种值，
- *   真正的「要审计没审」藏在 charter=ask 里（本机实测 5 条）。只数 stage 会把它读成 0。
- *
- *   现在：读模型统一走 organs/waker-read.mjs（与 /api/organs 的台账卡、soul_waker 的 state 同一实现），
- *   四视图用 organs/waker.mjs 的 viewsOf（**状态机只有一份**），并强制标出**源路径 + mtime**。
+ * Ⅵ · 事件 —— production reads the live v4 Core Ledger shared with soul_waker and /api/waker.
+ * Offline probes may pass statusDir to exercise the legacy file parser explicitly.
+ * The shared organs/waker-read.mjs implementation owns normalization and all five views.
  */
 export function readEventsLayer(ctx) {
   const { config, opts } = ctx;
   const o = opts || {};
   const p = coreTag(o.core);
-  // ★ 生产只有一条路：config.mjs 的 wakerLedgerFileOf()（目录判据与文件名都在那里）。
-  // ★ 夹具旁路（o.statusDir）**只给自检 / 离线探针用**：它把目录直接指到临时目录，
-  //   从而绕过上面那份判据 —— 所以文件名在这里出现了第二个字面量。这不是第二套判据：
-  //   生产调用点（server.mjs 的 /api/live 与 /api/organs、soul_waker、gatherStatus）都不传
-  //   o.statusDir，只有 tools/status-three-readings-selftest.mjs 传（它要指向 %TEMP%）。
-  //   ★ 2026-11-10（独立验收 §5.2 后续清理）：这条旁路只加标注，不重构 —— 生产行为一个字没动。
-  const file = o.statusDir ? path.join(o.statusDir, 'lead-waker-台账.json') : wakerLedgerFileOf(config);
+  // Production reads the same live Core Ledger used by MCP and /api/waker.
+  // Explicit statusDir remains only for offline probes that exercise legacy file parsing.
+  const file = o.ledger ? String(o.ledger.file || '(Core ledger)')
+    : (o.statusDir ? path.join(o.statusDir, 'lead-waker-台账.json') : wakerLedgerFileOf(config));
   const deliveredFile = o.statusDir ? path.join(o.statusDir, 'lead-waker-已投递.json') : wakerDeliveredFileOf(config);
   const items = [];
   const data = {
@@ -1415,7 +1406,7 @@ export function readEventsLayer(ctx) {
     counts: null, badge: null, mtimeMs: null, updatedAt: null, ok: false, why: null,
   };
 
-  const led = readWakerLedger({ file });
+  const led = o.ledger ? readWakerLedger({ ledger: o.ledger }) : readWakerLedger({ file });
   const fmt = (obj) => Object.entries(obj || {}).map(([k, v]) => k + ' ' + v).join(' · ');
   if (led.ok) {
     Object.assign(data, {
@@ -1446,23 +1437,29 @@ export function readEventsLayer(ctx) {
     items.push(na('事件台账', led.why));
   }
 
-  const dl = readWakerDelivered({ file: deliveredFile });
-  if (dl.ok) {
-    data.delivered = { sent: dl.sent, inflight: dl.inflight, maxWaitMs: dl.maxWaitMs, pollAgoMs: dl.pollAgoMs, fails: dl.fails, dayCount: dl.dayCount, mtimeMs: dl.mtimeMs };
-    items.push(row('投递', dl.sent, '条', { sub: '今日 ' + (dl.dayCount || 0) + ' · 失败重试 ' + dl.fails + ' 次' }));
-    items.push(row('轮询', dl.pollAgoMs === null ? '—' : (dl.pollAgoMs < 60000 ? '刚刚' : Math.round(dl.pollAgoMs / 60000) + ' 分钟前'), '',
-      { sub: 'lastPollAt · 文件 ' + hm(dl.mtimeMs) }));
-    items.push(dl.inflight
-      ? row('未回执', dl.inflight + ' 条', '', {
-        sub: '最长已等 ' + (dl.maxWaitMs > 3600000 ? (dl.maxWaitMs / 3600000).toFixed(1) + ' 小时' : Math.round(dl.maxWaitMs / 60000) + ' 分钟'),
-        bad: dl.maxWaitMs > 3600000,
-      })
-      : row('未回执', '0 条', ''));
+  let longWait = false;
+  if (o.ledger) {
+    // The current v4 deliverer is in-memory and exposed by /api/events; do not
+    // present the retired lead-waker delivery JSON as a current live metric.
+    items.push(na('v4投递状态', '当前回执见 /api/events 的 deliverer.view'));
   } else {
-    items.push(na('投递账', dl.why));
+    const dl = readWakerDelivered({ file: deliveredFile });
+    if (dl.ok) {
+      data.delivered = { sent: dl.sent, inflight: dl.inflight, maxWaitMs: dl.maxWaitMs, pollAgoMs: dl.pollAgoMs, fails: dl.fails, dayCount: dl.dayCount, mtimeMs: dl.mtimeMs };
+      items.push(row('旧投递记录', dl.sent, '条', { sub: '历史文件 · 今日 ' + (dl.dayCount || 0) + ' · 失败重试 ' + dl.fails + ' 次' }));
+      items.push(row('旧轮询记录', dl.pollAgoMs === null ? '—' : (dl.pollAgoMs < 60000 ? '刚刚' : Math.round(dl.pollAgoMs / 60000) + ' 分钟前'), '',
+        { sub: 'lastPollAt · 文件 ' + hm(dl.mtimeMs) }));
+      items.push(dl.inflight
+        ? row('旧未回执记录', dl.inflight + ' 条', '', {
+          sub: '最长已等 ' + (dl.maxWaitMs > 3600000 ? (dl.maxWaitMs / 3600000).toFixed(1) + ' 小时' : Math.round(dl.maxWaitMs / 60000) + ' 分钟'),
+          bad: dl.maxWaitMs > 3600000,
+        })
+        : row('旧未回执记录', '0 条', ''));
+      longWait = dl.maxWaitMs > 3600000;
+    } else {
+      items.push(na('旧投递记录', dl.why));
+    }
   }
-
-  const longWait = !!(data.delivered && data.delivered.maxWaitMs > 3600000);
   // ★ 2026-11-11：**「文件不存在」不是「错误」**。
   //   台账还没接过（本机 dist 装在 workspace、真台账在书房 30-状态）——那是「还没接线」，
   //   画成 error 会让人以为坏了。真正的 error 只留给「文件在、但读不动 / 格式坏了」。
@@ -1471,9 +1468,11 @@ export function readEventsLayer(ctx) {
   return {
     key: 'events', name: 'Ⅵ · 事件', title: '台账 / 投递 / 唤醒',
     level: !led.ok ? (noLedgerFile ? 'warn' : 'error') : (longWait ? 'warn' : 'ok'), items, data,
-    note: (noLedgerFile ? '★ 这台机器上还没有事件台账（' + file + ' 不存在）—— 不是故障，是还没接线。' : '★ 读的是 ' + file + '（真事件）') + '，**只读**：本次修复不迁移、不改写权威文件。'
-      + '（data/ledger.json 是另一本旧账，本机实测 1 条 2026-11-07 的待办 —— 别再拿它当台账。）'
-      + (longWait ? ' 有一条投递卡了 1 小时以上，没有超时判定。' : ''),
+    note: o.ledger
+      ? '当前事件权威源：AgentSoul v4 Core soul_waker（ingest / decide 同一份Ledger）；旧状态目录快照不参与当前读数。'
+        + (longWait ? ' 另有旧投递记录超过 1 小时未更新。' : '')
+      : (noLedgerFile ? '兼容文件源不存在：' + file + '（离线探针/旧数据未接入）' : '兼容文件源：' + file)
+        + (longWait ? ' 有旧投递记录卡了 1 小时以上。' : ''),
     provenance: p + ' · ' + file + (led.ok ? '（' + led.total + ' 条 · mtime ' + hm(led.mtimeMs) + '）' : ''),
   };
 }
@@ -1482,7 +1481,7 @@ export function readEventsLayer(ctx) {
 
 /**
  * 一次拿全。**任何一层读失败都不许让整个请求挂掉** —— 每层独立 try/catch。
- * @param {{config:object, store?:object, persona?:object, tools?:object,
+ * @param {{config:object, store?:object, persona?:object, tools?:object, ledger?:object,
  *          autonomy?:object, loop?:object, dshHome?:string, configFile?:string, statusDir?:string, echoDbPath?:string, echoStore?:object}} opts
  *   ★ loop（2026-11-10）：把换气判定表交给读模型 —— `loop.__huanqiByRound` 是器官正在用的那一份。
  *     不给就是「无读数 + 原因」，不是 0。

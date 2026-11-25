@@ -103,22 +103,26 @@ async function load (force) {
 }
 function render (d) {
   var c = d.counts || {}
-  document.getElementById('meta').textContent = d.mode + ' · ' + (d.ms || 0) + 'ms'
+  var unconfigured = d.unconfigured === true || d.overall === 'unconfigured'
+  var summary = unconfigured ? '未配置' : (d.overall || '未知状态')
+  document.getElementById('meta').textContent = summary + (Number.isFinite(d.ms) ? ' · ' + d.ms + 'ms' : '')
   document.getElementById('ver').textContent = 'echo · 只读'
   document.getElementById('hero').innerHTML = [
-    box(c.error || 0, '异常', 'err'),
-    box(c.warn || 0, '注意', 'warn'),
-    box(c.ok || 0, '正常', 'ok'),
-    box((d.checks || []).length, '共检查', ''),
+    box(unconfigured ? '—' : (c.error || 0), '异常', 'err'),
+    box(unconfigured ? '—' : (c.warn || 0), '注意', 'warn'),
+    box(unconfigured ? '—' : (c.ok || 0), '正常', 'ok'),
+    box((d.checks || []).length, unconfigured ? '已检查' : '共检查', ''),
   ].join('')
-  var rows = (d.checks || []).map(function (x) {
-    var st = x.status || 'pending'
-    return '<tr>' +
-      '<td class="st"><span class="dot ' + esc(st) + '"></span><span class="stxt">' + esc(LEVEL[st] || st) + '</span></td>' +
-      '<td class="id">' + esc(x.id || '') + '<br><span style="font-size:10.5px">' + esc(x.label || '') + '</span></td>' +
-      '<td><div class="detail">' + esc(x.detail || '') + '</div></td>' +
-    '</tr>'
-  })
+  var rows = unconfigured
+    ? ['<tr><td class="st"><span class="dot pending"></span><span class="stxt">未配置</span></td><td class="id">echo-doctor</td><td><div class="detail">' + esc(d.why || '未配置 ECHO_DOCTOR_PATH；尚未运行体检') + '</div></td></tr>']
+    : (d.checks || []).map(function (x) {
+      var st = x.status || 'pending'
+      return '<tr>' +
+        '<td class="st"><span class="dot ' + esc(st) + '"></span><span class="stxt">' + esc(LEVEL[st] || st) + '</span></td>' +
+        '<td class="id">' + esc(x.id || '') + '<br><span style="font-size:10.5px">' + esc(x.label || '') + '</span></td>' +
+        '<td><div class="detail">' + esc(x.detail || '') + '</div></td>' +
+      '</tr>'
+    })
   document.getElementById('body').innerHTML = rows.join('') || '<tr><td colspan="3" class="detail">没有检查项</td></tr>'
   document.getElementById('when').textContent = '体检于 ' + (d.at || '?')
   document.getElementById('cache').textContent = d.cached

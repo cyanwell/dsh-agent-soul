@@ -76,8 +76,8 @@ export const GUARDED = [
   '/api/turn', '/api/shutdown', '/api/answer', '/api/guard',
   '/api/restart', '/api/compact', '/api/session', '/api/manager-proof',
   '/mcp',
-  // ★ 2026-11-22：`/api/waker/decide` 是**写判定**（记「要你执行 / 已执行 / 要审计」），在 `/api/waker` 下
-  '/api/waker',
+  // Waker reads are public read-only; only the charter/decision mutation requires the token.
+  '/api/waker/decide',
 ];
 
 export function needsAuth(pathname, method, req) {

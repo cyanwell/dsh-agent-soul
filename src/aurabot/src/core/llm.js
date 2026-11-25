@@ -12,6 +12,23 @@ export function defaultModel(dsh, cfg) {
   return null
 }
 
+/** Safe status for background features; never returns provider, model or credential data. */
+export function backgroundLlmStatus(dsh, cfg) {
+  let llm = dsh?.llm || null
+  if (!llm && typeof dsh?.get === 'function') {
+    try { llm = dsh.get('llm') || null } catch (error) {}
+  }
+  if (!llm || typeof llm.stream !== 'function') {
+    return { available: false, state: 'unavailable', reason: '宿主LLM服务不可用' }
+  }
+  let ready = null
+  try { if (typeof llm.ready === 'function') ready = Boolean(llm.ready()) } catch (error) { ready = false }
+  if (ready === false) return { available: false, state: 'unavailable', reason: 'Core LLM未配置或未就绪' }
+  if (!defaultModel(dsh, cfg)) return { available: false, state: 'unavailable', reason: '没有可用的默认模型' }
+  if (ready === true) return { available: true, state: 'ready', reason: '' }
+  return { available: false, state: 'unknown', reason: 'LLM就绪状态不可确认' }
+}
+
 // ---------- 视觉能力 ----------
 //
 // 模型能不能看图写在 DSH 的模型元数据里（inputModalities，DSH 自己的图片入口也靠它判断）。

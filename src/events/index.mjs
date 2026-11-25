@@ -118,6 +118,8 @@ export function createEventsIngress (opts = {}) {
   //   缺省 null = 直通 —— 这条 ingress 每分钟都在跑，行为必须能原样退回。
   const charter = typeof opts.charter === 'function' ? opts.charter : null
   const onBlocked = typeof opts.onBlocked === 'function' ? opts.onBlocked : null
+  const onAurabotEvent = typeof opts.onAurabotEvent === 'function' ? opts.onAurabotEvent : null
+  const wakeDeliveryBlockedReason = String(opts.wakeDeliveryBlockedReason || '')
 
   const resolved = normalizeIngressConfig(config)
   const dir = eventsDirOf(config)
@@ -379,7 +381,8 @@ export function createEventsIngress (opts = {}) {
 
     deliverer = createWakeDeliverer({
       dispatch: opts.dispatch || null,
-      enabled: () => Boolean(config.events && config.events.wake && config.events.wake.deliver),
+      enabled: () => !wakeDeliveryBlockedReason && Boolean(config.events && config.events.wake && config.events.wake.deliver),
+      disabledReason: wakeDeliveryBlockedReason,
       responder,
       // ★ 投递成功 = 她开口了 → 记进 engage（noteReply + joinTopic）。
       engage,
@@ -486,6 +489,7 @@ export function createEventsIngress (opts = {}) {
         now,
         onFlush,
         transport,
+        onAurabotEvent,
         // ★★ 2026-11-12：notice 旁路 —— 只记「谁戳了她」，不进帧账。
         //   判据：target_id 是自己 → 有人戳了她 → 记下这个人。
         //   ★ 群聊记 group_id；私聊没 group_id 就不记（私聊戳回去本来不需要目标）。

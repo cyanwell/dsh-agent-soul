@@ -74,11 +74,11 @@
 
 ```
 ① 装 agent-soul 本体
-    · 下载发布包：[AgentSoul v4 1.0.86](https://github.com/cyanwell/dsh-agent-soul/releases/latest)
-      - `AgentSoul-Setup-1.0.86.exe` —— 大多数人选这个，双击装（装到 %LOCALAPPDATA%\Programs\AgentSoul，
-        建开始菜单/桌面快捷方式，卸载项进「设置→应用」，**不需要管理员**）
-      - `AgentSoul-1.0.86-portable.zip` —— 不想装的人，解压即用（下称 <SOUL>）
-      - `AgentSoul-1.0.86-htmlpatch.zip` —— 已有安装，只换界面（212 KB）
+    · GitHub当前最新正式Release为 1.0.87（2026-11-24）；本地 1.0.102 是未发布候选。
+      本机候选打包文件将在 `dist/` 生成，不代表可从 GitHub 下载。
+      - `AgentSoul-Setup-1.0.102.exe` —— 本地候选安装器
+      - `AgentSoul-1.0.102-portable.zip` —— 本地候选便携包
+      - `AgentSoul-1.0.102-htmlpatch.zip` —— 本地候选界面补丁
     · ★ 卸载**不会**删你的 `config.json`（含 API Key）与 `data\`（会话/索引/账本）—— 它们留在原位，要彻底清干净自己删这两个。
     · 双击 <SOUL>\AgentSoul.exe 启动
     · ★ 必须用**当前用户身份**启动（key 是 DPAPI 密文，SYSTEM 身份解不开）
@@ -386,6 +386,14 @@ data/
 # 发布
 
 ## 更新记录
+
+### 1.0.102 本机候选（2026-11-25，未发布）
+
+- Hub explicit correlation完成：fresh flush传newTurn，pushToSession按调用前running状态区分当前与pending turn；event_id以显式参数穿过session turn/end和每个bubble send。阶段计数仅提供policyDenied/muted/groupNoReply/hookHandled/enqueued/assistantReplyTurns/sendAttempts，不记录消息正文或QQ/chat ID。
+- 验证：全量297/297、Shell marker selftest和syntax checks通过；Hub fake集成覆盖fresh merge flush及两轮current/pending eventId归属（第一轮只含A、下一轮只含B）、per-bubble OneBot call opts；policy-denied只增聚合计数且不泄漏身份；outbox fake验证message_id重复判据。未发送真实QQ消息。
+- 生产运行态：1.0.101 health=true、owner=Core ingress、3003单socket。当前采样累计2条消息入账并转发至Aurabot；Aurabot阶段计数为policyDenied=0、muted=0、groupNoReply=2、hookHandled=0、enqueued=0、assistantReplyTurns=0、sendAttempts=0，说明这两条按群策略正常选择不回，outbox trace为空；真实“同事件同part重复归零”仍需一次可发回复验证。
+- SnowLuma协议接口仍Unauthorized、consent unknown；autoAttach=true但attach被安全闸阻止。安装E2E preflight exit 2检测到现有AgentSoul注册项/快捷方式/进程后拒绝，未覆盖生产。
+- GitHub latest REST核实1.0.87（2026-11-24）；tag 1.0.87指向57c487d（origin/main），origin/v4 HEAD为7541145。工作树含多组本目标未提交改动，尚未commit/tag/push；1.0.102本机候选待构建。
 
 ### 1.0.87（2026-11-24）
 

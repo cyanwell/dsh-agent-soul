@@ -13,14 +13,16 @@ const markerRemove=body.indexOf('psi.EnvironmentVariables.Remove("AGENT_SOUL_MAN
 const pidRemove=body.indexOf('psi.EnvironmentVariables.Remove("AGENT_SOUL_MANAGER_SHELL_PID")');
 const markerRead=body.indexOf('Environment.GetEnvironmentVariable("AGENT_SOUL_MANAGER_MARKER")');
 const parentSet=body.indexOf('psi.EnvironmentVariables["AGENT_SOUL_PARENT"] = Process.GetCurrentProcess().Id.ToString()');
+const aurabotNoConnectSet=body.indexOf('psi.EnvironmentVariables["AURABOT_NO_CONNECT"] = "1"');
 const formatCheck=body.indexOf('managerMarker.Length >= 32 && managerMarker.Length <= 128');
 const allowedCheck=body.indexOf("c == '_' || c == '-'");
 const shellPidDerived=body.indexOf('psi.EnvironmentVariables["AGENT_SOUL_MANAGER_SHELL_PID"] = Process.GetCurrentProcess().Id.ToString()');
 const markerSet=body.indexOf('psi.EnvironmentVariables["AGENT_SOUL_MANAGER_MARKER"] = managerMarker');
 const optInBranch=body.indexOf('if (validManagerMarker)',allowedCheck);
 
-for(const [name,at] of Object.entries({markerRemove,pidRemove,markerRead,parentSet,formatCheck,allowedCheck,optInBranch,markerSet,shellPidDerived}))assert(at>=0,'missing contract: '+name);
+for(const [name,at] of Object.entries({markerRemove,pidRemove,markerRead,parentSet,aurabotNoConnectSet,formatCheck,allowedCheck,optInBranch,markerSet,shellPidDerived}))assert(at>=0,'missing contract: '+name);
 assert(markerRemove<markerRead && pidRemove<markerRead,'inherited manager values removed before opt-in env read');
+assert(aurabotNoConnectSet<end,'the embedded Aurabot WS guard is set before the Core child starts');
 assert(parentSet<formatCheck && formatCheck<allowedCheck && allowedCheck<optInBranch && optInBranch<markerSet && markerSet<shellPidDerived && shellPidDerived<end,'forward occurs only inside marker-only opt-in; Shell PID is derived locally');
 assert.match(body,/AGENT_SOUL_PARENT/,'legacy parent watchdog env remains set');
 assert.equal(body.includes('Process.Start(psi)'),false,'test only slices source text before the real process call; it does not invoke it');

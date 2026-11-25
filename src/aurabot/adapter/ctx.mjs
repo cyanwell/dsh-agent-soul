@@ -161,6 +161,8 @@ export function createAurabotCtx (opts = {}) {
     systemPrompt,
     get,
     logger,
+    // Core events ingress is the only QQ WebSocket receiver in the embedded v4 host.
+    aurabotOneBotConnect: opts.onebotConnect === true,
     // ★ 2026-11-14：services.llm 必须一起参与 —— 下面那圈「只补 ctx 上没有的键」
     //   会因为 'llm' in ctx 为 true 而跳过它，于是 opts.llm || null 会把
     //   「本地没有 llm 时退回 bridge 代理」这条路整个吃掉（表现为 ctx.llm === null）。

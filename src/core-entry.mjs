@@ -531,6 +531,8 @@ if (!eventsOutbox) {
  * ★ 只投 pass / ask / unchecked —— block 走 onBlocked（写回执给她），不叫醒 lead。
  * ★ 失败不抛：上报链不能因为 lead 不在就把事件层搞崩，但**必须留痕**。
  */
+let aurabotIngressReceiver = null
+
 async function deliverToLead ({ rec, verdict, why }) {
   const tag = '  [上报] '
   try {
@@ -569,6 +571,10 @@ const eventsIngress = createEventsIngress({
   control,
   log: (m) => { if (!config.quiet) console.log('  ' + m); },
   transport: makeWsTransport({ log: (m) => { if (!config.quiet) console.log('  ' + m); } }),
+  onAurabotEvent: (event, meta) => aurabotIngressReceiver ? aurabotIngressReceiver(event, meta) : false,
+  // QQ social replies belong to Aurabot. Keep event delivery for other compositions,
+  // but do not let the integrated Core wake/respond to the same OneBot message in parallel.
+  wakeDeliveryBlockedReason: 'QQ社交回复由Aurabot处理；leadRelay的跨会话宪章链独立运行',
   // ★ 2026-11-12：事件 → 唤醒的出口。事件算出来之后，靠它把话送进会话。
   //   关着的时候整条投递路径一次都不进（deliver 自己判 enabled）。
   dispatch: sessionDispatch,
@@ -1078,7 +1084,7 @@ if (managedPreflight) {
   }
 
   const ab = createAurabotCtx({
-    llm,
+    onebotConnect: false,
     log: abLog,
     logLevel: config.quiet ? 'warn' : 'info',
     // ★ 2026-11-13（第 14 代）：把工作区注册表接进来。
@@ -1135,11 +1141,18 @@ if (managedPreflight) {
 
   abApi = ab   // ★ 见上面 sessionController 那段：prompt-context 的晚绑定出口
 
+  // AgentSoul v4 events ingress owns QQ receive. The embedded Aurabot host supplies
+  // modules and routes only; disable its independent OneBot WS before evaluating host.js.
+  process.env.AURABOT_NO_CONNECT = '1'
   const { host: mod, applyOptions } = await importAurabotHostBeforeEvaluation({
     options: undefined, // production path remains the only active mode; clone options must be validated before host import
     importHost: () => import('./aurabot/src/host.js'),
   });
-  await mod.apply(ab.ctx, applyOptions);
+  const aurabotHostApi = await mod.apply(ab.ctx, applyOptions)
+  aurabotIngressReceiver = aurabotHostApi && typeof aurabotHostApi.receiveCoreIngressEvent === 'function'
+    ? (event, meta) => aurabotHostApi.receiveCoreIngressEvent(event, meta)
+    : null
+  if (!aurabotIngressReceiver) console.log('  Aurabot未提供Core ingress receiver；QQ消息不会扇出到Aurabot模块')
 
   // ★★★ 订阅必须在 apply **之后**：host.js 的 ctx.effect 里才把
   //   ctx.on('session/event', …) 挂上去。早订阅 = backlog 里的事件撞在一群还没注册的

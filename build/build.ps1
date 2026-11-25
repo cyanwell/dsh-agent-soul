@@ -1,4 +1,4 @@
-﻿﻿# 编译 AgentSoul.exe —— M0 壳
+﻿# 编译 AgentSoul.exe —— M0 壳
 #
 # 为什么用 csc 而不是 dotnet build：本机没有 dotnet SDK（也没有 npm），
 # 而 .NET Framework 4.x 自带 csc.exe —— 系统自带的东西最不容易坏。

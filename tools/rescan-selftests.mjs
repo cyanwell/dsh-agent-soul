@@ -9,8 +9,10 @@
 //   那是测试**名称**，不是失败。所以判据要先排除 ✓/✔ 开头的行。
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const OUT = 'D:/AI/agent-soul/_selftest_logs';
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const OUT = path.join(REPO_ROOT, '_selftest_logs');
 const files = fs.readdirSync(OUT).filter((f) => f.endsWith('.log'));
 
 const num = [

@@ -43,6 +43,9 @@ export function createOneBotIngress (opts = {}) {
     log = () => {},
     now = () => Date.now(),
     onFlush = null,
+    // The sole Core socket may fan out the raw event to Aurabot's social modules.
+    // This is memory-only dispatch; payloads are never logged by this adapter.
+    onAurabotEvent = null,
     // ★ notice 旁路（不落账）。签名 (rawNotice) => void；抛错只记 note，不影响主链路。
     onNotice = null,
     transport = null,
@@ -65,6 +68,8 @@ export function createOneBotIngress (opts = {}) {
     connectAttempts: 0,
     reconnects: 0,
     rejected: 0,
+    aurabotForwarded: 0,
+    aurabotForwardFailed: 0,
     // ★ 2026-11-10 加：stop() 之后仍然到达的帧（WS 的 close 是异步的，所以「停 = 立刻不再写」
     //   只能是近似 —— 这里把「迟到帧」变成一个**可观察的计数**，而不是一句口头保证）。
     afterStop: 0,
@@ -92,6 +97,19 @@ export function createOneBotIngress (opts = {}) {
     state.lastError = { code, detail: redact(detail), at: row.t }
     log('[onebot] ' + code + ' ' + redact(detail))
     return row
+  }
+  const fanoutAurabot = (event, eventId = '') => {
+    if (typeof onAurabotEvent !== 'function') return
+    try {
+      // Isolate the append-only ledger payload from module listeners that receive the event.
+      const copy = JSON.parse(JSON.stringify(event))
+      const accepted = onAurabotEvent(copy, { eventId })
+      if (accepted === false) counters.aurabotForwardFailed++
+      else counters.aurabotForwarded++
+    } catch {
+      counters.aurabotForwardFailed++
+      log('[onebot] Aurabot fanout handler failed')
+    }
   }
 
   function safeWsUrl (u) {
@@ -233,6 +251,7 @@ export function createOneBotIngress (opts = {}) {
 
     // ① 自己发出去的回显
     if (d.post_type === 'message_sent') {
+      fanoutAurabot(d)
       counters.sentTypeDropped++
       state.lastDrop = { reason: 'message_sent', at: new Date(now()).toISOString() }
       return
@@ -249,8 +268,11 @@ export function createOneBotIngress (opts = {}) {
     //     把 notice 塞进去会让窗口计算和判定都多一种要处理的东西。
     //     所以走旁路：onNotice 回调，调用方自己决定记什么。
     if (d.post_type !== 'message') {
-      if (d.post_type === 'notice' && typeof onNotice === 'function') {
-        try { onNotice(d) } catch (e) { note('NOTICE_HANDLER_THREW', String((e && e.message) || e)) }
+      if (d.post_type === 'notice') {
+        fanoutAurabot(d)
+        if (typeof onNotice === 'function') {
+          try { onNotice(d) } catch (e) { note('NOTICE_HANDLER_THREW', String((e && e.message) || e)) }
+        }
       }
       counters.ignored++
       return
@@ -272,14 +294,6 @@ export function createOneBotIngress (opts = {}) {
 
     const isGroup = d.message_type === 'group'
     const chatId = isGroup ? 'group:' + String(d.group_id) : 'private:' + userId
-    // ④ 白名单
-    if (!allowChat(chatId)) {
-      counters.notAllowed++
-      state.lastDrop = { reason: 'not_allowed', chatId, at: new Date(now()).toISOString() }
-      return
-    }
-
-    bootFrame++
     const env = buildEnvelope({
       source: 'onebot',
       type: 'message',
@@ -288,7 +302,7 @@ export function createOneBotIngress (opts = {}) {
       userId,
       messageId: d.message_id === undefined || d.message_id === null ? '' : String(d.message_id),
       bootId: state.bootId,
-      raw_ptr: 'onebot:ws#' + state.bootId + '/' + bootFrame,
+      raw_ptr: '',
       createdAt: typeof d.time === 'number' ? d.time : null,
       receivedAt: now(),
       ingress: 'onebot',
@@ -301,7 +315,17 @@ export function createOneBotIngress (opts = {}) {
           : null,
       },
     })
+    fanoutAurabot(d, env.event_id)
+    // ④ Core event-ledger allow-list. Aurabot receives the same verified gateway stream first,
+    // using its own chat policy; this separate list controls only waker/event-ledger retention.
+    if (!allowChat(chatId)) {
+      counters.notAllowed++
+      state.lastDrop = { reason: 'not_allowed', chatId, at: new Date(now()).toISOString() }
+      return
+    }
 
+    bootFrame++
+    env.raw_ptr = 'onebot:ws#' + state.bootId + '/' + bootFrame
     if (!store) { counters.malformed++; return note('NO_STORE', '没有事件账，事件无处落') }
     const r = store.append(env)
     if (r.ok) {

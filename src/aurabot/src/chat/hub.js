@@ -3,7 +3,7 @@
 //   发：DSH 会话一轮结束 → 取最终正文 → 拆条 / 语音 / 表情 → 发回原来的 QQ 会话
 // 每个 QQ 会话一个 DSH 会话，统一放在「Aurabot · QQ」工作区，主人可以在 DSH 侧栏点开看、插手。
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { appendFileSync, mkdirSync, readFileSync, existsSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
@@ -55,6 +55,7 @@ const sessionKey = (id) => {
  */
 // 模拟测试：这里面发出去的消息只记下来，不真发
 const captureStore = new AsyncLocalStorage()
+const inboundEventStore = new AsyncLocalStorage()
 export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildTools, contextProviders, onActivity, memoryScore, onCommand, isMuted, moodEffects, localApi, hooks, availableModels, toolsGeneration }) {
   // 心情对行为的影响（表情 / 语音概率、回复快慢、插话积极程度），没接就是 1
   const mood = () => (typeof moodEffects === 'function' ? moodEffects() : null) || { sticker: 1, voice: 1, delay: 1, chatty: 1 }
@@ -94,7 +95,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     }
   }
   const sentIds = new Set()
-  const stats = { received: 0, sent: 0, voice: 0, stickers: 0, errors: 0, day: new Date().toDateString() }
+  const stats = { received: 0, policyDenied: 0, muted: 0, groupNoReply: 0, hookHandled: 0, enqueued: 0, assistantReplyTurns: 0, sendAttempts: 0, sent: 0, voice: 0, stickers: 0, errors: 0, day: new Date().toDateString() }
   let selfId = ''
   let lastChatAt = 0
   let lastOwnerChatAt = 0
@@ -102,7 +103,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
 
   function bump(k) {
     const d = new Date().toDateString()
-    if (stats.day !== d) Object.assign(stats, { received: 0, sent: 0, voice: 0, stickers: 0, errors: 0, day: d })
+    if (stats.day !== d) Object.assign(stats, { received: 0, policyDenied: 0, muted: 0, groupNoReply: 0, hookHandled: 0, enqueued: 0, assistantReplyTurns: 0, sendAttempts: 0, sent: 0, voice: 0, stickers: 0, errors: 0, day: d })
     stats[k]++
   }
 
@@ -373,7 +374,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     return kind === 'group' ? { kind: 'group', id } : kind === 'private' ? { kind: 'private', id } : null
   }
 
-  async function sendSegments(chatId, message, note, { force = false } = {}) {
+  async function sendSegments(chatId, message, note, { force = false, correlation } = {}) {
     const cfg = getConfig()
     const tgt = targetOf(chatId)
     if (!tgt) return null
@@ -404,7 +405,9 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     const action = tgt.kind === 'group' ? 'send_group_msg' : 'send_private_msg'
     const params = tgt.kind === 'group' ? { group_id: Number(tgt.id), message } : { user_id: Number(tgt.id), message }
     try {
-      const r = await onebot.call(action, params)
+      const callOpts = correlation ? { correlation } : undefined
+      bump('sendAttempts')
+      const r = await onebot.call(action, params, callOpts)
       if (r && r.message_id !== undefined) {
         sentIds.add(String(r.message_id))
         if (sentIds.size > 500) sentIds.delete(sentIds.values().next().value)
@@ -423,16 +426,16 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
 
   const mention = (userId, segs = []) => (userId && !segs.some((s) => s.type === 'at' && String(s.data?.qq) === String(userId)) ? [{ type: 'at', data: { qq: String(userId) } }, { type: 'text', data: { text: ' ' } }] : [])
 
-  async function sendText(chatId, text, replyId, missed, userId) {
+  async function sendText(chatId, text, replyId, missed, userId, sendOpts = {}) {
     // 文字里的 <face:名字> 换成 QQ 系统表情，和文字在同一条消息里；系统表情关着就去掉标签
     let segs = getConfig().stickers.faces ? textToSegments(text, faces.idOf) : [{ type: 'text', data: { text: stripFaceTags(text) } }]
     // 群里的 @名字 / <at:QQ号> 换成真 @（对方会收到提醒）
     if (chatId.startsWith('group:') && hasMention(text)) segs = expandMentions(segs, await membersOf(chatId.slice(6)), missed)
     if (!segs.length || (segs.length === 1 && segs[0].type === 'text' && !segs[0].data.text.trim())) return null
-    return sendSegments(chatId, [...quote(replyId), ...mention(userId, segs), ...segs], (replyId ? '[引用] ' : '') + text.slice(0, 60))
+    return sendSegments(chatId, [...quote(replyId), ...mention(userId, segs), ...segs], (replyId ? '[引用] ' : '') + text.slice(0, 60), sendOpts)
   }
 
-  async function sendVoice(chatId, text, replyId, userId) {
+  async function sendVoice(chatId, text, replyId, userId, sendOpts = {}) {
     try {
       // 表情标签 / emoji 不念出来：TTS 只念能说的字（用户反馈：发语音时「呲牙」被读出来）
       const spoken = speakableText(text)
@@ -442,13 +445,13 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       // QQ 客户端不支持「引用 / @ + 语音」同一条消息：这样发电脑 QQ 是空白气泡、手机 QQ 提示
       // 「该消息类型暂不支持查看」，语音也听不到（issue #103）。语音条一律单独成条，引用和 @ 只能放弃。
       if (replyId || userId) log.debug(`语音条不能带引用/@（QQ 限制），单独发：${chatId}`)
-      const r = await sendSegments(chatId, [{ type: 'record', data: { file: 'base64://' + b64 } }], `[语音·${engine}] ${text.slice(0, 40)}`)
+      const r = await sendSegments(chatId, [{ type: 'record', data: { file: 'base64://' + b64 } }], `[语音·${engine}] ${text.slice(0, 40)}`, sendOpts)
       if (r || getConfig().dryRun || !getConfig().enabled) bump('voice')
       if (!r && getConfig().enabled && !getConfig().dryRun) throw new Error('网关没接受语音')
       return true
     } catch (error) {
       log.warn('语音没发出去，改发文字：', error.message)
-      await sendText(chatId, text, replyId, undefined, userId)
+      await sendText(chatId, text, replyId, undefined, userId, sendOpts)
       return false
     }
   }
@@ -563,7 +566,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     }
   }
 
-  async function sendSticker(chatId, query, replyId, userId) {
+  async function sendSticker(chatId, query, replyId, userId, sendOpts = {}) {
     // 面板里把表情包关了：回复里的 <sticker:…>、工具、扩展模块要发的一律不发（#31）
     if (!getConfig().stickers.enabled) {
       log.debug(`表情包关着，「${typeof query === 'object' ? query?.name || '' : query}」不发`)
@@ -576,16 +579,16 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     }
     const seg = stickers.segmentFor(item)
     if (!seg) return false
-    await sendSegments(chatId, [...quote(replyId), ...mention(userId), seg], `[表情] ${item.name || item.md5.slice(0, 8)}`)
+    await sendSegments(chatId, [...quote(replyId), ...mention(userId), seg], `[表情] ${item.name || item.md5.slice(0, 8)}`, sendOpts)
     stickers.markUsed?.(item.md5)
     bump('stickers')
     return true
   }
 
-  async function sendImage(chatId, src, replyId, userId) {
+  async function sendImage(chatId, src, replyId, userId, sendOpts = {}) {
     try {
       const buf = await fetchImage(src, { maxBytes: 10 * 1024 * 1024 })
-      return sendSegments(chatId, [...quote(replyId), ...mention(userId), { type: 'image', data: { file: 'base64://' + buf.toString('base64') } }], `[图片] ${src.slice(-40)}`)
+      return sendSegments(chatId, [...quote(replyId), ...mention(userId), { type: 'image', data: { file: 'base64://' + buf.toString('base64') } }], `[图片] ${src.slice(-40)}`, sendOpts)
     } catch (error) {
       log.warn('图片发不出去：', error.message)
       return null
@@ -646,18 +649,19 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     const firstSendable = items.findIndex((item) => item.kind === 'text' || item.kind === 'voice' || item.kind === 'image' || (item.kind === 'sticker' && cfg.stickers.enabled && Boolean(item.value && typeof item.value === 'object' ? item.value : stickers.match(item.value))))
     const missedAt = [] // 写了 @ 却没对上群里人的名字
     for (let i = 0; i < items.length; i++) {
+      const sendOpts = opts.correlation ? { correlation: { ...opts.correlation, partIndex: i } } : {}
       const it = items[i]
       const selected = it.replyTo ? refs[it.replyTo] : (!explicit && i === firstSendable ? opts.autoReply : null)
       const replyId = selected?.mid
       const userId = selected && opts.autoReply?.uid === selected.uid ? selected.uid : undefined
       if (it.replyTo && !replyId) log.debug(`${chatId}：引用的编号 ${it.replyTo} 对不上，正常发`)
-      if (it.kind === 'text') await sendText(chatId, it.value, replyId, missedAt, userId)
+      if (it.kind === 'text') await sendText(chatId, it.value, replyId, missedAt, userId, sendOpts)
       else if (it.kind === 'voice') {
-        if (cfg.voice.enabled) await sendVoice(chatId, it.value, replyId, userId)
-        else await sendText(chatId, it.value, replyId, missedAt, userId)
-      } else if (it.kind === 'sticker') await sendSticker(chatId, it.value, replyId, userId)
+        if (cfg.voice.enabled) await sendVoice(chatId, it.value, replyId, userId, sendOpts)
+        else await sendText(chatId, it.value, replyId, missedAt, userId, sendOpts)
+      } else if (it.kind === 'sticker') await sendSticker(chatId, it.value, replyId, userId, sendOpts)
       else if (it.kind === 'poke') { if (!opts.simulate) await pokeBack(chatId) }
-      else if (it.kind === 'image') await sendImage(chatId, it.value, replyId, userId)
+      else if (it.kind === 'image') await sendImage(chatId, it.value, replyId, userId, sendOpts)
       if (i < items.length - 1 && !opts.simulate) await sleep(bubbleDelay(items[i + 1].kind === 'text' ? items[i + 1].value : '') * mood().delay)
     }
     if (opts.simulate) return items
@@ -717,11 +721,14 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       const sys = st.system
       const wantVoice = Boolean(st.wantVoice)
       const autoReply = st.autoReply
+      const eventIds = [...(st.eventIds || [])]
       st.autoReply = null
       st.text = ''
       // 上一轮还在跑时新消息已经排队给「下一轮」：这一轮 turn/end 不能把下一轮的说话人清掉（#90）
       st.senders = st.pendingSenders || new Set()
       st.pendingSenders = new Set()
+      st.eventIds = st.pendingEventIds || new Set()
+      st.pendingEventIds = new Set()
       st.directOwner = false
       st.system = null
       st.wantVoice = false
@@ -738,8 +745,13 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       }
       if (chatId.startsWith('system:')) return // 已超时的后台轮次不能误发到 QQ
       if (!text) return release(chatId)
-      // 发完再放开：发送期间来的消息也攒到下一段
-      deliver(chatId, text, { wantVoice, autoReply, userText: st.lastText || '', own: true }).catch((error) => log.warn('发送出错：', error.message)).finally(() => release(chatId))
+      bump('assistantReplyTurns')
+      const correlation = eventIds.length ? {
+        eventIds,
+        sessionHash: 'sess_' + createHash('sha256').update(String(session && session.id || '')).digest('hex').slice(0, 16),
+      } : undefined
+      deliver(chatId, text, { wantVoice, autoReply, userText: st.lastText || '', correlation, own: true })
+        .catch((error) => log.warn('发送出错：', error.message)).finally(() => release(chatId))
     }
   }
 
@@ -840,7 +852,13 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     return out
   }
 
-  async function onMessage(event) {
+  async function onMessage(event, meta = {}) {
+    const eventId = String(meta.eventId || '')
+    if (!eventId) return onMessageCore(event)
+    return inboundEventStore.run([eventId], () => onMessageCore(event))
+  }
+
+  async function onMessageCore(event) {
     selfId = String(event.self_id || selfId || getConfig().botQQ)
     const cfg = getConfig()
     const msg = parseMessageEvent(event, selfId, { faceName: faces.nameOf })
@@ -867,6 +885,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       if (okSrc) for (const s of msg.stickers) stickers.collect(s, msg.chatId).then((r) => { if (!r.ok) log.debug('没收这张表情：', r.reason) }).catch(() => {})
     }
     if (!allowed.allowed) {
+      bump('policyDenied')
       log.debug(`忽略 ${msg.chatId}（${allowed.reason}）`)
       return
     }
@@ -895,6 +914,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     }
 
     if (isMuted?.(msg.chatId)) {
+      bump('muted')
       log.debug(`${msg.chatId}：主人让她闭嘴中，不回`)
       logChat(msg.chatId, msg.nickname, msg.text, msg.userId)
       return
@@ -904,6 +924,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     if (hooks?.message) {
       try {
         if (await hooks.message({ ...msg, raw: event })) {
+          bump('hookHandled')
           logChat(msg.chatId, msg.nickname, msg.text, msg.userId)
           return
         }
@@ -945,6 +966,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
         }
       }
       if (!decision.reply) {
+        bump('groupNoReply')
         log.debug(`群 ${msg.groupId}：不回（${decision.reason}）`)
         logChat(msg.chatId, msg.nickname, msg.text, msg.userId)
         // 已经有一段在等她回：这条也算进去（她回的时候能看到），但不单独再触发一次
@@ -989,6 +1011,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     if (msg.kind === 'private' && msg.userId === cfg.ownerQQ) lastOwnerChatAt = now
     onActivity?.({ kind: 'in', chatId: msg.chatId, userId: msg.userId, nickname: msg.nickname, text, direct: msg.kind === 'private' || msg.mentioned || mode === 'must', owner: isOwner(cfg, msg.userId) })
 
+    bump('enqueued')
     enqueue({ chatId: msg.chatId, kind: msg.kind, userId: msg.userId, groupId: msg.groupId, nickname: msg.nickname }, content, msg.userId, wantsVoice(msg.text), mode)
   }
 
@@ -1101,7 +1124,10 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
 
   function enqueue(chat, content, senderId, wantVoice, mode = 'must') {
     const m = getConfig().merge
-    const p = pending.get(chat.chatId) || { chat, texts: [], images: [], senders: new Set(), wantVoice: false, timer: null, firstAt: Date.now(), mode, count: 0 }
+    const p = pending.get(chat.chatId) || { chat, texts: [], images: [], senders: new Set(), eventIds: new Set(), wantVoice: false, timer: null, firstAt: Date.now(), mode, count: 0 }
+    for (const id of inboundEventStore.getStore() || []) {
+      if (p.eventIds.size < 20) p.eventIds.add(String(id))
+    }
     p.chat = chat
     p.count++
     if ((RANK[mode] || 3) > (RANK[p.mode] || 3)) p.mode = mode
@@ -1135,7 +1161,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       const query = p.texts.map((t) => t.replace(/^【私聊】[^：]*：/, '')).join('\n')
       const [first, ...rest] = [...p.senders]
       try {
-        await pushToSession(p.chat, content, first, { wantVoice: p.wantVoice, extraSenders: rest, queryText: query, steer: true })
+        await pushToSession(p.chat, content, first, { wantVoice: p.wantVoice, extraSenders: rest, queryText: query, eventIds: [...(p.eventIds || [])], steer: true })
       } catch (error) {
         bump('errors')
         log.error(`插话进 DSH 失败（${chatId}）：`, error.message)
@@ -1171,7 +1197,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       const [first, ...rest] = [...p.senders]
       // 私聊：检索记忆时去掉「【私聊】某某(QQ)：」这个头
       const query = p.query ?? p.texts.map((t) => t.replace(/^【私聊】[^：]*：/, '')).join('\n')
-      await pushToSession(p.chat, content, first, { wantVoice: p.wantVoice, extraSenders: rest, queryText: query, speakers: p.speakers, autoReply: p.autoReply })
+      await pushToSession(p.chat, content, first, { wantVoice: p.wantVoice, extraSenders: rest, queryText: query, eventIds: [...(p.eventIds || [])], newTurn: true, speakers: p.speakers, autoReply: p.autoReply })
     } catch (error) {
       release(chatId)
       bump('errors')
@@ -1226,6 +1252,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   }
 
   async function pushToSession(chat, content, senderId, opts = {}) {
+    const wasRunning = running.has(chat.chatId)
     const { agent, sessionId } = await agentFor(chat)
     const key = sessionKey(sessionId)
     const st = turnState.get(key) || { lastTurn: -1, text: '', senders: new Set() }
@@ -1252,6 +1279,14 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     }
     // 这一轮还在跑、这句是排队给下一轮的：额外记到 pendingSenders，等上一轮 turn/end 时接过去（#90）
     const queuedNextTurn = !opts.steer && (running.has(chat.chatId) || busy.has(chat.chatId))
+    const eventTarget = !opts.newTurn && !opts.steer && (wasRunning || running.has(chat.chatId)) ? 'pendingEventIds' : 'eventIds'
+    if (Array.isArray(opts.eventIds) && opts.eventIds.length) {
+      st[eventTarget] ||= new Set()
+      for (const id of opts.eventIds) {
+        if (st[eventTarget].size >= 20) break
+        if (String(id)) st[eventTarget].add(String(id))
+      }
+    }
     const addSender = (u) => {
       st.senders.add(String(u))
       if (queuedNextTurn) {

@@ -946,7 +946,7 @@ export async function runLedger(args, cfg, sessionId) {
   }
   // ★ 2026-11-22（P14）：把 config.ledger.readonly 传进去 ——
   //   MCP 面的 soul_ledger 本来就一律拒绝写，现在是让**类本身**也表达这个状态。
-  const L = new LedgerBase(lf, { readonly: Boolean(s.__cfg && s.__cfg.ledger && s.__cfg.ledger.readonly) });
+  const L = new LedgerBase(lf, { readonly: Boolean(cfg && cfg.ledger && cfg.ledger.readonly) });
 
   if (action === 'stats') {
     const st = L.stats();
@@ -1296,15 +1296,18 @@ export async function callTool(name, args, ctx = {}) {
 
   if (name === 'soul_waker') {
     const { Ledger } = await import('../organs/waker.mjs');
-    const { readWakerLedger } = await import('../organs/waker-read.mjs');
-    const { wakerLedgerFileOf } = await import('../config.mjs');
     const s = store();
-    // ★★ 2026-11-10（死读数修复之二）：
-    //   读 = 权威台账（<状态目录>/lead-waker-台账.json，**只读**，全文件扫描）
-    //   写 = 仍然只写 <dataDir>/ledger.json（**没有迁移**；迁移/改写权威文件不在本次范围）
-    //   以前读和写都是后者，于是 state 只显示 1 条 2026-11-07 的旧待办。
-    const localFile = path.join(s.__cfg.dataDir, 'ledger.json');
-    const l = new Ledger(localFile);
+    // v4 soul_waker owns its writable Core ledger below. The statusDir file is a
+    // compatibility read source for pre-integration lead-waker records; do not
+    // assume an active DSH plugin still writes it or merge it into the Core file.
+    const fallbackFile = path.join(s.__cfg.dataDir, 'ledger.json');
+    // Core creates the single writable Ledger instance used by notifications and organs.
+    // MCP must reuse it; opening a second instance over the same JSON can lose concurrent writes.
+    const sharedLedger = globalThis.__ledger;
+    const l = sharedLedger && typeof sharedLedger.views === 'function'
+      ? sharedLedger
+      : new Ledger(fallbackFile);
+    const localFile = String(l.file || fallbackFile);
     const action = String(args.action || 'state');
 
     if (action === 'ingest') {
@@ -1325,11 +1328,10 @@ export async function callTool(name, args, ctx = {}) {
       //   否则「带凭据形状的 key」永远找不到自己那一条（静默变成「没有这条 key」）。
       const key = guardBody(String(args.key || ''));
       if (!key) return 'decide 要给 key';
-      // ★ key 可能只存在于权威台账里（那本是只读的）—— 说清楚，不要静默说「没有这条 key」。
+      // Decide only keys recorded in the current v4 Core Ledger; fail clearly otherwise.
       if (!l.find(key)) {
         return '判定失败：写路径 ' + localFile + ' 里没有这条 key。'
-          + '\n  权威台账（' + wakerLedgerFileOf(s.__cfg) + '）是**只读**的 —— 本次修复不写它。'
-          + '\n  这条 key 若在权威台账里，需要权威侧的写入者来判（写路径迁移未做，见 30-状态/三项死读数修复-20261110.md）。';
+          + '\n  soul_waker 只对 AgentSoul v4 当前 Core 台账中的事件执行判定。';
       }
       // ★ 第三轮（P2）：note / charterNote 是调用方可控的自由文本，同样落盘 + 回显。
       const note = args.note == null ? undefined : guardBody(String(args.note)).slice(0, 600);
@@ -1339,37 +1341,29 @@ export async function callTool(name, args, ctx = {}) {
       return '已判定 ' + key + '：' + r.event.decision + ' / 宪章 ' + r.event.charter + ' → ' + r.event.stage;
     }
 
-    const realFile = wakerLedgerFileOf(s.__cfg);
-    const real = readWakerLedger({ file: realFile });
-    if (!real.ok) {
-      return '✗ 读不到权威台账：' + real.why + '\n  写路径（未迁移）：' + localFile;
-    }
-    const stamp = new Date(real.mtimeMs).toLocaleString('zh-CN', { hour12: false });
-    const fmtMap = (m) => Object.entries(m || {}).map(([k, val]) => k + ' ' + val).join(' · ');
-    const v = real.views;
+    const localViews = l.views();
+    const localEvents = Array.isArray(l.events) ? l.events : [];
     const lines = [
-      '台账（只读 · 全文件扫描）: ' + realFile + ' @ ' + stamp,
-      '全本 ' + real.total + ' 条 · 未处理 ' + real.badge + ' 条',
-      '  要你执行 ' + v.act.length + '　你已执行 ' + v.done.length + '　要审计没审 ' + v.audit.length + '　你自己决定做的 ' + v.auto.length,
-      '  stage: ' + fmtMap(real.stages),
-      '  decision: ' + fmtMap(real.decisions),
-      '  charter: ' + fmtMap(real.charters),
+      'AgentSoul v4 本地台账（Core 单写者）: ' + localFile,
+      '全本 ' + localEvents.length + ' 条 · 未处理 ' + localViews.badge + ' 条',
+      '  要你执行 ' + localViews.act.length + '　你已执行 ' + localViews.done.length + '　要审计没审 ' + localViews.audit.length + '　你自己决定做的 ' + localViews.auto.length,
     ];
     const dump = (name, arr) => {
       if (!arr.length) return;
       lines.push('');
       lines.push('【' + name + '】');
       for (const ev of arr.slice(0, 8)) {
-        // ★ 第三轮（P2）：这里读的是**权威台账**（别的进程写的，调用方可控）——
-        //   MCP 回显出去之前同样要脱，不能假定写者已经脱过。
         lines.push('  ' + guardBody(String(ev.key == null ? '' : ev.key)).slice(0, 40) + '  ' + guardBody(String(ev.title == null ? '' : ev.title)).slice(0, 40) + '  [' + ev.stage + '/' + (ev.decision || '-') + '/' + ev.charter + ']');
       }
     };
-    dump('要你执行', v.act);
-    dump('要审计没审', v.audit);
-    dump('你已执行', v.done.slice(0, 3));
+    dump('本地待处理', localEvents.filter((ev) => ev.stage === 'pending'));
+    dump('本地要你执行', localViews.act);
+    dump('本地要审计没审', localViews.audit);
+    dump('本地你已执行', localViews.done.slice(0, 3));
+    dump('本地已拦截', localViews.blocked);
+    dump('本地需复核', localEvents.filter((ev) => ev.stage === 'stuck' || ev.stage === 'held' || ev.stage === 'auditing'));
     lines.push('');
-    lines.push('写路径（**未迁移**）: ' + localFile + ' —— decide / ingest 只写这里，不写上面的权威台账。');
+    lines.push('AgentSoul v4 soul_waker 是当前跨会话事件台账与宪章判定的唯一运行入口。');
     return lines.join('\n');
   }
 

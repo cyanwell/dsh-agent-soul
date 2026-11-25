@@ -67,6 +67,7 @@ export function createAurabotLlm (local) {
       return null
     },
 
+    ready () { try { return typeof local.ready === 'function' ? Boolean(local.ready()) : null } catch (error) { return false } },
     listProviders () { return typeof local.listProviders === 'function' ? local.listProviders() : [] },
     async listModels (p) { return typeof local.listModels === 'function' ? local.listModels(p) : [] },
   }

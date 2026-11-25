@@ -305,7 +305,7 @@ export function createOutboxGateway ({ client, outbox = null, getOutbox = null, 
     let res
     try {
       // ★ timeoutMs 必须一起传：不传就等于把调用方的时间预算换成出站口的默认值。
-      res = await ob.send(chatId, message, { idempotencyKey: key, timeoutMs: callTimeoutMs(opts) })
+      res = await ob.send(chatId, message, { idempotencyKey: key, timeoutMs: callTimeoutMs(opts), correlation: opts && opts.correlation })
     } catch (e) {
       // 出站口自己是不抛的（它把失败做成 {ok:false}）；抛了说明是契约外的错，也要变成拒绝
       throw new OutboxGatewayError(action, '出站口抛错：' + String((e && e.message) || e), { code: 'outbox-threw' })

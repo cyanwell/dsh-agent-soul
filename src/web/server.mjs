@@ -9,7 +9,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { FRAME } from '../session/frame.mjs';
-import { loadConfig, appRoot, resolvePath, DEFAULTS, statusDirOf, wakerLedgerFileOf, wakerDeliveredFileOf, secretStorePath, describeApiKeyRef, devPathOr, diaryDirOf } from '../config.mjs';
+import { loadConfig, appRoot, resolvePath, DEFAULTS, statusDirOf, wakerDeliveredFileOf, secretStorePath, describeApiKeyRef, devPathOr, diaryDirOf } from '../config.mjs';
 // ★ 2026-11-10（G2a）：写面的判据不在这张路由表里 —— 只有一份，在 security/write-manifest.mjs。
 import { readonlyEnabled, classifyHttp, rejection } from '../security/write-manifest.mjs';
 // ★ 2026-11-10：事件接入的只读口（不新开路由，并进现有的 GET /api/events）。
@@ -185,6 +185,7 @@ const CFG_RESTART_WHY = {
   autonomy: '自主循环在启动时构造，配置被 spread 进实例。',
   soul: '书房索引第一次用到时建好并常驻，不会自己重建。',
   server: '监听地址在 server.listen() 那一刻定死；SessionStore 也只在启动时拿一次数据目录。',
+  integrations: 'DSH/MCP Hub/heartbeat地址在Core启动时装配进集成客户端；POST只写磁盘，运行中的实例不会热更新。',
 };
 
 /**
@@ -330,22 +331,22 @@ const CFG_GROUPS = [
     note: '概览页要读的两条 DSH 接口。★ 面板这一侧按显式配置显示（不配 = UNCONFIGURED，不猜端口）；'
       + '★ 自主/清理的**动态目标**另有一条自动发现的路（读最新 DSH 启动日志拿 origin，见 docs/DSH地址自动发现.md）。',
     fields: [
-      { key: 'integrations.dshBaseUrl', label: 'DSH 地址', type: 'string', restart: false, allowNull: true,
+      { key: 'integrations.dshBaseUrl', label: 'DSH 地址', type: 'string', restart: true, allowNull: true,
         pattern: /^https?:\/\/[^\s]+$/i, patternMessage: '要是一个 http(s):// 开头的地址（只填 origin，不带路径）',
         note: '宿主 DSH 的 webServer origin，例如 http://127.0.0.1:<端口>。MCP Hub 与心跳都从这里派生（各加一条固定路径）。★ 留空 = 不配：概览上写 UNCONFIGURED，不去试任何端口。' },
-      { key: 'integrations.mcpHubUrl', label: 'MCP Hub 覆盖', type: 'string', restart: false, allowNull: true,
+      { key: 'integrations.mcpHubUrl', label: 'MCP Hub 覆盖', type: 'string', restart: true, allowNull: true,
         pattern: /^https?:\/\/[^\s]+$/i, patternMessage: '要是一个 http(s):// 开头的地址',
         note: '只想单独指 MCP Hub 时填 origin（会拼上 /mcp-hub/servers）。留空 = 用上面的 DSH 地址。' },
-      { key: 'integrations.heartbeatUrl', label: '心跳覆盖', type: 'string', restart: false, allowNull: true,
+      { key: 'integrations.heartbeatUrl', label: '心跳覆盖', type: 'string', restart: true, allowNull: true,
         pattern: /^https?:\/\/[^\s]+$/i, patternMessage: '要是一个 http(s):// 开头的地址',
         note: '只想单独指心跳时填整条 URL（例如 …/heartbeat/auto）。留空 = <DSH 地址>/heartbeat/auto。' },
-      { key: 'integrations.dshLogDir', label: 'DSH 启动日志目录', type: 'path', pathKind: 'dir', restart: false, allowNull: true,
+      { key: 'integrations.dshLogDir', label: 'DSH 启动日志目录', type: 'path', pathKind: 'dir', restart: true, allowNull: true,
         note: '心跳地址**自动发现**用：读这里最新的 server-*.out.log，只取 http://127.0.0.1:<port> 这个 origin（查询串/token 当场丢弃）。留空 = <DSH_HOME>/guard/logs（本机 = D:/AI/dsh/home/guard/logs）。' },
-      { key: 'integrations.dshOriginFile', label: '心跳 origin 文件', type: 'path', pathKind: 'file', restart: false, allowNull: true,
+      { key: 'integrations.dshOriginFile', label: '心跳 origin 文件', type: 'path', pathKind: 'file', restart: true, allowNull: true,
         note: '心跳插件启动时写下的 dsh-origin.txt（内容就是它自己的 origin）。留空 = 开发机默认路径（文件存在才用，分发版不用）。' },
-      { key: 'integrations.timeoutMs', label: '只读超时', type: 'int', min: 200, max: 15000, unit: 'ms', restart: false,
+      { key: 'integrations.timeoutMs', label: '只读超时', type: 'int', min: 200, max: 15000, unit: 'ms', restart: true,
         note: '单次请求最多等多久。超时就按 read-fail 处理（面板写读不到），不拖住整页。' },
-      { key: 'integrations.staleMs', label: '过期窗', type: 'int', min: 1000, max: 600000, unit: 'ms', restart: false,
+      { key: 'integrations.staleMs', label: '过期窗', type: 'int', min: 1000, max: 600000, unit: 'ms', restart: true,
         note: '上次读到的值最多还能顶多久；过了这个窗口就退回 unavailable / unreachable —— 不拿旧数冒充实况。' },
     ],
   },
@@ -732,6 +733,12 @@ async function writeFileAtomic(file, text) {
 //   不挂在 control 底下：hub 认识「谁连上来了、谁会什么」，器官认识「这意味着什么」。
 // ★ 2026-11-10：多收一个 llm —— /api/guard 的模糊层要用**同一个** LlmClient 实例。
 //   不新建第二套宿主：配置、协议、key 来源、运行统计都跟对话主链路共用一份。
+/** Inject page credentials only when the HTML lacks an actual token assignment. */
+export function injectPage(html, pageInject = '') {
+  if (typeof html !== 'string' || /window\.__SOUL_TOKEN\s*=/.test(html)) return html
+  return html.indexOf('</head>') >= 0 ? html.replace('</head>', pageInject + '</head>') : pageInject + html
+}
+
 export function createServer({ store, echoStore = null, loop, tools, config, bus, sched, persona, autonomy, ledger, control, degradation, eventsIngress = null, sessionDispatch: sessionDispatchIn = null, llm = null, cleanup = null, echoSentinel = null, echoLive = null, managerProofHandler = null }) {
   // ★ overview 缓存：首次采集要 3.2 秒（1006 个会话建索引），开页面等这么久不可接受。
   //   30 秒内的重复请求直接回缓存；?fresh=1 强制重算。
@@ -812,11 +819,6 @@ const PAGE_INJECT = (() => {
     + ';window.__SOUL_VERSION=' + JSON.stringify(ver) + ';</script>';
 })();
 
-/** 给一段 HTML 注入 token/版本。已经是注入过的就原样返回（幂等）。 */
-function injectPage (html) {
-  if (typeof html !== 'string' || html.indexOf('window.__SOUL_TOKEN') >= 0) return html;
-  return html.indexOf('</head>') >= 0 ? html.replace('</head>', PAGE_INJECT + '</head>') : PAGE_INJECT + html;
-}
 
   const server = http.createServer(async (req, res) => {
     // MCP over HTTP 先试（它认 /mcp，其余交回下面）
@@ -900,7 +902,7 @@ try {
     html = html.replace('</title>', '</title>' + "<meta name='agentsoul-build' content='" + pkgVer + "'>")
   }
 } catch { /* 换不动就原样发 */ }
-        html = injectPage(html);
+        html = injectPage(html, PAGE_INJECT);
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': Buffer.byteLength(html) });
         return res.end(html);
       }
@@ -1029,7 +1031,7 @@ const PAGE_OF = {
         const f = path.join(HERE, name);
         if (!fs.existsSync(f)) return json(res, 404, { error: '页面文件缺失：src/web/' + name });
         // ★ 2026-11-22：**这里原来没有注入** —— 所有走 PAGE_OF 的页面都拿不到 token。
-        const html = injectPage(fs.readFileSync(f, 'utf8'));
+        const html = injectPage(fs.readFileSync(f, 'utf8'), PAGE_INJECT);
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': Buffer.byteLength(html) });
         return res.end(html);
       }
@@ -1114,12 +1116,10 @@ const PAGE_OF = {
       // ★ 2026-11-07：这三样以前面板上看不到，所以「宪章 pass 了却没传到」
       //   只能靠翻 JSON 文件才发现。现在摊到台面上。
       if (p === '/api/live' && req.method === 'GET') {
-        // ★ 2026-11-10（R1）：不再写死开发机路径。判据在 config.mjs 的 statusDirOf()，
-        //   与 status-data.mjs 共用一处 —— 分发版落到 <安装根>/workspace，不读开发机目录。
-        // ★ 2026-11-10（三项修复之二）：**文件名**也收进 config.mjs（wakerLedgerFileOf / wakerDeliveredFileOf）——
-        //   statusDir 是一处判据，文件名是另一处；分开写两次，早晚会有一个走岔。
+        // Active waker events live in the Core-owned Ledger shared with MCP and /api/waker.
+        // The separate delivered file is a legacy transport diagnostic and remains read-only.
         const safeJson = (f) => { try { return JSON.parse(require$('node:fs').readFileSync(f, 'utf8')); } catch { return null; } };
-        const led = safeJson(wakerLedgerFileOf(config)) || {};
+        const led = { events: Array.isArray(ledger && ledger.events) ? ledger.events : [] };
         const st = safeJson(wakerDeliveredFileOf(config)) || {};
         const evs = led.events || [];
         const stage = (x) => String(x.stage || '');
@@ -1365,7 +1365,7 @@ const PAGE_OF = {
         try {
           // ★★ 2026-11-13（第二批）：把 control 传进去 —— 状态台要能读 bridge 推来的 state，
 //   从而不必再自己去开 DSH 的 projcache 文件。
-const payload = await statusCached({ config, store, persona, tools, autonomy, loop, control });
+const payload = await statusCached({ config, store, persona, tools, autonomy, loop, control, ledger });
           return json(res, 200, payload);
         } catch (e) {
           return json(res, 500, {
@@ -1443,12 +1443,8 @@ const payload = await statusCached({ config, store, persona, tools, autonomy, lo
           return { name: '自主', key: 'autonomy', value: c.phase, note: c.reason + '（' + sub + '）', level: c.phase === 'autonomous' ? 'warn' : 'ok' };
         }));
 
-        // ③ 唤醒台账 —— **只读**权威台账（与状态台 / soul_waker 同一实现）
-        // ★★ 2026-11-10（死读数修复之二）：这里原来读进程里那个 Ledger 实例
-        //   （= <dataDir>/ledger.json，本机 1 条 2026-11-07 的旧待办），
-        //   而真事件在 <状态目录>/lead-waker-台账.json（本机 43 条）。
-        //   两个文件同构、字段同名 —— 读错**不报错**，只会安静地显示一个很小的数。
-        out.push(safe(() => wakerCard(readWakerLedger({ file: wakerLedgerFileOf(config) }))));
+        // ③ 唤醒台账 —— 当前Core所有的v4 soul_waker Ledger，与MCP和HTTP决策共用实例。
+        out.push(safe(() => wakerCard(readWakerLedger({ ledger }))));
 
         // ④ 压缩水位
         out.push(safe(() => {
