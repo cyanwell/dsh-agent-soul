@@ -392,7 +392,7 @@ data/
 - 修复AgentSoul MCP proxy token错位：以前MCP在模块导入时缓存token，并在多个猜测root里找文件；source MCP实际dataDir与生产Core不同，且Core可在MCP启动后生成token，导致 /mcp 外层401。现每次forward按有效config.dataDir读取token，缺失/短值时不回退其它root。
 - 本机DSH MCP Hub的AgentSoul server env已配置AGENT_SOUL_DATA指向Core有效dataDir；该server的子进程当前已退出，MCP Hub未自动重拉。**须在安全的空闲窗口重启DSH/MCP Hub后再验证soul_health、soul_ask_host与ECHO。**
 - 验证：298/298通过、Core shell marker selftest通过；新增fake HTTP测试覆盖source config路径与AGENT_SOUL_DATA分叉、MCP先启动/token后创建及token轮换，header与期望匹配；无生产token或真实数据进入断言/日志。
-- 候选已构建：payload 627项无差异；Setup尾标、2936个ZIP条目和关键文件自检通过。真实生产MCP/ECHO恢复尚未验证，AgentSoul MCP worker当前断开，需在空闲窗口重启DSH/MCP Hub；因此1.0.103未commit/tag/push，GitHub Release未创建。此前1.0.102 tag已推至v4但没有Release附件。
+- 本机v4已提交MCP hotfix：3716398（proxy每次按有效dataDir取token，附隔离HTTP回归）。候选已构建：payload 627项无差异；Setup尾标、2936个ZIP条目和关键文件自检通过。真实生产MCP/ECHO恢复尚未验证，AgentSoul MCP worker当前断开；需在安全空闲窗口重启DSH/MCP Hub后再验，故1.0.103未tag/push且未建GitHub Release。此前1.0.102 tag已推至v4但没有Release附件。
 
 ### 1.0.102 v4 tag（GitHub Release未创建）
 
