@@ -54,6 +54,7 @@ export function readHubToken() {
   //   当前实现不保留候选列表或回退路径。
   //     而且"文件存在但内容为空"必须当成**没读到**，不能当成读到了空 token。
   let cfg;
+  // loadConfig honors AGENT_SOUL_DATA for source-launched MCP workers sharing Core data.
   try { cfg = loadConfig(); } catch { return ''; }
   const dir = String(cfg && cfg.dataDir || '').trim();
   if (!dir) return '';

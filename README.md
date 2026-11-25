@@ -74,11 +74,11 @@
 
 ```
 ① 装 agent-soul 本体
-    · GitHub最新正式Release仍为 1.0.87；1.0.102仅v4 tag已推，未创建Release附件。1.0.103为本机MCP认证hotfix候选。
+    · GitHub最新正式Release仍为 1.0.87；1.0.102仅v4 tag已推，无Release附件。1.0.107为待发布v4 MCP认证hotfix。
       正式版附件可从GitHub Release下载；本机留存同版本构建产物。
-      - `AgentSoul-Setup-1.0.103.exe` —— 本地hotfix候选安装器
-      - `AgentSoul-1.0.103-portable.zip` —— 本地hotfix候选便携包
-      - `AgentSoul-1.0.103-htmlpatch.zip` —— 本地hotfix候选界面补丁
+      - `AgentSoul-Setup-1.0.107.exe` —— 本地hotfix候选安装器
+      - `AgentSoul-1.0.107-portable.zip` —— 本地hotfix候选便携包
+      - `AgentSoul-1.0.107-htmlpatch.zip` —— 本地hotfix候选界面补丁
     · ★ 卸载**不会**删你的 `config.json`（含 API Key）与 `data\`（会话/索引/账本）—— 它们留在原位，要彻底清干净自己删这两个。
     · 双击 <SOUL>\AgentSoul.exe 启动
     · ★ 必须用**当前用户身份**启动（key 是 DPAPI 密文，SYSTEM 身份解不开）
@@ -387,12 +387,16 @@ data/
 
 ## 更新记录
 
-### 1.0.103 本机hotfix候选（2026-11-25，未发布）
+### 1.0.107 v4 hotfix（2026-11-25，待正式发布）
 
 - 修复AgentSoul MCP proxy token错位：以前MCP在模块导入时缓存token，并在多个猜测root里找文件；source MCP实际dataDir与生产Core不同，且Core可在MCP启动后生成token，导致 /mcp 外层401。现每次forward按有效config.dataDir读取token，缺失/短值时不回退其它root。
-- 本机DSH MCP Hub的AgentSoul server env已配置AGENT_SOUL_DATA指向Core有效dataDir；该server的子进程当前已退出，MCP Hub未自动重拉。**须在安全的空闲窗口重启DSH/MCP Hub后再验证soul_health、soul_ask_host与ECHO。**
-- 验证：298/298通过、Core shell marker selftest通过；新增fake HTTP测试覆盖source config路径与AGENT_SOUL_DATA分叉、MCP先启动/token后创建及token轮换，header与期望匹配；无生产token或真实数据进入断言/日志。
-- 本机v4已提交MCP hotfix：3716398（proxy每次按有效dataDir取token，附隔离HTTP回归）。候选已构建：payload 627项无差异；Setup尾标、2936个ZIP条目和关键文件自检通过。真实生产MCP/ECHO恢复尚未验证，AgentSoul MCP worker当前断开；需在安全空闲窗口重启DSH/MCP Hub后再验，故1.0.103未tag/push且未建GitHub Release。此前1.0.102 tag已推至v4但没有Release附件。
+- 本机DSH MCP Hub AgentSoul server的AGENT_SOUL_DATA已指向Core有效dataDir；爀曦手动重启DSH后，soul_health成功，soul_waker state返回本地台账视图，soul_ask_host空参到达输入校验且未派发动作（不再401）。
+- 验证：299/299通过、Core shell marker selftest通过；新增fake HTTP测试覆盖source config路径与AGENT_SOUL_DATA分叉、MCP先启动/token后创建及token轮换，header与期望匹配；无生产token或真实数据进入断言/日志。
+- 验证：299/299通过，Core Shell marker selftest PASS；每实例OneBot 3003连接数1，owner=Core events ingress，ingress=connected。运行态汇总：received=1901、forwarded=1227、Aurabot.sent=261、outbox.sent=387、errors=7、duplicateEventParts=0（outbox最近64条关联环形记录；不宣称重启后全历史零重复）。旧端到端复核中最近20/20关联记录有效、duplicateRows=0。
+- 验收：soul_waker state返回本地Core台账，直接/api/waker total=0/badge=0；无真实ingest写入。soul_ask_host空参探针到达参数校验、不触发host动作。
+- 独立ECHO MCP stats/recall/search成功；限量search total=15、shown=1、583ms。Core echoLive enabled=false/running=false；authority-view sourceAvailable=true、aligned=true、sourceRows=1、issue=null；v4派生索引工具仍报ECHO_INDEX_MISSING，按目标保持disabled/not-imported，不重建。
+- Aurabot配置round-trip由`test/aurabot-config-roundtrip.test.mjs`覆盖；huanqi旧quota文案由`test/huanqi-legacy-quota-label.test.mjs`覆盖。运行态mood判定为关键词模式（judgeStatus disabled）；贴纸caption状态为unavailable，reason=Core LLM未配置或未就绪，未假报可用。
+- 遗留：SnowLuma consent=unknown、attach fail-closed；installer E2E因现有安装/进程拒绝覆盖；没有发生破坏性安装测试。1.0.102 tag已推v4但GitHub Release未创建，本次目标tag为v4/1.0.107。
 
 ### 1.0.102 v4 tag（GitHub Release未创建）
 
