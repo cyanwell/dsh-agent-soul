@@ -74,11 +74,11 @@
 
 ```
 ① 装 agent-soul 本体
-    · GitHub当前最新正式Release为 1.0.87（2026-11-24）；本地 1.0.102 是未发布候选。
-      本机候选打包文件将在 `dist/` 生成，不代表可从 GitHub 下载。
-      - `AgentSoul-Setup-1.0.102.exe` —— 本地候选安装器
-      - `AgentSoul-1.0.102-portable.zip` —— 本地候选便携包
-      - `AgentSoul-1.0.102-htmlpatch.zip` —— 本地候选界面补丁
+    · GitHub当前正式Release为 1.0.102（2026-11-25），1.0.87为前一正式版。
+      正式版附件可从GitHub Release下载；本机留存同版本构建产物。
+      - `AgentSoul-Setup-1.0.102.exe` —— 正式版安装器
+      - `AgentSoul-1.0.102-portable.zip` —— 正式版便携包
+      - `AgentSoul-1.0.102-htmlpatch.zip` —— 正式版界面补丁
     · ★ 卸载**不会**删你的 `config.json`（含 API Key）与 `data\`（会话/索引/账本）—— 它们留在原位，要彻底清干净自己删这两个。
     · 双击 <SOUL>\AgentSoul.exe 启动
     · ★ 必须用**当前用户身份**启动（key 是 DPAPI 密文，SYSTEM 身份解不开）
@@ -387,13 +387,13 @@ data/
 
 ## 更新记录
 
-### 1.0.102 本机候选（2026-11-25，未发布）
+### 1.0.102 正式版（2026-11-25）
 
 - Hub explicit correlation完成：fresh flush传newTurn，pushToSession按调用前running状态区分当前与pending turn；event_id以显式参数穿过session turn/end和每个bubble send。阶段计数仅提供policyDenied/muted/groupNoReply/hookHandled/enqueued/assistantReplyTurns/sendAttempts，不记录消息正文或QQ/chat ID。
-- 验证：全量297/297、Shell marker selftest和syntax checks通过；Hub fake集成覆盖fresh merge flush及两轮current/pending eventId归属（第一轮只含A、下一轮只含B）、per-bubble OneBot call opts；policy-denied只增聚合计数且不泄漏身份；outbox fake验证message_id重复判据。未发送真实QQ消息。
-- 生产运行态：1.0.101 health=true、owner=Core ingress、3003单socket。当前采样累计2条消息入账并转发至Aurabot；Aurabot阶段计数为policyDenied=0、muted=0、groupNoReply=2、hookHandled=0、enqueued=0、assistantReplyTurns=0、sendAttempts=0，说明这两条按群策略正常选择不回，outbox trace为空；真实“同事件同part重复归零”仍需一次可发回复验证。
-- SnowLuma协议接口仍Unauthorized、consent unknown；autoAttach=true但attach被安全闸阻止。安装E2E preflight exit 2检测到现有AgentSoul注册项/快捷方式/进程后拒绝，未覆盖生产。
-- GitHub latest REST核实1.0.87（2026-11-24）；tag 1.0.87指向57c487d（origin/main），origin/v4 HEAD为7541145。本目标已在v4本地提交13c88f6（48 files，diff --check通过）；尚未tag/push正式Release。1.0.102候选包已构建；真实出站重复归零验收仍未完成。
+- 验证：全量297/297、Shell marker selftest和syntax checks通过；Hub fake集成覆盖fresh merge flush和两轮current/pending eventId归属（第一轮只含A、下一轮只含B）、per-bubble OneBot call opts；policy-denied仅增聚合计数且不泄漏身份。生产trace另见下项。
+- 生产运行态：Core health=true、owner=Core ingress、3003单socket。真实回复链有22条correlation记录；状态视图返回的最近20条均含格式正确的eventIds/sessionHash/partIndex和非空messageId；`duplicateEventParts=0`、`duplicateRows=0`，最近20条`repeatEventSessionPartKeys=0`。阶段聚合：received=202、envelopes=114、forwarded=118、groupNoReply=60、enqueued=56、assistantReplyTurns=28、sendAttempts=23、Aurabot.sent=23、errors=0。未读取或记录QQ身份及消息正文。
+- 遗留项：SnowLuma agreements API仍Unauthorized、consent unknown，autoAttach配置true但实际attach fail-closed；安装E2E preflight exit 2检测到现有AgentSoul注册项/快捷方式/进程后拒绝，未覆盖生产。
+- 1.0.87旧tag位于origin/main；本次1.0.102正式tag发布到v4分支，不改写旧tag。
 
 ### 1.0.87（2026-11-24）
 
