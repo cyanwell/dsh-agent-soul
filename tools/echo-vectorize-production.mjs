@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { openMetaStore } from '../src/db/index.mjs';
 import { registerEchoVectorModel, putEchoSourceVectors } from '../src/db/echo-vectors.mjs';
 import { createBgeEmbedder, buildModelFingerprint, DEFAULT_MODEL_DIR } from './echo-embed.mjs';
@@ -13,7 +14,29 @@ import { isInjectedText, injectedSqlWhere } from '../src/db/echo-windows.mjs';
 
 const args = process.argv.slice(2);
 const argOf = (flag) => { const a = args.find((x) => x.startsWith(flag + '=')); return a ? a.slice(flag.length + 1) : null; };
-const dbArg = argOf('--db') || 'D:/AI/agent-soul/data/meta.sqlite';
+// 2026-11-27 fix: a hardcoded default is a DEAD path after 2026-11-26 (the library
+// moved to 00-记忆库). The guard below is whitelist-based, so a dead default would
+// simply be refused — a confusing failure instead of a wrong write. Resolve from
+// config instead, and refuse when no --db is given and config declares no library.
+const dbArg = argOf('--db') || (() => {
+  // fileURLToPath, not .pathname: the install path contains spaces, and .pathname
+  // keeps them percent-encoded (%20), so no candidate file would ever be found.
+  const dir = path.dirname(fileURLToPath(import.meta.url));
+  for (const rel of [
+    ['..', 'config.json'],
+    ['..', '..', 'config.json'],
+    ['..', '..', '..', 'config.json'],
+  ]) {
+    try {
+      const c = JSON.parse(fs.readFileSync(path.join(dir, ...rel), 'utf8'));
+      const m = c.memory || {};
+      if (m.libraryDir) return path.resolve(m.libraryDir, m.indexFile || 'meta.sqlite');
+      if (c.dataDir) return path.resolve(dir, '..', c.dataDir, 'meta.sqlite');
+    } catch { /* try next */ }
+  }
+  return null;
+})();
+if (!dbArg) { console.error('REFUSE: no --db given and config declares no library path'); process.exit(3); }
 const confirmed = args.includes('--yes-production');
 // ★ 2026-11-20 收紧：原来只在「正好等于开发库路径」时要求旗标，别的路径一律放行 ——
 //   部署之后生产库变成 <根>/data/meta.sqlite，那条判据就不再拦任何东西。

@@ -7,16 +7,50 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { openMetaStore } from '../src/db/index.mjs';
 import { registerEchoVectorModel } from '../src/db/echo-vectors.mjs';
 import { windowsOf, isInjectedText, putWindowVectors } from '../src/db/echo-windows.mjs';
-import { createBgeEmbedder, buildModelFingerprint } from './echo-embed.mjs';
+import { createBgeEmbedder, buildModelFingerprint, DEFAULT_MODEL_DIR } from './echo-embed.mjs';
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const args = process.argv.slice(2);
 const getArg = (name, dflt) => { const i = args.indexOf(name); return i < 0 ? dflt : args[i + 1]; };
-const DB = getArg('--db', 'D:/AI/agent-soul/data/meta.sqlite');
-const isProd = path.resolve(DB) === path.resolve('D:/AI/agent-soul/data/meta.sqlite');
+// 2026-11-27 fix: the old default 'D:/AI/agent-soul/data/meta.sqlite' is a DEAD path —
+// that DB was archived on 2026-11-26 and the library moved to 00-记忆库. Worse, the old
+// guard compared against the same dead literal, so it protected nothing: a run without
+// --db silently created an empty DB next to the archive (this actually happened).
+// Now the default and the production guard both come from config, so they cannot drift.
+// 2026-11-27 fix: `new URL(import.meta.url).pathname` keeps percent-escapes. For
+// this install path ("deepseek harness/agent soul") that turns every space into
+// %20, so every candidate config.json 'did not exist' and the script refused to
+// run at all. fileURLToPath decodes properly. Verified: pathname keeps %20.
+const SELF_DIR = path.dirname(fileURLToPath(import.meta.url));
+// Candidate configs, most-specific first. The source checkout's config.json has NO
+// memory section (verified 2026-11-27), so resolving through it lands on
+// <source>/data/meta.sqlite — a DB that was archived on 2026-11-26. That is exactly
+// how a run without --db created an empty library next to the archive. So: only a
+// config that actually declares memory.libraryDir counts; otherwise refuse.
+function prodDbPath() {
+  const override = String(process.env.AGENT_SOUL_META_DB || '').trim();
+  if (override) return path.resolve(override);
+  const candidates = [
+    path.join(SELF_DIR, '..', 'config.json'),        // source checkout / install root
+    path.join(SELF_DIR, '..', '..', 'config.json'),  // app/<version>/tools -> install root
+    path.join(SELF_DIR, '..', '..', '..', 'config.json'),
+  ];
+  for (const cfgPath of candidates) {
+    let c;
+    try { c = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); } catch { continue; }
+    const m = c.memory || {};
+    if (m.libraryDir) return path.resolve(m.libraryDir, m.indexFile || 'meta.sqlite');
+  }
+  return null;
+}
+const PROD = prodDbPath();
+const DB = getArg('--db', PROD || '');
+if (!DB) { console.error('REFUSE: cannot resolve a database path (no --db and config has none)'); process.exit(3); }
+const isProd = PROD ? path.resolve(DB) === PROD : /data\\meta\.sqlite$/.test(DB);
 if (isProd && !args.includes('--yes-production')) { console.error('REFUSE: 写生产库必须显式传 --yes-production'); process.exit(3); }
 const includeInjected = args.includes('--include-injected');
 // ★ 2026-11-18：去重默认开。实测 211,640 个窗口里只有 130,441 个唯一文本（重复 38.37%），
@@ -32,19 +66,55 @@ const targetChars = Number(getArg('--target-chars', 192));
 const maxChars = Number(getArg('--max-chars', 512));
 // 调试用：只处理前 N 个词就停（0 = 跑全量）。先验逻辑再上全量。
 const maxWords = Number(getArg('--max-words', 0)) || 0;
-const doClear = !args.includes('--no-clear');
+// ★★★ 2026-11-27：--incremental = 给实时增量链用的模式。
+//   与手工重建的区别三条：
+//     1 隐含 --resume：从已覆盖的 MAX(word_ord) 往后接，绝不重扫历史
+//     2 隐含 --no-clear：增量只追加，不删已有窗口（删了就是重建）
+//     3 批次有上限（--max-words 由调用方给），单轮不许把常驻循环拖住
+const incremental = args.includes('--incremental');
+const doClear = !args.includes('--no-clear') && !incremental;
 // ★ 2026-11-18：--resume = 从已完成的 MAX(word_ord) 续跑，不重扫前面的词。
 //   原来只能从头扫（靠 upsert 覆盖），6,268 个已完成词白算一遍。
-const resume = args.includes('--resume');
+const resume = args.includes('--resume') || incremental;
 
-const modelDir = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', 'models', 'bge-small-zh');
-const fp = buildModelFingerprint({
-  modelDir,
-  modelBytes: fs.readFileSync(path.join(modelDir, 'onnx', 'model_quantized.onnx')),
-  tokenizerBytes: fs.readFileSync(path.join(modelDir, 'tokenizer.json')),
-  configBytes: fs.readFileSync(path.join(modelDir, 'config.json')),
-  transformersVersion: '4.3.2',
-});
+// 2026-11-27 fix: this used to be <self>/../models. In an installed tree that is
+// app/<version>/models — which does NOT exist (the pack ships models at <root>/models,
+// shared across versions). So the installed window vectorizer could never load the
+// model: it worked from the source checkout only, and nobody would notice until the
+// realtime stage silently failed. echo-embed already solved exactly this (three
+// candidates + expected error text); reuse it rather than re-deriving the path.
+const modelDir = DEFAULT_MODEL_DIR;
+// 2026-11-27 perf: the fingerprint hashes a 24 MB ONNX file on every call.
+// The realtime loop runs every 120s, so it re-hashed the same bytes 720 times
+// a day for a value that only changes when the model files change.
+// Cache it keyed by (rel, size, mtimeMs) of the three inputs. A stale cache is
+// impossible to misread: any file change changes the key and forces a recompute.
+const fpCacheFile = path.join(modelDir, '.window-fingerprint-cache.json');
+const fpInputs = ['onnx/model_quantized.onnx', 'tokenizer.json', 'config.json'].map((rel) => {
+  const st = fs.statSync(path.join(modelDir, rel));
+  return rel + ':' + st.size + ':' + st.mtimeMs;
+}).join('|');
+let fp = null;
+try {
+  const cached = JSON.parse(fs.readFileSync(fpCacheFile, 'utf8'));
+  if (cached && cached.inputs === fpInputs && cached.fp && cached.transformersVersion === '4.3.2') {
+    fp = cached.fp;
+    console.log('fingerprint: cache hit (skipped 24MB rehash)');
+  }
+} catch { /* no cache yet or unreadable: fall through and compute */ }
+if (!fp) {
+  fp = buildModelFingerprint({
+    modelDir,
+    modelBytes: fs.readFileSync(path.join(modelDir, 'onnx', 'model_quantized.onnx')),
+    tokenizerBytes: fs.readFileSync(path.join(modelDir, 'tokenizer.json')),
+    configBytes: fs.readFileSync(path.join(modelDir, 'config.json')),
+    transformersVersion: '4.3.2',
+  });
+  try {
+    fs.writeFileSync(fpCacheFile, JSON.stringify({ inputs: fpInputs, transformersVersion: '4.3.2', fp }), 'utf8');
+    console.log('fingerprint: computed and cached');
+  } catch { /* cache is an optimisation, never a requirement */ }
+}
 const spec = {
   modelId: fp.modelId, revision: fp.modelRevision, modelSha256: fp.modelSha256,
   tokenizerSpec: JSON.stringify({ sha256: fp.tokenizerSha256, configSha256: fp.configSha256 }),
@@ -61,6 +131,19 @@ console.log('windowModelKey=' + reg.modelKey);
 
 const srcRow = db.prepare('SELECT echo_source_id, words_count FROM echo_index_sources').get();
 const sid = srcRow.echo_source_id;
+// 2026-11-27 perf: in --incremental mode, exit early when nothing new is covered.
+// Why: loading BGE costs ~5s every call; the realtime loop runs every 120s.
+// Paying 5s just to discover "no new words" is pure waste, so compare cursors first.
+if (incremental) {
+  const covered = Number(db.prepare('SELECT COALESCE(MAX(word_ord), -1) AS v FROM echo_word_windows WHERE echo_source_id=? AND model_key=?').get(sid, reg.modelKey).v);
+  const head = Number(db.prepare('SELECT COALESCE(MAX(word_ord), -1) AS v FROM echo_words WHERE echo_source_id=?').get(sid).v);
+  if (covered >= head) {
+    console.log('incremental: nothing new (covered=' + covered + ' head=' + head + ')');
+    console.log(JSON.stringify({ ms: 0, incremental: true, skipped: 'up-to-date', covered, head, windowsWritten: 0 }));
+    store.close();
+    process.exit(0);
+  }
+}
 const emb = await createBgeEmbedder({ expectedModelFingerprint: fp });
 console.log('device=' + emb.device());
 

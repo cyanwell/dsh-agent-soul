@@ -924,11 +924,18 @@ const echoLive = createEchoLive({
     // 让器官在跑子进程期间把阶段名切成 echo-live —— 否则那一段阻塞会被记成 running。
     setPhase: (name) => { try { if (loopProbe && loopProbe.setPhase) loopProbe.setPhase(name); } catch { /* ignore */ } },
   dataDir: config.dataDir,
-  dbPath: echoLiveCfg.dbPath || path.join(config.dataDir, 'meta.sqlite'),
+  // 2026-11-27 fix: the fallback used to be <dataDir>/meta.sqlite while retrieval
+  // resolves through memory.libraryDir. With echoLive.dbPath empty those two point at
+  // DIFFERENT files — the three-chain invariant broken exactly as it was in 2026-11-12.
+  // One formula: indexDbPath().
+  dbPath: echoLiveCfg.dbPath || indexDbPath(config),
   sourceRoot: echoLiveCfg.sourceRoot || '',
   scriptPath: path.join(ROOT, 'tools', 'echo-live-sync.mjs'),
   // ★ 2026-11-20：同步成功且进了新词之后，跟一轮向量补写（否则向量层永远落后于词层）。
   vectorizeScriptPath: path.join(ROOT, 'tools', 'echo-vectorize-production.mjs'),
+  // 2026-11-27: second vector layer (sentence windows). Runs after the long-text
+  // vector stage so the sharper "which sentence said it" layer never lags behind.
+  windowVectorizeScriptPath: path.join(ROOT, 'tools', 'echo-window-vectorize.mjs'),
   intervalSec: echoLiveCfg.intervalSec,
   log: (m) => { if (!config.quiet) console.log('  ' + m); },
 });
@@ -953,7 +960,10 @@ const managerProofHandler = (req, res, deps) => handleManagerProofRequest(req, r
 // Historical trigger: the first startup-side open blocked for 29.8 seconds on the 7.29 GB DB.
 function getEchoStore () {
   try {
-    return openMetaStore({ path: path.join(config.dataDir, 'meta.sqlite'), mode: 'readonly' });
+    // 2026-11-27 fix: this used to hardcode <dataDir>/meta.sqlite, which stopped
+    // existing when the library moved to 00-记忆库. Same bug class as the old
+    // soul_grep duplicate-formula. One formula, one definition: indexDbPath().
+    return openMetaStore({ path: indexDbPath(config), mode: 'readonly' });
   } catch (e) {
     console.error('  [ECHO] meta.sqlite 打不开（索引状态将显示不可用）：' + String((e && e.message) || e).slice(0, 160));
     return null;
@@ -1525,7 +1535,7 @@ server.listen(config.port, config.host, () => {
       enabled: echoLiveCfg.enabled,
       readOnly: readonlyEnabled(),
       sourceRoot: echoLiveCfg.sourceRoot,
-      dbPath: echoLiveCfg.dbPath || path.join(config.dataDir, 'meta.sqlite'),
+      dbPath: echoLiveCfg.dbPath || indexDbPath(config),
       dataDir: config.dataDir,
     });
     if (!decision.start) {

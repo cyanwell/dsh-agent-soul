@@ -1029,6 +1029,16 @@ const ECHO_INTEGRITY_TTL_MS = 30 * 1000;
 let echoIntegrityCache = null;   // { at, item }
 let echoIntegrityInflight = null;
 
+// 2026-11-27: one formula for "where is meta.sqlite". It used to be copy-pasted
+// in two places here, which is the same trap that made soul_grep ignore the env
+// override once: a copy silently drifts from the original.
+function resolveEchoDb(config, dataDir) {
+  if (config && config.memory && config.memory.libraryDir) {
+    return path.join(config.memory.libraryDir, config.memory.indexFile || 'meta.sqlite');
+  }
+  return dataDir ? path.join(dataDir, 'meta.sqlite') : null;
+}
+
 export function invalidateEchoIntegrityCache() {
   echoIntegrityCache = null;
 }
@@ -1036,9 +1046,7 @@ export function invalidateEchoIntegrityCache() {
 export function readEchoIntegrityItem(config, opts) {
   const o = opts || {};
   const dataDir = config && config.dataDir;
-  const echoDb = o.echoDbPath || (config && config.memory && config.memory.libraryDir
-    ? path.join(config.memory.libraryDir, config.memory.indexFile || 'meta.sqlite')
-    : (dataDir ? path.join(dataDir, 'meta.sqlite') : null));
+  const echoDb = o.echoDbPath || resolveEchoDb(config, dataDir);
 
   // ① 显式要求新鲜（排障 / 自检）：真的同步算一次。**只有这条路会阻塞**，而且是调用方自己点的。
   if (o.fresh === true) {
@@ -1197,9 +1205,7 @@ function echoItemFromProbe(rec, ageMs) {
 function computeEchoIntegrityItem(config, opts) {
   const o = opts || {};
   const dataDir = config && config.dataDir;
-  const echoDb = o.echoDbPath || (config && config.memory && config.memory.libraryDir
-    ? path.join(config.memory.libraryDir, config.memory.indexFile || 'meta.sqlite')
-    : (dataDir ? path.join(dataDir, 'meta.sqlite') : null));
+  const echoDb = o.echoDbPath || resolveEchoDb(config, dataDir);
   const injectedStore = o.echoStore || null;
   if (!injectedStore && !echoDb) return na('ECHO v9 索引', '没有 meta.sqlite 路径（UNKNOWN；未检查）');
   if (!injectedStore && !fs.existsSync(echoDb)) return na('ECHO v9 索引', 'meta.sqlite 不存在（UNKNOWN；未检查）');

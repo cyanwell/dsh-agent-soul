@@ -205,6 +205,13 @@ export async function runEchoSemanticSearch(store, args, embedder) {
 let _echoCfg = null;
 function echoConfig() {
   if (_echoCfg) return _echoCfg;
+  // ★ 2026-11-26 撤回一次错误改动，记在这里免得后人重犯：
+  //   我曾让这里「AGENT_SOUL_DATA 优先、并忽略 config.memory.libraryDir」，
+  //   理由是「一个进程两个数据根」。**那个判断是错的** ——
+  //   memory.libraryDir 不是分歧，是爀曦 2026-11-12 定的统一记忆库
+  //   （D:/AI/yanqing-soul/00-记忆库）。忽略它等于把检索从用户指定的库挪回 data/。
+  //   真问题不在路径解析：那个库停在 schema v5，而代码要求 v13；
+  //   只读连接按设计不迁移，所以正确动作是跑 tools/db-sync.mjs（readwrite + migrate）。
   try { _echoCfg = loadConfig(path.join(appRoot(), 'config.json')); }
   catch (e) { _echoCfg = { dataDir: path.join(appRoot(), 'data'), memory: {} }; }
   return _echoCfg;
@@ -212,9 +219,14 @@ function echoConfig() {
 
 /** meta.sqlite 在哪 —— soul_grep 与 soul_echo_* **共用这一条**。 */
 export function metaDbPath(cfg) {
+  // ① 显式覆盖最高优先：排障时指哪打哪。
   const override = String(process.env.AGENT_SOUL_META_DB || '').trim();
   if (override) return path.resolve(override);
-  const c = cfg || {};
+  // ② 没传 cfg 时**不要**自己兜底 appRoot()/data ——
+  //    那会让「裸调」这一条路绕开 AGENT_SOUL_DATA，和传 cfg 的两条路各说各话。
+  //    （2026-11-26 实测：无参返回源码树 data，而有参返回安装 data，同一个进程两个答案。）
+  //    统一改走 echoConfig()，一个进程只有一份数据根。
+  const c = cfg || echoConfig();
   const libDir = (c.memory && c.memory.libraryDir) || '';
   if (libDir) return path.join(libDir, (c.memory && c.memory.indexFile) || 'meta.sqlite');
   return path.join(c.dataDir || path.join(appRoot(), 'data'), 'meta.sqlite');
@@ -1433,10 +1445,14 @@ export async function callTool(name, args, ctx = {}) {
     // ★ 懒加载 + 常驻：openMetaStore(只读) 实测 30ms，第一次用时开、之后复用。
     //   库不存在时**不抛错**，返回一句能看懂的话 —— 「索引还没建」和「索引坏了」要能分开。
     // ★ 2026-11-12：库挪到 00-记忆库（爀曦定），路径从配置读。
-    const libDir = (cfg.memory && cfg.memory.libraryDir) || '';
-    const dbPath = libDir
-      ? path.join(libDir, (cfg.memory && cfg.memory.indexFile) || 'meta.sqlite')
-      : path.join(cfg.dataDir, 'meta.sqlite');
+    // ★★ 2026-11-26：**改成调 metaDbPath()，不再自己写一份公式。**
+    //   原来这里内联复制了「libDir 优先、否则 dataDir」那段，后果是
+    //   AGENT_SOUL_META_DB 这个最高优先级的 override 只对 soul_echo_* 生效，
+    //   soul_grep 看不见它 —— 同一个进程里两个工具解析到两个不同的库。
+    //   （实测场景：适配器从源码树起、config 无 memory 段时，
+    //     soul_echo_* 走 override 到统一库，soul_grep 却落回 dataDir 的旧库。）
+    //   判据：库在哪只许有一处定义。改一处，两个工具同时生效。
+    const dbPath = metaDbPath(cfg);
     const q = String(a.q || '').trim()
     if (!q) return '缺 q'
     const lim = Math.max(1, Math.min(50, Number(a.limit) || 10))

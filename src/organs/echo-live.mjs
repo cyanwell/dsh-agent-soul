@@ -54,6 +54,7 @@ export function createEchoLive(o) {
   const sourceRoot = String(opts.sourceRoot || '');
   const scriptPath = String(opts.scriptPath || '');
   const vectorizeScriptPath = String(opts.vectorizeScriptPath || '');
+  const windowVectorizeScriptPath = String(opts.windowVectorizeScriptPath || '');
   const intervalSec = Number(opts.intervalSec) > 0 ? Number(opts.intervalSec) : 120;
   const nodePath = String(opts.nodePath || process.execPath);
   // ★ 2026-11-17：把「正在跑 ECHO 子进程」这一段标进阻塞探针的 phase，
@@ -71,6 +72,11 @@ export function createEchoLive(o) {
     lastCode: null, lastAt: null, lastMs: null, lastError: null,
     lastWords: null, lastGeneration: null, consecutiveFailures: 0,
     vectorRuns: 0, vectorFailures: 0, lastVector: null,
+    // 2026-11-27: second vector layer (sentence windows), independent counters.
+    windowRuns: 0, windowFailures: 0, lastWindow: null,
+    // 2026-11-27: second vector layer (sentence windows), its own counters.
+    // Same rule as vectors: failures here never change the sync ok/code.
+    windowRuns: 0, windowFailures: 0, lastWindow: null,
   };
 
   /**
@@ -98,6 +104,33 @@ export function createEchoLive(o) {
   }
 
   /** 上一轮回执。读不到就 null —— 不编一个空对象冒充「没变化」。 */
+  /**
+   * 2026-11-27: sentence-window vectors (the second vector layer).
+   * Isolation rule is the same as long-text vectors: a failure here is recorded
+   * in lastWindow only and never changes the sync verdict.
+   * Uses --incremental: resumes from the covered MAX(word_ord), never clears
+   * existing windows, and is bounded per call. This runs every 120s, so it
+   * must never use full-rebuild arguments.
+   */
+  function windowize() {
+    return new Promise((resolve) => {
+      const t0 = Date.now();
+      const wChild = spawn(nodePath, [windowVectorizeScriptPath, '--yes-production', '--incremental', '--db', dbPath], {
+        windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+        env: Object.assign({}, process.env, { AGENT_SOUL_ECHO_LIVE: '1' }),
+      });
+      let wOut = '';
+      wChild.stdout.on('data', (d) => { wOut = (wOut + d.toString('utf8')).slice(-262144); });
+      wChild.stderr.on('data', () => {});
+      wChild.on('error', (e) => resolve({ ok: false, code: 'WINDOW_CHILD_ERROR', error: String((e && e.message) || e) }));
+      wChild.on('close', (code) => {
+        const line = lastJsonLine(wOut);
+        if (line) resolve(Object.assign({ ok: true, ms: Date.now() - t0 }, line));
+        else resolve({ ok: false, code: 'WINDOW_EXIT_' + code, error: String(wOut).slice(-200) || 'no output', ms: Date.now() - t0 });
+      });
+    });
+  }
+
   function lastReceipt() {
     if (!receiptFile) return null;
     try { return JSON.parse(fs.readFileSync(receiptFile, 'utf8')); } catch { return null; }
@@ -216,7 +249,28 @@ export function createEchoLive(o) {
             running = false;
             // 回执照实带上向量这一步：同一份文件里，两件事各自有结论
             try { const cur = lastReceipt() || {}; cur.vector = stats.lastVector; writeReceipt(cur); } catch { /* ignore */ }
-            resolve(Object.assign({}, rec, { vector: stats.lastVector }));
+            const finish = () => {
+              running = false;
+              try { const cur = lastReceipt() || {}; cur.vector = stats.lastVector; cur.window = stats.lastWindow; writeReceipt(cur); } catch { /* ignore */ }
+              resolve(Object.assign({}, rec, { vector: stats.lastVector, window: stats.lastWindow }));
+            };
+            // 2026-11-27: run the sentence-window layer after long-text vectors.
+            // Separate counters, separate failure path; skip cleanly when unconfigured.
+            if (!windowVectorizeScriptPath) { finish(); return; }
+            windowize().then((w) => {
+              stats.windowRuns += 1;
+              if (!w.ok) stats.windowFailures += 1;
+              stats.lastWindow = {
+                at: new Date().toISOString(), ok: w.ok === true, code: w.code || null,
+                ms: w.ms === undefined ? null : w.ms,
+                windowsWritten: w.windowsWritten === undefined ? null : w.windowsWritten,
+                skipped: w.skipped || null,
+                error: w.error || null,
+              };
+              if (!w.ok) log('[echo-live] window vector failed (' + (w.code || '?') + '): ' + String(w.error || '').slice(0, 160));
+              try { setPhase('running'); } catch { /* ignore */ }
+              finish();
+            });
           });
           return;
         }

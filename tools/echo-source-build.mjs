@@ -665,7 +665,9 @@ export function decodeSessionTailFrames(buf) {
   //   ★ 收口点（safeBoundary）用于增量续读：如果最后仍有未收口的余料，
   //     说明那一帧的记录还没写完，completeBytes 回退到最后一个收口点，
   //     下一轮从那里重读 —— 而不是把半条记录当成完整数据吃进去。
-  let carry = '';
+  // ★★★ 2026-11-26：**carry 从 String 改成 Buffer（逐字节结转）。**
+  //   原因见下面解压那段的注释：整帧 toString('utf8') 会撞 V8 512MB 上限。
+  let carry = Buffer.alloc(0);
   let safeBoundary = 0;
   while (completeBytes < buf.length) {
     const skipEnd = zstdSkippableEnd(buf, completeBytes);
@@ -678,30 +680,58 @@ export function decodeSessionTailFrames(buf) {
     }
     const end = zstdFrameEnd(buf, completeBytes);
     if (end === null) { openTail = true; break; }
-    let text;
-    try { text = zlib.zstdDecompressSync(buf.subarray(completeBytes, end)).toString('utf8'); }
+    // ★★★ 2026-11-26：**逐字节切行，不再把整帧转成一个字符串。**
+    //
+    //   实测（2026-11-26，三个会话文件）：DSH 会把大量记录压进**单个 zstd 帧**。
+    //   这三个文件里各有一个帧解压后是 593,480,629 B（约 566 MB），
+    //   而旧代码那句 .toString('utf8') 会撞 V8 的字符串长度上限
+    //   0x1fffffe8（536,870,888 chars / 约 512 MB）→ 抛
+    //   "Cannot create a string longer than 0x1fffffe8 characters"。
+    //   旧代码把这个错误包成 malformed frame 直接 fail()，
+    //   于是整代构建失败 —— 而这三个文件不在 cursor 里，
+    //   每轮都当新文件重读、每轮必败，实时索引从 2026-11-23 起就没再提交过。
+    //
+    //   ★ 判据：**限制是「一次性转成字符串」造成的，不是数据坏了，也不是帧坏了。**
+    //     帧完好（能完整解压出 566 MB），记录也完好；只是不能一口气变成 string。
+    //     所以正确的修法不是截断、不是跳过整帧，而是**按行边界切**：
+    //     解压出 Buffer → 在字节层找 0x0A → 每行各自 toString。
+    //     单行大小是 KB 级，永远不会碰到那个上限，且**一条记录都不丢**。
+    let decompressed;
+    try { decompressed = zlib.zstdDecompressSync(buf.subarray(completeBytes, end)); }
     catch (err) { fail('malformed complete zstd frame at byte ' + completeBytes + ': ' + (err && err.message || err)); }
-    // 跨帧结转（见循环上方的长注释）
-    let body = carry + text;
-    carry = '';
-    if (!body.endsWith('\n')) {
-      const cut = body.lastIndexOf('\n');
-      if (cut < 0) { carry = body; body = ''; }
-      else { carry = body.slice(cut + 1); body = body.slice(0, cut + 1); }
+    // 跨帧结转（见循环上方的长注释）：现在在字节层拼，语义与原实现一致——
+    // 上一帧末段没有以换行收口的部分留到下一帧，只有收口之后的字节才算完整。
+    let body = carry.length ? Buffer.concat([carry, decompressed]) : decompressed;
+    carry = Buffer.alloc(0);
+    if (body.length === 0 || body[body.length - 1] !== 0x0a) {
+      const cut = body.lastIndexOf(0x0a);
+      if (cut < 0) { carry = body; body = Buffer.alloc(0); }
+      else { carry = body.subarray(cut + 1); body = body.subarray(0, cut + 1); }
     }
     if (body.length > 0) {
-      for (const line of body.split('\n')) {
-        const t = line.trim(); if (!t) continue;
-        let rec; try { rec = JSON.parse(t); } catch (err) { fail('complete zstd frame contains invalid JSON: ' + (err && err.message || err)); }
-        records.push(rec);
+      // 按字节切行：每行单独转字符串，单行不会接近 V8 上限。
+      let start = 0;
+      for (let i = 0; i <= body.length; i++) {
+        if (i !== body.length && body[i] !== 0x0a) continue;
+        if (i > start) {
+          const t = body.toString('utf8', start, i).trim();
+          if (t) {
+            let rec; try { rec = JSON.parse(t); } catch (err) { fail('complete zstd frame contains invalid JSON: ' + (err && err.message || err)); }
+            records.push(rec);
+          }
+        }
+        start = i + 1;
       }
     }
     completeBytes = end;
     frames += 1;
-    if (carry === '') safeBoundary = end;
+    // ★ 2026-11-26：carry 已改为 Buffer —— 空判定必须用 length，不能用 === ''。
+    //   （拆两步改时留过这个坑：Buffer.alloc(0) === '' 恒 false，
+    //    于是 safeBoundary 永远停在 0、游标不前进，每轮重读整个文件。）
+    if (carry.length === 0) safeBoundary = end;
   }
   // 末尾仍有未收口的余料 → 半条记录不算完整数据：回退到最后收口点，按开放尾部处理。
-  if (carry !== '') { carry = ''; openTail = true; completeBytes = safeBoundary; }
+  if (carry.length !== 0) { carry = Buffer.alloc(0); openTail = true; completeBytes = safeBoundary; }
   return { records, completeBytes, frames, badFrames: 0, openTail };
 }
 

@@ -387,6 +387,16 @@ data/
 
 ## 更新记录
 
+### 1.2.0 v4（2026-11-27）
+
+- **记忆库统一**：检索 / 实时增量 / 帧同步三条链解析到同一个 meta.sqlite。上一版 echoLive.dbPath 为空时回落 <dataDir>/meta.sqlite，与检索看到的不是同一个文件 —— 「索引看着建了、检索却是空的」的根因。库路径公式收敛到 metaDbPath() 一处，indexDbPath() 与新增 resolveEchoDb() 都是它的调用者。
+- **新增 tools/verify-dead-paths.mjs**：发版前自检死路径（公式必须读过 memory.libraryDir / config 三处路径 / servers.json env / metaDbPath 定义唯一性）。实测 fail=0、ok=8。
+- **实时增量 zstd 解码修好**：三个会话文件各含一个解压后 593,480,629 B 的帧，整帧 toString('utf8') 撞 V8 上限，从 11-23 13:52 起无一代提交。改逐字节按 0x0a 切行，三文件各解出 147,776-148,383 条，badFrames 0。
+- **两层向量**：长文本 131,888 条；句子窗口 443,973 条（命中带 charStart/charEnd 与 log 门牌）。补回 echo_vector_models 登记行，孤儿向量 63,870 → 0。覆盖率口径须用 skipInjected=true。
+- **增量实时链（新）**：窗口脚本加 --incremental（隐含 resume + no-clear + 单批上限），实测一轮 1.7-4.5 秒；echo-live 在长文本向量后串联窗口阶段，独立计数。另加 24MB ONNX 指纹缓存（原来每 120 秒重算一次）。
+- **死路径修正**：new URL(import.meta.url).pathname 保留 %20 → 含空格的安装路径下所有候选 config「不存在」，改 fileURLToPath()；窗口脚本默认库路径写死已归档的 data/meta.sqlite 且护栏同源字面量等于没拦（实测曾建出空库），现改 config 推导 + exit 3；模型目录改复用 DEFAULT_MODEL_DIR（安装树在 <根>/models）。
+- **升级提示**：不动 config.json 与 data/。旧库在 <dataDir>/meta.sqlite 时不自动搬家，请显式配 memory.libraryDir + memory.indexFile 并让 echoLive.dbPath 指向同一文件；三条链不一致时 verify-dead-paths.mjs 直接 FAIL。
+
 ### 1.0.107 v4 hotfix（2026-11-25，待正式发布）
 
 - 修复AgentSoul MCP proxy token错位：以前MCP在模块导入时缓存token，并在多个猜测root里找文件；source MCP实际dataDir与生产Core不同，且Core可在MCP启动后生成token，导致 /mcp 外层401。现每次forward按有效config.dataDir读取token，缺失/短值时不回退其它root。
